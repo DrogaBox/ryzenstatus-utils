@@ -79,10 +79,11 @@ enum NotchMascotCreatures {
                                          shineCenter: CGPoint(x: 0.34, y: 0.15), shineRadii: CGSize(width: 0.05, height: 0.03),
                                          shineAngle: -0.4)
         case .mouse:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.41, y: 0.30), rightEye: CGPoint(x: 0.59, y: 0.30),
-                                         eyeSize: CGSize(width: 0.06, height: 0.13),
-                                         shineCenter: CGPoint(x: 0.38, y: 0.22), shineRadii: CGSize(width: 0.04, height: 0.025),
-                                         shineAngle: -0.3)
+            // Big eyes over its pink nose, the shine high on its round head.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.425, y: 0.43), rightEye: CGPoint(x: 0.575, y: 0.43),
+                                         eyeSize: CGSize(width: 0.066, height: 0.11),
+                                         shineCenter: CGPoint(x: 0.41, y: 0.33), shineRadii: CGSize(width: 0.042, height: 0.02),
+                                         shineAngle: -0.45)
         case .capybara:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.35, y: 0.32), rightEye: CGPoint(x: 0.65, y: 0.32),
                                          eyeSize: CGSize(width: 0.055, height: 0.09),
@@ -152,7 +153,7 @@ enum NotchMascotCreatures {
         case .phoenix: return critterBounds(style)
         case .axolotl: return CGRect(x: 0.02, y: 0.12, width: 0.96, height: 0.82)
         case .dog: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.88)
-        case .mouse: return CGRect(x: 0.10, y: 0.04, width: 0.88, height: 0.86)
+        case .mouse: return critterBounds(style)
         case .capybara: return CGRect(x: 0.12, y: 0.05, width: 0.76, height: 0.89)
         case .dragon: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.90)
         case .frog: return CGRect(x: 0.12, y: 0.06, width: 0.76, height: 0.86)
@@ -185,7 +186,7 @@ enum NotchMascotCreatures {
         case .phoenix: return rect(0.285, 0.18, 0.43, 0.39, size)
         case .axolotl: return rect(0.16, 0.14, 0.68, 0.42, size)
         case .dog: return rect(0.22, 0.08, 0.56, 0.44, size)
-        case .mouse: return rect(0.30, 0.18, 0.40, 0.34, size)
+        case .mouse: return rect(0.3, 0.268, 0.4, 0.344, size)
         case .capybara: return rect(0.24, 0.18, 0.52, 0.44, size)
         case .dragon: return rect(0.26, 0.12, 0.48, 0.42, size)
         case .frog: return rect(0.20, 0.08, 0.60, 0.46, size)
@@ -279,11 +280,7 @@ enum NotchMascotCreatures {
             path.addEllipse(in: rect(0.22, 0.08, 0.56, 0.44, size))
             path.addEllipse(in: rect(0.17, 0.42, 0.66, 0.50, size))
         case .mouse:
-            // Big round ears over a pear-sized body and a short muzzle.
-            path.addEllipse(in: rect(0.13, 0.06, 0.30, 0.30, size))
-            path.addEllipse(in: rect(0.57, 0.06, 0.30, 0.30, size))
-            path.addEllipse(in: rect(0.30, 0.18, 0.40, 0.34, size))
-            path.addEllipse(in: rect(0.33, 0.42, 0.34, 0.44, size))
+            path.addPath(critterBody(style, size: size))
         case .capybara:
             // A sitting capybara: rounded rectangular snout and a heavy rounded body.
             path.addRoundedRect(in: rect(0.24, 0.18, 0.52, 0.44, size), cornerWidth: 0.18 * size, cornerHeight: 0.18 * size)
@@ -459,21 +456,6 @@ enum NotchMascotCreatures {
         path.addQuadCurve(to: point(0.465, 0.440), control: point(0.495, 0.425))
         path.addQuadCurve(to: point(0.440, 0.395), control: point(0.435, 0.415))
         path.addQuadCurve(to: point(0.495, 0.395), control: point(0.465, 0.425))
-        path.closeSubpath()
-        return path
-    }
-
-    // MARK: Mouse
-
-    /// The ears' soft inner half, and a long thin curling tail.
-    static func mouseInnerEarsTail(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.addEllipse(in: rect(0.19, 0.12, 0.18, 0.18, size))
-        path.addEllipse(in: rect(0.63, 0.12, 0.18, 0.18, size))
-        path.move(to: point(0.66, 0.72))
-        path.addQuadCurve(to: point(0.97, 0.78), control: point(0.88, 0.64))
-        path.addQuadCurve(to: point(0.68, 0.82), control: point(0.84, 0.88))
         path.closeSubpath()
         return path
     }

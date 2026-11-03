@@ -31,6 +31,7 @@ extension NotchMascotCreatures {
                              size: CGFloat) -> [NotchMascotCritterPart] {
         switch style {
         case .phoenix: return phoenixParts(colors: colors, hat: hat, size: size)
+        case .mouse: return mouseParts(colors: colors, size: size)
         default: return []
         }
     }
@@ -39,6 +40,7 @@ extension NotchMascotCreatures {
     static func critterBody(_ style: NotchMascotStyle, size: CGFloat) -> CGPath {
         switch style {
         case .phoenix: return phoenixBody(size: size)
+        case .mouse: return mouseBody(size: size)
         default: return CGMutablePath()
         }
     }
@@ -61,6 +63,7 @@ extension NotchMascotCreatures {
     static func critterAnatomy(_ style: NotchMascotStyle) -> NotchMascotAnatomy? {
         switch style {
         case .phoenix: return phoenixAnatomy
+        case .mouse: return mouseAnatomy
         default: return nil
         }
     }
@@ -166,6 +169,47 @@ extension NotchMascotCreatures {
             path.addQuadCurve(to: point(tip), control: point(side.x + nx * w * 2, side.y + ny * w * 2))
             path.addQuadCurve(to: point(root), control: point(side.x - nx * w * 2, side.y - ny * w * 2))
             path.closeSubpath()
+        }
+        /// A smooth tube along `spine`, `widths.0` wide at its first point
+        /// and `widths.1` at its last, rounded at both ends: a tail.
+        func tube(_ spine: [CGPoint], widths: (CGFloat, CGFloat)) {
+            let count = spine.count
+            guard count > 2 else { return }
+            var left: [CGPoint] = [], right: [CGPoint] = []
+            for index in 0..<count {
+                let (ux, uy) = critterUnit(spine[max(0, index - 1)], spine[min(count - 1, index + 1)])
+                let share = CGFloat(index) / CGFloat(count - 1)
+                let half = (widths.0 + (widths.1 - widths.0) * share) / 2
+                left.append(CGPoint(x: spine[index].x - uy * half, y: spine[index].y + ux * half))
+                right.append(CGPoint(x: spine[index].x + uy * half, y: spine[index].y - ux * half))
+            }
+            func middle(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+            func side(_ points: [CGPoint]) {
+                path.addLine(to: point(middle(points[0], points[1])))
+                for index in 1..<(points.count - 1) {
+                    path.addQuadCurve(to: point(middle(points[index], points[index + 1])), control: point(points[index]))
+                }
+                path.addLine(to: point(points[points.count - 1]))
+            }
+            let (ex, ey) = critterUnit(spine[count - 2], spine[count - 1])
+            let (sx, sy) = critterUnit(spine[1], spine[0])
+            let endHalf = widths.1 / 2, startHalf = widths.0 / 2
+            path.move(to: point(left[0]))
+            side(left)
+            path.addQuadCurve(to: point(right[count - 1]),
+                              control: point(spine[count - 1].x + ex * endHalf * 2, spine[count - 1].y + ey * endHalf * 2))
+            side(right.reversed())
+            path.addQuadCurve(to: point(left[0]),
+                              control: point(spine[0].x + sx * startHalf * 2, spine[0].y + sy * startHalf * 2))
+            path.closeSubpath()
+        }
+    }
+    /// `count` points along the curve from `a` to `d` drawn toward `b` and `c`.
+    static func critterSpine(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint, count: Int = 12) -> [CGPoint] {
+        (0..<count).map { index in
+            let t = CGFloat(index) / CGFloat(count - 1), u = 1 - t
+            let (wa, wb, wc, wd) = (u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t)
+            return CGPoint(x: a.x * wa + b.x * wb + c.x * wc + d.x * wd, y: a.y * wa + b.y * wb + c.y * wc + d.y * wd)
         }
     }
 

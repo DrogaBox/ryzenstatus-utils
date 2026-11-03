@@ -132,6 +132,8 @@ struct NotchMascotGait: Equatable {
         case .contemporary: return NotchMascotGait(period: 0.42, bob: 0.025, rock: 0.04)
         // The phoenix hops along on its little talons, wings bobbing.
         case .phoenix: return NotchMascotGait(period: 0.24, bob: 0.08, rock: 0)
+        // The mouse scurries on quick little feet.
+        case .mouse: return NotchMascotGait(period: 0.18, bob: 0.05, rock: 0)
         // The White Rabbit hops along, always in a hurry.
         case .whiteRabbit: return NotchMascotGait(period: 0.2, bob: 0.11, rock: 0)
         default: return .standard

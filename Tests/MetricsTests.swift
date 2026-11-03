@@ -12178,7 +12178,7 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
-                    // The animals drawn in layers: the phoenix.
+                    // The animals drawn in layers: the phoenix and the mouse.
                     do {
                         typealias C = NotchMascotCreatures
                         func elements(_ path: CGPath) -> [Int32] {
@@ -12186,7 +12186,7 @@ struct MetricsTests {
                             path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
                             return kinds
                         }
-                        let animals: [NotchMascotStyle] = [.phoenix]
+                        let animals: [NotchMascotStyle] = [.phoenix, .mouse]
                         let square = CGRect(x: 0, y: 0, width: 40, height: 40)
                         let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
                         expect(animals.allSatisfy { style in
@@ -12242,6 +12242,20 @@ struct MetricsTests {
                         expect(NotchMascotGait.of(.phoenix).period < NotchMascotGait.standard.period
                                && NotchMascotGait.of(.phoenix).bob > 0,
                                "the phoenix hops along on its little talons")
+                        let mouse = C.critterParts(.mouse, colors: sky, size: 40)
+                        expect(part("ears", mouse).map { ears in
+                                   ears.path(.asleep, 0).boundingBox.minY > ears.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("tail", mouse).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.minY > tail.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("paws", mouse).map { paws in
+                                   paws.path(.cheer, 0).boundingBox.minY < paws.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("innerEars", mouse) != nil && part("whiskers", mouse) != nil,
+                               "the mouse lays its ears back and curls its tail asleep, and throws up its paws for a cheer")
+                        expect(NotchMascotGait.of(.mouse).period < NotchMascotGait.of(.phoenix).period,
+                               "the mouse scurries")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
