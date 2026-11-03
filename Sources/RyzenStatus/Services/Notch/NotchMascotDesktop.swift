@@ -2476,6 +2476,7 @@ final class NotchMascotDesktop: NSObject {
             guard let self else { return }
             self.occasionMarker(move.marker)
             sound(Self.cue(for: move), pan: self.pan(self.body.position.x))
+            self.host?.mascot.dance(move)
             self.perform(move, toward: way, on: canvas)
         }
         finishOccasion(after: start + move.length)

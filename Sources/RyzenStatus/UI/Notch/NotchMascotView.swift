@@ -1326,6 +1326,11 @@ final class NotchMascotRig: NSObject {
         guard !reduceMotion else { return }
         decor.foxfire(for: duration)
     }
+    /// A dancer's arms and legs take the steps of `move` as it dances it.
+    func dance(_ move: NotchMascotSoloDance) {
+        guard !reduceMotion else { return }
+        decor.dance(move)
+    }
     /// A hologram's projection cuts out for most of `duration` and comes
     /// back, flickering both ways.
     func phase(for duration: TimeInterval) {
