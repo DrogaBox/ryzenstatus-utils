@@ -161,9 +161,9 @@ enum NotchMascotRoam {
     /// Moves `body` on by `dt` seconds inside `area`, the part of the screen
     /// it may be in: falling, bouncing off its sides and the top, landing on
     /// its bottom or on one of `ledges`, the tops of windows, and sliding to
-    /// a stop there. `width` is the body's.
+    /// a stop there. `width` is the body's; `gravityScale` times gravity pulls it down.
     static func step(_ body: inout Body, by dt: TimeInterval, in area: CGRect, width: CGFloat,
-                     ledges: [NotchMascotLedges.Ledge] = []) -> [Event] {
+                     ledges: [NotchMascotLedges.Ledge] = [], gravityScale: CGFloat = 1) -> [Event] {
         guard dt > 0 else { return [] }
         let previous = body.position
         let dt = CGFloat(min(dt, 0.05))
@@ -171,7 +171,7 @@ enum NotchMascotRoam {
         var events: [Event] = []
         let rising = body.velocity.dy
         if body.airborne {
-            body.velocity.dy -= gravity * dt
+            body.velocity.dy -= gravity * gravityScale * dt
             let drag = pow(airDrag, frames)
             body.velocity.dx *= drag
         } else {
