@@ -8,7 +8,8 @@ import CoreGraphics
 /// sword in its hand rather than floating by its cheek, wings out of its
 /// back. Shares of its size from the top left corner, y growing downward;
 /// left and right as seen on screen. Read off the outlines in
-/// `NotchMascotCreatures` and `NotchMascotHologramAndroid`, so a figure
+/// `NotchMascotCreatures`, `NotchMascotHologramAndroid` and
+/// `NotchMascotDancers`, so a figure
 /// redrawn there wants its numbers checked here too.
 struct NotchMascotAnatomy: Equatable {
     /// The hand that holds things, on the right of the screen, and the other.
@@ -124,20 +125,9 @@ extension NotchMascotCreatures {
             return .init(rightHand: at(0.80, 0.66), leftHand: at(0.20, 0.66), floor: 0.86,
                          leftFoot: 0.42, rightFoot: 0.58, foot: 0.12, torso: box(0.23, 0.50, 0.54, 0.36),
                          nose: at(0.50, 0.30), mouth: at(0.50, 0.33))
-        // Her arms are up in a crown over her head, so she holds things at
-        // the rim of her tutu, and her two pointes are close together.
-        case .ballerina:
-            return .init(rightHand: at(0.84, 0.62), leftHand: at(0.16, 0.62), floor: 0.96,
-                         leftFoot: 0.455, rightFoot: 0.545, foot: 0.075, torso: box(0.38, 0.44, 0.24, 0.18),
-                         nose: at(0.50, 0.37), mouth: at(0.50, 0.40))
-        case .danseur:
-            return .init(rightHand: at(0.78, 0.60), leftHand: at(0.22, 0.60), floor: 0.96,
-                         leftFoot: 0.415, rightFoot: 0.585, foot: 0.11, torso: box(0.24, 0.44, 0.52, 0.22),
-                         nose: at(0.50, 0.36), mouth: at(0.50, 0.40))
-        case .contemporary:
-            return .init(rightHand: at(0.83, 0.66), leftHand: at(0.17, 0.66), floor: 0.96,
-                         leftFoot: 0.38, rightFoot: 0.62, foot: 0.12, torso: box(0.20, 0.45, 0.60, 0.33),
-                         nose: at(0.50, 0.39), mouth: at(0.50, 0.43))
+        // The dancers' hands and feet where their resting pose puts them.
+        case .ballerina, .danseur, .contemporary:
+            return dancerAnatomy(style)
         // Held out by its haunch, below the wide mask, so nothing tall it
         // carries rises over its face.
         case .kitsune:

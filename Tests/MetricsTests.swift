@@ -12105,6 +12105,79 @@ struct MetricsTests {
                         expect(NotchMascotSpecialDays.foolsCall(for: .hologram) != NotchMascotSpecialDays.foolsCall(for: .android),
                                "each makes the wrong sound of its own")
                     }
+                    // The three dancers.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let dancers: [NotchMascotStyle] = [.ballerina, .danseur, .contemporary]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        expect(dancers.allSatisfy { style in
+                                   C.dancers.contains(style) && C.face(style) != nil && C.headOutline(style, size: 40) != nil
+                                       && C.body(style, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                                       && C.anatomy(style) != nil && style.takesAccessory
+                               }, "the dancers are drawn figures that stand inside their square and wear items")
+                        let poses = C.DancerPose.allCases
+                        let limbs: [(NotchMascotStyle, C.DancerPose) -> CGPath] = [
+                            { C.dancerArms($0, $1, size: 40) }, { C.dancerSleeves($0, $1, size: 40) },
+                            { C.dancerCuffs($0, $1, size: 40) }, { C.dancerLegs($0, $1, left: true, size: 40) },
+                            { C.dancerLegs($0, $1, left: false, size: 40) }, { C.dancerFeet($0, $1, size: 40) },
+                            { C.dancerLaces($0, $1, size: 40) }, { C.dancerVeil($0, $1, size: 40) },
+                        ]
+                        expect(dancers.allSatisfy { style in
+                                   limbs.allSatisfy { limb in Set(poses.map { elements(limb(style, $0)) }).count == 1 }
+                               }
+                               && Set([0, 0.5, 1].map { elements(C.dancerVeil(.contemporary, .rest, sway: $0, size: 40)) }).count == 1
+                               && Set([0, 0.5, 1].map { elements(C.dancerPanel(.contemporary, sway: $0, size: 40)) }).count == 1,
+                               "their arms, legs, shoes and veil morph between every pose, and the veil sways")
+                        expect(dancers.allSatisfy { style in
+                                   poses.allSatisfy { pose in
+                                       limbs.allSatisfy { square.insetBy(dx: -0.5, dy: -0.5).contains($0(style, pose).boundingBoxOfPath) }
+                                   }
+                               }, "every pose stays inside the figure's square")
+                        expect(dancers.allSatisfy { style in
+                                   guard let anatomy = C.anatomy(style), let figure = C.bounds(style) else { return false }
+                                   let rest = C.dancerJoints(style, .rest)
+                                   let feet = C.dancerFeet(style, .rest, size: 1).boundingBoxOfPath
+                                   return anatomy.rightHand == rest.rightArm[2] && anatomy.leftHand == rest.leftArm[2]
+                                       && abs(anatomy.floor - feet.maxY) < 0.001 && abs(figure.maxY - feet.maxY) < 0.03
+                                       && anatomy.leftFoot < anatomy.rightFoot && anatomy.torso.minY > 0.44
+                               }, "what they hold is in their hands and what they wear on their feet is on their feet")
+                        expect(C.dancerJoints(.ballerina, .rest).leftLeg[3].y > C.dancerJoints(.ballerina, .rest).leftLeg[2].y + 0.05
+                               && C.dancerJoints(.ballerina, .folded).leftLeg[3].y < C.dancerJoints(.ballerina, .rest).leftLeg[3].y
+                               && C.dancerJoints(.danseur, .rest).rightArm[2].x > 0.7
+                               && C.dancerJoints(.ballerina, .arabesque).rightLeg[3].x > 0.75
+                               && C.dancerJoints(.danseur, .jete).leftLeg[3].x < 0.3 && C.dancerJoints(.danseur, .jete).rightLeg[3].x > 0.7,
+                               "she stands en pointe and comes down asleep; he holds a strong second; the steps reach out")
+                        expect(!C.dancerHairBack(.ballerina, size: 40).isEmpty
+                               && C.dancerHairBack(.ballerina, hat: true, size: 40).boundingBox.minY
+                                   > C.dancerHairBack(.ballerina, size: 40).boundingBox.minY
+                               && C.dancerTrim(.ballerina, hat: true, size: 40).boundingBox.minY
+                                   > C.dancerTrim(.ballerina, size: 40).boundingBox.minY,
+                               "a hat hides her bun and tiara")
+                        let pearl = NotchMascotDancerColors(style: .ballerina, light: NotchMascotPalette.pearl.light,
+                                                            shade: NotchMascotPalette.pearl.shade)
+                        expect(pearl.costume.hsb.1 < 0.1 && pearl.costume.hsb.2 > 0.9
+                               && NotchMascotPalette.allCases.allSatisfy { palette in
+                                   let colors = NotchMascotDancerColors(style: .danseur, light: palette.light, shade: palette.shade)
+                                   return colors.skin == NotchMascotDancerColors(style: .danseur, light: NotchMascotPalette.sky.light,
+                                                                                  shade: NotchMascotPalette.sky.shade).skin
+                                       && colors.costumeDeep.hsb.2 < colors.costume.hsb.2
+                                       && colors.costumeLight.hsb.2 >= colors.costume.hsb.2 - 0.001
+                               }
+                               && abs(NotchMascotDancerColors(style: .contemporary, light: NotchMascotPalette.sky.light,
+                                                              shade: NotchMascotPalette.sky.shade).costume.hsb.0
+                                      - NotchMascotPalette.sky.shade.hsb.0) < 0.01
+                               && Set(dancers.map { NotchMascotDancerColors(style: $0, light: NotchMascotPalette.rose.light,
+                                                                            shade: NotchMascotPalette.rose.shade).skin.hsb.0 }).count == 3,
+                               "the palette dyes their costumes, white and silver on pearl, while skin and hair stay their own")
+                        expect(dancers.allSatisfy { NotchMascotGait.of($0).bob < NotchMascotGait.standard.bob }
+                               && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
+                               "the dancers glide, the ballerina in quick little steps")
+                    }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
                                return [games.play, games.roshambo, games.rock, games.paper, games.scissors, games.laser,

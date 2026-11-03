@@ -102,21 +102,12 @@ enum NotchMascotCreatures {
                                          eyeSize: CGSize(width: 0.055, height: 0.12),
                                          shineCenter: CGPoint(x: 0.42, y: 0.18), shineRadii: CGSize(width: 0.04, height: 0.02),
                                          shineAngle: -0.3)
-        case .ballerina:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.42, y: 0.28), rightEye: CGPoint(x: 0.58, y: 0.28),
-                                         eyeSize: CGSize(width: 0.065, height: 0.14),
-                                         shineCenter: CGPoint(x: 0.40, y: 0.22), shineRadii: CGSize(width: 0.04, height: 0.025),
-                                         shineAngle: -0.3)
-        case .danseur:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.41, y: 0.26), rightEye: CGPoint(x: 0.59, y: 0.26),
-                                         eyeSize: CGSize(width: 0.065, height: 0.14),
-                                         shineCenter: CGPoint(x: 0.38, y: 0.20), shineRadii: CGSize(width: 0.045, height: 0.025),
-                                         shineAngle: -0.4)
-        case .contemporary:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.40, y: 0.30), rightEye: CGPoint(x: 0.60, y: 0.30),
-                                         eyeSize: CGSize(width: 0.065, height: 0.13),
-                                         shineCenter: CGPoint(x: 0.38, y: 0.24), shineRadii: CGSize(width: 0.04, height: 0.025),
-                                         shineAngle: -0.3)
+        case .ballerina, .danseur, .contemporary:
+            // Big round eyes under the hairline; the shine hides under the hair.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.432, y: 0.318), rightEye: CGPoint(x: 0.568, y: 0.318),
+                                         eyeSize: CGSize(width: 0.062, height: 0.104),
+                                         shineCenter: CGPoint(x: 0.50, y: 0.16), shineRadii: CGSize(width: 0.03, height: 0.015),
+                                         shineAngle: 0)
         case .kitsune:
             // Narrow, knowing eyes set high on the mask.
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.40, y: 0.44), rightEye: CGPoint(x: 0.60, y: 0.44),
@@ -165,9 +156,9 @@ enum NotchMascotCreatures {
         case .dragon: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.90)
         case .frog: return CGRect(x: 0.12, y: 0.06, width: 0.76, height: 0.86)
         case .swan: return CGRect(x: 0.08, y: 0.05, width: 0.84, height: 0.88)
-        case .ballerina: return CGRect(x: 0.08, y: 0.04, width: 0.84, height: 0.92)
-        case .danseur: return CGRect(x: 0.12, y: 0.06, width: 0.76, height: 0.90)
-        case .contemporary: return CGRect(x: 0.10, y: 0.08, width: 0.80, height: 0.88)
+        case .ballerina: return CGRect(x: 0.24, y: 0.04, width: 0.52, height: 0.895)
+        case .danseur: return CGRect(x: 0.25, y: 0.083, width: 0.51, height: 0.835)
+        case .contemporary: return CGRect(x: 0.30, y: 0.047, width: 0.47, height: 0.886)
         case .kitsune: return CGRect(x: 0.06, y: 0.03, width: 0.92, height: 0.94)
         case .penguin: return CGRect(x: 0.04, y: 0.09, width: 0.92, height: 0.88)
         case .hologram: return CGRect(x: 0.13, y: 0.04, width: 0.74, height: 0.94)
@@ -198,9 +189,7 @@ enum NotchMascotCreatures {
         case .dragon: return rect(0.26, 0.12, 0.48, 0.42, size)
         case .frog: return rect(0.20, 0.08, 0.60, 0.46, size)
         case .swan: return rect(0.36, 0.10, 0.28, 0.26, size)
-        case .ballerina: return rect(0.32, 0.14, 0.36, 0.32, size)
-        case .danseur: return rect(0.32, 0.12, 0.36, 0.34, size)
-        case .contemporary: return rect(0.30, 0.16, 0.40, 0.34, size)
+        case .ballerina, .danseur, .contemporary: return rect(0.33, 0.13, 0.34, 0.31, size)
         case .kitsune: return rect(0.20, 0.20, 0.60, 0.42, size)
         case .penguin: return rect(0.28, 0.10, 0.44, 0.34, size)
         case .hologram: return rect(0.31, 0.11, 0.38, 0.35, size)
@@ -227,6 +216,8 @@ enum NotchMascotCreatures {
         // the head's rule would tie it.
         case .hologram: return 0.47
         case .android: return 0.45
+        // The dancers' scarves go round the neck, under their big chins.
+        case .ballerina, .danseur, .contemporary: return 0.462
         default: return nil
         }
     }
@@ -348,38 +339,8 @@ enum NotchMascotCreatures {
             path.addQuadCurve(to: point(0.37, 0.20), control: point(0.37, 0.26))
             path.addQuadCurve(to: point(0.50, 0.10), control: point(0.39, 0.11))
             path.closeSubpath()
-        case .ballerina:
-            // High bun (chignon), delicate head, slender bodice, platter tutu and crossed pointes.
-            path.addEllipse(in: rect(0.42, 0.04, 0.16, 0.14, size))
-            path.addEllipse(in: rect(0.33, 0.14, 0.34, 0.30, size))
-            path.move(to: point(0.38, 0.44))
-            path.addLine(to: point(0.62, 0.44))
-            path.addLine(to: point(0.57, 0.62))
-            path.addLine(to: point(0.43, 0.62))
-            path.closeSubpath()
-            path.addEllipse(in: rect(0.12, 0.58, 0.76, 0.20, size))
-            path.addRoundedRect(in: rect(0.42, 0.72, 0.07, 0.24, size), cornerWidth: 0.03 * size, cornerHeight: 0.03 * size)
-            path.addRoundedRect(in: rect(0.51, 0.72, 0.07, 0.24, size), cornerWidth: 0.03 * size, cornerHeight: 0.03 * size)
-        case .danseur:
-            // Head, noble tunic with broad shoulders, dancer legs in fifth position.
-            path.addEllipse(in: rect(0.32, 0.12, 0.36, 0.34, size))
-            path.move(to: point(0.24, 0.44))
-            path.addLine(to: point(0.76, 0.44))
-            path.addLine(to: point(0.66, 0.66))
-            path.addLine(to: point(0.34, 0.66))
-            path.closeSubpath()
-            path.addRoundedRect(in: rect(0.36, 0.66, 0.11, 0.30, size), cornerWidth: 0.04 * size, cornerHeight: 0.04 * size)
-            path.addRoundedRect(in: rect(0.53, 0.66, 0.11, 0.30, size), cornerWidth: 0.04 * size, cornerHeight: 0.04 * size)
-        case .contemporary:
-            // Expressive head, fluid asymmetrical tunic drape and organic stance.
-            path.addEllipse(in: rect(0.30, 0.14, 0.40, 0.34, size))
-            path.move(to: point(0.22, 0.46))
-            path.addCurve(to: point(0.78, 0.44), control1: point(0.40, 0.40), control2: point(0.60, 0.42))
-            path.addLine(to: point(0.82, 0.76))
-            path.addCurve(to: point(0.18, 0.78), control1: point(0.60, 0.84), control2: point(0.36, 0.74))
-            path.closeSubpath()
-            path.addRoundedRect(in: rect(0.32, 0.78, 0.12, 0.18, size), cornerWidth: 0.04 * size, cornerHeight: 0.04 * size)
-            path.addRoundedRect(in: rect(0.56, 0.78, 0.12, 0.18, size), cornerWidth: 0.04 * size, cornerHeight: 0.04 * size)
+        case .ballerina, .danseur, .contemporary:
+            path.addPath(dancerBody(style, size: size))
         case .kitsune:
             // A fox mask, wide at the cheek tufts and pointed at the chin,
             // over a sitting body with its two front paws together.
@@ -1021,93 +982,6 @@ enum NotchMascotCreatures {
             path.addQuadCurve(to: point(x(0.35), 0.56), control: point(x(0.33), 0.64))
             path.closeSubpath()
         }
-        return path
-    }
-
-    // MARK: Ballerina
-
-    /// Classical arms arched in fifth position (en haut / couronne) framing the head.
-    static func ballerinaArmsEnHaut(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        for mirror in [false, true] {
-            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
-            path.move(to: point(x(0.38), 0.42))
-            path.addCurve(to: point(x(0.44), 0.03), control1: point(x(0.22), 0.26), control2: point(x(0.28), 0.08))
-            path.addCurve(to: point(x(0.40), 0.42), control1: point(x(0.32), 0.09), control2: point(x(0.26), 0.27))
-            path.closeSubpath()
-        }
-        return path
-    }
-
-    /// Criss-crossed satin ribbons winding up the ballerina's ankles.
-    static func ballerinaPointesRibbons(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        // Left leg ribbons
-        path.move(to: point(0.42, 0.86))
-        path.addLine(to: point(0.49, 0.81))
-        path.addLine(to: point(0.49, 0.83))
-        path.addLine(to: point(0.42, 0.88))
-        path.closeSubpath()
-        path.move(to: point(0.49, 0.86))
-        path.addLine(to: point(0.42, 0.81))
-        path.addLine(to: point(0.42, 0.83))
-        path.addLine(to: point(0.49, 0.88))
-        path.closeSubpath()
-        // Right leg ribbons
-        path.move(to: point(0.51, 0.86))
-        path.addLine(to: point(0.58, 0.81))
-        path.addLine(to: point(0.58, 0.83))
-        path.addLine(to: point(0.51, 0.88))
-        path.closeSubpath()
-        path.move(to: point(0.58, 0.86))
-        path.addLine(to: point(0.51, 0.81))
-        path.addLine(to: point(0.51, 0.83))
-        path.addLine(to: point(0.58, 0.88))
-        path.closeSubpath()
-        return path
-    }
-
-    /// Fitted velvet bodice with sweetheart neckline.
-    static func ballerinaBodice(size: CGFloat) -> CGPath {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: 0.40 * size, y: 0.46 * size))
-        path.addLine(to: CGPoint(x: 0.60 * size, y: 0.46 * size))
-        path.addLine(to: CGPoint(x: 0.56 * size, y: 0.60 * size))
-        path.addLine(to: CGPoint(x: 0.44 * size, y: 0.60 * size))
-        path.closeSubpath()
-        return path
-    }
-
-    // MARK: Danseur
-
-    /// Gold embroidered V-neck collar and royal buttons.
-    static func danseurTunicTrim(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.36, 0.42))
-        path.addLine(to: point(0.50, 0.54))
-        path.addLine(to: point(0.64, 0.42))
-        path.addLine(to: point(0.60, 0.42))
-        path.addLine(to: point(0.50, 0.51))
-        path.addLine(to: point(0.40, 0.42))
-        path.closeSubpath()
-        path.addEllipse(in: rect(0.48, 0.56, 0.04, 0.03, size))
-        path.addEllipse(in: rect(0.48, 0.61, 0.04, 0.03, size))
-        return path
-    }
-
-    // MARK: Contemporary
-
-    /// Diagonal fluid draped sash.
-    static func contemporarySash(size: CGFloat) -> CGPath {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: 0.34 * size, y: 0.46 * size))
-        path.addQuadCurve(to: CGPoint(x: 0.72 * size, y: 0.74 * size), control: CGPoint(x: 0.54 * size, y: 0.58 * size))
-        path.addLine(to: CGPoint(x: 0.64 * size, y: 0.78 * size))
-        path.addQuadCurve(to: CGPoint(x: 0.28 * size, y: 0.50 * size), control: CGPoint(x: 0.46 * size, y: 0.62 * size))
-        path.closeSubpath()
         return path
     }
 
