@@ -31,6 +31,9 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     /// The party gear: what a band, a match, a picnic and a pillow fight need.
     case drum, microphone, maracas, soccerBall, kite, pillow, marshmallowStick, waterPistol
     case confettiCannon, paperPlane, megaphone, whistle, hulaHoop, jugglingBalls, walkieTalkie, picnicBasket
+    /// Oddities and wonders: a pet snail, bees, a beard and a hat that beams things up.
+    case pizzaSlice, kazoo, bubbleGum, crackerCrown, rubberChicken, snail, jesterHat, snorkelMask
+    case pirateHook, featherBoa, rollerSkates, lantern, wizardBeard, beeHalo, spiderMonocle, ufoHat
 
     var id: String { rawValue }
 
@@ -39,7 +42,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
                                                    .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
-                                                   + partyItems
+                                                   + partyItems + oddityItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -71,10 +74,15 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .drum, .microphone, .maracas, .soccerBall, .kite, .pillow, .marshmallowStick, .waterPistol,
         .confettiCannon, .paperPlane, .megaphone, .whistle, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket]
     var isPartyItem: Bool { Self.partyItems.contains(self) }
+    /// The sixteen oddities and wonders, each with a mind of its own.
+    static let oddityItems: [NotchMascotAccessory] = [
+        .pizzaSlice, .kazoo, .bubbleGum, .crackerCrown, .rubberChicken, .snail, .jesterHat, .snorkelMask,
+        .pirateHook, .featherBoa, .rollerSkates, .lantern, .wizardBeard, .beeHalo, .spiderMonocle, .ufoHat]
+    var isOddity: Bool { Self.oddityItems.contains(self) }
     var isDanceItem: Bool { Self.danceItems.contains(self) }
     var isToyItem: Bool { Self.toyItems.contains(self) }
     /// Bought with gold rather than earned by level.
-    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem }
+    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity }
 
 
     /// The level it unlocks at; zero for the ones that are put on for it.
@@ -108,6 +116,15 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
              .confettiCannon, .paperPlane, .megaphone, .whistle, .jugglingBalls, .walkieTalkie, .picnicBasket:
             return .hand
         case .trafficCone, .tinfoilHat, .alienAntenna, .unicornHorn, .stormCloud, .discoBall: return .head
+        // The oddities: a hat, a crown or a buzzing ring on the head, a mask,
+        // a beard or a kazoo on the face, the boa round the neck, skates on
+        // the feet, the snail riding its shoulder and the rest in its hand.
+        case .jesterHat, .crackerCrown, .beeHalo, .ufoHat: return .head
+        case .bubbleGum, .kazoo, .snorkelMask, .wizardBeard, .spiderMonocle: return .eyes
+        case .featherBoa: return .neck
+        case .rollerSkates: return .feet
+        case .snail: return .back
+        case .pizzaSlice, .rubberChicken, .pirateHook, .lantern: return .hand
         case .clownNose, .fakeMustache, .cursedMask: return .eyes
         case .rubberDuck, .bananaPeel, .creamPie, .whoopeeCushion, .piggyBank, .alarmClock, .wiltedFlower,
              .lonelyBalloon, .teddyBear, .tissueBox, .brokenLocket, .magicMushroom, .dynamiteStick, .mimicChest,

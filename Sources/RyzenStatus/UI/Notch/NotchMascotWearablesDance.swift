@@ -54,12 +54,15 @@ extension NotchMascotWearableShapes {
             let feet = f.feet(spread: 0.14)
             let leftBox = CGRect(x: feet.left - fu * 0.10, y: floor - fu * 0.16, width: fu * 0.20, height: fu * 0.22)
             let rightBox = CGRect(x: feet.right - fu * 0.10, y: floor - fu * 0.16, width: fu * 0.20, height: fu * 0.22)
+            // The ribbons climb the ankle only as far as there is ankle: on a
+            // cat, whose mouth sits just over its paws, they stay short.
+            let reach = min(fu * 0.10, max(fu * 0.03, leftBox.minY - f.mouth.y - line * 2))
             let ribbons = CGMutablePath()
             for box in [leftBox, rightBox] {
                 ribbons.move(to: CGPoint(x: box.minX, y: box.minY + fu * 0.04))
-                ribbons.addLine(to: CGPoint(x: box.maxX, y: box.minY - fu * 0.10))
+                ribbons.addLine(to: CGPoint(x: box.maxX, y: box.minY - reach))
                 ribbons.move(to: CGPoint(x: box.maxX, y: box.minY + fu * 0.04))
-                ribbons.addLine(to: CGPoint(x: box.minX, y: box.minY - fu * 0.10))
+                ribbons.addLine(to: CGPoint(x: box.minX, y: box.minY - reach))
             }
             return [Part(path: rounded(leftBox, fu * 0.04), fill: rgb(0xFFCCD5), stroke: rgb(0xFF758F), lineWidth: line * 0.6),
                     Part(path: rounded(rightBox, fu * 0.04), fill: rgb(0xFFCCD5), stroke: rgb(0xFF758F), lineWidth: line * 0.6),
