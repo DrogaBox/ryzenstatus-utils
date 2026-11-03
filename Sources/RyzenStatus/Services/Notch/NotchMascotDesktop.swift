@@ -400,7 +400,7 @@ final class NotchMascotDesktop: NSObject {
                                              interval: NotchMascotItemUse.desktopInterval,
                                              chance: NotchMascotItemUse.desktopChance,
                                              random: Double.random(in: 0..<1)),
-              let use = NotchMascotItemUse.of(look.accessory)
+              let use = NotchMascotItemUse.of(look.accessory, style: look.style)
         else { return false }
         useItem(use)
         return true
@@ -559,9 +559,9 @@ final class NotchMascotDesktop: NSObject {
             // Already paid as the use began (`NotchMascotItemUse.settled`).
             perform(.burst(.coins), toward: side)
             perform(.marker("+\(amount)"), toward: side)
-        case .doze(let length):
+        case .doze(let length), .face(_, let length):
             guard let host else { return }
-            host.mascot.setMood(.sleepy, animated: !reduceMotion)
+            host.mascot.setMood(action.heldMood ?? .sleepy, animated: !reduceMotion)
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.dozeWork = nil

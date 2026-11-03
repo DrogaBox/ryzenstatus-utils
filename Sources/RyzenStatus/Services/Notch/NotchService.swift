@@ -5272,7 +5272,9 @@ extension NotchService {
     /// its own thing with it there. True when it did.
     @discardableResult
     func useMascotItemOnDesktop() -> Bool {
-        guard mascotDesktop.isOut, let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory) else { return false }
+        guard mascotDesktop.isOut,
+              let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory, style: mascotDesktop.playLook.style)
+        else { return false }
         mascotDesktop.useItem(use)
         return true
     }

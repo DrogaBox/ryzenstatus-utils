@@ -325,6 +325,7 @@ extension NotchMascotWearableShapes {
                     Part(path: spiral, fill: nil, stroke: rgb(0xFF8AD8), lineWidth: line * 0.8)]
 
         default:
+            if accessory.isPartyItem { return partyParts(for: accessory, in: f) }
             return accessory.isToyItem ? toyParts(for: accessory, in: f) : danceParts(for: accessory, in: f)
         }
     }

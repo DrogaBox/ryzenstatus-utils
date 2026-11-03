@@ -11614,11 +11614,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 296 && NotchMascotSynergyCatalog.total == 296, "the catalog holds 296 combos")
-                    expect(all.map(\.number) == Array(1...296) && Set(all.map(\.id)).count == 296,
-                           "the combos are numbered 1 to 296 with an id each")
+                    expect(all.count == 320 && NotchMascotSynergyCatalog.total == 320, "the catalog holds 320 combos")
+                    expect(all.map(\.number) == Array(1...320) && Set(all.map(\.id)).count == 320,
+                           "the combos are numbered 1 to 320 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24], "each family holds its share: \(sizes)")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11658,6 +11658,16 @@ struct MetricsTests {
                             }
                         }
                     }
+                    let roast = NotchMascotItemUse.of(.marshmallowStick, style: .cat)
+                    expect(roast != nil && roast == NotchMascotItemUse.of(.marshmallowStick)
+                           && NotchMascotItemUse.of(.marshmallowStick, style: .dragon) != roast
+                           && NotchMascotItemUse.of(.marshmallowStick, style: .dragon)
+                               == NotchMascotItemUse.of(.marshmallowStick, style: .phoenix),
+                           "a dragon or a phoenix lights the marshmallow with its own fire")
+                    let faces = NotchMascotAccessory.partyItems.compactMap { NotchMascotItemUse.of($0) }
+                        .flatMap(\.steps).compactMap { $0.action.heldMood }
+                    expect(faces.contains(.dizzy) && faces.contains(.angry) && faces.contains(.mischievous),
+                           "the party gear pulls the new faces")
                     let mushroom = NotchMascotItemUse.of(.magicMushroom)?.steps ?? []
                     let grows = mushroom.compactMap { step -> (TimeInterval, TimeInterval)? in
                         if case .grow(let length) = step.action { return (step.at, length) } else { return nil }
@@ -12177,15 +12187,16 @@ struct MetricsTests {
                     expect(NotchMascotSnack.allCases.map(\.marker) == ["+100", "+200", "+200", "+500", "+500", "♥ +1"],
                            "snacks score in arcade points")
 
-                    // The wardrobe: ninety-three, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 97 && NotchMascotAccessory.rpgItems.count == 32
+                    // The wardrobe: a hundred and nine, drawn and named in every language.
+                    expect(NotchMascotAccessory.allCases.count == 113 && NotchMascotAccessory.rpgItems.count == 32
                            && NotchMascotAccessory.shopItems.count == 24 && NotchMascotAccessory.danceItems.count == 7
-                           && NotchMascotAccessory.toyItems.count == 12
-                           && NotchMascotAccessory.wardrobe.count == 93, "ninety-seven accessories, ninety-three to pick")
+                           && NotchMascotAccessory.toyItems.count == 12 && NotchMascotAccessory.partyItems.count == 16
+                           && NotchMascotAccessory.wardrobe.count == 109, "a hundred and thirteen accessories, a hundred and nine to pick")
                     expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
-                    for item in NotchMascotAccessory.rpgItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems {
+                    for item in NotchMascotAccessory.rpgItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
+                        + NotchMascotAccessory.partyItems {
                         let parts = NotchMascotWearableShapes.parts(for: item, in: sample)
                         expect(!parts.isEmpty && parts.allSatisfy { !$0.path.boundingBoxOfPath.isNull }, "\(item) is drawn")
                     }
@@ -12218,6 +12229,7 @@ struct MetricsTests {
             do {
                 expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
                 let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
+                    + NotchMascotAccessory.partyItems
                 expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
                        "every thing for sale costs what its rarity costs")
                 expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
@@ -12237,11 +12249,16 @@ struct MetricsTests {
                     expect(toys.isComplete && Set(toys.items).count == NotchMascotToysStrings.itemCount
                            && NotchMascotAccessory.toyItems.allSatisfy { toys.name(of: $0) != nil && toys.gag(of: $0) != nil },
                            "\(language) names every toy apart and says what it does")
+                    let party = FeatureStrings.notchMascotParty(language)
+                    expect(party.isComplete && Set(party.items).count == NotchMascotPartyStrings.itemCount
+                           && NotchMascotAccessory.partyItems.allSatisfy { party.name(of: $0) != nil && party.gag(of: $0) != nil },
+                           "\(language) names every party thing apart and says what it does")
                 }
                 let forSale = Set(NotchMascotShop.unowned)
                 expect(NotchMascotAccessory.danceItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
-                       && NotchMascotAccessory.toyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) },
-                       "the dance gear and the toys can turn up in the shop")
+                       && NotchMascotAccessory.toyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
+                       && NotchMascotAccessory.partyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) },
+                       "the dance gear, the toys and the party things can turn up in the shop")
                 // Luck: the dice roll one to six and a six pays; the cookie reads
                 // one of six fortunes; only a few payouts a day.
                 expect((0..<6).map { NotchMascotLuck.face(random: (Double($0) + 0.5) / 6) } == [1, 2, 3, 4, 5, 6]
@@ -12481,6 +12498,7 @@ struct MetricsTests {
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
                    && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count + NotchMascotAccessory.danceItems.count + NotchMascotAccessory.toyItems.count
+                       + NotchMascotAccessory.partyItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
@@ -13007,6 +13025,7 @@ struct MetricsTests {
                 ("HardwareLayerTests", HardwareLayerTests.run),
                 ("DashboardMetricsTests", DashboardMetricsTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
+                ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }

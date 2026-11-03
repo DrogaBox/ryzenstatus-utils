@@ -6,7 +6,7 @@ import Foundation
 /// The families the combos are grouped in.
 enum SynergyCategory: Int, CaseIterable, Identifiable {
     case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots, dance
-    case toys, legends, signals
+    case toys, legends, signals, party
 
     var id: Int { rawValue }
 
@@ -28,6 +28,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .toys: return "Toys and luck"
         case .legends: return "Kitsune and Penguin"
         case .signals: return "Hologram and Android"
+        case .party: return "Party and play"
         }
     }
 
@@ -49,6 +50,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .toys: return "Juguetes y suerte"
         case .legends: return "Kitsune y Pingüino"
         case .signals: return "Holograma y Androide"
+        case .party: return "Fiesta y juego"
         }
     }
 }
@@ -220,7 +222,7 @@ enum NotchMascotSynergyScript: Equatable {
 /// One combo of the catalog: a name, a family, what makes it theirs and how
 /// it plays. Played in the closed island and out on the desktop alike.
 struct NotchMascotSynergy: Identifiable, Equatable {
-    /// Its place in the catalog, 1...135.
+    /// Its place in the catalog, 1...320.
     let number: Int
     let id: String
     let category: SynergyCategory
@@ -266,7 +268,7 @@ enum NotchMascotSynergyCatalog {
     }
 
     static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
-        + species + quests + curiosities + mascots + dance + toys + legends + signals
+        + species + quests + curiosities + mascots + dance + toys + legends + signals + party
 
     static var total: Int { all.count }
 
@@ -1569,5 +1571,106 @@ enum NotchMascotSynergyCatalog {
           "Light passes through the orb and the hologram sees what is to come.",
           "La luz atraviesa la esfera y el holograma ve lo que está por venir.",
           .styleWears(.hologram, .crystalOrb), .ritual(.peek, .surprised, .magic, "VISION")),
+    ]
+
+    // MARK: Party and play
+
+    private static let party: [NotchMascotSynergy] = [
+        S(297, "kiteStorm", .party, "Kite in the Storm", "Barrilete en la tormenta",
+          "The kite climbs into the storm cloud and a bolt runs down its string.",
+          "El barrilete sube hasta la nube y un rayo baja por el hilo.",
+          .pair(.kite, .stormCloud), .give(.bolt, .surprised, .sparkles, "ZAP!")),
+        S(298, "dragonCampfire", .party, "Dragon Campfire", "Fogata de dragón",
+          "No matches needed: the dragon toasts the marshmallow with one small puff.",
+          "Sin fósforos: el dragón tuesta el malvavisco con un soplido chiquito.",
+          .styleWears(.dragon, .marshmallowStick), .give(.fireball, .love, .smoke, "TOASTY")),
+        S(299, "phoenixRoast", .party, "Phoenix Roast", "Asado del fénix",
+          "The phoenix flares up and the marshmallow comes out a perfect gold.",
+          "El fénix se enciende y el malvavisco sale dorado perfecto.",
+          .styleWears(.phoenix, .marshmallowStick), .ritual(.flash, .love, .smoke, "GOLDEN")),
+        S(300, "squirtShield", .party, "Squirt and Shield", "Chorro y escudo",
+          "Squirt after squirt, and the umbrella blocks every one.",
+          "Chorro tras chorro, y el paraguas los ataja todos.",
+          .pair(.waterPistol, .umbrella), .volley(.snowball, 3, .sparkles, "BLOCKED")),
+        S(301, "pillowFight", .party, "Pillow Fight", "Guerra de almohadas",
+          "Two pillows, one swing each, and feathers everywhere.",
+          "Dos almohadas, un almohadazo cada uno y plumas por todos lados.",
+          .twin(.pillow), .duel(.heart, .confetti, "POMF!")),
+        S(302, "overAndOut", .party, "Over and Out", "Cambio y fuera",
+          "Two walkie-talkies, a secret mission and far too much static.",
+          "Dos walkie-talkies, una misión secreta y demasiada estática.",
+          .twin(.walkieTalkie), .chorus(.spark, .peek, "OVER")),
+        S(303, "bardDrums", .party, "Bard and Drums", "Bardo y tambor",
+          "The lute plays the tune and the drum keeps the tavern on its feet.",
+          "El laúd pone la melodía y el tambor tiene a la taberna de pie.",
+          .pair(.drum, .bardLute), .chorus(.note, .groove, "ENCORE")),
+        S(304, "soundCheck", .party, "Sound Check", "Prueba de sonido",
+          "One taps the microphone, the other listens in the headphones: one, two.",
+          "Uno golpea el micrófono, el otro escucha con los auriculares: probando.",
+          .pair(.microphone, .headphones), .ritual(.groove, .perk, .confetti, "1 2 1 2")),
+        S(305, "refereeKickoff", .party, "Kickoff", "Saque inicial",
+          "The whistle blows, the ball goes back and forth and someone scores.",
+          "Suena el silbato, la pelota va y viene y alguien hace un gol.",
+          .pair(.soccerBall, .whistle), .volley(.ball, 3, .confetti, "GOAL!")),
+        S(306, "surpriseParty", .party, "Surprise Party", "Fiesta sorpresa",
+          "Party hat on, eyes shut, and the cannon goes off: surprise!",
+          "Gorrito puesto, ojos cerrados y estalla el cañón: ¡sorpresa!",
+          .pair(.confettiCannon, .partyHat), .ritual(.celebrate, .surprised, .confetti, "SURPRISE!")),
+        S(307, "riceBallPicnic", .party, "Rice Ball Picnic", "Pícnic de onigiris",
+          "The basket opens and out comes a rice ball for each.",
+          "Se abre la canasta y sale un onigiri para cada uno.",
+          .pair(.picnicBasket, .onigiri), .give(.snack(.onigiri), .love, .hearts, "ITADAKIMASU")),
+        S(308, "noodlePicnic", .party, "Noodle Picnic", "Pícnic de fideos",
+          "A hot bowl of ramen on a picnic cloth, steam rising in the sun.",
+          "Un ramen calentito sobre el mantel, con el vapor subiendo al sol.",
+          .pair(.picnicBasket, .ramenBowl), .give(.snack(.ramen), .relax, .smoke, "NOODLES")),
+        S(309, "airMail", .party, "Air Mail", "Correo aéreo",
+          "The paper plane flies off and the propeller cap chases it down.",
+          "El avión de papel sale volando y la gorra con hélice lo persigue.",
+          .pair(.paperPlane, .propellerCap), .volley(.arrow, 2, .sparkles, "AIRMAIL")),
+        S(310, "hoopFever", .party, "Hoop Fever", "Fiebre del aro",
+          "Under the disco ball the hoop never stops spinning.",
+          "Bajo la bola de discoteca el aro no para de girar.",
+          .pair(.hulaHoop, .discoBall), .chorus(.star, .groove, "DISCO")),
+        S(311, "circusAct", .party, "Circus Act", "Número de circo",
+          "The juggler tosses, the clown honks, and nobody drops a thing.",
+          "El malabarista lanza, el payaso hace bocina y nadie deja caer nada.",
+          .pair(.jugglingBalls, .clownNose), .volley(.ball, 4, .confetti, "HONK HONK")),
+        S(312, "roadworks", .party, "Roadworks", "Obras en la calle",
+          "Megaphone in hand, the foreman sends everyone round the cone.",
+          "Megáfono en mano, el capataz manda a todos a rodear el cono.",
+          .pair(.megaphone, .trafficCone), .ritual(.ready, .confused, .smoke, "DETOUR!")),
+        S(313, "flamencoFiesta", .party, "Flamenco Fiesta", "Fiesta flamenca",
+          "Maracas keep the beat and the fan snaps open on every turn.",
+          "Las maracas marcan el ritmo y el abanico se abre en cada vuelta.",
+          .pair(.maracas, .spanishFan), .chorus(.note, .groove, "OLE!")),
+        S(314, "zenPicnic", .party, "Zen Picnic", "Pícnic zen",
+          "The capybara spreads the cloth and nobody hurries at all.",
+          "El carpincho tiende el mantel y nadie tiene ningún apuro.",
+          .styleWears(.capybara, .picnicBasket), .calm(.relax, .love, .hearts, "ZEN")),
+        S(315, "rhythmSection", .party, "Rhythm Section", "Sección rítmica",
+          "Drum and maracas lock into a groove nobody can sit still to.",
+          "Tambor y maracas arman un ritmo con el que nadie se queda quieto.",
+          .pair(.drum, .maracas), .chorus(.note, .bounce, "CHA CHA")),
+        S(316, "waterFight", .party, "Water Fight", "Guerra de agua",
+          "Two water pistols at ten paces: the first squirt wins.",
+          "Dos pistolas de agua a diez pasos: gana el primer chorro.",
+          .twin(.waterPistol), .duel(.snowball, .sparkles, "SPLOOSH")),
+        S(317, "controlTower", .party, "Control Tower", "Torre de control",
+          "Cleared for take-off: the walkie-talkie talks the paper plane down.",
+          "Pista libre: el walkie-talkie guía al avión de papel hasta aterrizar.",
+          .pair(.paperPlane, .walkieTalkie), .give(.arrow, .perk, .sparkles, "CLEARED")),
+        S(318, "feedbackLoop", .party, "Feedback Loop", "Acople",
+          "Megaphone meets microphone and the speakers shriek.",
+          "El megáfono se cruza con el micrófono y los parlantes chillan.",
+          .pair(.megaphone, .microphone), .duel(.note, .smoke, "SKREE!")),
+        S(319, "sleepover", .party, "Sleepover", "Pijamada",
+          "A pillow, a sleep mask and stories whispered until both doze off.",
+          "Una almohada, un antifaz y cuentos en voz baja hasta que se duermen.",
+          .pair(.pillow, .sleepMask), .calm(.yawn, .relax, .hearts, "ZZZ")),
+        S(320, "kiteFlyers", .party, "Kite Flyers", "Remontando barriletes",
+          "Two kites side by side, their tails tangling high in the wind.",
+          "Dos barriletes juntos, con las colas enredándose en el viento.",
+          .twin(.kite), .calm(.perk, .love, .sparkles, "WHEE")),
     ]
 }

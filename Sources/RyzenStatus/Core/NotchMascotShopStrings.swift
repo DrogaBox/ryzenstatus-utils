@@ -29,10 +29,12 @@ struct NotchMascotShopStrings {
         return items[index]
     }
 
-    /// The curiosity's line, or a toy's, in the app's language.
+    /// The curiosity's line, or a toy's or a party thing's, in the app's language.
     func gag(of accessory: NotchMascotAccessory) -> String? {
         guard let index = NotchMascotAccessory.shopItems.firstIndex(of: accessory) else {
-            return FeatureStrings.notchMascotToys(L10n.shared.language).gag(of: accessory)
+            let language = L10n.shared.language
+            return FeatureStrings.notchMascotToys(language).gag(of: accessory)
+                ?? FeatureStrings.notchMascotParty(language).gag(of: accessory)
         }
         return gags[index]
     }

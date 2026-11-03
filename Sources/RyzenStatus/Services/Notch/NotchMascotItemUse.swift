@@ -31,6 +31,9 @@ enum NotchMascotItemAction: Equatable {
     case grow(TimeInterval)
     /// It dozes off a while.
     case doze(TimeInterval)
+    /// It pulls `mood`'s face a while: cross at its own shout, dizzy from
+    /// the hoop, a mischievous grin behind the water pistol.
+    case face(NotchMascotMood, TimeInterval)
     /// Luck pays out this much gold, within the day's share (see `NotchMascotLuck`).
     case gold(Int)
 
@@ -49,7 +52,33 @@ enum NotchMascotItemAction: Equatable {
         case .lightning: return 0.5
         case .sparks: return 0.45
         case .hide, .grow: return 0
-        case .doze(let length): return length
+        case .doze(let length), .face(_, let length): return length
+        }
+    }
+    /// The face it holds while it does this, if it holds one: sleepy for a
+    /// doze, the mood's own for a face.
+    var heldMood: NotchMascotMood? {
+        switch self {
+        case .doze: return .sleepy
+        case .face(let mood, _): return mood
+        default: return nil
+        }
+    }
+    /// What a face looks like where a mood cannot be held: in the island,
+    /// the reaction nearest to it.
+    static func reaction(for mood: NotchMascotMood) -> NotchMascotReaction {
+        switch mood {
+        case .angry, .determined, .alert: return .ready
+        case .smug, .wink, .idle: return .wave
+        case .embarrassed: return .hush
+        case .crying: return .sweat
+        case .starstruck, .happy: return .celebrate
+        case .dizzy, .confused, .disgusted: return .confused
+        case .mischievous, .searching, .thinking: return .peek
+        case .terrified: return .panic
+        case .bored, .sleepy: return .yawn
+        case .greedy, .surprised: return .perk
+        case .love: return .love
         }
     }
 }
@@ -99,6 +128,7 @@ struct NotchMascotItemUse: Equatable {
             case .slash: score.act(step.at, starter: .ready)
             case .lightning: score.burst(step.at, .magic, onStarter: true)
             case .doze: score.act(step.at, starter: .yawn)
+            case .face(let mood, _): score.act(step.at, starter: NotchMascotItemAction.reaction(for: mood))
             case .gold(let amount):
                 score.burst(step.at, .coins, onStarter: true)
                 score.marker(step.at, "+\(amount)", onStarter: true)
@@ -130,7 +160,9 @@ struct NotchMascotItemUse: Equatable {
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     /// `random` decides what luck brings: the dice's roll, the cookie's fortune.
-    static func of(_ item: NotchMascotAccessory,
+    /// `style`, the figure that wears it, where it changes what happens: a
+    /// dragon or a phoenix lights the marshmallow with its own fire.
+    static func of(_ item: NotchMascotAccessory, style: NotchMascotStyle? = nil,
                    random: () -> Double = { Double.random(in: 0..<1) }) -> NotchMascotItemUse? {
         switch item {
         case .none: return nil
@@ -359,8 +391,84 @@ struct NotchMascotItemUse: Equatable {
         case .instantCamera:
             return .init([(0, .react(.ready)), (0.6, .react(.flash)), (0.6, .burst(.sparkles)), (1.0, .marker("CLICK!")),
                           (1.5, .symbol("★", .gold, count: 1)), (1.8, .move(.strut))])
-        case .drum, .microphone, .maracas, .soccerBall, .kite, .pillow, .marshmallowStick, .waterPistol,
-             .confettiCannon, .paperPlane, .megaphone, .whistle, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket:
+        default:
+            return partyUse(item, style: style)
+        }
+    }
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    /// The party gear, each with its own little show.
+    private static func partyUse(_ item: NotchMascotAccessory, style: NotchMascotStyle?) -> NotchMascotItemUse? {
+        switch item {
+        case .drum:
+            // A solo that builds, then the rimshot and a smug look.
+            return .init([(0, .react(.groove)), (0, .move(.stomp)), (0.3, .symbol("♪", .gold, count: 3)), (1.1, .move(.stomp)),
+                          (1.2, .burst(.confetti)), (1.9, .marker("TSS!")), (2.0, .face(.smug, 1.8))])
+        case .microphone:
+            // Karaoke: it struts, sings its heart out and is starstruck by its own applause.
+            return .init([(0, .react(.perk)), (0.3, .move(.strut)), (0.4, .symbol("♫", .pink, count: 4)),
+                          (1.9, .face(.starstruck, 2.2)), (2.0, .burst(.hearts)), (2.3, .marker("ENCORE"))])
+        case .maracas:
+            return .init([(0, .react(.groove)), (0, .move(.shiver)), (0.2, .symbol("♪", .green, count: 3)), (1.0, .move(.shiver)),
+                          (1.1, .marker("CHK-CHK")), (1.9, .move(.hop))])
+        case .soccerBall:
+            // Keepy-uppy: three touches counted, then a shot at goal.
+            return .init([(0, .react(.ready)), (0.2, .juggle(.ball)), (0.6, .marker("1")), (1.0, .juggle(.ball)),
+                          (1.4, .marker("2")), (1.8, .juggle(.ball)), (2.2, .marker("3")), (2.7, .move(.charge)),
+                          (3.0, .marker("GOAL!")), (3.0, .burst(.confetti)), (3.1, .react(.celebrate))])
+        case .kite:
+            // A run to catch the wind, and up it rises on its string.
+            return .init([(0, .react(.perk)), (0.2, .move(.charge)), (1.2, .symbol("◆", .pink, count: 1)),
+                          (1.5, .symbol("~", .white, count: 3)), (2.4, .move(.float)), (2.6, .react(.relax))])
+        case .pillow:
+            // Fluffed, and a nap on it.
+            return .init([(0, .move(.bow)), (0, .react(.yawn)), (0.9, .symbol("☁", .white, count: 1)), (1.2, .doze(10)),
+                          (1.4, .symbol("z", .white, count: 3))])
+        case .marshmallowStick:
+            if style == .dragon || style == .phoenix {
+                // Its own fire lights it, a little too well: crispy.
+                return .init([(0, .react(.ready)), (0.3, .react(.flash)), (0.3, .sparks), (0.6, .burst(.smoke)),
+                              (0.9, .sparks), (1.3, .marker("WHOOSH")), (1.4, .symbol("♨", .gold, count: 3)),
+                              (2.2, .face(.embarrassed, 2)), (2.4, .hide(6)), (2.6, .marker("CRISPY"))])
+            }
+            // Turned slowly over the fire until golden, then eaten.
+            return .init([(0, .react(.peek)), (0.4, .sparks), (0.7, .burst(.smoke)), (1.4, .symbol("♨", .white, count: 2)),
+                          (2.1, .hide(6)), (2.2, .react(.love)), (2.4, .marker("YUM"))])
+        case .waterPistol:
+            // It creeps up grinning, and squirts.
+            return .init([(0, .move(.sneak)), (0, .face(.mischievous, 2.4)), (1.5, .symbol("•", .blue, count: 4)),
+                          (1.6, .marker("SQUIRT")), (1.9, .symbol("•", .blue, count: 3)), (2.6, .react(.celebrate))])
+        case .confettiCannon:
+            // The fuse fizzes, then boom: confetti, and the recoil flips it over.
+            return .init([(0, .react(.ready)), (0.5, .sparks), (1.1, .marker("BOOM!")), (1.1, .burst(.confetti)),
+                          (1.2, .move(.backflip)), (1.3, .symbol("★", .gold, count: 4)), (2.5, .react(.celebrate))])
+        case .paperPlane:
+            // Thrown far, it loops round and glides back into its hand.
+            return .init([(0, .react(.peek)), (0.3, .fling(.arrow, back: true)), (2.1, .react(.surprised)),
+                          (2.2, .marker("CATCH!")), (2.4, .move(.hop))])
+        case .megaphone:
+            // A shout so loud it startles even itself.
+            return .init([(0, .move(.strut)), (0.2, .react(.ready)), (0.8, .face(.angry, 1.6)), (0.9, .marker("!!!")),
+                          (0.9, .symbol("!", .gold, count: 3)), (1.2, .move(.stomp)), (2.6, .react(.surprised))])
+        case .whistle:
+            // The referee sprints in, blows, and holds up a yellow card.
+            return .init([(0, .move(.charge)), (0.2, .react(.ready)), (0.9, .marker("TWEET!")),
+                          (0.9, .symbol("♪", .white, count: 1)), (1.7, .symbol("▮", .gold, count: 1)), (1.8, .face(.smug, 1.6))])
+        case .hulaHoop:
+            // Round and round, and round once too often.
+            return .init([(0, .react(.groove)), (0, .move(.spin)), (0.8, .symbol("○", .pink, count: 2)), (1.2, .move(.spin)),
+                          (2.4, .face(.dizzy, 1.8)), (2.5, .symbol("@", .white, count: 2))])
+        case .jugglingBalls:
+            return .init([(0, .react(.ready)), (0.1, .juggle(.ball)), (0.5, .juggle(.star)), (0.9, .juggle(.ball)),
+                          (1.3, .juggle(.star)), (2.2, .marker("TADA")), (2.2, .react(.celebrate)), (2.3, .move(.bow))])
+        case .walkieTalkie:
+            // Static, a message, and an answer from somewhere.
+            return .init([(0, .react(.peek)), (0.2, .sparks), (0.4, .marker("KSHH")), (1.2, .symbol("…", .green, count: 2)),
+                          (1.7, .react(.perk)), (1.9, .marker("ROGER")), (2.6, .move(.sneak))])
+        case .picnicBasket:
+            // The cloth spread, a snack tossed hand to hand, and a happy sigh.
+            return .init([(0, .move(.bow)), (0.2, .react(.relax)), (0.8, .symbol("✿", .green, count: 2)),
+                          (1.2, .juggle(.snack(.apple))), (2.0, .hide(8)), (2.1, .burst(.hearts)), (2.2, .react(.love))])
+        default:
             return nil
         }
     }
