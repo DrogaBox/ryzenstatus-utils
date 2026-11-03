@@ -108,6 +108,7 @@ final class NotchMascotDesktop: NSObject {
     private var shakeTracker = NotchMascotRoam.ShakeTracker()
     private var isDizzy = false
     private var dizzyTimer: DispatchSourceTimer?
+    private var patStreak = NotchMascotPatStreak()
 
     /// The window it stands on, and where that window was when last seen.
     private var perch: (window: CGWindowID, frame: CGRect)?
@@ -191,7 +192,7 @@ final class NotchMascotDesktop: NSObject {
     private var askedFor = false
     /// With Reduce Motion it does not hop or stroll on its own.
     private var holdsStill: Bool { reduceMotion && !askedFor }
-    private var host: NotchMascotHostView? { stage?.host }
+    var host: NotchMascotHostView? { stage?.host }
 
     init(leads: Bool = true) {
         self.leads = leads
@@ -3016,15 +3017,17 @@ final class NotchMascotDesktop: NSObject {
             host?.mascot.lean(NotchMascotRoam.lean(forSpeed: body.velocity.dx))
             setRun(abs(body.velocity.dx) >= NotchMascotRoam.runSpeed ? body.velocity.dx : nil)
         }
+        // Stretched along its flight, round again on the ground.
+        host?.mascot.setFlight(speed: body.airborne ? body.velocity.dy : nil)
         for event in events {
             switch event {
             case .landed(let impact):
                 host?.mascot.land(impact: impact / 2000)
                 host?.mascot.lean(0)
-                if impact >= NotchMascotRoam.dizzySpeed { react(.confused); thrown = false; landedHard?() }
+                if impact >= NotchMascotRoam.dizzySpeed { landDizzy(); thrown = false; landedHard?() }
             case .bumped(let speed):
                 host?.mascot.land(impact: speed / 3000)
-                if speed >= NotchMascotRoam.dizzySpeed { react(.confused); thrown = false; landedHard?() }
+                if speed >= NotchMascotRoam.dizzySpeed { landDizzy(); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
                 dropped = false
@@ -3304,6 +3307,7 @@ final class NotchMascotDesktop: NSObject {
                     mode = .standing
                 }
                 host?.mascot.react(.surprised, lift: 0)
+                emote(.exclaim)
             }
             rideMoved = now
             host?.mascot.lean(NotchMascotRoam.lean(forSpeed: dx * 30))
@@ -3600,6 +3604,7 @@ final class NotchMascotDesktop: NSObject {
         cancelWindowPlans()
         cancelItemUse()
         endEncounter()
+        host?.mascot.setFlight(speed: nil)
         if inPlay { interrupted?() }
         // Played with, it is no longer on a walk of its own: it stays out.
         excursionWork?.cancel(); excursionWork = nil
@@ -3631,9 +3636,11 @@ final class NotchMascotDesktop: NSObject {
         if mode != .held {
             mode = .held
             host?.mascot.react(.surprised, lift: 0)
+            emote(.exclaim)
         }
         if shakeTracker.isDizzy {
-            host?.mascot.react(.confused, lift: 0)
+            host?.mascot.daze(for: 1.2)
+            emote(.question)
         }
         body.position = clampedToScreens(CGPoint(x: point.x + grabOffset.dx, y: point.y + grabOffset.dy))
         body.velocity = .zero
@@ -3674,9 +3681,10 @@ final class NotchMascotDesktop: NSObject {
         thrown = hypot(velocity.dx, velocity.dy) > 600
         dropped = true
         mode = .flying
+        if thrown { emote(.interrobang) }
         if shaken {
             isDizzy = true
-            react(.confused)
+            host?.mascot.daze(for: 1)
         }
         resumeTicking()
     }
@@ -3691,6 +3699,11 @@ final class NotchMascotDesktop: NSObject {
         patFlip.toggle()
         host.mascot.wake(animated: true)
         react(patFlip ? .celebrate : .wave)
+        if let said = patStreak.note(at: now) {
+            emote(said)
+            // Patted on and on, it has had enough.
+            if said == .anger { host.mascot.show(.angry, for: 1.2) }
+        }
         patted?()
         if NotchSupport.usesHapticFeedback() {
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
@@ -3701,10 +3714,18 @@ final class NotchMascotDesktop: NSObject {
         host.mascot.showPetted(gained: gained)
     }
 
-    private func stumbleDizzy() {
+    /// Down hard enough to see stars: a curse and a dizzy face as it lands,
+    /// and the dizzy spell once it comes to rest.
+    private func landDizzy() {
         isDizzy = true
+        host?.mascot.daze(for: 1)
+        emote(.curse)
+    }
+    private func stumbleDizzy() {
         cancelDizzy()
-        react(.confused)
+        isDizzy = true
+        // Spiral eyes and stars round its head for the whole spell.
+        host?.mascot.daze(for: 2.4)
         if NotchSupport.usesHapticFeedback() {
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
         }

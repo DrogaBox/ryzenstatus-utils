@@ -40,10 +40,14 @@ final class NotchMascotRig: NSObject {
     private(set) var mood = NotchMascotMood.idle
     /// Whether it blinks now and then and, after a long rest, grows sleepy.
     private(set) var idles = false
-    var reduceMotion = false
+    var reduceMotion = false {
+        didSet { features.reduceMotion = reduceMotion }
+    }
 
     private let hopper = CALayer()
     private let squasher = CALayer()
+    /// Breathes in and out while it idles, under every other motion.
+    private let breather = CALayer()
     private let tilter = CALayer()
     /// Where the eyes are drawn to beyond the face it keeps: the text being
     /// typed, or the pointer over the island.
@@ -58,6 +62,8 @@ final class NotchMascotRig: NSObject {
     private let face = CALayer()
     private let leftEye = CAShapeLayer()
     private let rightEye = CAShapeLayer()
+    /// Brows, a mouth and the marks a cartoon draws about a face.
+    private let features = NotchMascotFeatures()
     /// Pins, blades, ears and tails, and the props of a lasting mood.
     private let decor = NotchMascotDecor()
     /// Hats, bows and glasses.
@@ -86,6 +92,8 @@ final class NotchMascotRig: NSObject {
     private var blinkRelay: NotchMascotAnimationRelay?
     /// Blinks wait until a visit has gone by.
     private var blinksResume: CFTimeInterval = 0
+    /// When spiral eyes set spinning by a daze stop, on the media clock.
+    private var dazeEnds: CFTimeInterval = 0
     private var configured = false
 
     override init() {
@@ -93,7 +101,8 @@ final class NotchMascotRig: NSObject {
         root.addSublayer(hopper)
         hopper.addSublayer(aura.back)
         hopper.addSublayer(squasher)
-        squasher.addSublayer(tilter)
+        squasher.addSublayer(breather)
+        breather.addSublayer(tilter)
         tilter.addSublayer(decor.back)
         tilter.addSublayer(wearables.back)
         for layer in [ears, antenna, bulb, fill, visor, shine, bodyFlash] { tilter.addSublayer(layer) }
@@ -104,13 +113,17 @@ final class NotchMascotRig: NSObject {
         tilter.addSublayer(wearables.head)
         tilter.addSublayer(decor.props)
         tilter.addSublayer(aura.front)
+        // The mouth and marks under the eyes; the brows over them, going
+        // where the eyes look.
+        attention.addSublayer(features.around)
         attention.addSublayer(face)
         attention.addSublayer(wearables.face)
         face.addSublayer(leftEye)
         face.addSublayer(rightEye)
+        face.addSublayer(features.eyeLevel)
         fill.mask = fillMask
-        for layer in [root, hopper, squasher, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine,
-                      leftEye, rightEye] {
+        for layer in [root, hopper, squasher, breather, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor,
+                      shine, leftEye, rightEye] {
             layer.actions = Self.noActions
         }
         shine.fillColor = NotchMascotColor.shine.cgColor
@@ -157,7 +170,7 @@ final class NotchMascotRig: NSObject {
         }
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         root.bounds = box
-        for layer in [hopper, squasher, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine] {
+        for layer in [hopper, squasher, breather, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine] {
             layer.frame = box
             layer.contentsScale = scale
         }
@@ -242,7 +255,10 @@ final class NotchMascotRig: NSObject {
         wearables.head.isHidden = drawsSprite
         wearables.face.isHidden = drawsSprite
         wearables.back.isHidden = drawsSprite
+        features.configure(look: look, size: size, scale: scale)
         apply(mood.expression, animated: false)
+        // A breath is measured against its size.
+        breather.removeAnimation(forKey: "breathe")
         applyAmbient()
     }
 
@@ -268,8 +284,8 @@ final class NotchMascotRig: NSObject {
         applyAmbient()
         guard animated, !reduceMotion, size > 0 else { syncBlinking(); return }
         switch mood {
-        case .surprised: pop()
-        case .confused: wobble()
+        case .surprised, .starstruck, .greedy, .terrified, .angry: pop()
+        case .confused, .dizzy, .embarrassed: wobble()
         case .love: heartbeat()
         case .idle where previous == .sleepy: pop()
         default: break
@@ -325,6 +341,7 @@ final class NotchMascotRig: NSObject {
         face.transform = gaze
         tilter.transform = tilt
         CATransaction.commit()
+        features.apply(expression, animated: animated)
     }
 
     /// Turns to `mood` at `time` on the media clock and keeps it there, for
@@ -355,17 +372,27 @@ final class NotchMascotRig: NSObject {
             move.isRemovedOnCompletion = false
             layer.add(move, forKey: "turn")
         }
+        // Its mouth, brows and marks turn with its eyes.
+        features.turn(to: to, at: time)
     }
 
     /// Back to its own face at rest, with every motion taken off.
     func reset(to mood: NotchMascotMood) {
         stopBlinking()
-        for layer in [root, hopper, squasher, tilter, attention, face, leftEye, rightEye] { layer.removeAllAnimations() }
+        for layer in [root, hopper, squasher, breather, tilter, attention, face, leftEye, rightEye] {
+            layer.removeAllAnimations()
+        }
         attention.transform = CATransform3DIdentity
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        squasher.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
         self.mood = mood
         blinks = 0
         dozed = false
+        dazeEnds = 0
         sprite.clearOverlays()
+        features.reset(to: mood.expression)
         apply(mood.expression, animated: false)
         syncSpriteLoop()
         decor.setSleeping(mood == .sleepy, animated: false, fill: fill)
@@ -387,6 +414,8 @@ final class NotchMascotRig: NSObject {
         guard size > 0 else { return }
         let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
         decor.setAmbient(ambient, motion: motion)
+        features.setMotion(motion)
+        breathe(motion && ambient.ambient != .dancing)
         hopper.removeAnimation(forKey: "ambientBob")
         tilter.removeAnimation(forKey: "ambientSway")
         guard motion, ambient.ambient == .dancing, mood != .sleepy else { return }
@@ -408,6 +437,26 @@ final class NotchMascotRig: NSObject {
         sway.repeatCount = .infinity
         sway.isAdditive = true
         tilter.add(sway, forKey: "ambientSway")
+    }
+
+    /// A slow breath in and out while it rests in sight, a little taller on
+    /// the breath in, its feet where they are; slower and deeper asleep. A
+    /// breath under way carries on rather than start over.
+    private func breathe(_ breathes: Bool) {
+        let period: CFTimeInterval = mood == .sleepy ? 4.6 : 3.4
+        guard breathes, size > 0 else {
+            breather.removeAnimation(forKey: "breathe")
+            return
+        }
+        guard breather.animation(forKey: "breathe")?.duration != period else { return }
+        let breath = CAKeyframeAnimation(keyPath: "transform")
+        let depth: CGFloat = mood == .sleepy ? 0.045 : 0.025
+        breath.values = [squashed(0), squashed(-depth), squashed(0)].map { NSValue(caTransform3D: $0) }
+        breath.keyTimes = [0, 0.45, 1]
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.duration = period
+        breath.repeatCount = .infinity
+        breather.add(breath, forKey: "breathe")
     }
 
     // MARK: Attention
@@ -636,6 +685,8 @@ final class NotchMascotRig: NSObject {
             ease.isRemovedOnCompletion = !stroked
             layer.add(ease, forKey: "stroke")
         }
+        // A smile comes with the happy eyes, and goes when the pointer does.
+        if stroked { features.hold(expression, key: "stroke") } else { features.release(key: "stroke") }
         if stroked {
             guard !reduceMotion else { return }
             let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
@@ -708,13 +759,13 @@ final class NotchMascotRig: NSObject {
 
     func play(_ cue: NotchMascotCue) {
         guard size > 0, !reduceMotion else {
-            if cue == .celebrate, reduceMotion { flashFace(.happy, duration: 1) }
+            if cue == .celebrate, reduceMotion { flashFace(NotchMascotReaction.celebrate.face, duration: 1) }
             return
         }
         switch cue {
         case .celebrate:
             hop(height: size * 0.28)
-            flashFace(.happy, duration: 1)
+            flashFace(NotchMascotReaction.celebrate.face, duration: 1)
         case .glance:
             let dart = CAKeyframeAnimation(keyPath: "transform.translation.x")
             dart.values = [0, size * 0.07, -size * 0.06, 0]
@@ -728,21 +779,30 @@ final class NotchMascotRig: NSObject {
         }
     }
 
+    /// A hop as a cartoon does one: a quick crouch to gather itself, a
+    /// stretch as it springs up, round at the top, squashed flat as it
+    /// lands and past round again, then a little rebound. Its ears, tails
+    /// and props follow a beat behind.
     private func hop(height: CGFloat) {
+        let duration: CFTimeInterval = 0.78
         let lift = CAKeyframeAnimation(keyPath: "transform.translation.y")
-        lift.values = [0, -height, 0, -height * 0.3, 0]
-        lift.keyTimes = [0, 0.32, 0.6, 0.78, 1]
-        lift.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn),
-                                CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
-        lift.duration = 0.62
+        lift.values = [0, 0, -height, 0, -height * 0.3, 0, 0]
+        lift.keyTimes = [0, 0.13, 0.4, 0.62, 0.76, 0.9, 1]
+        lift.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut),
+                                CAMediaTimingFunction(name: .easeIn), CAMediaTimingFunction(name: .easeOut),
+                                CAMediaTimingFunction(name: .easeIn), CAMediaTimingFunction(name: .linear)]
+        lift.duration = duration
         lift.isAdditive = true
         hopper.add(lift, forKey: "hop")
         let squash = CAKeyframeAnimation(keyPath: "transform")
-        squash.values = [squashed(0), squashed(-0.12), squashed(0), squashed(0.14), squashed(0), squashed(0.06), squashed(0)]
+        squash.values = [squashed(0), squashed(0.13), squashed(-0.16), squashed(0), squashed(0.16), squashed(-0.07),
+                         squashed(0.02), squashed(0.08), squashed(-0.02), squashed(0)]
             .map { NSValue(caTransform3D: $0) }
-        squash.keyTimes = [0, 0.12, 0.3, 0.62, 0.72, 0.84, 1]
-        squash.duration = 0.62
+        squash.keyTimes = [0, 0.12, 0.19, 0.4, 0.62, 0.69, 0.76, 0.9, 0.95, 1]
+        squash.duration = duration
         squasher.add(squash, forKey: "squash")
+        decor.followThrough(beginTime: CACurrentMediaTime(), duration: duration, lift: height,
+                            keyTimes: [0, 0.13, 0.25, 0.45, 0.66, 0.78, 1])
     }
 
     /// The robot's antenna bulb goes dark while it sleeps and lights again as
@@ -851,35 +911,36 @@ final class NotchMascotRig: NSObject {
         }
         glowBulb(for: reaction.length)
         decor.flourish(reaction, reduceMotion: reduceMotion)
+        // Every reaction pulls its own face, mouth and all.
+        let face = reaction.face
         guard !reduceMotion else {
+            let duration: TimeInterval
             switch reaction {
-            case .celebrate, .wakeUp: flashFace(.happy, duration: 1)
-            case .love: flashFace(.love, duration: 1.2)
-            case .surprised, .flash: flashFace(.surprised, duration: 0.8)
-            case .confused: flashFace(.confused, duration: 1.1)
-            case .yawn, .hush: flashFace(.sleepy, duration: 1.1)
-            case .perk, .bounce: flashFace(.alert, duration: 1)
-            case .ready: flashFace(.determined, duration: 1)
-            case .groove: flashFace(.happy, duration: 1.4)
-            case .sweat: flashFace(.determined, duration: 1.3)
-            case .panic: flashFace(.surprised, duration: 1.1)
-            case .relax, .sip, .wave: flashFace(.happy, duration: reaction.length - 0.1)
-            case .peek, .lookAround: flashFace(.searching, duration: reaction.length - 0.1)
+            case .celebrate, .wakeUp, .perk, .bounce, .ready: duration = 1
+            case .love: duration = 1.2
+            case .surprised, .flash: duration = 0.8
+            case .confused, .yawn, .hush, .panic: duration = 1.1
+            case .groove: duration = 1.4
+            case .sweat: duration = 1.3
+            case .relax, .sip, .wave, .peek, .lookAround: duration = reaction.length - 0.1
             }
+            // Awake again, it shows the glad face rather than the yawn.
+            flashFace(reaction == .wakeUp ? NotchMascotMood.happy.expression : face, duration: duration)
             return
         }
         switch reaction {
         case .celebrate:
             hop(height: lift)
-            flashFace(.happy, duration: 1)
+            flashFace(face, duration: 1)
         case .love:
-            flashFace(.love, duration: 1.4)
+            flashFace(face, duration: 1.4)
             heartbeat(beginTime: now + 0.22)
         case .surprised:
-            flashFace(.surprised, duration: 0.9)
+            flashFace(face, duration: 0.9)
             hop(height: lift * 0.7)
         case .flash:
             // Squeezed shut, then wide open, as a camera's flash goes off.
+            flashFace(face, duration: 0.5)
             let blink = CAKeyframeAnimation(keyPath: "transform.scale.y")
             blink.values = [1, 0.06, 0.06, 1.18, 1]
             blink.keyTimes = [0, 0.18, 0.42, 0.7, 1]
@@ -888,7 +949,7 @@ final class NotchMascotRig: NSObject {
             pop()
             pauseBlinking(for: 0.5, from: nil)
         case .confused:
-            flashFace(.confused, duration: 1.2)
+            flashFace(face, duration: 1.2)
             wobble()
         case .wakeUp:
             // Heavy eyes, a stretch, and a glad face. A robot's bulb lights
@@ -897,19 +958,19 @@ final class NotchMascotRig: NSObject {
                 setMood(.idle, animated: false)
                 relightBulb(after: 0.35)
             }
-            flashFace(.sleepy, duration: 0.7)
+            flashFace(face, duration: 0.7)
             stretch(beginTime: now + 0.35, duration: 0.6)
             flashFace(.happy, duration: 0.9, beginTime: now + 0.7, key: "flashAfter")
         case .yawn:
-            flashFace(.sleepy, duration: 1.2)
+            flashFace(face, duration: 1.2)
             stretch(beginTime: now + 0.1, duration: 0.9)
         case .perk:
-            flashFace(.alert, duration: 1)
+            flashFace(face, duration: 1)
             hop(height: lift * 0.55)
         case .bounce:
             // Time to go: two quick hops, the second lower, and a small
             // rebound, squashing as it lands and stretching to leave again.
-            flashFace(.alert, duration: reaction.length)
+            flashFace(face, duration: reaction.length)
             let height = max(1, lift * 0.6)
             let bounce = CAKeyframeAnimation(keyPath: "transform.translation.y")
             bounce.values = [0, -height, 0, -height * 0.7, 0, -height * 0.15, 0]
@@ -926,7 +987,8 @@ final class NotchMascotRig: NSObject {
             squash.duration = 0.95
             squasher.add(squash, forKey: "squash")
         case .hush:
-            // Eyes shut for a moment as it ducks, then back.
+            // Eyes shut and lips pursed for a moment as it ducks, then back.
+            flashFace(face, duration: 0.95)
             let shut = CAKeyframeAnimation(keyPath: "transform.scale.y")
             shut.values = [1, 0.1, 0.1, 1]
             shut.keyTimes = [0, 0.22, 0.78, 1]
@@ -940,7 +1002,7 @@ final class NotchMascotRig: NSObject {
             squasher.add(duck, forKey: "duck")
             pauseBlinking(for: 1, from: nil)
         case .ready:
-            flashFace(.determined, duration: 1)
+            flashFace(face, duration: 1)
             // A nod: down a little, up past where it was, and settled.
             let nod = CAKeyframeAnimation(keyPath: "transform")
             nod.values = [squashed(0), squashed(0.1), squashed(-0.06), squashed(0)].map { NSValue(caTransform3D: $0) }
@@ -951,7 +1013,7 @@ final class NotchMascotRig: NSObject {
         case .groove:
             // It hears the music: smiling eyes, a bob on every beat and a
             // lean one way and the other, landing a little squashed.
-            flashFace(.happy, duration: reaction.length)
+            flashFace(face, duration: reaction.length)
             let beats = 4
             let height = max(1, lift * 0.45)
             var heights: [CGFloat] = [], leans: [CGFloat] = [], squashes: [CATransform3D] = []
@@ -985,8 +1047,8 @@ final class NotchMascotRig: NSObject {
             land.duration = reaction.length
             squasher.add(land, forKey: "squash")
         case .sweat:
-            // Hard at work: a set face and a panting rise and fall.
-            flashFace(.determined, duration: reaction.length)
+            // Hard at work: gritted teeth, a drop of sweat and a panting rise and fall.
+            flashFace(face, duration: reaction.length)
             let pant = CAKeyframeAnimation(keyPath: "transform")
             pant.values = [squashed(0), squashed(0.07), squashed(0), squashed(0.07), squashed(0)]
                 .map { NSValue(caTransform3D: $0) }
@@ -994,8 +1056,8 @@ final class NotchMascotRig: NSObject {
             pant.duration = reaction.length
             squasher.add(pant, forKey: "squash")
         case .panic:
-            // Too hot: wide eyes, a little jump and a shiver.
-            flashFace(.surprised, duration: reaction.length)
+            // Too hot: a scream of a face, a little jump and a shiver.
+            flashFace(face, duration: reaction.length)
             hop(height: lift * 0.4)
             let shiver = CAKeyframeAnimation(keyPath: "transform.translation.x")
             shiver.values = (0...10).map { step -> CGFloat in
@@ -1007,7 +1069,7 @@ final class NotchMascotRig: NSObject {
             squasher.add(shiver, forKey: "shiver")
         case .relax:
             // The load is gone: a breath in, and a long happy sigh.
-            flashFace(.happy, duration: reaction.length)
+            flashFace(face, duration: reaction.length)
             let sigh = CAKeyframeAnimation(keyPath: "transform")
             sigh.values = [squashed(0), squashed(-0.09), squashed(-0.09), squashed(0.1), squashed(0)]
                 .map { NSValue(caTransform3D: $0) }
@@ -1018,7 +1080,7 @@ final class NotchMascotRig: NSObject {
             squasher.add(sigh, forKey: "squash")
         case .sip:
             // Head back a little for the sip, eyes shut happily.
-            flashFace(.happy, duration: reaction.length - 0.3, beginTime: now + 0.3)
+            flashFace(face, duration: reaction.length - 0.3, beginTime: now + 0.3)
             let back = CAKeyframeAnimation(keyPath: "transform.rotation.z")
             back.values = [0, -0.1, -0.1, 0]
             back.keyTimes = [0, 0.35, 0.7, 1]
@@ -1027,7 +1089,7 @@ final class NotchMascotRig: NSObject {
             tilter.add(back, forKey: "wobble")
         case .peek:
             // A lean and a look up toward the network arrows in the menu bar.
-            flashFace(.alert, duration: reaction.length)
+            flashFace(face, duration: reaction.length)
             attend(to: CGPoint(x: 0.1, y: -0.05), hold: reaction.length - 0.5)
             let lean = CAKeyframeAnimation(keyPath: "transform.rotation.z")
             lean.values = [0, 0.12, 0.12, 0]
@@ -1036,7 +1098,7 @@ final class NotchMascotRig: NSObject {
             lean.isAdditive = true
             tilter.add(lean, forKey: "wobble")
         case .wave:
-            flashFace(.happy, duration: reaction.length)
+            flashFace(face, duration: reaction.length)
             let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
             sway.values = [0, 0.1, -0.06, 0.1, 0]
             sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
@@ -1044,7 +1106,9 @@ final class NotchMascotRig: NSObject {
             sway.isAdditive = true
             tilter.add(sway, forKey: "wobble")
         case .lookAround:
-            // One way, the other way, and back, its head turning a little with its eyes.
+            // One way, the other way, and back, its head turning a little
+            // with its eyes, and a doubtful brow.
+            flashFace(face, duration: reaction.length)
             let look = CAKeyframeAnimation(keyPath: "transform.translation.x")
             look.values = [0, -size * 0.09, -size * 0.09, size * 0.09, size * 0.09, 0]
             look.keyTimes = [0, 0.15, 0.4, 0.55, 0.85, 1]
@@ -1066,8 +1130,15 @@ final class NotchMascotRig: NSObject {
     /// changing the face it keeps.
     private func flashFace(_ mood: NotchMascotMood, duration: TimeInterval, beginTime: CFTimeInterval? = nil,
                            key: String = "flash") {
-        let expression = mood.expression
+        flashFace(mood.expression, duration: duration, beginTime: beginTime, key: key)
+    }
+
+    /// Shows `expression` for a moment, its mouth, brows and marks too, and
+    /// comes back to its own face.
+    private func flashFace(_ expression: NotchMascotExpression, duration: TimeInterval, beginTime: CFTimeInterval? = nil,
+                           key: String = "flash") {
         let own = self.mood.expression
+        features.flash(expression, duration: duration, beginTime: beginTime, key: key)
         for (layer, eye, base, right) in [(leftEye, expression.left, own.left, false), (rightEye, expression.right, own.right, true)] {
             let face = CAKeyframeAnimation(keyPath: "path")
             let back = eyePath(base, right: right), to = eyePath(eye, right: right)
@@ -1272,17 +1343,69 @@ final class NotchMascotRig: NSObject {
         root.add(flip, forKey: "flip")
     }
     /// Lands from a fall: squashed flat for an instant, more the harder it
-    /// came down, from 0 to 1.
+    /// came down, from 0 to 1, then up past round and back, wobbling still.
     func land(impact: CGFloat) {
         guard size > 0, !reduceMotion else { return }
         let amount = min(0.35, max(0.08, impact * 0.35))
         let squash = CAKeyframeAnimation(keyPath: "transform")
-        squash.values = [squashed(0), squashed(amount), squashed(-amount * 0.4), squashed(0)].map { NSValue(caTransform3D: $0) }
-        squash.keyTimes = [0, 0.25, 0.6, 1]
+        squash.values = [squashed(0), squashed(amount), squashed(-amount * 0.45), squashed(amount * 0.18),
+                         squashed(-amount * 0.06), squashed(0)].map { NSValue(caTransform3D: $0) }
+        squash.keyTimes = [0, 0.18, 0.45, 0.68, 0.85, 1]
         squash.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut),
+                                  CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut),
                                   CAMediaTimingFunction(name: .easeOut)]
-        squash.duration = 0.32
+        squash.duration = 0.42
         squasher.add(squash, forKey: "land")
+    }
+
+    /// Stretched along its flight while it is thrown or falls, longer the
+    /// faster it rises or drops, in points a second; nil lets it go round
+    /// again, as it lands or is caught. Called each frame of a flight, it
+    /// only sets a transform, and nothing when the stretch is unchanged.
+    func setFlight(speed: CGFloat?) {
+        guard size > 0 else { return }
+        // In steps of a hundredth, so a steady fall sets nothing new.
+        let amount = reduceMotion ? 0 : (min(0.18, abs(speed ?? 0) / 5000) * 100).rounded() / 100
+        let target = amount > 0 ? squashed(-amount) : CATransform3DIdentity
+        guard !CATransform3DEqualToTransform(squasher.sublayerTransform, target) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        squasher.sublayerTransform = target
+        CATransaction.commit()
+    }
+
+    /// Shows `mood` for `duration` over the face it keeps, and comes back.
+    func show(_ mood: NotchMascotMood, for duration: TimeInterval) {
+        guard size > 0 else { return }
+        if dozed { setMood(.idle, animated: false) }
+        flashFace(mood, duration: duration)
+    }
+
+    /// Dizzy for `duration`: spiral eyes turning round, stars circling its
+    /// head and a woozy mouth, then its own face again.
+    /// Asked again while the eyes still spin, as it is shaken on, they spin
+    /// on without starting over.
+    func daze(for duration: TimeInterval) {
+        show(.dizzy, for: duration)
+        let now = CACurrentMediaTime()
+        guard size > 0, !reduceMotion, !showsSprite,
+              now >= dazeEnds - 0.2 || now + duration > dazeEnds + 1 else { return }
+        dazeEnds = now + duration
+        for (eye, turn) in [(leftEye, CGFloat(1)), (rightEye, CGFloat(-1))] {
+            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+            spin.fromValue = 0
+            spin.toValue = turn * 2 * .pi
+            spin.duration = 0.7
+            spin.repeatDuration = max(0, duration - 0.2)
+            spin.isAdditive = true
+            eye.add(spin, forKey: "daze")
+        }
+    }
+
+    /// The top of its head in the layer it stands in, where a balloon points.
+    var headTop: CGPoint {
+        let origin = CGPoint(x: root.position.x - size / 2, y: root.position.y - size / 2)
+        return CGPoint(x: origin.x + features.head.midX, y: origin.y + features.crown)
     }
 
     // MARK: Blinking
