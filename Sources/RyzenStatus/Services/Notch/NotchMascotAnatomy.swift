@@ -151,13 +151,14 @@ extension NotchMascotCreatures {
                          nose: at(0.50, 0.39), mouth: at(0.50, 0.43))
         // Her hands where they rest: the right one down, the left on her hip.
         case .hologram:
-            return .init(rightHand: at(0.72, 0.69), leftHand: at(0.32, 0.65), floor: 0.90,
-                         leftFoot: 0.43, rightFoot: 0.57, foot: 0.09, torso: box(0.30, 0.45, 0.40, 0.26),
-                         nose: at(0.50, 0.365), mouth: at(0.50, 0.40))
+            return .init(rightHand: at(0.66, 0.648), leftHand: at(0.418, 0.592), floor: 0.895,
+                         leftFoot: 0.4545, rightFoot: 0.5455, foot: 0.07, torso: box(0.34, 0.475, 0.32, 0.245),
+                         nose: at(0.50, 0.375), mouth: at(0.50, 0.405))
+        // Its round hands hang at its sides; its mouth lights up on the glass.
         case .android:
-            return .init(rightHand: at(0.73, 0.69), leftHand: at(0.27, 0.69), floor: 0.885,
-                         leftFoot: 0.445, rightFoot: 0.555, foot: 0.09, torso: box(0.28, 0.45, 0.44, 0.25),
-                         nose: at(0.50, 0.345), mouth: at(0.50, 0.38))
+            return .init(rightHand: at(0.688, 0.67), leftHand: at(0.312, 0.67), floor: 0.865,
+                         leftFoot: 0.457, rightFoot: 0.543, foot: 0.07, torso: box(0.348, 0.458, 0.304, 0.26),
+                         nose: at(0.50, 0.30), mouth: at(0.50, 0.335))
         }
     }
 }

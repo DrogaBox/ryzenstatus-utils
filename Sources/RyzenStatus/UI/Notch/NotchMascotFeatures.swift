@@ -327,7 +327,9 @@ private struct NotchMascotFaceMetrics {
         eye = CGSize(width: face.eyeSize.width * size, height: face.eyeSize.height * size)
         line = max(0.5, eye.width * 0.3)
         let robot = look.style == .robot
-        glows = robot
+        let glow = NotchMascotCreatures.eyeGlow(look)
+        glows = robot || glow != nil
+        if let glow { ink = glow.cgColor }
         if robot {
             ink = look.bodyPalette.light.cgColor
             let parts = NotchMascotGeometry.robot(size: size)

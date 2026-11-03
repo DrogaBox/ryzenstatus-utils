@@ -203,9 +203,14 @@ final class NotchMascotRig: NSObject {
         } else {
             fillMask.path = NotchMascotCreatures.body(look.style, size: size)
                 ?? NotchMascotGeometry.body(look.shape, size: size)
+            // Ink, or a light on glass like the android's.
+            let glow = NotchMascotCreatures.eyeGlow(look)
             for eye in [leftEye, rightEye] {
-                eye.fillColor = NotchMascotColor.ink.cgColor
-                eye.shadowOpacity = 0
+                eye.fillColor = (glow ?? NotchMascotColor.ink).cgColor
+                eye.shadowOpacity = glow == nil ? 0 : 0.9
+                eye.shadowColor = glow?.cgColor
+                eye.shadowRadius = max(0.6, size * 0.035)
+                eye.shadowOffset = .zero
             }
         }
         decor.configure(look: look, size: size, scale: scale)
