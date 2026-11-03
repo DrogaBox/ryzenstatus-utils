@@ -356,8 +356,6 @@ final class NotchService: ObservableObject {
         desktop.cameHome = { [weak self] mood in self?.mascotCameHome(mood) }
         desktop.openSettings = { [weak self] in self?.openCompanionSettings() }
         desktop.openShop = { [weak self] in self?.openCompanionSettings(shop: true) }
-        desktop.neighbor = { [weak self] in self?.mascotFriend.feet }
-        desktop.greetNeighbor = { [weak self] point in self?.mascotFriend.greet(toward: point) }
         return desktop
     }()
     /// The friend picked to live with it: it rests in the closed island on
@@ -368,20 +366,25 @@ final class NotchService: ObservableObject {
         friend.cameHome = { [weak self] _ in self?.mascotFriendCameHome() }
         friend.openSettings = { [weak self] in self?.openCompanionSettings() }
         friend.openShop = { [weak self] in self?.openCompanionSettings(shop: true) }
-        friend.neighbor = { [weak self] in self?.mascotDesktop.feet }
-        friend.greetNeighbor = { [weak self] point in self?.mascotDesktop.greet(toward: point) }
         return friend
     }()
-    /// What the two out on the desktop do together, and between their plays.
-    private lazy var mascotPlay: NotchMascotPlayDirector = {
-        let play = NotchMascotPlayDirector(leader: mascotDesktop, friend: mascotFriend)
-        play.allowed = {
+    /// Everyone out on the desktop: the two of the island and the guests
+    /// that come by, what they play in pairs and all together, and between.
+    private lazy var mascotGang: NotchMascotGang = {
+        let gang = NotchMascotGang(lead: mascotDesktop, friend: mascotFriend)
+        gang.allowed = {
             NotchMascotSupport.friendsPlay() && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 && !ProcessInfo.processInfo.isLowPowerModeEnabled
         }
-        play.music = { NowPlayingService.shared.playback?.isPlaying == true }
-        play.level = { NotchMascotSupport.shownLevel() }
-        return play
+        gang.music = { NowPlayingService.shared.playback?.isPlaying == true }
+        gang.level = { NotchMascotSupport.shownLevel() }
+        gang.canHost = { [weak self] in
+            guard let self else { return false }
+            return self.running && !self.suspended && self.panel != nil
+        }
+        gang.openSettings = { [weak self] in self?.openCompanionSettings() }
+        gang.openShop = { [weak self] in self?.openCompanionSettings(shop: true) }
+        return gang
     }()
     /// The friend is out on the desktop, and its wing rests without it.
     @Published private(set) var mascotFriendOut = false
@@ -1389,6 +1392,8 @@ final class NotchService: ObservableObject {
             if mascotEnabled { mascotDesktop.goHome() } else { mascotDesktop.dismiss(); mascotOnDesktop = false }
         }
         if !mascotEnabled { dismissMascotFriend() }
+        // Guests come by while the companion may roam the desktop at all.
+        mascotGang.sync()
         refreshPresentation(animated: (mascotToggled || hidingToggled) && !expanded)
         syncMascotVisits()
         syncMascotSide()
@@ -1487,6 +1492,8 @@ final class NotchService: ObservableObject {
             mascotOnDesktop = false
         }
         dismissMascotFriend()
+        mascotGang.dismissGuests()
+        mascotGang.sync()
         commandBarHeight = nil
         if showingCommandBar {
             showingCommandBar = false
@@ -5623,7 +5630,7 @@ extension NotchService {
         // The friend was already out: now that both are, their first play comes
         // before long, and the friend is no longer alone out there.
         if mascotFriendOut {
-            mascotPlay.cameOut()
+            mascotGang.cameOut()
             mascotFriendWork?.cancel(); mascotFriendWork = nil
         }
         // On a walk of its own its friend comes along, and pulled out too
@@ -5654,7 +5661,7 @@ extension NotchService {
         guard !mascotFriendOut, NotchMascotSupport.roamsDesktop(), let look = NotchMascotSupport.desktopFriend(),
               let rest = mascotFriendEntrance() else { return }
         mascotFriendTagsAlong = tagsAlong
-        mascotPlay.cameOut()
+        mascotGang.cameOut()
         mutatePresentation { mascotFriendOut = true }
         mascotFriend.comeOut(from: rest.center, fromSize: rest.size, look: look, mood: mascotRestingMood,
                              grabbedAt: pointer, hop: mascotSide.other == .left ? -1 : 1)
@@ -5679,7 +5686,7 @@ extension NotchService {
 
     /// The friend landed back in its wing.
     private func mascotFriendCameHome() {
-        mascotPlay.wentIn()
+        mascotGang.wentIn()
         mascotFriendTagsAlong = false
         mutatePresentation { mascotFriendOut = false }
     }
@@ -5688,14 +5695,14 @@ extension NotchService {
     /// left out on the desktop on its own: the friend follows the companion
     /// home, or the companion the friend.
     func dismissBothToIsland() {
-        mascotPlay.cancel()
+        mascotGang.cancel()
         mascotFriendWork?.cancel(); mascotFriendWork = nil
         if mascotOnDesktop { mascotDesktop.goHome() }
         if mascotFriendOut { mascotFriend.goHome() }
     }
 
     private func dismissMascotFriend() {
-        mascotPlay.wentIn()
+        mascotGang.wentIn()
         mascotFriendWork?.cancel(); mascotFriendWork = nil
         mascotFriendTagsAlong = false
         mascotFriend.dismiss()
@@ -5978,7 +5985,7 @@ extension NotchService {
     /// the island has no room for it just then.
     private func mascotCameHome(_ homecoming: NotchMascotMood) {
         guard mascotOnDesktop else { return }
-        mascotPlay.wentIn()
+        mascotGang.wentIn()
         // A friend that came along on its walk follows it in.
         mascotFriendWork?.cancel(); mascotFriendWork = nil
         // ... and so does one pulled out on its own: it is not left out there alone.
@@ -6021,7 +6028,7 @@ extension NotchService {
         if mascotOnDesktop || mascotFriendOut {
             let dancing = NowPlayingService.shared.playback?.isPlaying == true
                 && UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotDances)
-            mascotPlay.syncMusic(dancing: dancing)
+            mascotGang.syncMusic(dancing: dancing)
         }
         guard mascotOnDesktop else { return }
         mascotDesktop.configure(look: NotchMascotSupport.look(), mood: mascotRestingMood)
@@ -6378,7 +6385,7 @@ extension NotchService {
         // Something it reacted to is a moment shared; its own celebrations are not.
         if countsAsMoment { NotchMascotBondStore.shared.record(.moment) }
         // A friend out on the desktop answers it there, a moment later.
-        if mascotFriendOut { mascotPlay.echo(reaction) }
+        mascotGang.echo(reaction)
         // Out on the desktop, it plays it where it stands.
         if mascotOnDesktop {
             if mascotReactionGate.admits(reaction, at: CACurrentMediaTime()) { mascotDesktop.react(reaction) }
