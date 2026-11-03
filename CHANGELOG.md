@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.76.0] — 2026-11-02 — kexts 3.40.0 (No kext changes)
+
+**The companions get a gang.** The desktop is no longer a place for two: other companions drop by, meet each other and play together, every face can now pull a real cartoon expression, and there is a lot more to do with them.
+
+### Added
+
+- **Visits from other companions**: now and then another companion drops in on your desktop, of a different kind, with its own colours and something to wear, and stays a few minutes before it heads off. Each one arrives and leaves in its own way. Up to six can be out together. The companion settings have a new **Visits** choice (off, rare, normal, frequent; rare by default) and how many may visit at once (one to four). Visits pause under Reduce Motion and Low Power Mode. Right-click a visitor to ask it to stay longer, give it a treat or say goodbye.
+- **Personalities and friendships**: every visitor has a temperament of its own (shy, show-off, glutton, grumpy, prankster or sleepy) that shows in how it walks, what it likes to play and how it reacts. Companions remember how they get on: some become friends, some rivals, and some get a little shy around each other.
+- **Group play**: with three or more out, the gang plays together: a conga line, a human pyramid, a band where each plays what it holds, a football match with a referee, a campfire at night, a choir, a group photo, a stadium wave, a dance circle, a pile-up nap, hide and seek, a parade, a pillow fight, the telephone game, a picnic, snowball fights in winter, a surprise party on your birthday and more. What they wear together decides some of them. Yawns, sneezes, laughs and frights spread from one to the next, and when one falls off a window the others run to catch it.
+- **Real cartoon faces**: companions now have mouths, brows and the marks of a cartoon: red cheeks, a drop of sweat, tears in streams, an angry vein, steam, sparkles, gloom, money in their eyes, stars round a dizzy head. Eleven new moods (angry, smug, embarrassed, crying, starstruck, dizzy, mischievous, disgusted, terrified, bored and greedy) and new eyes to go with them, and every reaction now has a face of its own.
+- **Livelier motion**: a companion crouches before it jumps, stretches on the way up and lands squashed before it bounces back, its ears, tails and props follow a beat behind, and it breathes gently while it rests. Thrown, it stretches with its speed. Comic balloons pop up over it when it is surprised, puzzled, annoyed or very fond of you.
+- **Eight new games in the Play menu**: fetch, the shell game, whack-a-mole, tic-tac-toe, Simon says, bubble pop, draw a path for it to follow, and target practice. Each pays a little gold, with a daily limit, and Esc ends any of them. Other companions out watch and cheer.
+- **Party gear in the shop**: sixteen new things to buy and wear: a drum, a microphone, maracas, a football, a kite, a pillow, a marshmallow on a stick, a water pistol, a confetti cannon, a paper plane, a megaphone, a whistle, a hula hoop, juggling balls, a walkie-talkie and a picnic basket. Each has its own thing to do, and 24 new combos use them, in a new Party family of the combos list.
+
+### Fixed
+
+- **A dizzy companion wobbles as it should**: after a hard landing or a shake, a dizzy companion now sways for the whole spell and then goes on with its day, instead of stopping on the spot.
+
 ## [1.75.3] — 2026-11-01 — kexts 3.40.0 (No kext changes)
 
 ### Changed

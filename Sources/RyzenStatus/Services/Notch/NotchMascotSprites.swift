@@ -188,13 +188,14 @@ enum NotchMascotSpriteChoreography {
     /// doze slows its idle to half.
     static func loop(for mood: NotchMascotMood, in sheet: NotchMascotSpriteSheet) -> (state: NotchMascotSpriteState, speed: Float) {
         switch mood {
-        case .idle, .alert, .wink: return (.idle, 1)
-        case .happy, .love: return (.waving, 1)
+        case .idle, .alert, .wink, .smug, .mischievous: return (.idle, 1)
+        case .happy, .love, .embarrassed, .greedy: return (.waving, 1)
         case .sleepy: return (.idle, 0.45)
-        case .determined: return (.running, 1)
-        case .surprised: return (.jumping, 1)
+        case .bored: return (sheet.waiting, 0.6)
+        case .determined, .angry: return (.running, 1)
+        case .surprised, .starstruck: return (.jumping, 1)
         case .searching, .thinking: return (sheet.thinking, 1)
-        case .confused: return (.failed, 1)
+        case .confused, .crying, .dizzy, .disgusted, .terrified: return (.failed, 1)
         }
     }
 

@@ -50,6 +50,19 @@ final class NotchMascotDesktop: NSObject {
     var openShop: (() -> Void)?
     /// Something rare came by it, for the other companion to see.
     var sawEncounter: ((NotchMascotEncounter) -> Void)?
+    /// How many others out on the desktop would join in what passes by it:
+    /// a queue at the seller's, a chase after the saucer.
+    var crowd: (() -> Int)?
+    /// Where what passes by stops or goes, on its floor, for the others to
+    /// join it there.
+    var encounterSpot: ((NotchMascotEncounter, CGPoint) -> Void)?
+    /// It lost the window it stood on and falls, for the others to catch.
+    var fellOffLedge: (() -> Void)?
+    /// A guest's menu, which its gang keeps; nil keeps its own.
+    var guestMenu: (() -> NSMenu?)?
+    /// How many times its walking pace it wanders at on its own: a sleepy
+    /// guest dawdles, a show-off struts.
+    var gait: CGFloat = 1
 
     private(set) var isOut = false
     /// Counts its outings, so what one scheduled stays with it.
@@ -68,6 +81,9 @@ final class NotchMascotDesktop: NSObject {
         case flying
         case walking(direction: CGFloat, until: CFTimeInterval)
         case homing(from: CGPoint, to: CGPoint, began: CFTimeInterval, duration: TimeInterval, fromScale: CGFloat, toScale: CGFloat)
+        /// Carried along a straight line, its feet from `from` to `to`: under
+        /// a parachute, up a pipe, off on a balloon.
+        case gliding(from: CGPoint, to: CGPoint, began: CFTimeInterval, duration: TimeInterval)
     }
 
     private var panel: NSPanel?
@@ -79,7 +95,7 @@ final class NotchMascotDesktop: NSObject {
     private var look = NotchMascotLook.standard
     /// The look as chosen for it, before any dress-up play puts its own thing on.
     private var baseLook = NotchMascotLook.standard
-    private var mood: NotchMascotMood = .idle
+    private(set) var mood: NotchMascotMood = .idle
     /// The thing it put on by itself while out, and when it last dug into its wardrobe.
     private var dressUpItem: NotchMascotAccessory?
     private var dressUpWork: DispatchWorkItem?
@@ -108,6 +124,9 @@ final class NotchMascotDesktop: NSObject {
     private var shakeTracker = NotchMascotRoam.ShakeTracker()
     private var isDizzy = false
     private var dizzyTimer: DispatchSourceTimer?
+    private var patStreak = NotchMascotPatStreak()
+    /// What the cheats typed lately do to it, and until when.
+    var cheat = NotchMascotCheatState()
 
     /// The window it stands on, and where that window was when last seen.
     private var perch: (window: CGWindowID, frame: CGRect)?
@@ -176,11 +195,16 @@ final class NotchMascotDesktop: NSObject {
     private var leapTarget: (window: CGWindowID, y: CGFloat)?
     private var laserTimer: DispatchSourceTimer?
     private var laserDot: CALayer?
+    /// The yard game under way, which it puts away as the game ends.
+    private(set) var yardPlay: NotchMascotYardPlay?
     private var rosinUntil: CFTimeInterval = -.infinity
     private var lastPrintX: CGFloat?
     /// Its last usable area, for the moment a display change leaves no screen.
     private var lastArea = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private var upsideDown = false
+    /// What runs once a glide ends, and a face it pulls for a moment.
+    private var glideDone: (() -> Void)?
+    private var faceWork: DispatchWorkItem?
     /// One at a time, for both companions, and rare across their outings.
     private static var encounterUnderWay = false
     private static var lastEncounter = CACurrentMediaTime()
@@ -191,11 +215,12 @@ final class NotchMascotDesktop: NSObject {
     private var askedFor = false
     /// With Reduce Motion it does not hop or stroll on its own.
     private var holdsStill: Bool { reduceMotion && !askedFor }
-    private var host: NotchMascotHostView? { stage?.host }
+    var host: NotchMascotHostView? { stage?.host }
 
     init(leads: Bool = true) {
         self.leads = leads
         super.init()
+        NotchMascotYardPlay.enroll(self)
     }
 
     deinit {
@@ -400,7 +425,7 @@ final class NotchMascotDesktop: NSObject {
                                              interval: NotchMascotItemUse.desktopInterval,
                                              chance: NotchMascotItemUse.desktopChance,
                                              random: Double.random(in: 0..<1)),
-              let use = NotchMascotItemUse.of(look.accessory)
+              let use = NotchMascotItemUse.of(look.accessory, style: look.style)
         else { return false }
         useItem(use)
         return true
@@ -480,7 +505,7 @@ final class NotchMascotDesktop: NSObject {
         }
     }
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    private func perform(_ action: NotchMascotItemAction, toward side: CGFloat) {
+    func perform(_ action: NotchMascotItemAction, toward side: CGFloat) {
         guard isOut, !isHoming else { return }
         let energy = NotchMascotPlay.energy(for: look)
         switch action {
@@ -559,9 +584,9 @@ final class NotchMascotDesktop: NSObject {
             // Already paid as the use began (`NotchMascotItemUse.settled`).
             perform(.burst(.coins), toward: side)
             perform(.marker("+\(amount)"), toward: side)
-        case .doze(let length):
+        case .doze(let length), .face(_, let length):
             guard let host else { return }
-            host.mascot.setMood(.sleepy, animated: !reduceMotion)
+            host.mascot.setMood(action.heldMood ?? .sleepy, animated: !reduceMotion)
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.dozeWork = nil
@@ -715,7 +740,7 @@ final class NotchMascotDesktop: NSObject {
         }
     }
     /// Whether the outing under way now is still on, asked later.
-    private var outingLasts: () -> Bool {
+    var outingLasts: () -> Bool {
         let outing = self.outing
         return { [weak self] in self?.isOut == true && self?.outing == outing }
     }
@@ -796,7 +821,8 @@ final class NotchMascotDesktop: NSObject {
         }
         return 4.2
     }
-    /// A saucer comes over, lifts it in its beam and flies off.
+    /// A saucer comes over, lifts it in its beam and flies off. With others
+    /// out to give chase, it takes it along and drops it back a while later.
     private func ufo(on canvas: CALayer) -> TimeInterval {
         let area = self.area(for: body.position)
         let side: CGFloat = Bool.random() ? 1 : -1
@@ -820,6 +846,8 @@ final class NotchMascotDesktop: NSObject {
             self?.face(toward: entry.x)
         }
         encounterStep(after: 2.0) { [weak self] in self?.face(toward: hover.x) }
+        encounterSpot?(.ufo, CGPoint(x: onFloor(exit.x), y: feet.y))
+        if (crowd?() ?? 0) > 0 { return abduction(under: hover, ship: ship, exitX: exit.x) }
         for (index, at) in [2.6, 3.3, 4.0, 4.7].enumerated() {
             encounterStep(after: at) { [weak self] in
                 self?.hop(dx: 0, dy: index == 0 ? 900 : 560)
@@ -832,6 +860,39 @@ final class NotchMascotDesktop: NSObject {
             self?.react(.wave)
         }
         return 9
+    }
+    /// Taken up the beam into the saucer at `hover`, carried off the top of
+    /// the screen out of sight, out of reach of the pointer too, while the
+    /// saucer flies off, and dropped back from the top near `exitX`.
+    private func abduction(under hover: CGPoint, ship: CGFloat, exitX: CGFloat) -> TimeInterval {
+        encounterStep(after: 2.6) { [weak self] in
+            self?.react(.surprised)
+            self?.pullFace(.terrified, for: 2.6)
+            self?.glide(to: CGPoint(x: hover.x, y: hover.y - ship * 0.2), over: 2.3)
+        }
+        encounterStep(after: 4.9) { [weak self] in
+            guard let self, let panel = self.panel else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                panel.animator().alphaValue = 0
+            }
+            // It waits up there unseen while the saucer goes.
+            let above = CGPoint(x: hover.x, y: (self.playScreen?.frame.maxY ?? hover.y) + self.size * 3)
+            self.glide(to: above, over: 0.4) { [weak self] in self?.glide(to: above, over: 30) }
+        }
+        encounterStep(after: 10.4) { [weak self] in
+            guard let self, let panel = self.panel else { return }
+            let area = self.area(for: self.body.position)
+            self.glideDone = nil
+            self.body = NotchMascotRoam.Body(position: CGPoint(x: self.onFloor(exitX), y: area.maxY - self.size),
+                                             velocity: CGVector(dx: 0, dy: -120), airborne: true)
+            self.mode = .flying
+            self.place()
+            panel.alphaValue = 1
+            self.pullFace(.dizzy, for: 3.5)
+            self.resumeTicking()
+        }
+        return 13
     }
     /// At three in the morning, a little ghost floats right through it.
     private func ghost(on canvas: CALayer) -> TimeInterval {
@@ -1059,7 +1120,9 @@ final class NotchMascotDesktop: NSObject {
         let edge = side > 0 ? area.maxX + seller : area.minX - seller
         let fromX = stopX + side * min(abs(edge - stopX), 360)
         let walkIn = TimeInterval(abs(fromX - stopX) / 90)
-        let arrive = walkIn, leave = walkIn + 4.6
+        // The others out queue up behind it, and the seller waits for each.
+        let queue = min(NotchMascotEncounters.queueLength, crowd?() ?? 0)
+        let arrive = walkIn, leave = walkIn + 4.6 + Double(queue) * NotchMascotEncounters.queueTurn
         let duration = leave + walkIn
         NotchMascotEncounterArt.merchant(in: canvas, fromX: onStage(CGPoint(x: fromX, y: 0)).x,
                                          stopX: onStage(CGPoint(x: stopX, y: 0)).x, toX: onStage(CGPoint(x: fromX, y: 0)).x,
@@ -1093,6 +1156,9 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onStage(self.head), size: self.size * 0.9,
                                          energy: NotchMascotPlay.energy(for: self.look))
             self.encounterMarker("+1", on: canvas, at: CGPoint(x: self.head.x, y: self.head.y + self.size * 0.35))
+        }
+        if queue > 0 {
+            later(arrive + 3.9) { [weak self] in self?.encounterSpot?(.merchant, CGPoint(x: stopX, y: feet.y)) }
         }
         encounterStep(after: leave + 0.3) { [weak self] in self?.react(.wave) }
         visitorsLeave = duration
@@ -1534,6 +1600,8 @@ final class NotchMascotDesktop: NSObject {
     private enum Occasion: Equatable {
         case craving(NotchMascotCraving), tantrum, fed, tickled
         case fishing, bite, seeking, laser, game, dance
+        /// A yard game, played by `yardPlay`.
+        case yard
         case show(NotchMascotOccasion)
     }
     private func occasionStep(after delay: TimeInterval, _ block: @escaping () -> Void) {
@@ -1588,6 +1656,11 @@ final class NotchMascotDesktop: NSObject {
             host?.mascot.setUpsideDown(false)
         }
         if occasion == .seeking { endPeek() }
+        if let yard = yardPlay {
+            yardPlay = nil
+            yard.close()
+            endPeek()
+        }
         askedFor = false
         guard occasion != nil else { return }
         occasion = nil
@@ -2083,6 +2156,55 @@ final class NotchMascotDesktop: NSObject {
         occasion = .game
         NotchMascotBondStore.shared.record(.moment)
         finishOccasion(after: 3)
+    }
+    // Yard games, played by `NotchMascotYardPlay`.
+    /// Takes `play` up as what it is busy with: it stops a walk and its
+    /// plans, wakes, comes down off any window onto the floor, stays out
+    /// and moves for the game even with Reduce Motion. False when it cannot now.
+    func beginYard(_ play: NotchMascotYardPlay) -> Bool {
+        guard beginOccasion(.yard) != nil else { return false }
+        excursionWork?.cancel(); excursionWork = nil
+        lastTouched = CACurrentMediaTime()
+        askedFor = true
+        yardPlay = play
+        host?.mascot.wake(animated: true)
+        if play.ownsClicks { panel?.ignoresMouseEvents = true }
+        if perch != nil {
+            perch = nil
+            body.airborne = true
+            mode = .flying
+            resumeTicking()
+        }
+        return true
+    }
+    /// The game is over: it goes on with its own life `delay` seconds from now.
+    func endYard(after delay: TimeInterval) {
+        guard occasion == .yard else { return }
+        finishOccasion(after: delay)
+    }
+    /// Its feet on screen wherever it is, and the part of its body that shows.
+    var yardFeet: CGPoint { body.position }
+    var yardFigure: CGRect { shownFigureFrame }
+    /// It stops a walk where it is.
+    func yardStand() {
+        guard isWalking else { return }
+        setRun(nil)
+        mode = .standing
+    }
+    /// Puts on `face` for the game, or its own face again with nil.
+    func yardFace(_ face: NotchMascotMood?) {
+        host?.mascot.setMood(face ?? mood, animated: !reduceMotion)
+    }
+    func yardSpin(turns: CGFloat, duration: TimeInterval) { host?.mascot.spin(turns: turns, duration: duration) }
+    /// Over to `x` along the floor at once, as from one hole to the next.
+    func yardMove(to x: CGFloat) {
+        yardStand()
+        body.position.x = onFloor(x)
+        place()
+    }
+    /// Down into the floor `depth` below its feet, or back up with 0, over `duration`.
+    func yardBurrow(to depth: CGFloat, over duration: TimeInterval, then done: @escaping () -> Void) {
+        sink(to: depth, over: duration, then: done)
     }
     // What the Mac and the calendar bring.
     /// Shows `occasion` where it stands. True when it did.
@@ -2865,6 +2987,113 @@ final class NotchMascotDesktop: NSObject {
         if host.dances != dances { host.dances = dances }
     }
 
+    // MARK: Visiting
+
+    /// Out on the desktop without coming from the island, as a guest of the
+    /// gang does: its feet at `feet` on screen, standing, or flying off from
+    /// there at `velocity`. It fades in over `fadeIn` and grows from
+    /// `growFrom` times its size, then lives as when it hops out.
+    func arrive(at feet: CGPoint, look: NotchMascotLook, mood: NotchMascotMood, velocity: CGVector? = nil,
+                fadeIn: TimeInterval = 0.3, growFrom: CGFloat = 1) {
+        guard !isOut else { return }
+        isOut = true
+        outing += 1
+        configure(look: look, mood: mood)
+        guard let panel, let host else { return }
+        staysPut = false
+        thrown = false
+        samples.removeAll()
+        // What it does on its own waits a little longer than for one of the
+        // island's: a guest looks about first.
+        let now = CACurrentMediaTime()
+        lastItemUse = now - NotchMascotItemUse.desktopInterval + 40
+        lastCraving = now - NotchMascotCravings.interval + 150
+        lastFishing = now - NotchMascotFishing.interval + 200
+        lastSolo = now - NotchMascotSoloDance.interval + 60
+        lastTouched = now
+        lastArea = area(for: feet)
+        body = NotchMascotRoam.Body(position: feet, velocity: velocity ?? .zero, airborne: velocity != nil)
+        mode = velocity == nil ? .standing : .flying
+        place()
+        let fades = fadeIn > 0 && !reduceMotion
+        panel.alphaValue = fades ? 0 : 1
+        panel.orderFrontRegardless()
+        if fades {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = fadeIn
+                panel.animator().alphaValue = 1
+            }
+        }
+        if growFrom != 1 { host.scale(from: growFrom, to: 1, duration: reduceMotion ? 0 : 0.35) }
+        installMonitors()
+        if velocity == nil { planNext(after: 2) } else { resumeTicking() }
+    }
+
+    /// Carried in a straight line until its feet are at `feet`, over
+    /// `duration`, stepping as it goes when the line runs along the floor.
+    /// It stands where the line ends on the floor and falls from anywhere
+    /// else, and `done` runs then, unless something takes it first.
+    func glide(to feet: CGPoint, over duration: TimeInterval, then done: (() -> Void)? = nil) {
+        guard isOut, !isHoming, press == nil else { return }
+        planWork?.cancel(); planWork = nil
+        let from = body.position
+        if abs(feet.y - from.y) < 1, abs(feet.x - from.x) > 1 { setRun(feet.x > from.x ? 1 : -1) } else { setRun(nil) }
+        body.velocity = .zero
+        body.airborne = true
+        glideDone = done
+        mode = .gliding(from: from, to: feet, began: CACurrentMediaTime(), duration: max(0.05, duration))
+        resumeTicking()
+    }
+
+    private func finishGlide() {
+        setRun(nil)
+        let done = glideDone
+        glideDone = nil
+        let area = self.area(for: body.position)
+        if abs(body.position.y - area.minY) <= 1 {
+            body.position.y = area.minY
+            body.airborne = false
+            mode = .standing
+            planNext(after: 1.5)
+        } else {
+            body.airborne = true
+            mode = .flying
+        }
+        done?()
+    }
+
+    /// Gone without going home: it shrinks to `shrinkTo` of its size and
+    /// fades over `duration`, then is in as when dismissed, and `done` runs.
+    func depart(over duration: TimeInterval, shrinkTo: CGFloat = 1, then done: (() -> Void)? = nil) {
+        guard isOut, let panel, let host else { done?(); return }
+        let outing = self.outing
+        planWork?.cancel(); planWork = nil
+        guard !reduceMotion, duration > 0 else { dismiss(); done?(); return }
+        if shrinkTo != 1 { host.scale(from: 1, to: shrinkTo, duration: duration) }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            if self.outing == outing { self.dismiss() }
+            done?()
+        })
+    }
+
+    /// Pulls `face` for `duration`, then goes back to the mood it wears.
+    func pullFace(_ face: NotchMascotMood, for duration: TimeInterval) {
+        guard isOut, let host, !napping else { return }
+        faceWork?.cancel()
+        host.mascot.setMood(face, animated: !reduceMotion)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let host = self.host else { return }
+            self.faceWork = nil
+            host.mascot.setMood(self.napping ? .sleepy : self.mood, animated: !self.reduceMotion)
+        }
+        faceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
+
     // MARK: Going home
 
     private var isHoming: Bool {
@@ -2983,7 +3212,7 @@ final class NotchMascotDesktop: NSObject {
 
     @objc private func tick(_ link: CADisplayLink) {
         let now = CACurrentMediaTime()
-        let dt = now - lastTick
+        let dt = (now - lastTick) * cheatPace
         lastTick = now
         switch mode {
         case .standing, .held:
@@ -2997,14 +3226,20 @@ final class NotchMascotDesktop: NSObject {
             let scale = fromScale + (toScale - fromScale) * t
             placeFigure(center: NotchMascotRoam.homeArc(from: from, to: to, at: t), scale: scale)
             if t >= 1 { finishHome(fading: false) }
+        case .gliding(let from, let to, let began, let duration):
+            let t = CGFloat(min(1, (now - began) / max(0.01, duration)))
+            body.position = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            place()
+            if t >= 1 { finishGlide() }
         }
     }
 
     private func fly(by dt: TimeInterval) {
         if body.airborne { checkTrampoline() }
-        let area = self.area(for: body.position)
+        let area = cheatArea(self.area(for: body.position), body: &body)
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
-                                          ledges: inPlay ? [] : currentLedges())
+                                          ledges: inPlay || yardPlay != nil || cheatPassesThrough ? [] : currentLedges(),
+                                          gravityScale: cheatGravity)
         place()
         if body.airborne, leaping { catchEdge() }
         if !body.airborne {
@@ -3016,15 +3251,17 @@ final class NotchMascotDesktop: NSObject {
             host?.mascot.lean(NotchMascotRoam.lean(forSpeed: body.velocity.dx))
             setRun(abs(body.velocity.dx) >= NotchMascotRoam.runSpeed ? body.velocity.dx : nil)
         }
+        // Stretched along its flight, round again on the ground.
+        host?.mascot.setFlight(speed: body.airborne ? body.velocity.dy : nil)
         for event in events {
             switch event {
             case .landed(let impact):
                 host?.mascot.land(impact: impact / 2000)
                 host?.mascot.lean(0)
-                if impact >= NotchMascotRoam.dizzySpeed { react(.confused); thrown = false; landedHard?() }
+                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .bumped(let speed):
                 host?.mascot.land(impact: speed / 3000)
-                if speed >= NotchMascotRoam.dizzySpeed { react(.confused); thrown = false; landedHard?() }
+                if speed >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
                 dropped = false
@@ -3156,6 +3393,7 @@ final class NotchMascotDesktop: NSObject {
             planNext(after: NotchMascotReaction.lookAround.length + 3)
         case .walk(let direction, let duration):
             guard !still, walkway.map({ $0.width > size * figureAspect + 12 }) ?? true else { planNext(after: 8); return }
+            pace = gait
             mode = .walking(direction: direction, until: CACurrentMediaTime() + duration)
             setRun(direction)
             resumeTicking()
@@ -3195,7 +3433,7 @@ final class NotchMascotDesktop: NSObject {
         let wanted = direction.map { $0 > 0 ? CGFloat(1) : CGFloat(-1) }
         guard wanted != runDirection else { return }
         runDirection = wanted
-        host?.mascot.setStride(toward: wanted)
+        host?.mascot.setStride(toward: cheatStride(wanted))
     }
 
     // MARK: Windows
@@ -3304,6 +3542,7 @@ final class NotchMascotDesktop: NSObject {
                     mode = .standing
                 }
                 host?.mascot.react(.surprised, lift: 0)
+                emote(.exclaim)
             }
             rideMoved = now
             host?.mascot.lean(NotchMascotRoam.lean(forSpeed: dx * 30))
@@ -3350,6 +3589,7 @@ final class NotchMascotDesktop: NSObject {
         mode = .flying
         react(.surprised)
         resumeTicking()
+        fellOffLedge?()
     }
 
     /// A window dragged up close beside it is a ride: it jumps on.
@@ -3600,6 +3840,7 @@ final class NotchMascotDesktop: NSObject {
         cancelWindowPlans()
         cancelItemUse()
         endEncounter()
+        host?.mascot.setFlight(speed: nil)
         if inPlay { interrupted?() }
         // Played with, it is no longer on a walk of its own: it stays out.
         excursionWork?.cancel(); excursionWork = nil
@@ -3631,9 +3872,11 @@ final class NotchMascotDesktop: NSObject {
         if mode != .held {
             mode = .held
             host?.mascot.react(.surprised, lift: 0)
+            emote(.exclaim)
         }
         if shakeTracker.isDizzy {
-            host?.mascot.react(.confused, lift: 0)
+            host?.mascot.daze(for: 1.2)
+            emote(.question)
         }
         body.position = clampedToScreens(CGPoint(x: point.x + grabOffset.dx, y: point.y + grabOffset.dy))
         body.velocity = .zero
@@ -3674,9 +3917,10 @@ final class NotchMascotDesktop: NSObject {
         thrown = hypot(velocity.dx, velocity.dy) > 600
         dropped = true
         mode = .flying
-        if shaken {
+        if thrown { emote(.interrobang) }
+        if shaken, !cheatInvulnerable {
             isDizzy = true
-            react(.confused)
+            host?.mascot.daze(for: 1)
         }
         resumeTicking()
     }
@@ -3691,6 +3935,11 @@ final class NotchMascotDesktop: NSObject {
         patFlip.toggle()
         host.mascot.wake(animated: true)
         react(patFlip ? .celebrate : .wave)
+        if let said = patStreak.note(at: now) {
+            emote(said)
+            // Patted on and on, it has had enough.
+            if said == .anger { host.mascot.show(.angry, for: 1.2) }
+        }
         patted?()
         if NotchSupport.usesHapticFeedback() {
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
@@ -3701,10 +3950,18 @@ final class NotchMascotDesktop: NSObject {
         host.mascot.showPetted(gained: gained)
     }
 
-    private func stumbleDizzy() {
+    /// Down hard enough to see stars: a curse and a dizzy face as it lands,
+    /// and the dizzy spell once it comes to rest.
+    private func landDizzy() {
         isDizzy = true
+        host?.mascot.daze(for: 1)
+        emote(.curse)
+    }
+    private func stumbleDizzy() {
         cancelDizzy()
-        react(.confused)
+        isDizzy = true
+        // Spiral eyes and stars round its head for the whole spell.
+        host?.mascot.daze(for: 2.4)
         if NotchSupport.usesHapticFeedback() {
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
         }
@@ -3747,6 +4004,7 @@ final class NotchMascotDesktop: NSObject {
     }
 
     fileprivate func menu() -> NSMenu {
+        if let guest = guestMenu?() { return guest }
         let text = FeatureStrings.notchMascotDesktop(L10n.shared.language)
         let menu = NSMenu()
         let shop = NSMenuItem(title: FeatureStrings.notchMascotShop(L10n.shared.language).title + "…",
@@ -3797,6 +4055,8 @@ final class NotchMascotDesktop: NSObject {
             entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        yardGameItems().forEach(menu.addItem)
         item.submenu = menu
         return item
     }
@@ -3866,7 +4126,8 @@ final class NotchMascotDesktop: NSObject {
     private func pointerMoved(_ point: CGPoint) {
         guard isOut, let panel, let host else { return }
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
-        let over = figure.contains(point)
+        // A yard game that takes every click keeps it out of the pointer's way.
+        let over = figure.contains(point) && yardPlay?.ownsClicks != true
         // Mid-play it still takes a grab, which ends the play (see `pressBegan`).
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         guard !inPlay, !isHoming, mode != .held else { return }

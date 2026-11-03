@@ -17,6 +17,15 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
     case xyzzy
     /// Its echo in the same old cave: the Mac's and the calendar's moments, one by one.
     case plugh
+    /// The whole gang is called out, and confetti flies. Spelled "partyhard",
+    /// since "party" alone turns up in ordinary typing.
+    case party
+    /// Big-head mode, a good while.
+    case bighead
+    /// Falling green code, and slow motion a while.
+    case thereisnospoon
+    /// Low gravity a while, and a walk backwards that slides.
+    case moonwalk
 
     var badge: String {
         switch self {
@@ -28,6 +37,10 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .motherlode: return "💸 +10,000 GOLD"
         case .xyzzy: return "✨ SOMETHING STIRS"
         case .plugh: return "🪄 A HOLLOW VOICE"
+        case .party: return "🎉 PARTY TIME"
+        case .bighead: return "🎈 BIG HEAD MODE"
+        case .thereisnospoon: return "🥄 THERE IS NO SPOON"
+        case .moonwalk: return "🌙 MOONWALK"
         }
     }
 
@@ -41,6 +54,47 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .motherlode: return .coin
         case .xyzzy: return .magic
         case .plugh: return .chime
+        case .party: return .toot
+        case .bighead: return .boing
+        case .thereisnospoon: return .bleep
+        case .moonwalk: return .warble
+        }
+    }
+    /// What is heard as its banner comes in: its own sound, then an arcade
+    /// flourish of its own, one sound a moment after the other.
+    var fanfare: [(effect: NotchMascotSoundEffect, at: TimeInterval)] {
+        let flourish: [NotchMascotSoundEffect]
+        switch self {
+        case .konami: flourish = [.coin, .chime, .magic, .bleep]
+        case .idkfa: flourish = [.boom, .clash, .zap, .boom]
+        case .iddqd: flourish = [.chime, .magic, .chime, .alert]
+        case .idclip: flourish = [.whoosh, .warble, .poof]
+        case .roll: flourish = [.whoosh, .boing, .whoosh]
+        case .motherlode: flourish = [.chime, .coin, .chime, .coin]
+        case .xyzzy: flourish = [.chime, .warble, .magic]
+        case .plugh: flourish = [.hoot, .warble, .chime]
+        case .party: flourish = [.pop, .giggle, .pop, .toot]
+        case .bighead: flourish = [.squeak, .boing, .giggle]
+        case .thereisnospoon: flourish = [.warble, .whoosh, .bleep]
+        case .moonwalk: flourish = [.whoosh, .chirp, .warble]
+        }
+        return ([soundEffect] + flourish).enumerated().map { (effect: $0.element, at: Double($0.offset) * 0.17) }
+    }
+    /// The colour its banner glows in.
+    var glow: NSColor {
+        switch self {
+        case .konami: return NSColor(srgbRed: 0.3, green: 1, blue: 0.45, alpha: 1)
+        case .idkfa: return NSColor(srgbRed: 1, green: 0.42, blue: 0.2, alpha: 1)
+        case .iddqd: return NSColor(srgbRed: 1, green: 0.84, blue: 0.3, alpha: 1)
+        case .idclip: return NSColor(srgbRed: 0.6, green: 0.85, blue: 1, alpha: 1)
+        case .roll: return NSColor(srgbRed: 0.35, green: 0.65, blue: 1, alpha: 1)
+        case .motherlode: return NSColor(srgbRed: 1, green: 0.8, blue: 0.2, alpha: 1)
+        case .xyzzy: return NSColor(srgbRed: 0.75, green: 0.5, blue: 1, alpha: 1)
+        case .plugh: return NSColor(srgbRed: 0.55, green: 0.95, blue: 0.85, alpha: 1)
+        case .party: return NSColor(srgbRed: 1, green: 0.4, blue: 0.7, alpha: 1)
+        case .bighead: return NSColor(srgbRed: 1, green: 0.55, blue: 0.3, alpha: 1)
+        case .thereisnospoon: return NSColor(srgbRed: 0.25, green: 1, blue: 0.4, alpha: 1)
+        case .moonwalk: return NSColor(srgbRed: 0.8, green: 0.85, blue: 1, alpha: 1)
         }
     }
 }
@@ -176,8 +230,22 @@ final class NotchMascotCheatEngine {
                 .char("g", keycode: 5),
                 .char("h", keycode: 4)
             ]
-        )
+        ),
+        (.party, spelled("partyhard")),
+        (.bighead, spelled("bighead")),
+        (.thereisnospoon, spelled("thereisnospoon")),
+        (.moonwalk, spelled("moonwalk"))
     ]
+    /// The ANSI key of each letter, matched as well as the letter typed.
+    private static let letterKeys: [Character: UInt16] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
+        "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45,
+        "m": 46,
+    ]
+    /// The steps that type `word`, letter by letter.
+    private static func spelled(_ word: String) -> [CheatStep] {
+        word.map { CheatStep.char($0, keycode: letterKeys[$0]) }
+    }
 
     init(silenceTimeout: TimeInterval = 2.5) {
         self.silenceTimeout = silenceTimeout
@@ -276,168 +344,261 @@ final class NotchMascotCheatPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Visual pill view with retro dark styling, glowing border and glowing text.
-final class NotchMascotCheatPillView: NSView {
-    private let label = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        setupView()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        setupView()
-    }
-
-    private func setupView() {
-        guard let layer else { return }
-        layer.masksToBounds = false
-        layer.backgroundColor = NSColor(red: 0.08, green: 0.09, blue: 0.12, alpha: 0.94).cgColor
-        layer.borderColor = NSColor(red: 0.3, green: 0.95, blue: 0.7, alpha: 0.4).cgColor
-        layer.borderWidth = 1.2
-        layer.shadowColor = NSColor(red: 0.1, green: 0.9, blue: 0.6, alpha: 0.45).cgColor
-        layer.shadowRadius = 10
-        layer.shadowOpacity = 0.85
-        layer.shadowOffset = .zero
-
-        label.isEditable = false
-        label.isSelectable = false
-        label.isBordered = false
-        label.drawsBackground = false
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14)
-        ])
-    }
-
-    func configure(text: String, cornerRadius: CGFloat) {
-        layer?.cornerRadius = cornerRadius
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor(red: 0.1, green: 0.9, blue: 0.6, alpha: 0.7)
-        shadow.shadowBlurRadius = 5
-        shadow.shadowOffset = .zero
-
-        let attributed = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .bold),
-                .foregroundColor: NSColor(red: 0.88, green: 1.0, blue: 0.94, alpha: 1.0),
-                .shadow: shadow
-            ]
-        )
-        label.attributedStringValue = attributed
-    }
-}
-
-/// Visual toast presenter for cheat code discoveries.
+/// A cheat's arcade banner: its title huge and glowing across the screen in
+/// use, slammed in with a shake over a dark band between two neon lines, a
+/// white flash over that screen and a fanfare of several sounds. It takes no
+/// clicks and no focus, and goes after three seconds. With Reduce Motion it
+/// only fades in and out, and nothing flashes.
 @MainActor
-final class NotchMascotCheatToast {
-    static let shared = NotchMascotCheatToast()
+final class NotchMascotCheatBanner {
+    static let shared = NotchMascotCheatBanner()
 
-    private var currentPanel: NotchMascotCheatPanel?
-    private var dismissWorkItem: DispatchWorkItem?
+    /// How long it shows, from the slam to the moment it starts to go.
+    nonisolated static let length: TimeInterval = 2.7
+
+    private var panels: [NotchMascotCheatPanel] = []
+    private var dismissWork: DispatchWorkItem?
 
     private init() {}
 
     func show(cheat: NotchMascotCheat) {
-        // Audio sound cue
-        NotchMascotSound.play(cheat.soundEffect)
-
-        // Mascot celebration if active
-        NotchService.shared.celebrateCheat()
-        if cheat == .xyzzy { NotchService.shared.summonMascotEncounter() }
-        if cheat == .plugh { NotchService.shared.previewMascotOccasion() }
-
-        dismissWorkItem?.cancel()
-        dismissWorkItem = nil
-
-        if let existing = currentPanel {
-            existing.orderOut(nil)
-            existing.close()
-            currentPanel = nil
+        for cue in cheat.fanfare {
+            NotchMascotSound.play(cue.effect, after: cue.at)
         }
-
+        NotchService.shared.playMascotCheat(cheat)
+        dismissWork?.cancel()
+        dismissWork = nil
+        close()
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let screenFrame = screen.frame
+        let calm = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !calm { flash(over: screen) }
+        banner(for: cheat, over: screen, calm: calm)
+        let work = DispatchWorkItem { [weak self] in self?.close() }
+        dismissWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.length + 0.4, execute: work)
+    }
 
-        let badgeText = cheat.badge
-        let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .bold)
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor(red: 0.25, green: 1.0, blue: 0.75, alpha: 1.0)
-        ]
-        let textSize = (badgeText as NSString).size(withAttributes: textAttributes)
-        let pillWidth = max(160, ceil(textSize.width) + 36)
-        let pillHeight: CGFloat = 38
-        let cornerRadius = pillHeight / 2
+    private func close() {
+        panels.forEach {
+            $0.orderOut(nil)
+            $0.close()
+        }
+        panels.removeAll()
+    }
 
-        let targetX = screenFrame.minX + (screenFrame.width - pillWidth) / 2
-        let targetY = screenFrame.maxY - 85 - pillHeight
-        let startY = targetY - 15
-
-        let startRect = NSRect(x: targetX, y: startY, width: pillWidth, height: pillHeight)
-        let targetRect = NSRect(x: targetX, y: targetY, width: pillWidth, height: pillHeight)
-
-        let panel = NotchMascotCheatPanel(
-            contentRect: startRect,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .floating
+    private func makePanel(_ frame: CGRect) -> (panel: NotchMascotCheatPanel, layer: CALayer)? {
+        let panel = NotchMascotCheatPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                                          backing: .buffered, defer: false)
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 2)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        panel.collectionBehavior = NotchPanel.overlayCollectionBehavior
+        panel.sharingType = NotchSupport.showsInCaptures() ? .readOnly : .none
         panel.setAccessibilityElement(false)
+        let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        view.wantsLayer = true
+        panel.contentView = view
+        guard let layer = view.layer else { return nil }
+        layer.masksToBounds = false
+        panels.append(panel)
+        return (panel, layer)
+    }
 
-        let pillView = NotchMascotCheatPillView(frame: NSRect(origin: .zero, size: CGSize(width: pillWidth, height: pillHeight)))
-        pillView.configure(text: badgeText, cornerRadius: cornerRadius)
-        panel.contentView = pillView
-
-        panel.alphaValue = 0.0
+    /// White over the whole of `screen` for a blink, fading fast.
+    private func flash(over screen: NSScreen) {
+        guard let (panel, layer) = makePanel(screen.frame) else { return }
+        let white = CALayer()
+        white.frame = layer.bounds
+        white.backgroundColor = CGColor(gray: 1, alpha: 1)
+        white.opacity = 0
+        let blink = CAKeyframeAnimation(keyPath: "opacity")
+        blink.values = [0, 0.7, 0]
+        blink.keyTimes = [0, 0.12, 1]
+        blink.duration = 0.45
+        white.add(blink, forKey: "flash")
+        layer.addSublayer(white)
         panel.orderFrontRegardless()
-        panel.ignoresMouseEvents = true
-        self.currentPanel = panel
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(targetRect, display: true)
-            panel.animator().alphaValue = 1.0
-        }
-
-        let work = DispatchWorkItem { [weak self, weak panel] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak panel] in
             guard let panel else { return }
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.35
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().alphaValue = 0.0
-            }, completionHandler: {
-                DispatchQueue.main.async { [weak self, weak panel] in
-                    guard let panel else { return }
-                    panel.orderOut(nil)
-                    panel.close()
-                    if self?.currentPanel === panel {
-                        self?.currentPanel = nil
-                    }
-                }
-            })
+            panel.orderOut(nil)
+            panel.close()
+            self?.panels.removeAll { $0 === panel }
         }
-        dismissWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 + 1.8, execute: work)
+    }
+
+    // swiftlint:disable:next function_body_length
+    private func banner(for cheat: NotchMascotCheat, over screen: NSScreen, calm: Bool) {
+        let height = min(320, screen.frame.height * 0.38)
+        let frame = CGRect(x: screen.frame.minX, y: screen.frame.minY + screen.frame.height * 0.56 - height / 2,
+                           width: screen.frame.width, height: height)
+        guard let (panel, layer) = makePanel(frame) else { return }
+        let scale = screen.backingScaleFactor
+        let glow = cheat.glow
+        let bounds = layer.bounds
+
+        let band = CAGradientLayer()
+        band.frame = bounds
+        band.colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.78), CGColor(gray: 0, alpha: 0.78),
+                       CGColor(gray: 0, alpha: 0)]
+        band.locations = [0, 0.24, 0.76, 1]
+        layer.addSublayer(band)
+
+        let content = CALayer()
+        content.bounds = bounds
+        content.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        layer.addSublayer(content)
+        var lines: [CALayer] = []
+        for y in [bounds.height * 0.2, bounds.height * 0.8] {
+            let line = CALayer()
+            line.bounds = CGRect(x: 0, y: 0, width: bounds.width * 0.9, height: 3)
+            line.position = CGPoint(x: bounds.midX, y: y)
+            line.backgroundColor = glow.cgColor
+            line.shadowColor = glow.cgColor
+            line.shadowOpacity = 1
+            line.shadowRadius = 10
+            line.shadowOffset = .zero
+            content.addSublayer(line)
+            lines.append(line)
+        }
+
+        let title = Self.textLayer(Self.titleText(cheat.badge, glow: glow, width: bounds.width * 0.86,
+                                                  height: bounds.height * 0.46), scale: scale)
+        let subtitle = Self.textLayer(Self.subtitleText(FeatureStrings.notchMascotCheats(L10n.shared.language).activated,
+                                                        glow: glow), scale: scale)
+        // The subtitle sits on the lower line and the title fills the band over it.
+        subtitle.position = CGPoint(x: bounds.midX, y: bounds.height * 0.2 + 22)
+        title.position = CGPoint(x: bounds.midX, y: bounds.height * 0.5 + 16)
+        title.shadowColor = glow.cgColor
+        title.shadowOpacity = 0.9
+        title.shadowRadius = 16
+        title.shadowOffset = .zero
+        content.addSublayer(title)
+        content.addSublayer(subtitle)
+
+        panel.orderFrontRegardless()
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.duration = calm ? 0.3 : 0.18
+        layer.add(fadeIn, forKey: "in")
+        let fadeOut = CABasicAnimation(keyPath: "opacity")
+        fadeOut.fromValue = 1
+        fadeOut.toValue = 0
+        fadeOut.beginTime = CACurrentMediaTime() + Self.length
+        fadeOut.duration = 0.35
+        fadeOut.fillMode = .forwards
+        fadeOut.isRemovedOnCompletion = false
+        layer.add(fadeOut, forKey: "out")
+        guard !calm else { return }
+
+        // Slammed in from huge, a bounce, a shake, and away bigger still.
+        let slam = CAKeyframeAnimation(keyPath: "transform.scale")
+        slam.values = [3.4, 0.9, 1.07, 1]
+        slam.keyTimes = [0, 0.55, 0.8, 1]
+        slam.timingFunctions = [CAMediaTimingFunction(name: .easeIn), CAMediaTimingFunction(name: .easeOut),
+                                CAMediaTimingFunction(name: .easeInEaseOut)]
+        slam.duration = 0.42
+        content.add(slam, forKey: "slam")
+        let shake = CAKeyframeAnimation(keyPath: "position")
+        shake.values = (0...8).map { step -> NSValue in
+            let fade = 1 - CGFloat(step) / 8
+            guard step > 0, step < 8 else { return NSValue(point: .zero) }
+            return NSValue(point: CGPoint(x: (step.isMultiple(of: 2) ? 1 : -1) * 16 * fade, y: CGFloat.random(in: -6...6) * fade))
+        }
+        shake.beginTime = CACurrentMediaTime() + 0.24
+        shake.duration = 0.42
+        shake.isAdditive = true
+        content.add(shake, forKey: "shake")
+        let away = CABasicAnimation(keyPath: "transform.scale")
+        away.fromValue = 1
+        away.toValue = 1.3
+        away.beginTime = CACurrentMediaTime() + Self.length
+        away.duration = 0.35
+        away.fillMode = .forwards
+        away.isRemovedOnCompletion = false
+        away.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        content.add(away, forKey: "away")
+        for line in lines {
+            let draw = CABasicAnimation(keyPath: "transform.scale.x")
+            draw.fromValue = 0
+            draw.toValue = 1
+            draw.duration = 0.35
+            draw.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            line.add(draw, forKey: "draw")
+        }
+        let pulse = CABasicAnimation(keyPath: "shadowRadius")
+        pulse.fromValue = 10
+        pulse.toValue = 28
+        pulse.duration = 0.45
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        title.add(pulse, forKey: "pulse")
+        let blink = CAKeyframeAnimation(keyPath: "opacity")
+        blink.values = [1, 0.25, 1]
+        blink.duration = 0.5
+        blink.repeatCount = .infinity
+        blink.beginTime = CACurrentMediaTime() + 0.45
+        subtitle.add(blink, forKey: "blink")
+    }
+
+    /// The title in heavy capitals, white edged in `glow` and glowing in
+    /// it, as large as fits in `width` by `height`.
+    private static func titleText(_ text: String, glow: NSColor, width: CGFloat, height: CGFloat) -> [NSAttributedString] {
+        var size: CGFloat = 104
+        func styled(_ size: CGFloat, blur: CGFloat, shadow: NSColor) -> NSAttributedString {
+            let glowing = NSShadow()
+            glowing.shadowColor = shadow
+            glowing.shadowBlurRadius = blur
+            glowing.shadowOffset = .zero
+            return NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: .black),
+                .foregroundColor: NSColor.white,
+                .strokeColor: glow,
+                .strokeWidth: -3.5,
+                .kern: size * 0.04,
+                .shadow: glowing,
+            ])
+        }
+        while size > 28 {
+            let measured = styled(size, blur: 0, shadow: .clear).size()
+            if measured.width <= width, measured.height <= height { break }
+            size -= 4
+        }
+        return [styled(size, blur: size * 0.4, shadow: glow), styled(size, blur: size * 0.12, shadow: .white)]
+    }
+
+    private static func subtitleText(_ text: String, glow: NSColor) -> [NSAttributedString] {
+        let glowing = NSShadow()
+        glowing.shadowColor = glow
+        glowing.shadowBlurRadius = 8
+        glowing.shadowOffset = .zero
+        return [NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .bold),
+            .foregroundColor: glow.blended(withFraction: 0.45, of: .white) ?? glow,
+            .kern: 6,
+            .shadow: glowing,
+        ])]
+    }
+
+    /// A layer showing `passes` drawn over one another, with room around
+    /// them for their glow.
+    private static func textLayer(_ passes: [NSAttributedString], scale: CGFloat) -> CALayer {
+        let text = passes.first?.size() ?? .zero
+        let pad: CGFloat = 48
+        let size = CGSize(width: ceil(text.width + pad * 2), height: ceil(text.height + pad * 2))
+        let image = NSImage(size: size, flipped: false) { _ in
+            for pass in passes { pass.draw(at: NSPoint(x: pad, y: pad)) }
+            return true
+        }
+        let layer = CALayer()
+        layer.bounds = CGRect(origin: .zero, size: size)
+        layer.contentsScale = image.recommendedLayerContentsScale(scale)
+        layer.contents = image.layerContents(forContentsScale: layer.contentsScale)
+        return layer
     }
 }
 
@@ -509,7 +670,7 @@ final class NotchMascotCheats {
             silenceWorkItem?.cancel()
             silenceWorkItem = nil
             DispatchQueue.main.async {
-                NotchMascotCheatToast.shared.show(cheat: cheat)
+                NotchMascotCheatBanner.shared.show(cheat: cheat)
             }
         } else {
             scheduleSilenceReset()

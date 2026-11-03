@@ -36,18 +36,21 @@ extension NotchMascotAccessory {
         case .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .sleepMask, .pacifier, .goldBag, .hourglass,
              .rubberDuck, .bananaPeel, .clownNose, .whoopeeCushion, .trafficCone, .wiltedFlower, .tissueBox,
              .piggyBank, .alarmClock, .rosinBox, .plantarBall,
-             .umbrella, .yoyo, .bubbleWand, .fortuneCookie:
+             .umbrella, .yoyo, .bubbleWand, .fortuneCookie,
+             .maracas, .soccerBall, .pillow, .marshmallowStick, .paperPlane, .whistle:
             return .common
         case .legendShield, .knightHelm, .vikingHelm, .wingBoots, .rangerBow, .boomerang, .heartPotion, .bardLute,
              .dumbbells, .detectiveLens, .gameController, .goldenKey,
              .creamPie, .fakeMustache, .stormCloud, .lonelyBalloon, .teddyBear, .tinfoilHat, .dynamiteStick,
              .icePack, .warmUpBooties, .pointeShoes,
-             .propellerCap, .springShoes, .skateboard, .horseshoeMagnet:
+             .propellerCap, .springShoes, .skateboard, .horseshoeMagnet,
+             .kite, .waterPistol, .megaphone, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket:
             return .uncommon
         case .legendSword, .katana, .wizardStaff, .magicTome, .crystalOrb, .fireballSpell, .tornadoSpell,
              .laserVisor, .jetpack,
              .brokenLocket, .magicMushroom, .discoBall, .alienAntenna, .mimicChest, .spanishFan,
-             .parrot, .snowGlobe, .instantCamera:
+             .parrot, .snowGlobe, .instantCamera,
+             .drum, .microphone, .confettiCannon:
             return .rare
         case .kingScepter, .thunderTalisman, .angelWings, .crystalSkull, .cursedMask, .unicornHorn, .swanCrown,
              .luckyDice:
@@ -129,7 +132,7 @@ enum NotchMascotShop {
     static var unowned: [NotchMascotAccessory] {
         let owned = ownedSet()
         let forSale = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
-            + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
+            + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems
         return forSale.filter { !owned.contains($0.rawValue) }
     }
 

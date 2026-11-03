@@ -116,7 +116,8 @@ struct NotchMascotLifeStrings {
             let language = L10n.shared.language
             return FeatureStrings.notchMascotRPG(language).name(of: accessory)
                 ?? FeatureStrings.notchMascotShop(language).name(of: accessory)
-                ?? FeatureStrings.notchMascotToys(language).name(of: accessory) ?? ""
+                ?? FeatureStrings.notchMascotToys(language).name(of: accessory)
+                ?? FeatureStrings.notchMascotParty(language).name(of: accessory) ?? ""
         }
     }
 }

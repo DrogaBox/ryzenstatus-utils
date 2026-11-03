@@ -4,21 +4,20 @@
 import AppKit
 import QuartzCore
 
-/// Runs the life the two companions out on the desktop share: the plays
-/// `NotchMascotPlay` picks, acted out step by step with their light, and
-/// the little things in between. One minds the other being patted, runs to
-/// it after a hard fall, takes up its yawn when it dozes off, and answers
-/// what it reacts to with a take of its own. A press on either, or either
-/// going home, ends a play at once.
+/// Runs what two companions out on the desktop play together: the plays
+/// `NotchMascotPlay` picks, acted out step by step with their light. One
+/// takes up the other's yawn when it dozes off, and the friend answers what
+/// the companion reacts to with a take of its own. The gang keeps one for
+/// each pair that meets, the island's own two first. A press on either, or
+/// either going home, ends a play at once.
 final class NotchMascotPlayDirector {
-    private let leader: NotchMascotDesktop
-    private let friend: NotchMascotDesktop
+    let leader: NotchMascotDesktop
+    let friend: NotchMascotDesktop
     private let stage = NotchMascotPlayStage()
     private var steps: [DispatchWorkItem] = []
     private(set) var playing: NotchMascotPlay?
     private var lastPlay = CACurrentMediaTime()
     private var recent: [NotchMascotPlay.Kind] = []
-    private var lastPatResponse: CFTimeInterval = -.infinity
     private var dozedAlone: CFTimeInterval?
 
     /// Whether they may play at all.
@@ -27,24 +26,21 @@ final class NotchMascotPlayDirector {
     var music: () -> Bool = { false }
     /// The bond's level, which their energy grows with.
     var level: () -> Int = { 1 }
+    /// What the two make of each other, nil for the island's own pair: it
+    /// sways the faces they pull at their plays.
+    var relation: () -> NotchMascotRelation? = { nil }
+    /// More or less of each play, for who they are and what they feel.
+    var leanings: () -> [NotchMascotPlay.Kind: Double] = { [:] }
+    /// A play came to its end, or was cut short.
+    var ended: ((NotchMascotPlay) -> Void)?
 
     init(leader: NotchMascotDesktop, friend: NotchMascotDesktop) {
         self.leader = leader
         self.friend = friend
-        for (one, other) in [(leader, friend), (friend, leader)] {
-            one.invitePlay = { [weak self] in self?.invite() ?? false }
-            one.interrupted = { [weak self] in self?.cancel() }
-            one.sawEncounter = { [weak other] encounter in other?.witness(encounter) }
-            one.patted = { [weak self, weak one, weak other] in
-                guard let self, let one, let other else { return }
-                self.patted(one, other: other)
-            }
-            one.landedHard = { [weak self, weak one, weak other] in
-                guard let self, let one, let other else { return }
-                self.fell(one, other: other)
-            }
-        }
     }
+
+    /// Whether `one` is one of the two.
+    func involves(_ one: NotchMascotDesktop) -> Bool { one === leader || one === friend }
 
     /// Both are out: their first play comes before long.
     func cameOut() {
@@ -61,7 +57,7 @@ final class NotchMascotPlayDirector {
     // MARK: Starting
 
     /// Asked by either one standing with nothing to do.
-    private func invite() -> Bool {
+    func invite() -> Bool {
         guard playing == nil, leader.isOut, friend.isOut else { return false }
         if joinDoze() { return true }
         guard allowed(), leader.isFree, friend.isFree, !leader.isDozing, !friend.isDozing,
@@ -70,7 +66,7 @@ final class NotchMascotPlayDirector {
                                               since: CACurrentMediaTime() - lastPlay,
                                               hour: Calendar.current.component(.hour, from: Date()), recent: recent,
                                               leaderLook: leader.playLook, friendLook: friend.playLook,
-                                              rpg: NotchMascotRPG.snapshot())
+                                              rpg: NotchMascotRPG.snapshot(), leanings: leanings())
         guard let play = NotchMascotPlay.next(in: context, random: { Double.random(in: 0..<1) }) else { return false }
         start(play)
         return true
@@ -96,6 +92,50 @@ final class NotchMascotPlayDirector {
             ready = max(leaderWalk, friendWalk) + 0.35
         }
         at(ready) { [weak self] in self?.act(play) }
+        flavor(starting: play, after: ready)
+    }
+
+    /// What they feel for each other shows on their faces: a crush blushes
+    /// and sends hearts, rivals scowl at each other before they start.
+    private func flavor(starting play: NotchMascotPlay, after ready: TimeInterval) {
+        guard let relation = relation(), play.kind != .nap else { return }
+        let first = Bool.random() ? leader : friend
+        let second = first === leader ? friend : leader
+        switch relation {
+        case .crush:
+            at(ready) { [weak self] in
+                first.pullFace(.embarrassed, for: 2.2)
+                self?.float("♥", over: first, color: Self.heart, count: 2)
+            }
+        case .rivals:
+            at(ready) {
+                first.pullFace(.angry, for: 1.8)
+                second.pullFace(.angry, for: 1.8)
+            }
+        case .friends, .strangers:
+            break
+        }
+    }
+
+    /// How it ends for them, on their faces: one of two rivals gloats while
+    /// the other sulks, and a crush goes pink.
+    private func flavor(ending play: NotchMascotPlay) {
+        guard let relation = relation(), leader.isOut, friend.isOut, play.kind != .nap else { return }
+        switch relation {
+        case .rivals:
+            let gloats = Bool.random() ? leader : friend
+            gloats.pullFace(.smug, for: 2.6)
+            (gloats === leader ? friend : leader).pullFace(Bool.random() ? .angry : .disgusted, for: 2.6)
+        case .crush:
+            leader.pullFace(.love, for: 2)
+            friend.pullFace(.embarrassed, for: 2)
+            float("♥", over: friend, color: Self.heart, count: 2)
+        case .friends:
+            leader.pullFace(.happy, for: 1.6)
+            friend.pullFace(.happy, for: 1.6)
+        case .strangers:
+            break
+        }
     }
 
     /// Runs `block` `delay` seconds from now, unless the play ends first.
@@ -111,10 +151,15 @@ final class NotchMascotPlayDirector {
 
     private func end() {
         steps.removeAll()
+        let played = playing
         playing = nil
         stage.close()
         leader.endPlay(after: 2.5)
         friend.endPlay(after: 3.5)
+        if let played {
+            flavor(ending: played)
+            ended?(played)
+        }
     }
 
     /// Stops the play under way, if any, at once.
@@ -868,59 +913,6 @@ final class NotchMascotPlayDirector {
     func syncMusic(dancing: Bool) {
         leader.setDancing(dancing)
         friend.setDancing(dancing)
-    }
-
-    /// One was patted: the other minds, wants one too or cheers it on.
-    private func patted(_ one: NotchMascotDesktop, other: NotchMascotDesktop) {
-        guard playing == nil, other.isOut else { return }
-        // A pat wakes a nap for both.
-        if other.napping {
-            other.setNapping(false)
-            other.react(.wakeUp)
-            return
-        }
-        let now = CACurrentMediaTime()
-        guard other.isFree, now - lastPatResponse > NotchMascotPlay.patResponseInterval,
-              let a = one.feet, let b = other.feet else { return }
-        lastPatResponse = now
-        let side = direction(from: other, to: one)
-        switch NotchMascotPlay.patResponse(distance: abs(a.x - b.x), random: Double.random(in: 0..<1)) {
-        case .comesOver:
-            let walk = other.stroll(to: a.x - side * 64, pace: 1.6)
-            DispatchQueue.main.asyncAfter(deadline: .now() + walk + 0.2) { [weak other] in
-                guard let other, other.isFree else { return }
-                other.react(.bounce)
-            }
-        case .wantsOne:
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak other] in
-                guard let self, let other, other.isFree else { return }
-                other.face(toward: a.x)
-                other.hop(dx: side * 60, dy: 260)
-                self.float("!", over: other, color: Self.mark)
-            }
-        case .cheers:
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak other] in
-                guard let other, other.isFree else { return }
-                other.react(.celebrate)
-            }
-        }
-    }
-
-    /// One came down hard: the other gasps and goes to see it's all right.
-    private func fell(_ one: NotchMascotDesktop, other: NotchMascotDesktop) {
-        guard playing == nil, other.isOut, other.isFree else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak one, weak other] in
-            guard let self, let one, let other, other.isFree else { return }
-            other.react(.surprised)
-            guard let a = one.feet, let b = other.feet else { return }
-            let side: CGFloat = a.x >= b.x ? 1 : -1
-            let walk = abs(a.x - b.x) > 90 ? other.stroll(to: a.x - side * 60, pace: 2) : 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + walk + 0.9) { [weak self, weak other] in
-                guard let self, let other, other.isFree else { return }
-                other.react(.love)
-                self.float("♥", over: other, color: Self.heart)
-            }
-        }
     }
 
     /// One dozed off on its own a while ago: the other yawns and joins it.

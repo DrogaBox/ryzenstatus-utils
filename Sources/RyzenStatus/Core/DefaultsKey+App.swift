@@ -674,6 +674,9 @@ extension DefaultsKey {
     static let notchMascotCustomColor = "notchMascotCustomColor"        // String, hand-picked body color as RRGGBB hex, empty for the palette
     static let notchMascotFriendPalette = "notchMascotFriendPalette"    // String, NotchMascotPalette the friend wears, empty for the companion's
     static let notchMascotFriendCustomColor = "notchMascotFriendCustomColor" // String, the friend's hand-picked color as RRGGBB hex, empty for its palette
+    static let notchMascotGangVisits = "notchMascotGangVisits"   // String, NotchMascotGangVisits: how often other companions come by the desktop
+    static let notchMascotGangAtOnce = "notchMascotGangAtOnce"   // Int 1...4, how many of them may be out at once
+    static let notchMascotGangAffinity = "notchMascotGangAffinity" // [String: Double], "style+style" -> how well the pair gets on, -1...1
     static let notchMascotBetaInstalled = "notchMascotBetaInstalled"
     /// Automatic reactions to what the Mac does, and each kind of them.
     static let notchMascotAutomatic = "notchMascotAutomatic"

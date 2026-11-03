@@ -1114,4 +1114,26 @@ final class NotchMascotDecor {
         }
         applyIdleTails()
     }
+
+    // MARK: Hops
+
+    /// Ears, tails, wings and props trail the body through a hop of `lift`
+    /// points that takes `duration`, at the hop's own key times: they lag
+    /// down as it springs up, carry on up past its peak, flop as it lands
+    /// and bounce once before they settle.
+    func followThrough(beginTime: CFTimeInterval, duration: TimeInterval, lift: CGFloat, keyTimes: [NSNumber]) {
+        guard size > 0, duration > 0, keyTimes.count == 7 else { return }
+        let reach = min(size * 0.06, lift * 0.12)
+        guard reach > 0.2 else { return }
+        for (layer, share) in [(back, CGFloat(1)), (props, CGFloat(0.6))] {
+            let trail = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            trail.values = [0, 0, reach, -reach * 0.8, reach * 1.1, -reach * 0.4, 0].map { $0 * share }
+            trail.keyTimes = keyTimes
+            trail.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            trail.duration = duration
+            trail.beginTime = beginTime
+            trail.isAdditive = true
+            layer.add(trail, forKey: "followThrough")
+        }
+    }
 }
