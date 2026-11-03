@@ -70,6 +70,8 @@ final class NotchMascotRig: NSObject {
     private let wearables = NotchMascotWearables()
     /// The aura of a transformation, behind and in front of the body.
     private let aura = NotchMascotAura()
+    /// The aura, earrings and gem of a fusion.
+    private let fusionArt = NotchMascotFusionArt()
     /// The body lit white for an instant, as a transformation bursts out.
     private let bodyFlash = CAShapeLayer()
     /// A sprite companion's figure, shown in place of the drawn body.
@@ -100,6 +102,7 @@ final class NotchMascotRig: NSObject {
         super.init()
         root.addSublayer(hopper)
         hopper.addSublayer(aura.back)
+        hopper.addSublayer(fusionArt.back)
         hopper.addSublayer(squasher)
         squasher.addSublayer(breather)
         breather.addSublayer(tilter)
@@ -113,6 +116,7 @@ final class NotchMascotRig: NSObject {
         tilter.addSublayer(wearables.head)
         tilter.addSublayer(decor.props)
         tilter.addSublayer(aura.front)
+        tilter.addSublayer(fusionArt.front)
         // The mouth and marks under the eyes; the brows over them, going
         // where the eyes look.
         attention.addSublayer(features.around)
@@ -178,8 +182,10 @@ final class NotchMascotRig: NSObject {
         let robot = look.style == .robot
         let palette = look.bodyPalette
         fill.colors = bodyColors(for: look)
-        fill.startPoint = CGPoint(x: 0.5, y: 0)
-        fill.endPoint = CGPoint(x: 0.5, y: 1)
+        fill.locations = look.fusion?.fillLocations
+        fill.startPoint = look.fusion?.fillStart ?? CGPoint(x: 0.5, y: 0)
+        fill.endPoint = look.fusion?.fillEnd ?? CGPoint(x: 0.5, y: 1)
+        root.sublayerTransform = look.fusion?.figureTransform(size: size) ?? CATransform3DIdentity
         if robot {
             let parts = NotchMascotGeometry.robot(size: size)
             fillMask.path = parts.head
@@ -225,6 +231,7 @@ final class NotchMascotRig: NSObject {
                             face: look.face, neck: NotchMascotCreatures.neck(look.style),
                             anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
+        fusionArt.configure(look: look, size: size, scale: scale, reduceMotion: reduceMotion)
         bodyFlash.frame = box
         bodyFlash.contentsScale = scale
         bodyFlash.path = fillMask.path
@@ -552,8 +559,9 @@ final class NotchMascotRig: NSObject {
         CATransaction.commit()
     }
 
-    /// Its own colours, or a transformation's.
+    /// Its own colours, a fusion's, or a transformation's.
     private func bodyColors(for look: NotchMascotLook) -> [CGColor] {
+        if let fusion = look.fusion { return fusion.fillColors }
         if let form = look.form {
             let palette = NotchMascotFormPalette(form)
             return [palette.light.cgColor, palette.shade.cgColor]
