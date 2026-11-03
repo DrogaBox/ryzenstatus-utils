@@ -13029,6 +13029,7 @@ struct MetricsTests {
                 ("DashboardMetricsTests", DashboardMetricsTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
+                ("NotchMascotFusionTests", NotchMascotFusionTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }

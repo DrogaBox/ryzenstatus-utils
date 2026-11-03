@@ -224,6 +224,9 @@ struct NotchMascotLook: Equatable {
     /// A hand-picked color. When set it drives the body's light and shade,
     /// over whatever palette the swatches hold.
     var customColor: NotchMascotColor? = nil
+    /// Fused with another companion for a while: its colours, aura, marks
+    /// and size, over the rest.
+    var fusion: NotchMascotFusionLook? = nil
 
     static let standard = NotchMascotLook(style: .minimal, shape: .ball, palette: .pearl)
 
