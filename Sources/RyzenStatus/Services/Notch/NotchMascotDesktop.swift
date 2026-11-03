@@ -584,6 +584,8 @@ final class NotchMascotDesktop: NSObject {
             // Already paid as the use began (`NotchMascotItemUse.settled`).
             perform(.burst(.coins), toward: side)
             perform(.marker("+\(amount)"), toward: side)
+        case .emote(let balloon):
+            emote(balloon)
         case .doze(let length), .face(_, let length):
             guard let host else { return }
             host.mascot.setMood(action.heldMood ?? .sleepy, animated: !reduceMotion)

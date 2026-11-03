@@ -6,7 +6,7 @@ import Foundation
 /// The families the combos are grouped in.
 enum SynergyCategory: Int, CaseIterable, Identifiable {
     case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots, dance
-    case toys, legends, signals, party
+    case toys, legends, signals, party, oddities
 
     var id: Int { rawValue }
 
@@ -29,6 +29,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .legends: return "Kitsune and Penguin"
         case .signals: return "Hologram and Android"
         case .party: return "Party and play"
+        case .oddities: return "Oddities and wonders"
         }
     }
 
@@ -51,6 +52,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .legends: return "Kitsune y Pingüino"
         case .signals: return "Holograma y Androide"
         case .party: return "Fiesta y juego"
+        case .oddities: return "Rarezas y maravillas"
         }
     }
 }
@@ -222,7 +224,7 @@ enum NotchMascotSynergyScript: Equatable {
 /// One combo of the catalog: a name, a family, what makes it theirs and how
 /// it plays. Played in the closed island and out on the desktop alike.
 struct NotchMascotSynergy: Identifiable, Equatable {
-    /// Its place in the catalog, 1...320.
+    /// Its place in the catalog, 1...340.
     let number: Int
     let id: String
     let category: SynergyCategory
@@ -268,7 +270,7 @@ enum NotchMascotSynergyCatalog {
     }
 
     static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
-        + species + quests + curiosities + mascots + dance + toys + legends + signals + party
+        + species + quests + curiosities + mascots + dance + toys + legends + signals + party + oddities
 
     static var total: Int { all.count }
 
@@ -1672,5 +1674,89 @@ enum NotchMascotSynergyCatalog {
           "Two kites side by side, their tails tangling high in the wind.",
           "Dos barriletes juntos, con las colas enredándose en el viento.",
           .twin(.kite), .calm(.perk, .love, .sparkles, "WHEE")),
+    ]
+
+    // MARK: Oddities and wonders
+    private static let oddities: [NotchMascotSynergy] = [
+        S(321, "pizzeria", .oddities, "Pizzeria", "Pizzería",
+          "The chef tosses the dough and the slice comes out hot for the one waiting.",
+          "El chef revolea la masa y sale una porción calentita para el que espera.",
+          .pair(.pizzaSlice, .chefHat), .give(.pie, .love, .hearts, "MAMMA MIA")),
+        S(322, "beekeeper", .oddities, "Beekeeper", "Apicultor",
+          "The bees leave a head for a flower and everyone calms down.",
+          "Las abejas dejan la cabeza por una flor y todos se calman.",
+          .pair(.beeHalo, .flower), .calm(.relax, .love, .sparkles, "BUZZ")),
+        S(323, "honeyThief", .oddities, "Honey Thief", "Ladrón de miel",
+          "The teddy bear goes for the honey; the bees go for the bear.",
+          "El osito va por la miel; las abejas van por el osito.",
+          .pair(.beeHalo, .teddyBear), .duel(.spark, .smoke, "OUCH!")),
+        S(324, "royalJester", .oddities, "The King's Fool", "El bufón del rey",
+          "The jester tumbles and jingles until the king laughs out loud.",
+          "El bufón da volteretas y hace sonar los cascabeles hasta que el rey se ríe.",
+          .pair(.jesterHat, .crown), .ritual(.celebrate, .wave, .confetti, "HA HA")),
+        S(325, "crackerPull", .oddities, "Pull the Cracker", "Tirar del petardo",
+          "One end each, a pull, a bang, and two paper crowns.",
+          "Una punta cada uno, un tirón, un estallido y dos coronas de papel.",
+          .twin(.crackerCrown), .duel(.star, .confetti, "BANG!")),
+        S(326, "kazooBand", .oddities, "Kazoo Band", "Banda de kazoo",
+          "The drum keeps time and the kazoo buzzes the tune, sort of.",
+          "El tambor lleva el ritmo y el kazoo zumba la melodía, más o menos.",
+          .pair(.kazoo, .drum), .chorus(.note, .groove, "TOOT")),
+        S(327, "itsyBitsy", .oddities, "Itsy Bitsy", "Arañita",
+          "Two lenses, one spider, and both of them jump.",
+          "Dos lentes, una arañita y los dos pegan un salto.",
+          .pair(.spiderMonocle, .detectiveLens), .give(.key, .panic, .smoke, "EEK!")),
+        S(328, "takeMeToYourLeader", .oddities, "Take Me to Your Leader", "Llévame con tu líder",
+          "The antennae pick up the saucer's signal and the beam comes down.",
+          "Las antenas captan la señal del platillo y baja el rayo.",
+          .pair(.ufoHat, .alienAntenna), .ritual(.perk, .surprised, .magic, "BEAM ME UP")),
+        S(329, "cattleRustlers", .oddities, "Cattle Rustlers", "Abigeato espacial",
+          "The cowboy guards the herd; the saucer has other plans.",
+          "El vaquero cuida el ganado; el platillo tiene otros planes.",
+          .pair(.ufoHat, .cowboyHat), .give(.star, .surprised, .magic, "YEEHAW?")),
+        S(330, "duckDive", .oddities, "Duck Dive", "Chapuzón con pato",
+          "Mask on, a dive, and back up with a rubber duck for the friend.",
+          "Máscara puesta, un chapuzón y de vuelta con un patito para el amigo.",
+          .pair(.snorkelMask, .rubberDuck), .give(.duck, .love, .sparkles, "SPLASH")),
+        S(331, "pirateCrew", .oddities, "Pirate Crew", "Tripulación pirata",
+          "A hook and an eye patch: the treasure map is theirs.",
+          "Un garfio y un parche: el mapa del tesoro es suyo.",
+          .pair(.pirateHook, .eyePatch), .ritual(.ready, .peek, .coins, "ARRR!")),
+        S(332, "piecesOfEight", .oddities, "Pieces of Eight", "Monedas de a ocho",
+          "The parrot counts the gold and the captain counts it again.",
+          "El loro cuenta el oro y el capitán lo vuelve a contar.",
+          .pair(.pirateHook, .parrot), .chorus(.coin, .peek, "PIECES OF 8")),
+        S(333, "councilOfSages", .oddities, "Council of Sages", "Consejo de sabios",
+          "A long beard, a staff, and a spell argued over for ages.",
+          "Una barba larga, un báculo y un hechizo discutido durante siglos.",
+          .pair(.wizardBeard, .wizardStaff), .ritual(.flash, .peek, .magic, "ABRACADABRA")),
+        S(334, "cryptLantern", .oddities, "Lantern in the Crypt", "Farol en la cripta",
+          "The lantern finds the crystal skull, and the skull finds them.",
+          "El farol encuentra la calavera de cristal, y la calavera los encuentra a ellos.",
+          .pair(.lantern, .crystalSkull), .give(.spark, .panic, .smoke, "BOO!")),
+        S(335, "rollerDisco", .oddities, "Roller Disco", "Disco sobre ruedas",
+          "Under the mirror ball the skates go round and round.",
+          "Bajo la bola de espejos los patines giran y giran.",
+          .pair(.rollerSkates, .discoBall), .chorus(.star, .groove, "ROLLER DISCO")),
+        S(336, "rollerDerby", .oddities, "Roller Derby", "Roller derby",
+          "Two on skates, one ball, and elbows out.",
+          "Dos en patines, una pelota y codos afuera.",
+          .twin(.rollerSkates), .volley(.ball, 3, .confetti, "DERBY")),
+        S(337, "cabaret", .oddities, "Cabaret", "Cabaret",
+          "A boa thrown over the shoulder and a song into the microphone.",
+          "Una boa al hombro y una canción al micrófono.",
+          .pair(.featherBoa, .microphone), .ritual(.groove, .perk, .hearts, "DIVA")),
+        S(338, "snailMail", .oddities, "Snail Mail", "Correo caracol",
+          "The paper plane is sent; the snail delivers it, eventually.",
+          "Se manda el avión de papel; el caracol lo entrega, algún día.",
+          .pair(.snail, .paperPlane), .give(.arrow, .yawn, .sparkles, "SLOW MAIL")),
+        S(339, "bubbleTrouble", .oddities, "Bubble Trouble", "Lío de burbujas",
+          "Soap bubbles one way, a gum bubble the other, and they all pop.",
+          "Burbujas de jabón para un lado, un globo de chicle para el otro, y explotan todas.",
+          .pair(.bubbleGum, .bubbleWand), .volley(.balloon, 3, .confetti, "POP!")),
+        S(340, "chickenDance", .oddities, "Chicken Dance", "Baile del pollito",
+          "A squeak for every flap: the whole party joins the chicken dance.",
+          "Un chillido por cada aleteo: toda la fiesta se suma al baile del pollito.",
+          .pair(.rubberChicken, .partyHat), .chorus(.note, .bounce, "BAWK BAWK")),
     ]
 }
