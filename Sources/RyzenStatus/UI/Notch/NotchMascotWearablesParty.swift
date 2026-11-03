@@ -243,8 +243,12 @@ extension NotchMascotWearableShapes {
         case .hulaHoop:
             // A pink hoop tilted round its waist, banded in yellow.
             let torso = f.torso
-            let waist = f.anatomy == nil ? f.outline.minY + f.outline.height * 0.74 : torso.midY + torso.height * 0.12
             let half = max(torso.width, f.width * 0.8) * 0.68
+            // On a round figure whose face sits low, the hoop drops to its
+            // hips so its far rim passes under the eyes rather than over them.
+            let underEyes = max(f.leftEye.y, f.rightEye.y) + f.size * 0.13 + half * 0.22 + line * 1.6
+            let waist = max(underEyes,
+                            f.anatomy == nil ? f.outline.minY + f.outline.height * 0.74 : torso.midY + torso.height * 0.12)
             let ring = CGRect(x: torso.midX - half, y: waist - half * 0.22, width: half * 2, height: half * 0.44)
             let bands = CGMutablePath()
             for k in stride(from: 0, to: 12, by: 2) {
