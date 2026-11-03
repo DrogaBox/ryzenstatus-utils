@@ -239,6 +239,10 @@ enum NotchMascotMood: String, CaseIterable, Identifiable {
     case idle, happy, wink, love, sleepy, determined, surprised, searching, thinking, confused
     /// Wide awake, while Keep Awake holds the Mac up.
     case alert
+    /// The faces a cartoon pulls: cross brows and a vein, a smug half smile,
+    /// red cheeks, tears in streams, stars in its eyes, a spinning head, a
+    /// prank coming, a sour face, a fright, a yawn of a face, money in its eyes.
+    case angry, smug, embarrassed, crying, starstruck, dizzy, mischievous, disgusted, terrified, bored, greedy
 
     var id: String { rawValue }
 }
@@ -477,10 +481,52 @@ enum NotchMascotEye: Equatable {
     case open, closed, happy, heart, sleepy, wide, squint
     /// The lid slants down toward the other eye.
     case determined
+    /// A five-pointed star, a cross, a spiral, a flat unimpressed lid, a
+    /// pinprick of fright, and a lid drooping away from the other eye.
+    case star, cross, spiral, flat, tiny, sad
 
     var blinks: Bool { self == .open || self == .wide || self == .squint }
 }
 
+/// The mouth a face pulls, drawn under the eyes; none leaves the figure's
+/// own face as it is drawn.
+enum NotchMascotMouth: Equatable {
+    case none
+    /// A small curve up, a wide open laugh, a round "o", gritted teeth, a
+    /// wobbly line, the tongue out, a pout, a curve down, a scream, and a
+    /// lopsided half smile.
+    case smile, grin, gasp, teeth, wavy, tongue, pout, frown, scream, smirk
+}
+/// Brows over the eyes; none draws no brows.
+enum NotchMascotBrows: Equatable {
+    case none
+    /// Down toward the nose, up toward the nose, both up high, one up.
+    case angry, worried, raised, skeptical
+}
+/// What a cartoon draws around a face beyond its eyes and mouth.
+struct NotchMascotFaceMarks: OptionSet, Equatable {
+    let rawValue: Int
+    /// Red cheeks.
+    static let blush = NotchMascotFaceMarks(rawValue: 1 << 0)
+    /// A drop of sweat by its brow.
+    static let sweat = NotchMascotFaceMarks(rawValue: 1 << 1)
+    /// Tears running down in streams.
+    static let tears = NotchMascotFaceMarks(rawValue: 1 << 2)
+    /// The cross-shaped vein of anger, throbbing.
+    static let vein = NotchMascotFaceMarks(rawValue: 1 << 3)
+    /// Steam puffing off its head.
+    static let steam = NotchMascotFaceMarks(rawValue: 1 << 4)
+    /// Little twinkles about it.
+    static let sparkle = NotchMascotFaceMarks(rawValue: 1 << 5)
+    /// Gloom lines hanging over its head.
+    static let gloom = NotchMascotFaceMarks(rawValue: 1 << 6)
+    /// Dollar signs over its eyes.
+    static let money = NotchMascotFaceMarks(rawValue: 1 << 7)
+    /// Little stars circling its head.
+    static let stars = NotchMascotFaceMarks(rawValue: 1 << 8)
+    /// A green tinge under its eyes.
+    static let queasy = NotchMascotFaceMarks(rawValue: 1 << 9)
+}
 struct NotchMascotExpression: Equatable {
     var left: NotchMascotEye
     var right: NotchMascotEye
@@ -488,6 +534,9 @@ struct NotchMascotExpression: Equatable {
     var gaze: CGPoint = .zero
     /// The head's lean in radians, clockwise on screen.
     var tilt: CGFloat = 0
+    var mouth: NotchMascotMouth = .none
+    var brows: NotchMascotBrows = .none
+    var marks: NotchMascotFaceMarks = []
 
     /// Open eyes blink now and then. Closed, curved or heart eyes do not.
     var blinks: Bool { left.blinks && right.blinks }
@@ -497,20 +546,42 @@ extension NotchMascotMood {
     var expression: NotchMascotExpression {
         switch self {
         case .idle: return NotchMascotExpression(left: .open, right: .open)
-        case .happy: return NotchMascotExpression(left: .happy, right: .happy, gaze: CGPoint(x: 0, y: -0.02))
-        case .wink: return NotchMascotExpression(left: .open, right: .happy, tilt: -0.08)
-        case .love: return NotchMascotExpression(left: .heart, right: .heart)
+        case .happy: return NotchMascotExpression(left: .happy, right: .happy, gaze: CGPoint(x: 0, y: -0.02), mouth: .smile)
+        case .wink: return NotchMascotExpression(left: .open, right: .happy, tilt: -0.08, mouth: .tongue)
+        case .love: return NotchMascotExpression(left: .heart, right: .heart, mouth: .smile, marks: .blush)
         case .sleepy: return NotchMascotExpression(left: .sleepy, right: .sleepy, gaze: CGPoint(x: 0, y: 0.03), tilt: 0.05)
-        case .determined: return NotchMascotExpression(left: .determined, right: .determined)
-        case .surprised: return NotchMascotExpression(left: .wide, right: .wide, gaze: CGPoint(x: 0, y: -0.02))
+        case .determined: return NotchMascotExpression(left: .determined, right: .determined, mouth: .teeth, brows: .angry)
+        case .surprised: return NotchMascotExpression(left: .wide, right: .wide, gaze: CGPoint(x: 0, y: -0.02),
+                                                      mouth: .gasp, brows: .raised)
         case .searching: return NotchMascotExpression(left: .open, right: .open, gaze: CGPoint(x: 0.05, y: 0))
-        case .thinking: return NotchMascotExpression(left: .squint, right: .open, gaze: CGPoint(x: 0.06, y: -0.06), tilt: -0.1)
-        case .confused: return NotchMascotExpression(left: .open, right: .squint, gaze: CGPoint(x: -0.03, y: 0.01), tilt: 0.14)
+        case .thinking: return NotchMascotExpression(left: .squint, right: .open, gaze: CGPoint(x: 0.06, y: -0.06), tilt: -0.1,
+                                                     brows: .skeptical)
+        case .confused: return NotchMascotExpression(left: .open, right: .squint, gaze: CGPoint(x: -0.03, y: 0.01), tilt: 0.14,
+                                                     mouth: .wavy, brows: .skeptical)
         case .alert: return NotchMascotExpression(left: .wide, right: .wide)
+        case .angry: return NotchMascotExpression(left: .determined, right: .determined, tilt: 0.04,
+                                                  mouth: .teeth, brows: .angry, marks: [.vein, .steam])
+        case .smug: return NotchMascotExpression(left: .flat, right: .flat, gaze: CGPoint(x: 0.03, y: 0), tilt: -0.12,
+                                                 mouth: .smirk, brows: .skeptical)
+        case .embarrassed: return NotchMascotExpression(left: .happy, right: .happy, gaze: CGPoint(x: -0.03, y: 0.03), tilt: 0.1,
+                                                        mouth: .wavy, brows: .worried, marks: [.blush, .sweat])
+        case .crying: return NotchMascotExpression(left: .closed, right: .closed, gaze: CGPoint(x: 0, y: 0.02),
+                                                   mouth: .scream, brows: .worried, marks: .tears)
+        case .starstruck: return NotchMascotExpression(left: .star, right: .star, gaze: CGPoint(x: 0, y: -0.03),
+                                                       mouth: .grin, brows: .raised, marks: .sparkle)
+        case .dizzy: return NotchMascotExpression(left: .spiral, right: .spiral, tilt: 0.18, mouth: .wavy, marks: .stars)
+        case .mischievous: return NotchMascotExpression(left: .squint, right: .determined, gaze: CGPoint(x: 0.04, y: 0),
+                                                        tilt: -0.06, mouth: .smirk, brows: .angry)
+        case .disgusted: return NotchMascotExpression(left: .squint, right: .squint, gaze: CGPoint(x: -0.04, y: 0), tilt: 0.12,
+                                                      mouth: .tongue, brows: .worried, marks: .queasy)
+        case .terrified: return NotchMascotExpression(left: .tiny, right: .tiny, gaze: CGPoint(x: 0, y: -0.02),
+                                                      mouth: .scream, brows: .worried, marks: [.sweat, .gloom])
+        case .bored: return NotchMascotExpression(left: .flat, right: .flat, gaze: CGPoint(x: -0.05, y: 0.02), mouth: .pout)
+        case .greedy: return NotchMascotExpression(left: .wide, right: .wide, mouth: .grin, brows: .raised,
+                                                   marks: [.money, .sparkle])
         }
     }
 }
-
 /// Where the face sits on each body, in shares of the companion's size from
 /// its top left corner.
 struct NotchMascotFaceLayout: Equatable {
@@ -686,6 +757,21 @@ enum NotchMascotGeometry {
             outline = clipBelow(stadium(width: width, height: height, center: .zero),
                                 from: CGPoint(x: -width / 2, y: -height * 0.30),
                                 to: CGPoint(x: width / 2, y: height * 0.02))
+        case .star:
+            outline = star(radius: width * 1.05, center: CGPoint(x: 0, y: -height * 0.02))
+        case .cross:
+            outline = cross(reach: width * 0.95, thickness: width * 0.34)
+        case .spiral:
+            outline = spiral(radius: width * 0.95, thickness: width * 0.2)
+        case .flat:
+            outline = lid(width: width * 1.3, top: height * 0.06, depth: height * 0.22)
+        case .tiny:
+            outline = ellipse(radii: CGSize(width: width * 0.3, height: width * 0.3), center: .zero)
+        case .sad:
+            // The left eye's lid falls away from the nose, on its left.
+            outline = clipBelow(stadium(width: width, height: height, center: .zero),
+                                from: CGPoint(x: -width / 2, y: height * 0.02),
+                                to: CGPoint(x: width / 2, y: -height * 0.30))
         }
         if right { outline = outline.map { CGPoint(x: -$0.x, y: $0.y) } }
         return resample(outline, count: eyeCurveCount)
@@ -776,6 +862,42 @@ enum NotchMascotGeometry {
         }
     }
 
+    /// A five-pointed star standing on two points.
+    private static func star(radius: CGFloat, center: CGPoint) -> [CGPoint] {
+        (0..<10).map { index in
+            let angle = -CGFloat.pi / 2 + CGFloat(index) * .pi / 5
+            let reach = index.isMultiple(of: 2) ? radius : radius * 0.45
+            return CGPoint(x: center.x + reach * cos(angle), y: center.y + reach * sin(angle))
+        }
+    }
+    /// An X of two bars `thickness` thick, reaching `reach` from its middle
+    /// along each diagonal.
+    private static func cross(reach: CGFloat, thickness: CGFloat) -> [CGPoint] {
+        let w = thickness / 2, root = CGFloat(2).squareRoot()
+        let quarter = [CGPoint(x: 0, y: -w * root),
+                       CGPoint(x: (reach - w) / root, y: (-reach - w) / root),
+                       CGPoint(x: (reach + w) / root, y: (-reach + w) / root)]
+        var points: [CGPoint] = []
+        var turn = quarter
+        for _ in 0..<4 {
+            points += turn
+            // A quarter turn clockwise on screen, with y growing downward.
+            turn = turn.map { CGPoint(x: -$0.y, y: $0.x) }
+        }
+        return points
+    }
+    /// A band wound in a spiral one and a half turns from the middle out.
+    private static func spiral(radius: CGFloat, thickness: CGFloat) -> [CGPoint] {
+        let turns: CGFloat = 1.6, steps = dense / 2
+        func at(_ share: CGFloat, _ offset: CGFloat) -> CGPoint {
+            let angle = -CGFloat.pi / 2 + share * turns * 2 * .pi
+            let reach = max(thickness * 0.6, share * radius) + offset
+            return CGPoint(x: reach * cos(angle), y: reach * sin(angle))
+        }
+        let outer = (0...steps).map { at(CGFloat($0) / CGFloat(steps), thickness / 2) }
+        let inner = (0...steps).reversed().map { at(CGFloat($0) / CGFloat(steps), -thickness / 2) }
+        return outer + inner
+    }
     /// A drowsy eye: the lid's flat edge on top, the eye's round bottom below.
     private static func lid(width: CGFloat, top: CGFloat, depth: CGFloat) -> [CGPoint] {
         let half = width / 2
