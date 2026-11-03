@@ -699,7 +699,13 @@ struct NotchMascotSettings: View {
         }
         if gangVisits != NotchMascotGangVisits.off.rawValue {
             SettingsChoiceRow(symbol: "person.3.sequence", title: gangText.atOnce, selection: $gangAtOnce) {
-                ForEach(Array(NotchMascotGangVisits.atOnce), id: \.self) { Text(verbatim: "\($0)").tag($0) }
+                ForEach(NotchMascotGangVisits.atOnceChoices, id: \.self) { choice in
+                    if choice == NotchMascotGangVisits.everyone {
+                        Text(gangText.everyone).tag(choice)
+                    } else {
+                        Text(verbatim: "\(choice)").tag(choice)
+                    }
+                }
             }
             .transition(.opacity)
         }

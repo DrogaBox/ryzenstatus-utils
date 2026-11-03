@@ -41,12 +41,16 @@ enum NotchMascotGangVisits: String, CaseIterable, Identifiable {
         }
     }
 
-    /// How many may be out at once, the setting's range and its default.
-    static let atOnce: ClosedRange<Int> = 1...4
+    /// How many guests may be out at once: the setting's choices, its
+    /// default, and the choice that lets every figure come.
+    static let atOnceChoices = [1, 2, 3, 4, 6, 8, 12, everyone]
     static let defaultAtOnce = 2
+    static let everyone = 99
+    /// The most guests ever out: one of every figure.
+    static var mostGuests: Int { NotchMascotStyle.allCases.count }
     /// No more than this many companions are ever out on the desktop: the
-    /// island's two and four guests.
-    static let mostOut = 6
+    /// island's two and every guest.
+    static var mostOut: Int { mostGuests + 2 }
     /// How long a visit lasts.
     static let stay: ClosedRange<TimeInterval> = 180...600
     /// What "Stay longer" adds to it.
@@ -60,7 +64,7 @@ enum NotchMascotGangVisits: String, CaseIterable, Identifiable {
 
     static func atOnce(in defaults: UserDefaults = .standard) -> Int {
         let stored = defaults.object(forKey: DefaultsKey.notchMascotGangAtOnce) as? Int ?? defaultAtOnce
-        return min(atOnce.upperBound, max(atOnce.lowerBound, stored))
+        return min(mostGuests, max(1, stored))
     }
 }
 

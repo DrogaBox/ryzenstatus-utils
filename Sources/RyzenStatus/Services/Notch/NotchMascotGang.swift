@@ -685,7 +685,7 @@ final class NotchMascotGang {
     /// out, coming in one after another, whatever the visits are set to.
     private func summon() {
         guard canHost(), NotchMascotSupport.roamsDesktop(), guestsMayPlay else { return }
-        bring(NotchMascotGangVisits.atOnce.upperBound, stagger: 1.1, summoned: true)
+        bring(NotchMascotGangVisits.mostGuests, stagger: 1.1, summoned: true)
     }
 
     /// Brings `count` guests out, `stagger` seconds apart.
@@ -704,9 +704,9 @@ final class NotchMascotGang {
     private func bringGuest(summoned: Bool) -> Bool {
         let defaults = UserDefaults.standard
         guard canHost(), NotchMascotSupport.roamsDesktop(in: defaults), guestsMayPlay else { return false }
-        let limit = summoned ? NotchMascotGangVisits.atOnce.upperBound : NotchMascotGangVisits.atOnce(in: defaults)
+        let limit = summoned ? NotchMascotGangVisits.mostGuests : NotchMascotGangVisits.atOnce(in: defaults)
         let counted = summoned ? guests.count : guests.filter { !$0.summoned }.count
-        guard counted < limit, guests.count < NotchMascotGangVisits.atOnce.upperBound,
+        guard counted < limit, guests.count < NotchMascotGangVisits.mostGuests,
               out.count < NotchMascotGangVisits.mostOut else { return false }
         var taken = Set(out.map(\.playLook.style))
         taken.insert(NotchMascotSupport.look(in: defaults).style)
