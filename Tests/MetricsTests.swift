@@ -12007,17 +12007,30 @@ struct MetricsTests {
                         let poses = NotchMascotCreatures.ArmsPose.allCases
                         expect(Set(poses.map { elements(NotchMascotCreatures.hologramArms($0, size: 40)) }).count == 1
                                && Set(poses.map { elements(NotchMascotCreatures.androidArms($0, size: 40)) }).count == 1
+                               && Set(poses.map { elements(NotchMascotCreatures.androidHands($0, size: 40)) }).count == 1
                                && Set((0...4).map { elements(NotchMascotCreatures.androidGaugeCells(level: $0, size: 40)) }).count == 1,
-                               "their arms and the android's gauge morph between their poses")
+                               "their arms, the android's hands and its gauge morph between their poses")
                         let gauge = NotchMascotCreatures.androidGauge(size: 40).boundingBox
-                        // The middle of each cell, from the bottom up.
-                        let cells = (0..<4).map { CGPoint(x: 0.5 * 40, y: (0.606 - CGFloat($0) * 0.027) * 40) }
+                        // The middle of each quarter of the ring, clockwise from the top.
+                        let core = NotchMascotCreatures.androidCoreCenter, radii = NotchMascotCreatures.androidGaugeRadii
+                        let reach = (radii.inner + radii.outer) / 2
+                        let cells = (0..<4).map { quarter -> CGPoint in
+                            let angle = -CGFloat.pi / 4 + CGFloat(quarter) * .pi / 2
+                            return CGPoint(x: (core.x + reach * cos(angle)) * 40, y: (core.y + reach * sin(angle)) * 40)
+                        }
                         expect((0...4).allSatisfy { level in
                                    let lit = NotchMascotCreatures.androidGaugeCells(level: level, size: 40)
                                    return cells.indices.allSatisfy { lit.contains(cells[$0]) == ($0 < level) }
                                }
                                && gauge.contains(NotchMascotCreatures.androidGaugeCells(level: 4, size: 40).boundingBox),
-                               "the gauge fills from empty to full, a cell at a time, inside its frame")
+                               "the gauge's ring fills from empty to full, a quarter at a time, inside its socket")
+                        expect([NotchMascotPalette.pearl, .lemon, .sky].allSatisfy { palette in
+                                   let colors = NotchMascotSignalColors(light: palette.light, shade: palette.shade)
+                                   return colors.skin.hsb.2 > 0.85 && colors.glow.hsb.2 > 0.95
+                               }
+                               && NotchMascotSignalColors(light: NotchMascotColor(red: 0.1, green: 0.1, blue: 0.1),
+                                                          shade: .ink).skin.hsb.2 > 0.85,
+                               "the hologram stays a figure of light and the android's eyes glow, whatever the colour")
                         expect(newcomers.allSatisfy { style in
                                    let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
                                    return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40
