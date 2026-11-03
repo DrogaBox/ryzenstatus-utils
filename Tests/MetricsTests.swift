@@ -12178,7 +12178,7 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
-                    // The animals drawn in layers: the phoenix and the mouse.
+                    // The animals drawn in layers: the phoenix, the mouse and the axolotl.
                     do {
                         typealias C = NotchMascotCreatures
                         func elements(_ path: CGPath) -> [Int32] {
@@ -12186,7 +12186,7 @@ struct MetricsTests {
                             path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
                             return kinds
                         }
-                        let animals: [NotchMascotStyle] = [.phoenix, .mouse]
+                        let animals: [NotchMascotStyle] = [.phoenix, .mouse, .axolotl]
                         let square = CGRect(x: 0, y: 0, width: 40, height: 40)
                         let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
                         expect(animals.allSatisfy { style in
@@ -12256,6 +12256,15 @@ struct MetricsTests {
                                "the mouse lays its ears back and curls its tail asleep, and throws up its paws for a cheer")
                         expect(NotchMascotGait.of(.mouse).period < NotchMascotGait.of(.phoenix).period,
                                "the mouse scurries")
+                        let axolotl = C.critterParts(.axolotl, colors: sky, size: 40)
+                        expect(part("gills", axolotl).map { gills in
+                                   gills.idle != nil && gills.path(.rest, 0) != gills.path(.rest, 0.25)
+                                       && gills.path(.twitch, 0).boundingBox.height > gills.path(.rest, 0).boundingBox.height
+                                       && gills.path(.asleep, 0).boundingBox.minY > gills.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("smile", axolotl) != nil && NotchMascotFeatures.drawsOwnMouth(.axolotl),
+                               "the axolotl's gill fronds wave, flare when startled and droop asleep, over its own smile")
+                        expect(NotchMascotGait.of(.axolotl).rock > 0, "the axolotl waddles")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)

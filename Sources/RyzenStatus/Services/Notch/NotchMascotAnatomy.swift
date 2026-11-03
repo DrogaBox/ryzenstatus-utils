@@ -89,14 +89,8 @@ extension NotchMascotCreatures {
             return .init(rightHand: at(0.92, 0.72), leftHand: at(0.09, 0.72), floor: 0.95,
                          leftFoot: 0.34, rightFoot: 0.66, foot: 0.16, torso: box(0.08, 0.34, 0.85, 0.62))
         // The five animals, where their own parts put hands and feet.
-        case .phoenix, .mouse:
+        case .phoenix, .mouse, .axolotl:
             return critterAnatomy(style)
-        // Its head is wider than its body, so it holds things out past the
-        // head's edge, where a sword raised up stays clear of its eyes.
-        case .axolotl:
-            return .init(rightHand: at(0.75, 0.70), leftHand: at(0.25, 0.70), floor: 0.87,
-                         leftFoot: 0.40, rightFoot: 0.60, foot: 0.12, torso: box(0.32, 0.50, 0.36, 0.38),
-                         nose: at(0.50, 0.38), mouth: at(0.50, 0.42))
         case .dog:
             return .init(rightHand: at(0.82, 0.70), leftHand: at(0.18, 0.70), floor: 0.95,
                          leftFoot: 0.36, rightFoot: 0.64, foot: 0.18, torso: box(0.17, 0.46, 0.66, 0.46),

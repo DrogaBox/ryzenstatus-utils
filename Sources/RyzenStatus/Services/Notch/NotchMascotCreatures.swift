@@ -69,9 +69,10 @@ enum NotchMascotCreatures {
                                          shineCenter: CGPoint(x: 0.4, y: 0.255), shineRadii: CGSize(width: 0.045, height: 0.022),
                                          shineAngle: -0.5)
         case .axolotl:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.37, y: 0.30), rightEye: CGPoint(x: 0.63, y: 0.30),
-                                         eyeSize: CGSize(width: 0.065, height: 0.14),
-                                         shineCenter: CGPoint(x: 0.34, y: 0.24), shineRadii: CGSize(width: 0.04, height: 0.025),
+            // Set wide on its flat head, over its smile.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.405, y: 0.432), rightEye: CGPoint(x: 0.595, y: 0.432),
+                                         eyeSize: CGSize(width: 0.064, height: 0.105),
+                                         shineCenter: CGPoint(x: 0.39, y: 0.335), shineRadii: CGSize(width: 0.05, height: 0.02),
                                          shineAngle: -0.3)
         case .dog:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.38, y: 0.24), rightEye: CGPoint(x: 0.62, y: 0.24),
@@ -151,7 +152,7 @@ enum NotchMascotCreatures {
         case .devourer: return CGRect(x: 0.04, y: 0.20, width: 0.92, height: 0.78)
         case .shifter: return CGRect(x: 0.07, y: 0.30, width: 0.86, height: 0.66)
         case .phoenix: return critterBounds(style)
-        case .axolotl: return CGRect(x: 0.02, y: 0.12, width: 0.96, height: 0.82)
+        case .axolotl: return critterBounds(style)
         case .dog: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.88)
         case .mouse: return critterBounds(style)
         case .capybara: return CGRect(x: 0.12, y: 0.05, width: 0.76, height: 0.89)
@@ -184,7 +185,7 @@ enum NotchMascotCreatures {
         case .devourer: return rect(0.12, 0.20, 0.76, 0.66, size)
         case .shifter: return rect(0.10, 0.30, 0.80, 0.60, size)
         case .phoenix: return rect(0.285, 0.18, 0.43, 0.39, size)
-        case .axolotl: return rect(0.16, 0.14, 0.68, 0.42, size)
+        case .axolotl: return rect(0.265, 0.257, 0.47, 0.356, size)
         case .dog: return rect(0.22, 0.08, 0.56, 0.44, size)
         case .mouse: return rect(0.3, 0.268, 0.4, 0.344, size)
         case .capybara: return rect(0.24, 0.18, 0.52, 0.44, size)
@@ -271,10 +272,7 @@ enum NotchMascotCreatures {
         case .phoenix:
             path.addPath(critterBody(style, size: size))
         case .axolotl:
-            // The wide flat head every axolotl wears, over a slim body that
-            // rounds off into its tail.
-            path.addRoundedRect(in: rect(0.16, 0.14, 0.68, 0.42, size), cornerWidth: 0.21 * size, cornerHeight: 0.21 * size)
-            path.addEllipse(in: rect(0.32, 0.46, 0.36, 0.42, size))
+            path.addPath(critterBody(style, size: size))
         case .dog:
             // A sitting pup, front on: a broad round head over a rounded chest.
             path.addEllipse(in: rect(0.22, 0.08, 0.56, 0.44, size))
@@ -362,42 +360,6 @@ enum NotchMascotCreatures {
         path.addEllipse(in: rect(0.76, 0.46, 0.20, 0.17, size))
         path.addEllipse(in: rect(0.14, 0.84, 0.30, 0.14, size))
         path.addEllipse(in: rect(0.56, 0.84, 0.30, 0.14, size))
-        return path
-    }
-
-    // MARK: Axolotl
-
-    /// Three gill stalks fanning out of each side of the head, each ending
-    /// in a rounded tip — the fronds that say axolotl.
-    static func axolotlGills(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        for mirror in [false, true] {
-            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
-            for (baseX, baseY, tipX, tipY) in [(0.22, 0.26, 0.06, 0.13),
-                                               (0.18, 0.36, 0.02, 0.37),
-                                               (0.21, 0.46, 0.05, 0.61)] {
-                path.move(to: point(x(baseX), baseY))
-                path.addQuadCurve(to: point(x(tipX), tipY), control: point(x(baseX - 0.10), baseY - 0.11))
-                path.addQuadCurve(to: point(x(baseX + 0.03), baseY + 0.06), control: point(x(tipX + 0.07), tipY + 0.08))
-                path.closeSubpath()
-                path.addEllipse(in: CGRect(x: x(tipX) * size - 0.035 * size, y: tipY * size - 0.035 * size,
-                                           width: 0.07 * size, height: 0.07 * size))
-            }
-        }
-        return path
-    }
-
-    /// The wide content smile, and two little front feet.
-    static func axolotlFeetAndSmile(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.36, 0.40))
-        path.addQuadCurve(to: point(0.64, 0.40), control: point(0.5, 0.47))
-        path.addQuadCurve(to: point(0.36, 0.40), control: point(0.5, 0.435))
-        path.closeSubpath()
-        path.addEllipse(in: rect(0.34, 0.82, 0.12, 0.05, size))
-        path.addEllipse(in: rect(0.54, 0.82, 0.12, 0.05, size))
         return path
     }
 
