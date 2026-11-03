@@ -28,6 +28,9 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     /// Toys and luck: playthings, a pet on the shoulder and a little fortune.
     case propellerCap, parrot, springShoes, skateboard, umbrella, yoyo, bubbleWand, horseshoeMagnet
     case luckyDice, fortuneCookie, snowGlobe, instantCamera
+    /// The party gear: what a band, a match, a picnic and a pillow fight need.
+    case drum, microphone, maracas, soccerBall, kite, pillow, marshmallowStick, waterPistol
+    case confettiCannon, paperPlane, megaphone, whistle, hulaHoop, jugglingBalls, walkieTalkie, picnicBasket
 
     var id: String { rawValue }
 
@@ -36,6 +39,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
                                                    .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
+                                                   + partyItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -62,10 +66,15 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .propellerCap, .parrot, .springShoes, .skateboard, .umbrella, .yoyo, .bubbleWand, .horseshoeMagnet,
         .luckyDice, .fortuneCookie, .snowGlobe, .instantCamera]
 
+    /// The sixteen party things, for the gang to play with together.
+    static let partyItems: [NotchMascotAccessory] = [
+        .drum, .microphone, .maracas, .soccerBall, .kite, .pillow, .marshmallowStick, .waterPistol,
+        .confettiCannon, .paperPlane, .megaphone, .whistle, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket]
+    var isPartyItem: Bool { Self.partyItems.contains(self) }
     var isDanceItem: Bool { Self.danceItems.contains(self) }
     var isToyItem: Bool { Self.toyItems.contains(self) }
     /// Bought with gold rather than earned by level.
-    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem }
+    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem }
 
 
     /// The level it unlocks at; zero for the ones that are put on for it.
@@ -93,6 +102,10 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .propellerCap: return .head
         case .springShoes, .skateboard: return .feet
         case .umbrella, .yoyo, .bubbleWand, .horseshoeMagnet, .luckyDice, .fortuneCookie, .snowGlobe, .instantCamera:
+            return .hand
+        case .hulaHoop: return .feet
+        case .drum, .microphone, .maracas, .soccerBall, .kite, .pillow, .marshmallowStick, .waterPistol,
+             .confettiCannon, .paperPlane, .megaphone, .whistle, .jugglingBalls, .walkieTalkie, .picnicBasket:
             return .hand
         case .trafficCone, .tinfoilHat, .alienAntenna, .unicornHorn, .stormCloud, .discoBall: return .head
         case .clownNose, .fakeMustache, .cursedMask: return .eyes

@@ -359,6 +359,9 @@ struct NotchMascotItemUse: Equatable {
         case .instantCamera:
             return .init([(0, .react(.ready)), (0.6, .react(.flash)), (0.6, .burst(.sparkles)), (1.0, .marker("CLICK!")),
                           (1.5, .symbol("★", .gold, count: 1)), (1.8, .move(.strut))])
+        case .drum, .microphone, .maracas, .soccerBall, .kite, .pillow, .marshmallowStick, .waterPistol,
+             .confettiCannon, .paperPlane, .megaphone, .whistle, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket:
+            return nil
         }
     }
 }

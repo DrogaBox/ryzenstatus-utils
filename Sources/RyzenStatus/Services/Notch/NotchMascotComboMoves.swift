@@ -166,6 +166,22 @@ struct NotchMascotItemSignature: Equatable {
         case .fortuneCookie: return .init(.bow, .cookie, .sparkles, .peek)
         case .snowGlobe: return .init(.shiver, .snowball, .magic, .love)
         case .instantCamera: return .init(.strut, .star, .sparkles, .flash)
+        case .drum: return .init(.stomp, .note, .confetti, .groove)
+        case .microphone: return .init(.strut, .note, .sparkles, .groove)
+        case .maracas: return .init(.shiver, .note, .confetti, .groove)
+        case .soccerBall: return .init(.charge, .ball, .confetti, .celebrate)
+        case .kite: return .init(.float, .star, .sparkles, .relax)
+        case .pillow: return .init(.spin, .heart, .sparkles, .yawn)
+        case .marshmallowStick: return .init(.hop, .cookie, .smoke, .sip)
+        case .waterPistol: return .init(.sneak, .snowball, .sparkles, .perk)
+        case .confettiCannon: return .init(.highJump, .balloon, .confetti, .celebrate)
+        case .paperPlane: return .init(.float, .arrow, .sparkles, .wave)
+        case .megaphone: return .init(.strut, .note, .confetti, .bounce)
+        case .whistle: return .init(.charge, .ball, .sparkles, .ready)
+        case .hulaHoop: return .init(.spin, .star, .confetti, .groove)
+        case .jugglingBalls: return .init(.hop, .ball, .sparkles, .celebrate)
+        case .walkieTalkie: return .init(.sneak, .spark, .sparkles, .peek)
+        case .picnicBasket: return .init(.bow, .cookie, .hearts, .relax)
         }
     }
 }

@@ -1814,3 +1814,7 @@ enum NotchMascotSupport {
                      side: side)
     }
 }
+extension Notification.Name {
+    /// Calls every companion of the gang out onto the desktop at once.
+    static let notchMascotSummonGang = Notification.Name("NotchMascotSummonGang")
+}
