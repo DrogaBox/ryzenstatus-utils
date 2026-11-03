@@ -123,6 +123,8 @@ final class NotchMascotGroupDirector {
 
     private func float(_ symbol: String, over one: NotchMascotDesktop, color: CGColor = NotchMascotGroupDirector.mark,
                        count: Int = 1) {
+        // A lone mark of surprise or doubt is said in a comic balloon.
+        if count == 1, let balloon = NotchMascotEmote.balloon(for: symbol) { one.emote(balloon); return }
         guard let canvas = canvas() else { return }
         NotchMascotPlayEffects.float(symbol, in: canvas, at: onCanvas(one.head), size: max(10, one.figureSize * 0.24),
                                      color: color, count: count)

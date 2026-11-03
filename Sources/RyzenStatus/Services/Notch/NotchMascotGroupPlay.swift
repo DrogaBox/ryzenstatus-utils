@@ -112,7 +112,25 @@ enum NotchMascotGroupPlay {
         if items.contains(.confettiCannon) || items.contains(.partyHat) || items.contains(.hulaHoop) {
             called.insert(.danceCircle)
         }
+        // What the whole gang wears together calls its own play first.
+        if let synergy = NotchMascotGroupSynergy.find(items, styles: styles) { called.insert(kind(for: synergy)) }
         return called
+    }
+
+    /// The play a gang synergy is acted out as.
+    static func kind(for synergy: NotchMascotGroupSynergy) -> Kind {
+        switch synergy {
+        case .campfire: return .campfire
+        case .kiteStorm: return .kiteStorm
+        case .pillowFight: return .pillowFight
+        case .waterFight: return .waterFight
+        case .band: return .band
+        case .karaoke: return .karaoke
+        case .match: return .soccer
+        case .juggling: return .juggling
+        case .picnic: return .picnic
+        case .conga: return .megaphoneConga
+        }
     }
 
     /// Whether `kind` may come now at all.

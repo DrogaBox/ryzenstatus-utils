@@ -13,6 +13,19 @@ enum NotchMascotEmote: Equatable {
     /// A thought cloud holding `symbol`, a few characters at most.
     case thought(String)
 
+    /// The balloon that says a lone `symbol` floated over a companion, if
+    /// one does: surprise, doubt, both, a pause or a curse.
+    static func balloon(for symbol: String) -> NotchMascotEmote? {
+        switch symbol {
+        case "!": return .exclaim
+        case "?": return .question
+        case "!?": return .interrobang
+        case "…": return .ellipsis
+        case "#@!": return .curse
+        default: return nil
+        }
+    }
+
     /// The text it says, for those that are text.
     var text: String? {
         switch self {

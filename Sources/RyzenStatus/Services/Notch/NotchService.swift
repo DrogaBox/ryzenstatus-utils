@@ -5815,15 +5815,15 @@ extension NotchService {
                                              chance: NotchMascotItemUse.islandChance, random: Double.random(in: 0..<1))
         else { return }
         lastMascotItemUse = now
-        var users: [(byLeader: Bool, item: NotchMascotAccessory)] = []
+        var users: [(byLeader: Bool, item: NotchMascotAccessory, style: NotchMascotStyle)] = []
         let leader = NotchMascotSupport.look()
-        if leader.style.takesAccessory { users.append((true, leader.accessory)) }
+        if leader.style.takesAccessory { users.append((true, leader.accessory, leader.style)) }
         if mascotFriendRests(on: geometry), !mascotFriendSteppedAside, !mascotFriendOut, let friend = mascotFriendLook,
            friend.style.takesAccessory {
-            users.append((false, friend.accessory))
+            users.append((false, friend.accessory, friend.style))
         }
-        guard let user = users.filter({ NotchMascotItemUse.of($0.item) != nil }).randomElement(),
-              let use = NotchMascotItemUse.of(user.item)?.settled() else { return }
+        guard let user = users.filter({ NotchMascotItemUse.of($0.item, style: $0.style) != nil }).randomElement(),
+              let use = NotchMascotItemUse.of(user.item, style: user.style)?.settled() else { return }
         let beats = use.islandBeats(byLeader: user.byLeader)
         guard !beats.isEmpty else { return }
         startMascotIslandPlay(NotchMascotIslandPlay(kind: .item(user.item), beats: beats), solo: true)
@@ -6454,10 +6454,8 @@ extension NotchService {
             shows.play(cheat, cast: self.mascotCheatCast)
         }
     }
-    /// The companions out on the desktop now: the cast of a cheat's show.
-    private var mascotCheatCast: [NotchMascotDesktop] {
-        (mascotOnDesktop ? [mascotDesktop] : []) + (mascotFriendOut ? [mascotFriend] : [])
-    }
+    /// The companions out on the desktop now, guests too: the cast of a cheat's show.
+    private var mascotCheatCast: [NotchMascotDesktop] { mascotGang.out }
 
     /// Hands a waiting reaction to the companion once the closed island shows
     /// with room for it, and no visit is under way. A countdown it watches

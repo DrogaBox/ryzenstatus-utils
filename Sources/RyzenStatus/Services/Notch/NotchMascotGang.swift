@@ -93,7 +93,8 @@ final class NotchMascotGang {
 
     /// The island's two and the guests, whether out or not.
     private var members: [NotchMascotDesktop] { [lead, friend] + guests.map(\.desktop) }
-    private var out: [NotchMascotDesktop] { members.filter(\.isOut) }
+    /// Every one of them out on the desktop now.
+    var out: [NotchMascotDesktop] { members.filter(\.isOut) }
 
     private func guest(_ one: NotchMascotDesktop) -> Guest? { guests.first { $0.desktop === one } }
 
@@ -392,6 +393,8 @@ final class NotchMascotGang {
 
     /// Floats `symbol` up over `one`'s head.
     private func float(_ symbol: String, over one: NotchMascotDesktop, color: CGColor, count: Int = 1) {
+        // A lone mark of surprise or doubt is said in a comic balloon.
+        if count == 1, let balloon = NotchMascotEmote.balloon(for: symbol) { one.emote(balloon); return }
         guard let layer = one.effects else { return }
         NotchMascotPlayEffects.float(symbol, in: layer, at: one.local(one.head), size: max(9, one.figureSize * 0.2),
                                      color: color, count: count)
