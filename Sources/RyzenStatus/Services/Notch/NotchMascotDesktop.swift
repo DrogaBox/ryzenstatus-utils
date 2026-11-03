@@ -63,6 +63,9 @@ final class NotchMascotDesktop: NSObject {
     /// How many times its walking pace it wanders at on its own: a sleepy
     /// guest dawdles, a show-off struts.
     var gait: CGFloat = 1
+    /// Where it is going across the displays, and how the floors between
+    /// them take its last throw (see `NotchMascotDesktop+Displays`).
+    var roaming = NotchMascotRoaming()
 
     private(set) var isOut = false
     /// Counts its outings, so what one scheduled stays with it.
@@ -2851,8 +2854,12 @@ final class NotchMascotDesktop: NSObject {
     }
     // MARK: Playing
 
-    /// Free to play: out, standing on the floor on its own and not held.
-    var isFree: Bool {
+    /// Free to play: out, standing on the floor on its own and not held,
+    /// and not on its way to another display.
+    var isFree: Bool { standsIdle && !isTravelling }
+    /// Out, standing on the floor with nothing in hand, whether or not it
+    /// is on its way somewhere.
+    var standsIdle: Bool {
         isOut && mode == .standing && press == nil && !inPlay && !body.airborne && perch == nil && peekDepth == 0
             && !usingItem && !inEncounter && occasion == nil
     }
@@ -2947,6 +2954,21 @@ final class NotchMascotDesktop: NSObject {
         setRun(direction)
         resumeTicking()
         return duration
+    }
+
+    /// Walks toward `direction` for `duration` at `pace` times its walking
+    /// pace, on into a display beside it where the floor goes on. False when
+    /// it cannot walk off now.
+    @discardableResult
+    func wander(toward direction: CGFloat, for duration: TimeInterval, pace: CGFloat = 1) -> Bool {
+        guard isOut, !isHoming, press == nil, !body.airborne, perch == nil, !holdsStill, duration > 0 else { return false }
+        planWork?.cancel(); planWork = nil
+        self.pace = max(0.2, pace)
+        let way: CGFloat = direction > 0 ? 1 : -1
+        mode = .walking(direction: way, until: CACurrentMediaTime() + duration)
+        setRun(way)
+        resumeTicking()
+        return true
     }
 
     /// A hop of its own, `dx` and `dy` points a second.
@@ -3132,6 +3154,7 @@ final class NotchMascotDesktop: NSObject {
     func goHome() {
         guard isOut, !isHoming, let host else { return }
         cancelDizzy()
+        abandonTrip()
         if inPlay { interrupted?() }
         cancelPlans()
         cancelWindowPlans()
@@ -3165,6 +3188,7 @@ final class NotchMascotDesktop: NSObject {
         guard isOut else { return }
         outing += 1
         cancelDizzy()
+        abandonTrip()
         if inPlay { interrupted?() }
         cancelPlans()
         cancelWindowPlans()
@@ -3264,7 +3288,7 @@ final class NotchMascotDesktop: NSObject {
 
     private func fly(by dt: TimeInterval) {
         if body.airborne { checkTrampoline() }
-        let area = cheatArea(self.area(for: body.position), body: &body)
+        let area = cheatArea(flightArea(around: self.area(for: body.position)), body: &body)
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
                                           ledges: inPlay || yardPlay != nil || cheatPassesThrough ? [] : currentLedges(),
                                           gravityScale: cheatGravity)
@@ -3286,13 +3310,16 @@ final class NotchMascotDesktop: NSObject {
             case .landed(let impact):
                 host?.mascot.land(impact: impact / 2000)
                 host?.mascot.lean(0)
-                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
+                let soft = roaming.softLanding
+                roaming.landed()
+                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable, !soft { landDizzy(); thrown = false; landedHard?() }
             case .bumped(let speed):
                 host?.mascot.land(impact: speed / 3000)
                 if speed >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
                 dropped = false
+                roaming.settled()
                 leapTarget = nil
                 setRun(nil)
                 host?.mascot.lean(0)
@@ -3334,8 +3361,12 @@ final class NotchMascotDesktop: NSObject {
         let walkway = perch == nil ? nil : perchLedge
         let low = walkway.map { $0.minX + half * 0.5 } ?? area.minX + half
         let high = walkway.map { $0.maxX - half * 0.5 } ?? area.maxX - half
-        // At the end of the way it turns around, or jumps off when it meant to.
-        if body.position.x <= low || body.position.x >= high {
+        // At the end of the way it turns around, or jumps off when it meant
+        // to; on the floor, it may walk on into a display beside it.
+        let onward = walkway == nil && (body.position.x <= low || body.position.x >= high)
+            ? walksOn(direction, low: low, high: high) : .back
+        if onward == .leapt { return }
+        if onward == .back, body.position.x <= low || body.position.x >= high {
             body.position.x = min(high, max(low, body.position.x))
             if leavesLedge, walkway != nil {
                 leavesLedge = false
@@ -3347,6 +3378,10 @@ final class NotchMascotDesktop: NSObject {
             direction = -direction
             setRun(direction)
             mode = .walking(direction: direction, until: until)
+        }
+        // A floor a stride higher, on the display it walked into, it steps up onto.
+        if perch == nil, area.minY > body.position.y, area.minY - body.position.y <= NotchMascotDisplays.stride {
+            body.position.y = area.minY
         }
         // The floor moved under it, as a Dock that shows or hides, or the
         // window it walks on went away.
@@ -3389,6 +3424,8 @@ final class NotchMascotDesktop: NSObject {
         guard isOut, mode == .standing, !inPlay, peekDepth == 0, climbWork == nil, !riding, !usingItem, !inEncounter,
               occasion == nil, let host
         else { return }
+        // On its way to another display, it walks on before anything else.
+        if perch == nil, continueTrip() { return }
         if perch == nil, invitePlay?() == true { return }
         if perch == nil, greetIfNear() { return }
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -3404,6 +3441,7 @@ final class NotchMascotDesktop: NSObject {
             if !reduceMotion, maybeHideAndSeek() { return }
         }
         let still = staysPut || reduceMotion || lowPower || host.mascot.isDozing
+        if !still, perch == nil, maybeWander() { return }
         if !still, windowActivity() { return }
         let area = self.area(for: body.position)
         let half = size * figureAspect / 2
@@ -3441,7 +3479,7 @@ final class NotchMascotDesktop: NSObject {
                 self.scheduleExcursionEnd(after: 5)
                 return
             }
-            self.goHome()
+            self.headHome()
         }
         excursionWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -3872,6 +3910,7 @@ final class NotchMascotDesktop: NSObject {
         if inPlay { interrupted?() }
         // Played with, it is no longer on a walk of its own: it stays out.
         excursionWork?.cancel(); excursionWork = nil
+        abandonTrip()
         if clicks >= 2 { goHome(); return }
         planWork?.cancel(); planWork = nil
         setRun(nil)
@@ -3942,6 +3981,7 @@ final class NotchMascotDesktop: NSObject {
         samples.removeAll()
         body.velocity = velocity
         body.airborne = true
+        roaming.letGo(at: velocity)
         thrown = hypot(velocity.dx, velocity.dy) > 600
         dropped = true
         mode = .flying
@@ -4042,6 +4082,17 @@ final class NotchMascotDesktop: NSObject {
         menu.addItem(shop)
         menu.addItem(gamesItem())
         if let fusion = fusionMenu?() { menu.addItem(fusion) }
+        let alarmText = FeatureStrings.notchMascotAlarms(L10n.shared.language)
+        let alarms = NSMenuItem(title: alarmText.alarmsMenu, action: #selector(menuAlarms), keyEquivalent: "")
+        alarms.target = self
+        alarms.image = NSImage(systemSymbolName: "alarm", accessibilityDescription: nil)
+        menu.addItem(alarms)
+        if NotchService.shared.mascotAlarmCast?.gang.hasGuests == true {
+            let home = NSMenuItem(title: alarmText.everyoneHome, action: #selector(menuEveryoneHome), keyEquivalent: "")
+            home.target = self
+            home.image = NSImage(systemSymbolName: "light.beacon.max", accessibilityDescription: nil)
+            menu.addItem(home)
+        }
         menu.addItem(.separator())
         let home = NSMenuItem(title: text.goHome, action: #selector(menuGoHome), keyEquivalent: "")
         home.target = self
@@ -4093,6 +4144,7 @@ final class NotchMascotDesktop: NSObject {
 
     @objc private func menuStayPut() {
         staysPut.toggle()
+        if staysPut { endTrip(arrived: false) }
         if staysPut, isWalking {
             setRun(nil)
             mode = .standing
@@ -4103,6 +4155,8 @@ final class NotchMascotDesktop: NSObject {
     @objc private func menuSettings() { openSettings?() }
 
     @objc private func menuShop() { openShop?() }
+    @objc private func menuAlarms() { NotchMascotAlarmSign.shared.open(heldBy: self) }
+    @objc private func menuEveryoneHome() { NotchService.shared.mascotAlarmCast?.gang.sendEveryoneHome(from: self) }
 
     // MARK: The pointer
 

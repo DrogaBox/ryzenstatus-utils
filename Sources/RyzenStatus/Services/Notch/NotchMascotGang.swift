@@ -54,6 +54,8 @@ final class NotchMascotGang {
     /// Two of them fused into one, one pair at a time.
     private let fusion = NotchMascotFusionDirector()
     private var lastGroupPlay: CFTimeInterval = -.infinity
+    /// Some walk over to another display for a play of the whole gang.
+    private var rallying = false
     private var groupRecent: [NotchMascotGroupPlay.Kind] = []
     /// The day the surprise party was thrown, so it is thrown once.
     private var partyDay: String?
@@ -120,9 +122,10 @@ final class NotchMascotGang {
         others(near: one).first { $0.feet != nil }
     }
 
-    /// Whether `one` is in a play just now.
+    /// Whether `one` is in a play just now, or on its way to another display.
     private func busy(_ one: NotchMascotDesktop) -> Bool {
-        fusion.involves(one) || group.involves(one) || duos.contains { $0.playing != nil && $0.involves(one) }
+        one.isTravelling || fusion.involves(one) || group.involves(one)
+            || duos.contains { $0.playing != nil && $0.involves(one) }
     }
 
     private var guestsMayPlay: Bool {
@@ -234,6 +237,9 @@ final class NotchMascotGang {
     private func invite(from one: NotchMascotDesktop) -> Bool {
         guard !busy(one) else { return false }
         if startGroupPlay(around: one) { return true }
+        if rallyGroup(around: one) { return true }
+        // Alone on its display, it may go over to where the others are.
+        if others(near: one).isEmpty, joinOthers(one) { return true }
         // At most two pairs play at once, so the desktop does not turn into a fair.
         guard duos.filter({ $0.playing != nil }).count < 2 else { return false }
         let partners = others(near: one).filter { !busy($0) && $0.feet != nil }
@@ -298,7 +304,14 @@ final class NotchMascotGang {
     private func startGroupPlay(around one: NotchMascotDesktop) -> Bool {
         guard group.playing == nil, guestsMayPlay, !one.isDozing, let screen = one.playScreen else { return false }
         let cast = out.filter { $0.playScreen == screen && $0.isFree && !$0.isDozing && !busy($0) }
-        guard cast.count >= NotchMascotGroupPlay.minimum, cast.contains(where: { $0 === one }) else { return false }
+        guard cast.count >= NotchMascotGroupPlay.minimum, cast.contains(where: { $0 === one }),
+              let kind = dueGroupPlay(for: cast) else { return false }
+        beginGroupPlay(kind, with: cast)
+        return true
+    }
+
+    /// The play of the whole gang that is due for `cast`, if one is.
+    private func dueGroupPlay(for cast: [NotchMascotDesktop]) -> NotchMascotGroupPlay.Kind? {
         let now = Date()
         let calendar = Calendar.current
         let today = NotchMascotSpecialDays.key(for: now)
@@ -310,13 +323,80 @@ final class NotchMascotGang {
             items: cast.filter { $0.playLook.style.takesAccessory }.map(\.playLook.accessory),
             styles: cast.map(\.playLook.style), personalities: cast.compactMap { guest($0)?.personality },
             recent: groupRecent)
-        guard let kind = NotchMascotGroupPlay.next(in: context, since: CACurrentMediaTime() - lastGroupPlay,
-                                                   random: { Double.random(in: 0..<1) })
-        else { return false }
-        if kind == .surpriseParty { partyDay = today }
+        return NotchMascotGroupPlay.next(in: context, since: CACurrentMediaTime() - lastGroupPlay,
+                                         random: { Double.random(in: 0..<1) })
+    }
+
+    private func beginGroupPlay(_ kind: NotchMascotGroupPlay.Kind, with cast: [NotchMascotDesktop]) {
+        if kind == .surpriseParty { partyDay = NotchMascotSpecialDays.key(for: Date()) }
         lastGroupPlay = CACurrentMediaTime()
         groupRecent = Array((groupRecent + [kind]).suffix(NotchMascotGroupPlay.memory))
         group.start(kind, with: Array(cast.prefix(NotchMascotGangVisits.mostOut)))
+    }
+
+    // MARK: Across the displays
+
+    /// The screens' counts of those in `ones`, in `NSScreen.screens`' order.
+    private func counts(of ones: [NotchMascotDesktop]) -> [Int] {
+        NSScreen.screens.map { screen in ones.filter { $0.playScreen == screen }.count }
+    }
+
+    /// Alone on its display, with others out on another: now and then it
+    /// walks over to the display where most of them are, to stand by the
+    /// nearest of them there. True when it sets off.
+    private func joinOthers(_ one: NotchMascotDesktop) -> Bool {
+        guard NSScreen.screens.count > 1, guestsMayPlay, let here = one.playScreen else { return false }
+        let away = out.filter { $0 !== one && !$0.fusedAway && $0.playScreen != nil && $0.playScreen != here }
+        guard let most = NotchMascotDisplays.gathering(counts(of: away)) else { return false }
+        let screen = NSScreen.screens[most]
+        let there = away.filter { $0.playScreen == screen }
+        let hereX = x(one)
+        guard let by = there.min(by: { abs(x($0) - hereX) < abs(x($1) - hereX) }) else { return false }
+        return one.join(on: screen, by: x(by))
+    }
+
+    /// Enough free for a play of the whole gang, but spread over the
+    /// displays: when one is due, those away walk over to the display where
+    /// most of them are, and it starts once they are there, or with whoever
+    /// made it once the wait runs out. True when they set off.
+    private func rallyGroup(around one: NotchMascotDesktop) -> Bool {
+        guard !rallying, NSScreen.screens.count > 1, group.playing == nil, guestsMayPlay, !one.isDozing else { return false }
+        let free = out.filter { $0.playScreen != nil && $0.isFree && !$0.isDozing && !busy($0) }
+        guard free.count >= NotchMascotGroupPlay.minimum, free.contains(where: { $0 === one }),
+              Set(free.compactMap(\.playScreen)).count > 1,
+              let most = NotchMascotDisplays.gathering(counts(of: free),
+                                                       preferring: one.playScreen.flatMap { NSScreen.screens.firstIndex(of: $0) }),
+              let kind = dueGroupPlay(for: free)
+        else { return false }
+        let stage = NSScreen.screens[most]
+        let gathered = free.filter { $0.playScreen == stage }
+        let middle = gathered.isEmpty ? stage.visibleFrame.midX : gathered.map(x).reduce(0, +) / CGFloat(gathered.count)
+        rallying = true
+        // Nothing else of the whole gang's starts meanwhile.
+        lastGroupPlay = CACurrentMediaTime()
+        let begin = { [weak self] in
+            guard let self, self.rallying else { return }
+            self.rallying = false
+            let cast = self.out.filter { $0.playScreen == stage && $0.isFree && !$0.isDozing && !self.busy($0) }
+            guard self.group.playing == nil, cast.count >= NotchMascotGroupPlay.minimum else { return }
+            self.beginGroupPlay(kind, with: cast)
+        }
+        var walking = 0
+        for (index, walker) in free.filter({ $0.playScreen != stage }).enumerated() {
+            let side: CGFloat = index % 2 == 0 ? 1 : -1
+            let spot = middle + side * walker.figureSize * 1.3 * CGFloat(index / 2 + 1)
+            let setOff = walker.travel(to: stage, x: spot, pace: 1.5, within: NotchMascotDisplays.rallyWait) { _ in
+                walking -= 1
+                if walking == 0 { begin() }
+            }
+            if setOff { walking += 1 }
+        }
+        guard walking > 0 else {
+            rallying = false
+            return false
+        }
+        // Those still on their way are not waited for past this.
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMascotDisplays.rallyWait + 1, execute: begin)
         return true
     }
 
@@ -743,12 +823,13 @@ final class NotchMascotGang {
         taken.insert(NotchMascotSupport.look(in: defaults).style)
         if let style = NotchMascotSupport.desktopFriend(in: defaults)?.style { taken.insert(style) }
         let styles = NotchMascotGangCasting.styles(name: defaults.string(forKey: DefaultsKey.notchMascotName), excluding: taken)
-        guard let style = styles.randomElement(), let screen = hostScreen() else { return false }
+        guard let style = styles.randomElement(), let screen = arrivalScreen() else { return false }
         let personality = NotchMascotPersonality.of(style)
         let look = NotchMascotGangCasting.look(for: style) { Double.random(in: 0..<1) }
         let desktop = NotchMascotDesktop(leads: false)
         wire(desktop)
         desktop.gait = personality.gait
+        desktop.roaming.wanderlust = personality.wanderlust
         desktop.openSettings = { [weak self] in self?.openSettings?() }
         desktop.openShop = { [weak self] in self?.openShop?() }
         desktop.cameHome = { [weak self, weak desktop] _ in
@@ -776,6 +857,16 @@ final class NotchMascotGang {
     /// any of them is, else the main one.
     private func hostScreen() -> NSScreen? {
         out.lazy.compactMap(\.playScreen).first ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    /// The screen a guest comes out on: mostly one where others already
+    /// are, now and then another display.
+    private func arrivalScreen() -> NSScreen? {
+        let screens = NSScreen.screens
+        guard screens.count > 1, !out.isEmpty,
+              let index = NotchMascotDisplays.arrival(counts(of: out), random: Double.random(in: 0..<1))
+        else { return hostScreen() }
+        return screens[index]
     }
 
     /// Where along the floor a newcomer lands: away from those already there.
@@ -897,6 +988,51 @@ final class NotchMascotGang {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    // MARK: Alarms
+    /// Whether any guest is out and staying, for "Everyone home!".
+    var hasGuests: Bool { guests.contains { $0.desktop.isOut && !$0.leaving } }
+    private let alarmStage = NotchMascotPlayStage()
+    /// Every guest takes fright, as an alarm rings or the siren goes: a
+    /// start, a scared face and a cry, one after another.
+    func panic() {
+        for (index, guest) in guests.enumerated() where guest.desktop.isOut && !guest.leaving {
+            let desktop = guest.desktop
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.15) { [weak desktop] in
+                guard let desktop, desktop.isOut else { return }
+                desktop.react(.panic)
+                desktop.pullFace(.terrified, for: 2.5)
+                desktop.emote(.exclaim)
+            }
+        }
+    }
+    /// The siren goes off over `caller`, every guest takes fright, and off
+    /// they all go at once, each its own way out.
+    func sendEveryoneHome(from caller: NotchMascotDesktop) {
+        let staying = guests.filter { $0.desktop.isOut && !$0.leaving }
+        guard !staying.isEmpty else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NotchMascotAlarmPlayer.shared.siren()
+        if let screen = caller.playScreen, let canvas = alarmStage.layer(over: screen) {
+            let size = caller.figureSize
+            let base = alarmStage.point(CGPoint(x: caller.head.x, y: caller.head.y + size * 0.15))
+            NotchMascotAlarmArt.siren(in: canvas, at: base, width: max(70, size * 2.2),
+                                      text: FeatureStrings.notchMascotAlarms(L10n.shared.language).everyoneHomeSign,
+                                      duration: 3.2, reduceMotion: reduceMotion)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { [weak self] in self?.alarmStage.close() }
+        }
+        caller.pullFace(.determined, for: 3)
+        caller.emote(.exclaim)
+        panic()
+        for (index, guest) in staying.enumerated() {
+            interrupted(guest.desktop)
+            guest.leaves?.cancel()
+            guest.leaves = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1 + Double(index) * 0.2) { [weak self, weak guest] in
+                guard let self, let guest, !guest.leaving else { return }
+                self.leave(guest)
+            }
+        }
+    }
     /// The guest goes its own way: waving and walking off, on a balloon,
     /// into a box or through the door it came by. Busy just then, held or
     /// in the air, it goes a little later; `quickly`, it simply fades.

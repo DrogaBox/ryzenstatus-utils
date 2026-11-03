@@ -709,6 +709,10 @@ struct NotchMascotSettings: View {
             }
             .transition(.opacity)
         }
+        let alarmText = FeatureStrings.notchMascotAlarms(l10n.language)
+        SettingsRow(symbol: "alarm", title: alarmText.alarms, caption: alarmText.settingsCaption) {
+            Button(alarmText.openSign) { NotchMascotAlarmSign.shared.open() }
+        }
     }
 
     // MARK: Automatic reactions
