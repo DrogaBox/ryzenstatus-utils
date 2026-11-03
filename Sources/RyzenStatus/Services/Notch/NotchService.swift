@@ -6394,7 +6394,6 @@ extension NotchService {
         flushMascotReaction()
     }
 
-    /// Celebrates on the active companion (desktop or notch).
     /// The magic word: the companion comes out if it is not, and the next
     /// rare encounter in turn passes it by, whatever the hour.
     func summonMascotEncounter() {
@@ -6413,13 +6412,44 @@ extension NotchService {
             }
         }
     }
-    func celebrateCheat() {
+    /// A cheat typed anywhere. The magic words bring what they bring; every
+    /// other one is a show the companions out on the desktop put on, the
+    /// companion hopping out for it first where it may roam. Kept in the
+    /// island, it celebrates there, three times over.
+    func playMascotCheat(_ cheat: NotchMascotCheat) {
         guard NotchMascotSupport.isEnabled() else { return }
-        if mascotOnDesktop {
-            mascotDesktop.react(.celebrate)
-        } else {
-            reactMascot(.celebrate)
+        let shows = NotchMascotCheatShows.shared
+        switch cheat {
+        case .xyzzy:
+            summonMascotEncounter()
+            shows.shake(mascotCheatCast)
+            return
+        case .plugh:
+            previewMascotOccasion()
+            shows.shake(mascotCheatCast)
+            return
+        case .party:
+            NotificationCenter.default.post(name: .notchMascotSummonGang, object: nil)
+        default:
+            break
         }
+        let wasOut = mascotOnDesktop
+        if !wasOut, NotchMascotCheatShows.movesFreely { beginMascotDesktop(grabbedAt: nil) }
+        if !mascotOnDesktop {
+            for (index, reaction) in [NotchMascotReaction.celebrate, .bounce, .celebrate].enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 1.6) { [weak self] in
+                    self?.reactMascot(reaction, countsAsMoment: false)
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (wasOut || !mascotOnDesktop ? 0.25 : 2.6)) { [weak self] in
+            guard let self else { return }
+            shows.play(cheat, cast: self.mascotCheatCast)
+        }
+    }
+    /// The companions out on the desktop now: the cast of a cheat's show.
+    private var mascotCheatCast: [NotchMascotDesktop] {
+        (mascotOnDesktop ? [mascotDesktop] : []) + (mascotFriendOut ? [mascotFriend] : [])
     }
 
     /// Hands a waiting reaction to the companion once the closed island shows

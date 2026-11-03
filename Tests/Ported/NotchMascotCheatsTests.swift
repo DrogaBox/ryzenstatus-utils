@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import QuartzCore
 
 struct NotchMascotCheatsTests {
     static func run(_ suite: TestSuite) {
@@ -16,6 +17,11 @@ struct NotchMascotCheatsTests {
         modifierRejection(suite)
         timeoutReset(suite)
         badgesAndSoundEffects(suite)
+        newCheatSequences(suite)
+        newBadgesAndSounds(suite)
+        fanfares(suite)
+        showLengths(suite)
+        bigHeadLook(suite)
     }
 
     private static func konamiSequence(_ suite: TestSuite) {
@@ -129,5 +135,99 @@ struct NotchMascotCheatsTests {
         suite.expect(UserDefaults.standard.integer(forKey: DefaultsKey.notchMascotGold) == initialGold + 10_000,
                      "motherlode awards 10,000 gold")
         UserDefaults.standard.set(initialGold, forKey: DefaultsKey.notchMascotGold)
+    }
+
+    private static func newCheatSequences(_ suite: TestSuite) {
+        let words: [(String, NotchMascotCheat)] = [("partyhard", .party), ("bighead", .bighead),
+                                                   ("thereisnospoon", .thereisnospoon), ("moonwalk", .moonwalk)]
+        for (word, cheat) in words {
+            let engine = NotchMascotCheatEngine()
+            suite.expect(engine.receive(text: word, timestamp: 100.0) == cheat, "\(word) characters match .\(cheat)")
+            suite.expect(engine.bufferCount == 0, "\(word) clears the buffer")
+        }
+        // By key codes alone, as a layout that types other letters sends them.
+        let engine = NotchMascotCheatEngine()
+        var result: NotchMascotCheat?
+        for code: UInt16 in [46, 31, 31, 45, 13, 0, 37, 40] {
+            result = engine.receive(keyCode: code, timestamp: 100.0)
+        }
+        suite.expect(result == .moonwalk, "moonwalk key codes match .moonwalk")
+        let partial = NotchMascotCheatEngine()
+        suite.expect(partial.receive(text: "thereisnospo", timestamp: 100.0) == nil, "half a cheat is no cheat")
+        suite.expect(NotchMascotCheatEngine().receive(text: "lets partyhard", timestamp: 100.0) == .party,
+                     "a cheat at the end of other typing still counts")
+    }
+    private static func newBadgesAndSounds(_ suite: TestSuite) {
+        suite.expect(NotchMascotCheat.party.badge == "🎉 PARTY TIME", "party badge matches")
+        suite.expect(NotchMascotCheat.party.soundEffect == .toot, "party sound matches .toot")
+        suite.expect(NotchMascotCheat.bighead.badge == "🎈 BIG HEAD MODE", "bighead badge matches")
+        suite.expect(NotchMascotCheat.bighead.soundEffect == .boing, "bighead sound matches .boing")
+        suite.expect(NotchMascotCheat.thereisnospoon.badge == "🥄 THERE IS NO SPOON", "thereisnospoon badge matches")
+        suite.expect(NotchMascotCheat.thereisnospoon.soundEffect == .bleep, "thereisnospoon sound matches .bleep")
+        suite.expect(NotchMascotCheat.moonwalk.badge == "🌙 MOONWALK", "moonwalk badge matches")
+        suite.expect(NotchMascotCheat.moonwalk.soundEffect == .warble, "moonwalk sound matches .warble")
+        let badges = NotchMascotCheat.allCases.map(\.badge)
+        suite.expect(Set(badges).count == badges.count, "every cheat has a badge of its own")
+    }
+    private static func fanfares(_ suite: TestSuite) {
+        for cheat in NotchMascotCheat.allCases {
+            let fanfare = cheat.fanfare
+            suite.expect(fanfare.count >= 4, "\(cheat) plays several sounds")
+            suite.expect(fanfare.first?.effect == cheat.soundEffect && fanfare.first?.at == 0,
+                         "\(cheat) opens with its own sound")
+            suite.expect(zip(fanfare, fanfare.dropFirst()).allSatisfy { $0.at < $1.at }, "\(cheat) plays them in turn")
+            suite.expect((fanfare.last?.at ?? 0) < NotchMascotCheatBanner.length, "\(cheat) is over before its banner")
+        }
+        suite.expect(AppLanguage.allCases.allSatisfy { !FeatureStrings.notchMascotCheats($0).activated.isEmpty },
+                     "the banner's line is there in every language")
+    }
+    private static func showLengths(_ suite: TestSuite) {
+        suite.expect(NotchMascotCheatShows.godLength == 30, "god mode lasts 30 s")
+        suite.expect(NotchMascotCheatShows.bigHeadLength == 45, "big-head mode lasts 45 s")
+        suite.expect(NotchMascotCheatShows.slowLength == 15 && NotchMascotCheatShows.slowPace == 0.3,
+                     "slow motion: 15 s at 0.3 times the pace")
+        suite.expect(NotchMascotCheatShows.moonLength == 60 && NotchMascotCheatShows.moonGravity < 0.5,
+                     "low gravity for 60 s")
+        suite.expect(NotchMascotCheatShows.trainLength == 30, "thirty tiny copies run in the train")
+        suite.expect(NotchMascotCheatShows.coinLife >= 6 && NotchMascotCheatShows.coinLife <= 10, "the gold fades after a while")
+        let desktop = NotchMascotDesktop()
+        suite.expect(desktop.cheatPace == 1 && desktop.cheatGravity == 1 && !desktop.cheatInvulnerable
+                         && !desktop.cheatPassesThrough && desktop.cheatStride(1) == 1,
+                     "with no cheat it moves as ever")
+        desktop.cheat.slowUntil = CACurrentMediaTime() + 10
+        desktop.cheat.moonUntil = CACurrentMediaTime() + 10
+        desktop.cheat.invulnerableUntil = CACurrentMediaTime() + 10
+        suite.expect(abs(desktop.cheatPace - 0.3) < 0.001 && desktop.cheatGravity < 1 && desktop.cheatInvulnerable
+                         && desktop.cheatStride(1) == -1,
+                     "slow, floaty, untouchable and walking backwards while they last")
+        var body = NotchMascotRoam.Body(position: CGPoint(x: 100, y: 50), velocity: CGVector(dx: 0, dy: -500))
+        let area = CGRect(x: 0, y: 50, width: 800, height: 600)
+        desktop.cheat.ghostUntil = CACurrentMediaTime() + 10
+        desktop.cheat.fallsThrough = true
+        suite.expect(desktop.cheatArea(area, body: &body).minY < area.minY, "falling through, the floor is gone")
+        desktop.cheat.ghostUntil = -.infinity
+        suite.expect(desktop.cheatArea(area, body: &body) == area && !desktop.cheat.fallsThrough,
+                     "no longer see-through, the floor is back")
+    }
+    private static func bigHeadLook(_ suite: TestSuite) {
+        let size: CGFloat = 50
+        let feet: CGFloat = 30
+        let look = NotchMascotCheatShows.bigHead
+        let transform = NotchMascotCheatShows.bigHeadTransform(squeeze: look.squeeze, swell: look.swell, size: size, feet: feet)
+        // A point (0, y) as the layer draws it, counted down from its middle.
+        func drawn(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            let w = x * transform.m14 + y * transform.m24 + transform.m44
+            return CGPoint(x: (x * transform.m11 + y * transform.m21 + transform.m41) / w,
+                           y: (x * transform.m12 + y * transform.m22 + transform.m42) / w)
+        }
+        let foot = drawn(0, feet)
+        suite.expect(abs(foot.y - feet) < 0.001 && abs(foot.x) < 0.001, "its feet stay where they are")
+        let top = drawn(10, feet - size)
+        let low = drawn(10, feet - size * 0.1)
+        suite.expect(feet - top.y > size * 1.3, "the top of its head is drawn far higher")
+        suite.expect(top.x > 10 * 1.4 && low.x < 10, "its head is drawn bigger and its feet smaller")
+        suite.expect(feet - top.y < size * 1.63, "its head still fits in its window")
+        let still = NotchMascotCheatShows.bigHeadTransform(squeeze: 1, swell: 0, size: size, feet: feet)
+        suite.expect(CATransform3DIsIdentity(still), "with nothing swollen it is drawn as ever")
     }
 }

@@ -79,7 +79,7 @@ final class NotchMascotDesktop: NSObject {
     private var look = NotchMascotLook.standard
     /// The look as chosen for it, before any dress-up play puts its own thing on.
     private var baseLook = NotchMascotLook.standard
-    private var mood: NotchMascotMood = .idle
+    private(set) var mood: NotchMascotMood = .idle
     /// The thing it put on by itself while out, and when it last dug into its wardrobe.
     private var dressUpItem: NotchMascotAccessory?
     private var dressUpWork: DispatchWorkItem?
@@ -109,6 +109,8 @@ final class NotchMascotDesktop: NSObject {
     private var isDizzy = false
     private var dizzyTimer: DispatchSourceTimer?
     private var patStreak = NotchMascotPatStreak()
+    /// What the cheats typed lately do to it, and until when.
+    var cheat = NotchMascotCheatState()
 
     /// The window it stands on, and where that window was when last seen.
     private var perch: (window: CGWindowID, frame: CGRect)?
@@ -481,7 +483,7 @@ final class NotchMascotDesktop: NSObject {
         }
     }
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    private func perform(_ action: NotchMascotItemAction, toward side: CGFloat) {
+    func perform(_ action: NotchMascotItemAction, toward side: CGFloat) {
         guard isOut, !isHoming else { return }
         let energy = NotchMascotPlay.energy(for: look)
         switch action {
@@ -716,7 +718,7 @@ final class NotchMascotDesktop: NSObject {
         }
     }
     /// Whether the outing under way now is still on, asked later.
-    private var outingLasts: () -> Bool {
+    var outingLasts: () -> Bool {
         let outing = self.outing
         return { [weak self] in self?.isOut == true && self?.outing == outing }
     }
@@ -2984,7 +2986,7 @@ final class NotchMascotDesktop: NSObject {
 
     @objc private func tick(_ link: CADisplayLink) {
         let now = CACurrentMediaTime()
-        let dt = now - lastTick
+        let dt = (now - lastTick) * cheatPace
         lastTick = now
         switch mode {
         case .standing, .held:
@@ -3003,9 +3005,10 @@ final class NotchMascotDesktop: NSObject {
 
     private func fly(by dt: TimeInterval) {
         if body.airborne { checkTrampoline() }
-        let area = self.area(for: body.position)
+        let area = cheatArea(self.area(for: body.position), body: &body)
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
-                                          ledges: inPlay ? [] : currentLedges())
+                                          ledges: inPlay || cheatPassesThrough ? [] : currentLedges(),
+                                          gravityScale: cheatGravity)
         place()
         if body.airborne, leaping { catchEdge() }
         if !body.airborne {
@@ -3024,10 +3027,10 @@ final class NotchMascotDesktop: NSObject {
             case .landed(let impact):
                 host?.mascot.land(impact: impact / 2000)
                 host?.mascot.lean(0)
-                if impact >= NotchMascotRoam.dizzySpeed { landDizzy(); thrown = false; landedHard?() }
+                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .bumped(let speed):
                 host?.mascot.land(impact: speed / 3000)
-                if speed >= NotchMascotRoam.dizzySpeed { landDizzy(); thrown = false; landedHard?() }
+                if speed >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
                 dropped = false
@@ -3198,7 +3201,7 @@ final class NotchMascotDesktop: NSObject {
         let wanted = direction.map { $0 > 0 ? CGFloat(1) : CGFloat(-1) }
         guard wanted != runDirection else { return }
         runDirection = wanted
-        host?.mascot.setStride(toward: wanted)
+        host?.mascot.setStride(toward: cheatStride(wanted))
     }
 
     // MARK: Windows
@@ -3682,7 +3685,7 @@ final class NotchMascotDesktop: NSObject {
         dropped = true
         mode = .flying
         if thrown { emote(.interrobang) }
-        if shaken {
+        if shaken, !cheatInvulnerable {
             isDizzy = true
             host?.mascot.daze(for: 1)
         }
