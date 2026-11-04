@@ -46,11 +46,12 @@ extension NotchMascotCreatures {
     /// Where the right arm joins the body, and how long it is.
     private static let axolotlShoulder = CGPoint(x: 0.6, y: 0.645)
     private static let axolotlArm: CGFloat = 0.075
-    /// The right gill stalks: root, angle from hanging down, length.
-    private static let axolotlGills: [(root: CGPoint, angle: CGFloat, length: CGFloat)] = [
-        (CGPoint(x: 0.69, y: 0.335), 138, 0.13),
-        (CGPoint(x: 0.715, y: 0.405), 106, 0.135),
-        (CGPoint(x: 0.7, y: 0.475), 74, 0.12),
+    /// The right gill stalks: root, angle from hanging down, length and
+    /// how wide each is at its plumpest.
+    private static let axolotlGills: [(root: CGPoint, angle: CGFloat, length: CGFloat, width: CGFloat)] = [
+        (CGPoint(x: 0.68, y: 0.34), 136, 0.135, 0.062),
+        (CGPoint(x: 0.71, y: 0.41), 104, 0.14, 0.066),
+        (CGPoint(x: 0.69, y: 0.48), 72, 0.12, 0.058),
     ]
 
     /// A wide flat head over a small round body.
@@ -128,8 +129,8 @@ extension NotchMascotCreatures {
     }
 
     /// The gill stalks, three out of each side of the head, turned and
-    /// spread as the pose says and waving with `phase`, each a plump frond
-    /// with frilly edges; or the paler rib down each.
+    /// spread as the pose says and waving with `phase`, each a plump
+    /// scalloped frond; or the paler rib down each.
     private static func axolotlFronds(_ pose: CritterPose, phase: CGFloat, frills: Bool, size: CGFloat) -> CGPath {
         let shape = axolotlPose(pose)
         let pen = CritterPen(size: size)
@@ -141,23 +142,49 @@ extension NotchMascotCreatures {
                 let tip = critterReach(root, side * angle, gill.length)
                 if frills {
                     // A paler rib down the middle of each frond.
-                    pen.limb(root, critterReach(root, side * angle, gill.length * 0.86), (0.012, 0.006))
+                    pen.limb(root, critterReach(root, side * angle, gill.length * 0.8), (0.011, 0.005))
                 } else {
-                    // A plump frond, its edges scalloped with soft lobes,
-                    // and a round tuft at its tip.
-                    pen.feather(root, critterReach(root, side * angle, gill.length * 1.02), width: 0.056, curl: 0)
-                    for step in 0..<6 {
-                        let share = 0.34 + CGFloat(step / 2) * 0.2
-                        let at = critterReach(root, side * angle, gill.length * share)
-                        let flip: CGFloat = step % 2 == 0 ? 1 : -1
-                        let radius = 0.019 - CGFloat(step / 2) * 0.002
-                        pen.oval(critterReach(at, side * (angle + flip * 90), 0.02), radius, radius * 0.85, tilt: side * angle)
-                    }
-                    pen.oval(tip, 0.022, 0.02, tilt: side * angle)
+                    axolotlFrond(pen, root: root, tip: tip, width: gill.width)
                 }
             }
         }
         return pen.path
+    }
+
+    /// One gill frond from `root` to `tip` in a single outline: narrow where
+    /// it leaves the head, plump in the middle and round at the end, its
+    /// edges scalloped into three soft lobes a side, the feathery fringe
+    /// that says axolotl. One outline, so nothing overlapping punches holes
+    /// in its fill.
+    private static func axolotlFrond(_ pen: CritterPen, root: CGPoint, tip: CGPoint, width: CGFloat) {
+        let (ux, uy) = critterUnit(root, tip)
+        let (nx, ny) = (-uy, ux)
+        let length = critterDistance(root, tip)
+        let stations: [(along: CGFloat, half: CGFloat)] = [(0, 0.24), (0.34, 0.4), (0.62, 0.5), (0.86, 0.44)]
+        func edge(_ station: Int, _ side: CGFloat, bulge: CGFloat = 0) -> CGPoint {
+            let along = stations[station].along * length
+            let out = stations[station].half * width + bulge
+            return CGPoint(x: root.x + ux * along + nx * side * out, y: root.y + uy * along + ny * side * out)
+        }
+        func lobe(_ from: Int, _ to: Int, _ side: CGFloat) -> CGPoint {
+            let along = (stations[from].along + stations[to].along) / 2 * length
+            let out = (stations[from].half + stations[to].half) / 2 * width + width * 0.32
+            return CGPoint(x: root.x + ux * along + nx * side * out, y: root.y + uy * along + ny * side * out)
+        }
+        pen.path.move(to: pen.point(edge(0, 1)))
+        for station in 1..<stations.count {
+            pen.path.addQuadCurve(to: pen.point(edge(station, 1)), control: pen.point(lobe(station - 1, station, 1)))
+        }
+        let reach = length * 0.2
+        let (left, right) = (edge(stations.count - 1, 1), edge(stations.count - 1, -1))
+        pen.path.addCurve(to: pen.point(right), control1: pen.point(CGPoint(x: left.x + ux * reach, y: left.y + uy * reach)),
+                          control2: pen.point(CGPoint(x: right.x + ux * reach, y: right.y + uy * reach)))
+        for station in stride(from: stations.count - 2, through: 0, by: -1) {
+            pen.path.addQuadCurve(to: pen.point(edge(station, -1)), control: pen.point(lobe(station, station + 1, -1)))
+        }
+        let back = width * 0.3
+        pen.path.addQuadCurve(to: pen.point(edge(0, 1)), control: pen.point(CGPoint(x: root.x - ux * back, y: root.y - uy * back)))
+        pen.path.closeSubpath()
     }
 
     /// The stubby arms from the shoulders, or the four little round fingers
@@ -185,14 +212,14 @@ extension NotchMascotCreatures {
         let shape = axolotlPose(pose)
         let pen = CritterPen(size: size)
         for (side, lift) in [(CGFloat(-1), shape.leftFoot), (CGFloat(1), shape.rightFoot)] {
-            let hip = CGPoint(x: 0.5 + side * 0.06, y: 0.79)
-            let foot = CGPoint(x: 0.5 + side * 0.07, y: 0.865 - lift)
+            let hip = CGPoint(x: 0.5 + side * 0.066, y: 0.8)
+            let foot = CGPoint(x: 0.5 + side * 0.074, y: 0.858 - lift)
             if toes {
-                for spread in [-0.026, 0, 0.026] as [CGFloat] {
-                    pen.oval(CGPoint(x: foot.x + spread + side * 0.006, y: foot.y + 0.018), 0.0105, 0.0105)
+                for spread in [-0.024, 0, 0.024] as [CGFloat] {
+                    pen.oval(CGPoint(x: foot.x + spread + side * 0.008, y: foot.y + 0.022), 0.0125, 0.012)
                 }
             } else {
-                pen.limb(hip, foot, (0.056, 0.05))
+                pen.limb(hip, foot, (0.07, 0.066))
             }
         }
         return pen.path
@@ -238,11 +265,11 @@ private struct AxolotlTone {
         if turn > 0.5 { turn -= 1 } else if turn < -0.5 { turn += 1 }
         let hue = colors.grey ? pink : colors.hue + turn * 0.35
         let saturation = colors.grey ? 0.5 : min(0.85, max(0.45, colors.saturation + 0.22))
-        let brightness = colors.dark ? 0.62 : 0.95
-        gill = .hsb(hue, saturation * 0.8, brightness)
-        gillDeep = .hsb(hue + 0.01, min(1, saturation + 0.12), brightness * 0.82)
+        let brightness = colors.dark ? 0.66 : 1
+        gill = .hsb(hue, saturation * 0.62, brightness)
+        gillDeep = .hsb(hue + 0.01, min(1, saturation + 0.08), brightness * 0.86)
         let soft = NotchMascotColor.hsb(hue, saturation * 0.6, min(1, brightness + 0.05))
-        frill = soft
+        frill = NotchMascotColor.hsb(hue, saturation * 0.3, 1).withAlpha(0.7)
         fin = C.mix(soft, colors.light, 0.4).withAlpha(0.75)
         belly = colors.dark ? colors.light.brightened(0.25) : colors.light.brightened(0.55)
         cheek = C.rgb(0xFF7FA5).withAlpha(0.36)
