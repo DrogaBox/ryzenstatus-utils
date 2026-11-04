@@ -71,8 +71,8 @@ final class AmdPresetController: ObservableObject {
             .store(in: &cancellables)
         // S3 resets the SMU limits with the cores: put the saved choice back
         // once the kext has re-initialised them (its first tick after wake).
-        NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification,
-                                             object: NSWorkspace.shared)
+        // AppKit posts this on the workspace's own center, not the default one.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
