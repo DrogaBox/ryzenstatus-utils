@@ -93,6 +93,7 @@ final class AmdPresetController: ObservableObject {
         } else if let preset = AMDPowerPreset.saved() {
             await withPresetTransaction(preset)
         }
+        AdaptivePowerService.shared.limitsReapplied()
     }
 
     // MARK: - Public API

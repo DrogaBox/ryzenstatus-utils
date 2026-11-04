@@ -62,6 +62,23 @@ final class AdaptivePowerService: ObservableObject {
         Task { await AmdPresetController.shared.reapplyLimitsInForce() }
     }
 
+    /// The profile was just written in full, after wake or a kext load: the
+    /// limit restarts at its PPT.
+    func limitsReapplied() {
+        guard loopTask != nil else { return }
+        currentLimitW = lastCeilingW
+    }
+
+    /// Auto EPP's reading while it runs: each read of the load index measures
+    /// from the one before, so two pollers would shorten each other's window.
+    /// It only updates while running, so otherwise this reads the load itself.
+    private func cpuLoadPercent() async -> Float {
+        if AutoEppService.shared.isActive { return AutoEppService.shared.currentCPULoad }
+        let loads = await ProcessorModel.shared.getLoadIndex()
+        if loads.isEmpty { return Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100) }
+        return loads.reduce(0, +) * 100 / Float(loads.count)
+    }
+
     private func tick() async {
         guard isEnabled, !GamingModeService.shared.isActive,
               AmdPowerControlsModel.shared.powerCapabilities.contains(.pptTdcEdcLimits),
@@ -77,9 +94,10 @@ final class AdaptivePowerService: ObservableObject {
             currentLimitW = ceiling
         }
         let current = currentLimitW ?? ceiling
+        let cpuLoad = await cpuLoadPercent()
         let next = AdaptivePowerPolicy.next(currentW: current, ceilingW: ceiling,
                                             tempC: packet.packageTempC, targetC: targetCelsius,
-                                            cpuLoad: AutoEppService.shared.currentCPULoad,
+                                            cpuLoad: cpuLoad,
                                             loadThreshold: Float(AmdSettingsStore.shared.autoEppLoadThreshold))
         guard next != current else { return }
         let res = await Task.detached {
