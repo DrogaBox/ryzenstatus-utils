@@ -213,7 +213,7 @@ enum NotchMascotCreatures {
         case .cat: return 0.585
         case .phoenix: return 0.545
         case .frog: return 0.5
-        case .swan: return 0.47
+        case .swan: return 0.53
         case .cristobal: return 0.465
         // A shifter's blob runs far below its eyes, so the head's rule
         // would drop the scarf under its hem.

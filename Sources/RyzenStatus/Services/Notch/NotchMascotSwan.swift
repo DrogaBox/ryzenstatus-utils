@@ -5,7 +5,8 @@ import CoreGraphics
 import Foundation
 
 /// The swan: a plump little swan standing up, front on, its feathers in the
-/// body's colours. A round head on a long neck with a gentle bend in it, an
+/// body's colours. A round head held high on a long slender neck curved in
+/// an S, an
 /// orange bill with the black knob at its base, a little gold tiara on its
 /// crown, a soft breast of scalloped feathers, two broad wings folded at its
 /// sides like a tutu, a short tail tipped up behind it and two little
@@ -42,10 +43,10 @@ extension NotchMascotCreatures {
     }
 
     private static let swanHead = (center: CGPoint(x: 0.5, y: 0.28), rx: CGFloat(0.18), ry: CGFloat(0.16))
-    private static let swanChest = (center: CGPoint(x: 0.5, y: 0.7), rx: CGFloat(0.188), ry: CGFloat(0.152))
+    private static let swanChest = (center: CGPoint(x: 0.5, y: 0.735), rx: CGFloat(0.172), ry: CGFloat(0.128))
     /// Where the right wing joins the body, and how long it is to the wrist.
-    private static let swanShoulder = CGPoint(x: 0.615, y: 0.6)
-    private static let swanWingLength: CGFloat = 0.165
+    private static let swanShoulder = CGPoint(x: 0.6, y: 0.65)
+    private static let swanWingLength: CGFloat = 0.155
 
     /// A round head over a plump round body; the neck between them is a
     /// part of its own behind both.
@@ -59,7 +60,7 @@ extension NotchMascotCreatures {
     static var swanAnatomy: NotchMascotAnatomy {
         let hand = critterReach(swanShoulder, 30, swanWingLength)
         return NotchMascotAnatomy(rightHand: hand, leftHand: critterMirror(hand), floor: 0.9, leftFoot: 0.45,
-                                  rightFoot: 0.55, foot: 0.09, torso: CGRect(x: 0.34, y: 0.57, width: 0.32, height: 0.28),
+                                  rightFoot: 0.55, foot: 0.09, torso: CGRect(x: 0.35, y: 0.62, width: 0.30, height: 0.25),
                                   nose: CGPoint(x: 0.5, y: 0.335), mouth: CGPoint(x: 0.5, y: 0.365))
     }
 
@@ -93,15 +94,15 @@ extension NotchMascotCreatures {
             ]
         }
         parts += [
-            Part(name: "breast", level: .middle, paint: .gradient([tone.breast, tone.breastLow], from: CGPoint(x: 0.5, y: 0.58),
-                                                                  to: CGPoint(x: 0.5, y: 0.84))) { _, _ in
+            Part(name: "breast", level: .middle, paint: .gradient([tone.breast, tone.breastLow], from: CGPoint(x: 0.5, y: 0.63),
+                                                                  to: CGPoint(x: 0.5, y: 0.86))) { _, _ in
                 let pen = CritterPen(size: size)
-                pen.oval(CGPoint(x: 0.5, y: 0.715), 0.105, 0.115)
+                pen.oval(CGPoint(x: 0.5, y: 0.75), 0.096, 0.098)
                 return pen.path
             },
             Part(name: "breastFeathers", level: .middle, paint: .color(tone.scallop)) { _, _ in
                 let pen = CritterPen(size: size)
-                for (x, y) in [(0.455, 0.655), (0.5, 0.645), (0.545, 0.655), (0.478, 0.695), (0.522, 0.695)]
+                for (x, y) in [(0.459, 0.7), (0.5, 0.69), (0.541, 0.7), (0.48, 0.738), (0.52, 0.738)]
                     as [(CGFloat, CGFloat)] {
                     pen.move(x - 0.02, y)
                     pen.quad(x + 0.02, y, x, y + 0.022)
@@ -153,12 +154,13 @@ extension NotchMascotCreatures {
         return parts
     }
 
-    /// The long neck from the top of the body up behind the head, bending
-    /// gently to one side and back as a swan's does.
+    /// The long slender neck from the top of the body up behind the head,
+    /// curving out to one side and back in an S as a swan's does, thickest
+    /// where it meets the breast.
     private static func swanNeck(size: CGFloat) -> CGPath {
         let pen = CritterPen(size: size)
-        pen.tube(critterSpine(CGPoint(x: 0.5, y: 0.6), CGPoint(x: 0.56, y: 0.52), CGPoint(x: 0.44, y: 0.44),
-                              CGPoint(x: 0.5, y: 0.34), count: 12), widths: (0.19, 0.13))
+        pen.tube(critterSpine(CGPoint(x: 0.5, y: 0.68), CGPoint(x: 0.67, y: 0.58), CGPoint(x: 0.33, y: 0.47),
+                              CGPoint(x: 0.5, y: 0.36), count: 14), widths: (0.15, 0.085))
         return pen.path
     }
 
@@ -216,7 +218,7 @@ extension NotchMascotCreatures {
         for (side, lift) in [(CGFloat(-1), shape.leftFoot), (CGFloat(1), shape.rightFoot)] {
             let x = 0.5 + side * 0.055
             let ankle = CGPoint(x: x, y: 0.868 - lift)
-            pen.limb(CGPoint(x: x, y: 0.82), ankle, (0.03, 0.024))
+            pen.limb(CGPoint(x: x, y: 0.84), ankle, (0.028, 0.022))
             // A webbed foot: three toes joined by scalloped webbing.
             pen.move(ankle.x, ankle.y - 0.008)
             pen.line(ankle.x - 0.042, ankle.y + 0.026)
@@ -235,9 +237,9 @@ extension NotchMascotCreatures {
         let lift = swanPose(pose).tail
         let sway = 5 * sin(phase * 2 * .pi)
         let pen = CritterPen(size: size)
-        let base = CGPoint(x: 0.6, y: 0.76)
+        let base = CGPoint(x: 0.59, y: 0.79)
         for (index, angle) in [108, 124, 140].enumerated() {
-            let length: CGFloat = index == 1 ? 0.17 : 0.145
+            let length: CGFloat = index == 1 ? 0.15 : 0.13
             let turn = CGFloat(angle) + lift + sway * (index == 1 ? 1 : 0.7)
             pen.oval(critterReach(base, turn, length * 0.55), 0.034, length * 0.55, tilt: -turn)
         }
