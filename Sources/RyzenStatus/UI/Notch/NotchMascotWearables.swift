@@ -194,7 +194,40 @@ enum NotchMascotWearableShapes {
                 blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
     }
 
+    /// What `accessory` draws on the figure in `frame`. A long thing held in
+    /// a hand that sits close in under the face, as a little animal's front
+    /// paw does, would rise across its eyes; it leans out from the grip
+    /// instead, just as far as it takes to leave the face clear.
     static func parts(for accessory: NotchMascotAccessory, in frame: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
+        let parts = drawnParts(for: accessory, in: frame)
+        guard accessory.placement == .hand, frame.anatomy != nil else { return parts }
+        let margin = frame.size * 0.05
+        let eyes = CGRect(x: min(frame.leftEye.x, frame.rightEye.x) - margin,
+                          y: min(frame.leftEye.y, frame.rightEye.y) - frame.size * 0.08,
+                          width: abs(frame.rightEye.x - frame.leftEye.x) + margin * 2,
+                          height: abs(frame.rightEye.y - frame.leftEye.y) + frame.size * 0.16)
+        func bounds(_ parts: [NotchMascotWearablePart]) -> CGRect {
+            parts.reduce(CGRect.null) { $0.union($1.path.boundingBoxOfPath) }
+        }
+        guard bounds(parts).intersects(eyes) else { return parts }
+        let grip = frame.rightHand
+        var leaned = parts
+        for degrees in stride(from: CGFloat(6), through: 48, by: 6) {
+            var turn = CGAffineTransform(translationX: grip.x, y: grip.y)
+                .rotated(by: degrees * .pi / 180)
+                .translatedBy(x: -grip.x, y: -grip.y)
+            leaned = parts.map { part in
+                var moved = part
+                moved.path = part.path.copy(using: &turn) ?? part.path
+                return moved
+            }
+            if !bounds(leaned).intersects(eyes) { break }
+        }
+        return leaned
+    }
+
+    private static func drawnParts(for accessory: NotchMascotAccessory,
+                                   in frame: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
         let f = accessory.placement == .head ? frame.forHats : frame
         let w = f.width, cx = f.center, top = f.top
         let line = max(0.8, f.size * 0.045)
