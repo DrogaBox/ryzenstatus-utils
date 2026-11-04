@@ -599,6 +599,8 @@ public:
     uint8_t PStateEnabledLen = 0;
     float PStateDefClock_perCore[8] {};
     bool cpbSupported {false};
+    /// The boost state last asked for, put back after wake; -1 until asked.
+    int8_t cpbRequested {-1};
 
     uint64_t lastUpdateTime {0};
     uint64_t lastUpdateEnergyValue {0};

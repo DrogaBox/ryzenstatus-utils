@@ -1219,6 +1219,9 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
             return;
         }
         hwConfig |= (1ULL << 30);
+        // HWCR[25] CpbDis: firmware resets it across S3.
+        if (provider->cpbRequested == 1) hwConfig &= ~(1ULL << 25);
+        else if (provider->cpbRequested == 0) hwConfig |= (1ULL << 25);
         provider->write_msr(kMSR_HWCR, hwConfig);
 
         uint32_t cpu_num = (uint32_t)cpu_number();
@@ -1838,29 +1841,33 @@ bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
 void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
     if(!cpbSupported) return;
 
-    uint64_t hwConfig;
-    if(!read_msr(kMSR_HWCR, &hwConfig)) {
-        IOLog("AMDRyzenCPUPowerManagement::setCPBState failed to read MSR 0xC0010015\n");
-        return;
-    }
-
-    if(enabled){
-        hwConfig &= ~(1ULL << 25);
-    } else {
-        hwConfig |= (1ULL << 25);
-    }
-
+    // Each core changes only CpbDis in its own HWCR: the other bits are
+    // per core, and one core's value must not be written over the rest.
     struct CPBArgs {
         AMDRyzenCPUPowerManagement *provider;
-        uint64_t hwConfig;
-    } cpbArgs{this, hwConfig};
+        bool enabled;
+        volatile SInt32 failures;
+    } cpbArgs{this, enabled, 0};
 
     IOLockLock(rendezvousLock);
+    cpbRequested = enabled ? 1 : 0;
     mp_rendezvous(nullptr, [](void *obj) {
         auto args = static_cast<CPBArgs*>(obj);
-        args->provider->write_msr(kMSR_HWCR, args->hwConfig);
+        uint64_t hwConfig;
+        if (!args->provider->read_msr(kMSR_HWCR, &hwConfig)) {
+            OSIncrementAtomic(&args->failures);
+            return;
+        }
+        if (args->enabled) hwConfig &= ~(1ULL << 25);
+        else hwConfig |= (1ULL << 25);
+        args->provider->write_msr(kMSR_HWCR, hwConfig);
     }, nullptr, &cpbArgs);
     IOLockUnlock(rendezvousLock);
+
+    if (cpbArgs.failures) {
+        IOLog("AMDRyzenCPUPowerManagement::setCPBState failed to read MSR 0xC0010015 on %d core(s)\n",
+              (int)cpbArgs.failures);
+    }
 }
 
 bool AMDRyzenCPUPowerManagement::getCPBState(){
