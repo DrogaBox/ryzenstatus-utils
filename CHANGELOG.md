@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.78.0] — 2026-11-04 — kexts 3.40.0 (No kext changes)
+
+**The companions get the whole desktop.** They now roam every display, can wake you up, and a big group of them has been drawn again from scratch.
+
+### Added
+
+- **Companions on every display**: companions and visitors are no longer kept to the screen with the island. They walk from one display to the next, show up on any of them, and group games happen on whichever screen the gang is on.
+- **Alarms**: a companion can now be your alarm clock. Set as many alarms as you like, each with its own time, label, days of the week and sound, picked from a list or one of your own. You set them on a sign the companion holds up, and when one goes off it puts on a show you can stop or snooze, from the keyboard too.
+- **Send everyone home**: the companion's menu has a new choice that sends every visitor home at once.
+- **Bodies on the desktop**: the robot, the chip, the fan and the minimal figure grow a little body of their own when they walk out onto the desktop, with arms and legs that match their design, a pose for every mood, and every item sitting right on them. In the island they stay as they were.
+
+### Changed
+
+- **Eight companions, drawn anew**: the ballerina, the danseur, the contemporary dancer, the phoenix, the mouse, the axolotl, the swan and the cat have been redrawn from scratch as layered chibi figures, with their own poses, faces that work in every mood, colours that suit every palette and custom colour, and every item placed by their own anatomy.
+
 ## [1.77.0] — 2026-11-03 — kexts 3.40.0 (No kext changes)
 
 **Fusion!** Two companions out on the desktop can now dance the fusion dance and merge into one, and the gang gets more of everything.
