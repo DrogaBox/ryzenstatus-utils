@@ -233,7 +233,8 @@ void pmRyzen_set_c6_port(uint32_t port){
 #pragma mark - Load & Idle
 
 float pmRyzen_avgload_pcpu(uint32_t cpu){
-    if (cpu >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpu]) return 0.0f;
+    if (cpu >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpu] ||
+        !pmRyzen_cpunum_to_lcpu[cpu]->core) return 0.0f;
     float loadacc = 0;
     int num_lcpus = 0;
 
