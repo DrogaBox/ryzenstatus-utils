@@ -207,6 +207,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         // scalarInput[0..1] after only checking the count for equality.
         return kIOReturnBadArgument;
     }
+    // Selectors that leave the caller's count untouched would otherwise hand
+    // back whatever the reply buffer held.
+    if (arguments->scalarOutput && arguments->scalarOutputCount > 0) {
+        bzero(arguments->scalarOutput, arguments->scalarOutputCount * sizeof(uint64_t));
+    }
 
     switch (selector) {
 
