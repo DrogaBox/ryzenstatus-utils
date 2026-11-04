@@ -920,6 +920,10 @@ void AMDRyzenCPUPowerManagement::forgetSMUSettingsForSleep() {
     smuOcModeState = 0;
     ocFreqMHzAllCores = 0;
     memset(ocFreqMHzPerCcd, 0, sizeof(ocFreqMHzPerCcd));
+    ocVidCache = 0;
+    curveOptimizerAllCache = 0;
+    curveOptimizerAllSet = false;
+    boostLimitMHzCache = 0;
     if (controlLock) IOLockUnlock(controlLock);
 }
 
