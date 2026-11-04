@@ -1655,9 +1655,13 @@ enum NotchMascotSupport {
         } else if let remembered = NotchMascotStyleColors.paint(for: style, in: defaults) {
             friend = remembered.paint(friend)
         }
+        // An item given to it was offered by its own level, so that is the one
+        // to check it against; with none given it keeps the pick it always had.
+        let chosen = friendAccessoryChoice(in: defaults)
+        let level = chosen == nil ? shownLevel(in: defaults) : NotchMascotBondStore.shared.shownLevel(for: style)
         friend.accessory = style.takesAccessory
-            ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
-                                                  style: style, chosen: friendAccessoryChoice(in: defaults))
+            ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: level,
+                                                  style: style, chosen: chosen)
             : .none
         friend.form = friendForm(in: defaults)
         return NotchMascotDisguise.apply(to: friend)
