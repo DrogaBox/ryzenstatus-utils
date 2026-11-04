@@ -5,6 +5,7 @@ import CoreGraphics
 import Carbon.HIToolbox
 import Darwin
 import Foundation
+import QuartzCore
 
 // Standalone unit tests for pure helpers. Compiled without IOKit or UI by
 // `./build.sh --test`, so they run fast and deterministically on any machine.

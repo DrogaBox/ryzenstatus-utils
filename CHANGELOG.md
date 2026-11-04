@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.78.1] — 2026-11-04 — kexts 3.40.0 (No kext changes)
+
+**A companion keeps its shape.**
+
+### Fixed
+
+- **Companions out of shape**: after an alarm, or moving to another display, a companion out on the desktop could be left with its head too big and off to one side, its colours washed out, until it was changed for another. It now keeps its shape.
+
 ## [1.78.0] — 2026-11-04 — kexts 3.40.0 (No kext changes)
 
 **The companions get the whole desktop.** They now roam every display, can wake you up, and a big group of them has been drawn again from scratch.
