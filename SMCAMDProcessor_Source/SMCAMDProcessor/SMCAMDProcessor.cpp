@@ -5,6 +5,7 @@
 
 #include "SMCAMDProcessor.hpp"
 #include "KeyImplementations.hpp"
+#include <libkern/OSKextLib.h>
 
 OSDefineMetaClassAndStructors(SMCAMDProcessor, IOService);
 
@@ -128,6 +129,11 @@ bool SMCAMDProcessor::vsmcNotificationHandler(void *sensors, void *refCon, IOSer
         auto ret = vsmc->callPlatformFunction(VirtualSMCAPI::SubmitPlugin, true, sensors, &plugin, nullptr, nullptr);
         if (ret == kIOReturnSuccess) {
             IOLog("SMCAMDProcessor: submitted plugin\n");
+            // VirtualSMC now keeps pointers to this plugin and to key objects
+            // whose code lives in this kext, with no call to take them back.
+            // Never released: an unload would leave SMC reads jumping into
+            // unmapped text.
+            OSKextRetainKextWithLoadTag(OSKextGetCurrentLoadTag());
             return true;
         } else if (ret != kIOReturnUnsupported) {
             IOLog("SMCAMDProcessor: plugin submission failure %X\n", ret);
