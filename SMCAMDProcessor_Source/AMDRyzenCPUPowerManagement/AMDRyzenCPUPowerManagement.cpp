@@ -3367,12 +3367,14 @@ uint32_t AMDRyzenCPUPowerManagement::getPMPStateLimit(){
 
 void AMDRyzenCPUPowerManagement::setPMPStateLimit(uint32_t state){
     uint32_t safeState = state < 2 ? state : 2;
+    // Switching stepping off: bring the cores back to P0 first, while
+    // set_PState still writes. With a limit of 0 nothing would ever move a
+    // core out of P1 or P2 again.
+    if (rendezvousLock) IOLockLock(rendezvousLock);
+    if (safeState > 0) pmRyzen_pstatelimit = safeState;
+    pmRyzen_PState_reset();
     pmRyzen_pstatelimit = safeState;
-    if (safeState > 0) {
-        if (rendezvousLock) IOLockLock(rendezvousLock);
-        pmRyzen_PState_reset();
-        if (rendezvousLock) IOLockUnlock(rendezvousLock);
-    }
+    if (rendezvousLock) IOLockUnlock(rendezvousLock);
 }
 
 uint32_t AMDRyzenCPUPowerManagement::getHPcpus(){
