@@ -377,20 +377,8 @@ final class NotchMascotDecor {
             fanScrews.fillColor = palette.shade.cgColor
             show(fanHole, bladeHolder, blades, fanHub, fanScrews)
         case .cat:
-            catTail.path = NotchMascotCreatures.catTail(sleeping ? .curl : .rest, size: size)
-            catTail.strokeColor = palette.shade.cgColor
-            catTail.lineWidth = max(0.8, size * 0.075)
-            catEars.path = NotchMascotCreatures.catEars(sleeping ? .droop : .up, inner: false, size: size)
-            catEars.fillColor = palette.light.cgColor
-            catInnerEars.path = NotchMascotCreatures.catEars(sleeping ? .droop : .up, inner: true, size: size)
-            catInnerEars.fillColor = palette.shade.cgColor
-            catNose.path = NotchMascotCreatures.catNose(size: size)
-            catNose.fillColor = palette.shade.cgColor
-            whiskers.path = NotchMascotCreatures.catWhiskers(size: size)
-            whiskers.strokeColor = NotchMascotColor.ink.cgColor
-            whiskers.opacity = 0.55
-            whiskers.lineWidth = max(0.35, size * 0.025)
-            show(catTail, catEars, catInnerEars, catNose, whiskers)
+            // Drawn by its own parts, like the phoenix and the mouse.
+            break
         case .ghost:
             ghostMouth.path = NotchMascotCreatures.ghostMouth(open: false, size: size)
             ghostMouth.fillColor = NotchMascotColor.ink.cgColor
@@ -467,12 +455,8 @@ final class NotchMascotDecor {
         let duration = sleeping ? 0.6 : 0.3
         switch look.style {
         case .cat:
-            morph(catEars, to: NotchMascotCreatures.catEars(sleeping ? .droop : .up, inner: false, size: size),
-                  duration: duration, animated: animated)
-            morph(catInnerEars, to: NotchMascotCreatures.catEars(sleeping ? .droop : .up, inner: true, size: size),
-                  duration: duration, animated: animated)
-            morph(catTail, to: NotchMascotCreatures.catTail(sleeping ? .curl : .rest, size: size),
-                  duration: duration, animated: animated)
+            // Ears relaxed, paws tucked together, tail wrapped round.
+            critter.setSleeping(sleeping, animated: animated)
         case .slime, .shifter:
             morph(slimeDrip, to: NotchMascotCreatures.slimeDrip(melted: sleeping, size: size),
                   duration: duration, animated: animated)
@@ -776,17 +760,9 @@ final class NotchMascotDecor {
         guard reaction != .hush, reaction != .flash else { return }
         switch look.style {
         case .cat:
+            // A flick of the ears, which a cheer, a wave or a bow plays over.
             twitchEars(beginTime: now)
-            if reaction != .lookAround {
-                let sway = CAKeyframeAnimation(keyPath: "path")
-                let rest = NotchMascotCreatures.catTail(sleeping ? .curl : .rest, size: size)
-                sway.values = [rest, NotchMascotCreatures.catTail(.sway, size: size), rest,
-                               NotchMascotCreatures.catTail(.sway, size: size), rest]
-                sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
-                sway.duration = min(1.4, reaction.length)
-                sway.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                catTail.add(sway, forKey: "sway")
-            }
+            critter.flourish(reaction)
         case .fan:
             // A gust: two quick extra turns that ease off.
             let gust = CABasicAnimation(keyPath: "transform.rotation.z")
@@ -863,8 +839,9 @@ final class NotchMascotDecor {
     /// A cat's or a kitsune's ears flick once, on their own now and then or
     /// as it reacts.
     func twitchEars(beginTime: CFTimeInterval? = nil) {
-        guard look.style == .cat || look.style == .kitsune, size > 0, !sleeping else { return }
-        let ears = look.style == .cat ? NotchMascotCreatures.catEars : NotchMascotCreatures.kitsuneEars
+        if look.style == .cat { return critter.twitch(beginTime: beginTime) }
+        guard look.style == .kitsune, size > 0, !sleeping else { return }
+        let ears = NotchMascotCreatures.kitsuneEars
         for (layer, inner) in [(catEars, false), (catInnerEars, true)] {
             let twitch = CAKeyframeAnimation(keyPath: "path")
             let up = ears(.up, inner, size)
@@ -1097,6 +1074,8 @@ final class NotchMascotDecor {
         self.striding = striding
         guard size > 0 else { return }
         switch look.style {
+        case .cat:
+            critter.setStriding(striding && !sleeping, period: period)
         case .kitsune:
             poseTails(tailsPose, duration: 0.3, animated: true)
         case .penguin:

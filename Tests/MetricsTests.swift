@@ -11964,7 +11964,7 @@ struct MetricsTests {
                         let waddle = NotchMascotGait.of(.penguin), trot = NotchMascotGait.of(.kitsune)
                         expect(waddle.rock > 0 && waddle.bob < NotchMascotGait.standard.bob
                                && trot.rock == 0 && trot.period < NotchMascotGait.standard.period
-                               && NotchMascotGait.of(.cat) == .standard,
+                               && NotchMascotGait.of(.dog) == .standard,
                                "the penguin waddles, the kitsune trots, the rest walk as before")
                         expect(NotchMascotAbility.of(.kitsune) == .fireballBreath && NotchMascotAbility.of(.penguin) == .dolphinDive,
                                "foxfire for the kitsune, a dive for the penguin")
@@ -12256,6 +12256,81 @@ struct MetricsTests {
                                "the mouse lays its ears back and curls its tail asleep, and throws up its paws for a cheer")
                         expect(NotchMascotGait.of(.mouse).period < NotchMascotGait.of(.phoenix).period,
                                "the mouse scurries")
+                    }
+                    // The cat, drawn in layers like the phoenix and the mouse.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        func part(_ name: String, _ parts: [NotchMascotCritterPart]) -> NotchMascotCritterPart? {
+                            parts.first { $0.name == name }
+                        }
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
+                        let cat = C.critterParts(.cat, colors: sky, size: 40)
+                        let poses = C.CritterPose.allCases
+                        expect(C.critters.contains(.cat) && C.face(.cat) != nil && C.headOutline(.cat, size: 40) != nil
+                               && C.body(.cat, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                               && NotchMascotStyle.cat.takesAccessory && !cat.isEmpty
+                               && [false, true].allSatisfy { hat in
+                                   C.critterParts(.cat, colors: sky, hat: hat, size: 40).allSatisfy { part in
+                                       Set(poses.map { elements(part.path($0, 0)) }).count == 1
+                                           && Set([0, 0.25, 0.5, 0.75].map { elements(part.path(.rest, $0)) }).count == 1
+                                           && poses.allSatisfy {
+                                               square.insetBy(dx: -1, dy: -1).contains(part.path($0, 0).boundingBoxOfPath)
+                                           }
+                                   }
+                               },
+                               "the cat is drawn in parts that morph between every pose and stay inside its square, hat or not")
+                        expect(C.anatomy(.cat).map { anatomy in
+                                   guard let face = C.face(.cat), let figure = C.bounds(.cat) else { return false }
+                                   let eyes = face.leftEye.y + face.eyeSize.height / 2
+                                   let paws = part("paws", cat)?.rest().boundingBoxOfPath ?? .null
+                                   let point = CGPoint(x: anatomy.rightHand.x * 40, y: anatomy.rightHand.y * 40)
+                                   return abs(figure.maxY - anatomy.floor) < 0.04 && figure == C.critterBounds(.cat)
+                                       && anatomy.rightHand.y > eyes && anatomy.rightHand.x > 0.5 && anatomy.leftHand.x < 0.5
+                                       && paws.insetBy(dx: -1, dy: -1).contains(point)
+                                       && anatomy.leftFoot < anatomy.rightFoot
+                               } == true,
+                               "what the cat holds is in its front paws and what it wears on its feet is on its feet")
+                        expect(part("ears", cat).map { ears in
+                                   ears.path(.twitch, 0) != ears.path(.rest, 0)
+                                       && ears.rest().boundingBoxOfPath.minY < C.headOutline(.cat, size: 40)!.minY
+                               } == true
+                               && part("ears", C.critterParts(.cat, colors: sky, hat: true, size: 40)).map { ears in
+                                   ears.rest().boundingBoxOfPath.minY > part("ears", cat)!.rest().boundingBoxOfPath.minY
+                               } == true,
+                               "the cat's pointed ears stand over its head and flick, and lie out to the sides under a hat")
+                        expect(cat.filter { part in poses.contains { part.path($0, 0) != part.path(.rest, 0) } }
+                                   .allSatisfy { part in
+                                       ["ears", "innerEars"].contains(part.name) || part.path(.twitch, 0) == part.path(.rest, 0)
+                                   },
+                               "a twitch flicks only the cat's ears, so it can twitch them now and then")
+                        expect(part("tail", cat).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.minY > tail.path(.rest, 0).boundingBox.minY + 8
+                                       && tail.path(.cheer, 0).boundingBox.minY < tail.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("paws", cat).map { paws in
+                                   paws.path(.cheer, 0).boundingBox.minY < paws.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && ["stripes", "tailStripes", "whiskers", "nose", "muzzle"].allSatisfy { part($0, cat) != nil },
+                               "the striped cat wraps its tail round asleep, raises it high and throws up its paws for a cheer")
+                        let black = NotchMascotCritterColors(light: NotchMascotColor(red: 0.2, green: 0.2, blue: 0.22),
+                                                             shade: NotchMascotColor(red: 0.1, green: 0.1, blue: 0.11))
+                        let tuxedo = C.critterParts(.cat, colors: black, size: 40)
+                        if case .color(let sock)? = part("paws", tuxedo)?.paint, case .color(let stripe)? = part("stripes", cat)?.paint,
+                           case .color(let lemonStripe)? = part("stripes", C.critterParts(.cat, colors: NotchMascotCritterColors(
+                               light: NotchMascotPalette.lemon.light, shade: NotchMascotPalette.lemon.shade), size: 40))?.paint {
+                            expect(sock.hsb.2 > 0.8 && stripe != lemonStripe,
+                                   "a dark cat wears white socks and the stripes take each palette's colour")
+                        } else {
+                            expect(false, "the cat's socks and stripes are painted in plain colours")
+                        }
+                        expect(NotchMascotGait.of(.cat).bob < NotchMascotGait.standard.bob,
+                               "the cat pads along softly")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
