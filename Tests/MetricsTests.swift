@@ -12178,6 +12178,25 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
+                    // Drawn again, a figure with a grown body keeps its head the
+                    // size of its square: on another screen, and as another figure.
+                    do {
+                        func oversized(_ layer: CALayer) -> Bool {
+                            layer.bounds.width > 40.5 || layer.bounds.height > 40.5
+                                || (layer.sublayers ?? []).contains(where: oversized)
+                        }
+                        let rig = NotchMascotRig()
+                        rig.growsBody = true
+                        let head = NotchMascotLook(style: .minimal, shape: .ball, palette: .sky)
+                        rig.configure(look: head, size: 40, contentsScale: 2)
+                        let first = !oversized(rig.root)
+                        rig.configure(look: head, size: 40, contentsScale: 1)
+                        let moved = !oversized(rig.root)
+                        rig.configure(look: NotchMascotLook(style: .penguin, shape: .ball, palette: .sky), size: 40,
+                                      contentsScale: 1)
+                        expect(first && moved && !oversized(rig.root),
+                               "a figure with a grown body drawn again keeps every layer the size of its square")
+                    }
                     // The bodies the four heads grow on the desktop.
                     do {
                         typealias C = NotchMascotCreatures

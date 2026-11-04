@@ -183,6 +183,11 @@ final class NotchMascotRig: NSObject {
             fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             tilter.add(fade, forKey: "look")
         }
+        // The smaller head of a grown body comes off first: a frame set on a
+        // layer that still wears it is measured through it, and the head
+        // came out large and off to one side, its fill washed out, until
+        // the next look.
+        fitHead(false)
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         root.bounds = box
         for layer in [hopper, squasher, breather, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine] {
