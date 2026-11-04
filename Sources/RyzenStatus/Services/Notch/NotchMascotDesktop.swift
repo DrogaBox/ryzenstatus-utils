@@ -4368,6 +4368,8 @@ final class NotchMascotDesktop: NSObject {
         stage.controller = self
         stage.host.followsAutomation = true
         stage.host.followsPointer = true
+        // Out of the island, a figure that is only a head walks on a body.
+        stage.host.mascot.growsBody = true
         stage.acceptDrops()
         panel.contentView = stage
         self.stage = stage

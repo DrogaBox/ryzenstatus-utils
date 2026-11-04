@@ -74,6 +74,13 @@ final class NotchMascotRig: NSObject {
     private let fusionArt = NotchMascotFusionArt()
     /// The body lit white for an instant, as a transformation bursts out.
     private let bodyFlash = CAShapeLayer()
+    /// The body a head-only figure grows on the desktop, under its head.
+    let bodyParts = NotchMascotBodyParts()
+    /// Out on the desktop, a figure that is only a head in the island grows
+    /// a body under a smaller head.
+    var growsBody = false
+    /// Whether it shows a grown body now.
+    private(set) var showsBody = false
     /// A sprite companion's figure, shown in place of the drawn body.
     private let sprite = NotchMascotSpriteLayer()
     /// It is drawn from a sprite sheet now, rather than with shapes.
@@ -108,6 +115,7 @@ final class NotchMascotRig: NSObject {
         breather.addSublayer(tilter)
         tilter.addSublayer(decor.back)
         tilter.addSublayer(wearables.back)
+        tilter.addSublayer(bodyParts.layer)
         for layer in [ears, antenna, bulb, fill, visor, shine, bodyFlash] { tilter.addSublayer(layer) }
         tilter.addSublayer(sprite)
         sprite.isHidden = true
@@ -157,7 +165,10 @@ final class NotchMascotRig: NSObject {
     /// Draws the companion at `size` points with `look`. Nothing moves, and a
     /// new look at the same size cross-fades in, as a choice in Settings does.
     func configure(look: NotchMascotLook, size: CGFloat, contentsScale scale: CGFloat) {
-        guard !configured || look != self.look || size != self.size || scale != root.contentsScale else { return }
+        let bodied = growsBody && NotchMascotCreatures.headOnly.contains(look.style)
+        guard !configured || look != self.look || size != self.size || scale != root.contentsScale
+            || bodied != showsBody else { return }
+        showsBody = bodied
         let restyled = configured && look != self.look && size == self.size && !reduceMotion
         configured = true
         self.look = look
@@ -226,10 +237,19 @@ final class NotchMascotRig: NSObject {
         // A hat measures against the head, not the whole figure: on a body
         // twice as wide as its head, a bow would otherwise hang out in the air.
         let headOutline = NotchMascotCreatures.headOutline(look.style, size: size)
-        wearables.configure(accessory: look.accessory,
-                            body: headOutline.map { CGPath(rect: $0, transform: nil) } ?? fillMask.path,
-                            face: look.face, neck: NotchMascotCreatures.neck(look.style),
-                            anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
+        let headPath = headOutline.map { CGPath(rect: $0, transform: nil) } ?? fillMask.path
+        if bodied {
+            // Dressed on the body, its hat on the smaller head.
+            var fit = NotchMascotCreatures.headFit(look, size: size)
+            wearables.configure(accessory: look.accessory, body: headPath.flatMap { $0.copy(using: &fit) },
+                                face: NotchMascotCreatures.bodiedFace(look), neck: NotchMascotCreatures.bodiedNeck,
+                                anatomy: NotchMascotCreatures.bodiedAnatomy(look.style), size: size, scale: scale)
+        } else {
+            wearables.configure(accessory: look.accessory, body: headPath,
+                                face: look.face, neck: NotchMascotCreatures.neck(look.style),
+                                anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
+        }
+        fitHead(bodied)
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
         fusionArt.configure(look: look, size: size, scale: scale, reduceMotion: reduceMotion)
         bodyFlash.frame = box
@@ -268,12 +288,49 @@ final class NotchMascotRig: NSObject {
         wearables.face.isHidden = drawsSprite
         wearables.back.isHidden = drawsSprite
         features.configure(look: look, size: size, scale: scale)
+        if bodied {
+            bodyParts.configure(look: look, fill: fill.colors as? [CGColor] ?? [], size: size, scale: scale,
+                                pose: NotchMascotCreatures.bodyPose(for: mood))
+            // It lights up whole as it transforms, body and all.
+            let flash = CGMutablePath()
+            if let head = bodyFlash.path { flash.addPath(head, transform: NotchMascotCreatures.headFit(look, size: size)) }
+            flash.addPath(NotchMascotCreatures.bodyTorso(look, size: size))
+            bodyFlash.path = flash
+        } else {
+            bodyParts.hide()
+        }
         apply(mood.expression, animated: false)
         // A breath is measured against its size.
         breather.removeAnimation(forKey: "breathe")
         applyAmbient()
     }
 
+    /// With a grown body, the head and everything drawn on it, its face,
+    /// pins, blades, props and fusion marks, is drawn smaller over the body;
+    /// glasses, already placed on the smaller face, take the fit off again.
+    /// Without one, all of it is drawn full size, as in the island.
+    private func fitHead(_ bodied: Bool) {
+        var fit = CATransform3DIdentity
+        if bodied {
+            // About the middle of the box, where every one of these layers
+            // turns and scales.
+            let middle = size / 2
+            let head = NotchMascotCreatures.headFit(look, size: size)
+            fit = CATransform3DMakeAffineTransform(CGAffineTransform(translationX: middle, y: middle)
+                .concatenating(head).concatenating(CGAffineTransform(translationX: -middle, y: -middle)))
+        }
+        for layer in [ears, antenna, bulb, fill, visor, shine] { layer.transform = fit }
+        for layer in [attention, decor.back, decor.middle, decor.props, fusionArt.front] { layer.sublayerTransform = fit }
+        wearables.face.transform = CATransform3DInvert(fit)
+    }
+
+    /// Its box's offset from the figure's own middle, so a caller centres
+    /// the body that shows. With a grown body it stands on its soles
+    /// instead, however tall its head, where other figures' feet come to.
+    var figureOffset: CGFloat {
+        showsBody ? NotchMascotCreatures.bodiedBounds(look).maxY - NotchMascotCreatures.bodiedFloor
+            : NotchMascotGeometry.figureOffset(look)
+    }
     /// A sprite companion keeps the row its mood calls for.
     private func syncSpriteLoop() {
         guard showsSprite, let sheet = sprite.sheet else { return }
@@ -293,6 +350,7 @@ final class NotchMascotRig: NSObject {
         syncSpriteLoop()
         lightBulb(mood != .sleepy, animated: animated && !reduceMotion)
         decor.setSleeping(mood == .sleepy, animated: animated && !reduceMotion && size > 0, fill: fill)
+        bodyParts.setMood(mood, animated: animated && !reduceMotion)
         applyAmbient()
         guard animated, !reduceMotion, size > 0 else { syncBlinking(); return }
         switch mood {
@@ -408,6 +466,8 @@ final class NotchMascotRig: NSObject {
         apply(mood.expression, animated: false)
         syncSpriteLoop()
         decor.setSleeping(mood == .sleepy, animated: false, fill: fill)
+        bodyParts.removeAllAnimations()
+        bodyParts.setMood(mood, animated: false)
         applyAmbient()
     }
 
@@ -426,6 +486,7 @@ final class NotchMascotRig: NSObject {
         guard size > 0 else { return }
         let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
         decor.setAmbient(ambient, motion: motion)
+        bodyParts.setIdle(motion)
         features.setMotion(motion)
         breathe(motion && ambient.ambient != .dancing)
         hopper.removeAnimation(forKey: "ambientBob")
@@ -924,6 +985,7 @@ final class NotchMascotRig: NSObject {
         }
         glowBulb(for: reaction.length)
         decor.flourish(reaction, reduceMotion: reduceMotion)
+        if !reduceMotion { bodyParts.flourish(reaction) }
         // Every reaction pulls its own face, mouth and all.
         let face = reaction.face
         guard !reduceMotion else {
@@ -1253,8 +1315,9 @@ final class NotchMascotRig: NSObject {
         if showsSprite { sprite.run(toward: reduceMotion ? nil : direction) }
         hopper.removeAnimation(forKey: "stride")
         hopper.removeAnimation(forKey: "waddle")
-        let gait = NotchMascotGait.of(look.style)
+        let gait = showsBody ? NotchMascotCreatures.bodiedGait(look.style) : NotchMascotGait.of(look.style)
         decor.setStriding(direction != nil && !reduceMotion, period: gait.period * 2)
+        bodyParts.setStriding(direction != nil && !reduceMotion, period: gait.period * 2)
         guard let direction, !reduceMotion else {
             if !showsSprite { lookAhead() }
             return
@@ -1913,7 +1976,7 @@ final class NotchMascotHostView: NSView {
 
     /// Its box's offset from the figure's own middle, so that what a caller
     /// centres, at rest or on a visit, is the body that shows.
-    private var figureShift: CGFloat { NotchMascotGeometry.figureOffset(mascot.look) * mascot.size }
+    private var figureShift: CGFloat { mascot.figureOffset * mascot.size }
 
     private func applyPlacement() {
         let placed = placement.center ?? CGPoint(x: bounds.midX, y: bounds.midY)

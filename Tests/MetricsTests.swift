@@ -12178,6 +12178,94 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
+                    // The bodies the four heads grow on the desktop.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let heads: [NotchMascotStyle] = [.minimal, .robot, .chip, .fan]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let poses = C.BodyPose.allCases
+                        expect(C.headOnly == Set(heads) && heads.allSatisfy { $0.sprite == nil && $0.takesAccessory }
+                               && !C.headOnly.contains(.android) && !C.headOnly.contains(.cat),
+                               "only the four figures that are a head alone grow a body")
+                        let limbs: [(NotchMascotStyle, C.BodyPose) -> CGPath] = [
+                            { C.bodyArms($0, $1, size: 40) }, { C.bodyHands($0, $1, size: 40) },
+                            { C.bodyHandHubs($0, $1, size: 40) }, { C.bodyLegs($0, $1, size: 40) },
+                            { C.bodyFeet($0, $1, size: 40) }, { C.bodyJointBalls($0, $1, size: 40) },
+                        ]
+                        expect(heads.allSatisfy { style in
+                                   limbs.allSatisfy { limb in Set(poses.map { elements(limb(style, $0)) }).count == 1 }
+                               }, "their arms, hands, legs, feet and joints morph between every pose")
+                        expect(heads.allSatisfy { style in
+                                   poses.allSatisfy { pose in limbs.allSatisfy { square.contains($0(style, pose).boundingBoxOfPath) } }
+                               }, "every pose stays inside the figure's square")
+                        let shapes = NotchMascotShape.allCases.map { NotchMascotLook(style: .minimal, shape: $0, palette: .sky) }
+                        let looks = heads.filter { $0 != .minimal }.map { NotchMascotLook(style: $0, shape: .ball, palette: .sky) } + shapes
+                        expect(looks.allSatisfy { look in
+                                   let fit = C.headFit(look)
+                                   let figure = C.bodiedBounds(look)
+                                   let face = C.bodiedFace(look)
+                                   let head = NotchMascotGeometry.body(look.shape, size: 1).boundingBoxOfPath
+                                   let torso = C.bodyTorso(look, size: 1).boundingBoxOfPath
+                                   return fit.a < 0.7 && fit.a == fit.d && figure.minY >= 0 && figure.maxY <= 1
+                                       && figure.minX >= 0 && figure.maxX <= 1
+                                       && abs(figure.midX - 0.5) < 0.02 && face.leftEye.y < torso.minY
+                                       && face.eyeSize.width < look.face.eyeSize.width
+                                       && (look.style != .minimal || abs(head.applying(fit).maxY - C.bodyChin) < 0.001)
+                                       && torso.minY < C.bodyChin && torso.maxY < figure.maxY
+                               }, "the head shrinks onto the body's shoulders, eyes and all, and the whole figure fits its square")
+                        expect(looks.allSatisfy { look in
+                                   let bounds = C.bodiedBounds(look)
+                                   return abs(bounds.maxY - C.bodyFeet(look.style, .rest, size: 1).boundingBoxOfPath.maxY) < 0.001
+                                       && bounds.maxY > 0.93
+                               }, "it stands on its soles at the bottom of its square")
+                        expect(heads.allSatisfy { style in
+                                   let anatomy = C.bodiedAnatomy(style)
+                                   let rest = C.bodyJoints(style, .rest)
+                                   let feet = C.bodyFeet(style, .rest, size: 1).boundingBoxOfPath
+                                   return anatomy.rightHand == rest.rightArm[2] && anatomy.leftHand == rest.leftArm[2]
+                                       && abs(anatomy.floor - feet.maxY) < 0.001 && anatomy.leftFoot < 0.5 && anatomy.rightFoot > 0.5
+                                       && abs(anatomy.leftFoot + anatomy.rightFoot - 1) < 0.001
+                                       && anatomy.torso.minY > C.bodyChin - 0.03 && anatomy.torso.maxY < anatomy.floor
+                                       && anatomy.leftHand.y > C.bodyChin && anatomy.rightHand.x > 0.5
+                               }, "what they hold is in their hands and what they wear on their feet is on their feet")
+                        expect(heads.allSatisfy { style in
+                                   let rest = C.bodyJoints(style, .rest), step = C.bodyJoints(style, .step)
+                                   let other = C.bodyJoints(style, .stepOther), up = C.bodyJoints(style, .up)
+                                   let wave = C.bodyJoints(style, .wave)
+                                   return step.leftLeg[2].y < rest.leftLeg[2].y - 0.02 && step.rightLeg[2] == rest.rightLeg[2]
+                                       && other.rightLeg[2].y < rest.rightLeg[2].y - 0.02 && other.leftLeg[2] == rest.leftLeg[2]
+                                       && up.leftArm[2].y < rest.leftArm[0].y && up.rightArm[2].y < rest.rightArm[0].y
+                                       && wave.rightArm[2].y < rest.rightArm[0].y && wave.leftArm == rest.leftArm
+                               }, "it marches one knee up then the other, cheers with both arms and waves with one")
+                        expect(C.bodyPose(for: .sleepy) == .folded && C.bodyPose(for: .angry) == .akimbo
+                               && C.bodyPose(for: .terrified) == .up && C.bodyPose(for: .starstruck) == .fists
+                               && C.bodyPose(for: .bored) == .droop && C.bodyPose(for: .idle) == .rest,
+                               "its arms and legs answer its face")
+                        expect(!C.bodyJointBalls(.robot, .rest, size: 40).isEmpty && C.bodyJointBalls(.chip, .rest, size: 40).isEmpty
+                               && !C.bodyGlow(.robot, size: 40).isEmpty && C.bodyGlow(.fan, size: 40).isEmpty
+                               && !C.bodyPanel(.fan, size: 40).isEmpty && !C.bodyAccents(.chip, size: 40).isEmpty
+                               && !C.bodyShine(.minimal, size: 40).isEmpty && !C.bodyHandHubs(.fan, .rest, size: 40).isEmpty,
+                               "the robot has joints and a heart light, the chip side pins, the fan a grille and grommets")
+                        expect(NotchMascotPalette.allCases.allSatisfy { palette in
+                                   let robot = NotchMascotBodyColors(style: .robot, light: palette.light, shade: palette.shade)
+                                   let minimal = NotchMascotBodyColors(style: .minimal, light: palette.light, shade: palette.shade)
+                                   return robot.limbs == palette.shade && robot.glow == palette.light
+                                       && robot.joints.hsb.2 < 0.3 && minimal.hands == palette.light
+                                       && minimal.limbs.hsb.2 <= max(palette.light.hsb.2, palette.shade.hsb.2) + 0.001
+                               }
+                               && NotchMascotBodyColors(NotchMascotLook(style: .fan, shape: .ball, palette: .sky,
+                                                                        customColor: NotchMascotColor(red: 0.9, green: 0.2, blue: 0.2)))
+                                   != NotchMascotBodyColors(NotchMascotLook(style: .fan, shape: .ball, palette: .sky)),
+                               "the palette and a hand-picked colour dye the body as they dye the head")
+                        expect(heads.allSatisfy { C.bodiedGait($0).bob < NotchMascotGait.standard.bob && C.bodiedGait($0).period > 0.15 }
+                               && C.bodiedNeck > C.bodyChin - 0.02 && C.bodiedNeck < 0.62,
+                               "it walks on its legs rather than hopping, and its scarf goes round its neck")
+                    }
                     // The animals drawn in layers: the phoenix and the mouse.
                     do {
                         typealias C = NotchMascotCreatures
