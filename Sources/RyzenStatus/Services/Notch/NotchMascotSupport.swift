@@ -136,6 +136,8 @@ struct NotchMascotGait: Equatable {
         case .mouse: return NotchMascotGait(period: 0.18, bob: 0.05, rock: 0)
         // The axolotl waddles on its stubby legs, rocking side to side.
         case .axolotl: return NotchMascotGait(period: 0.28, bob: 0.04, rock: 0.08)
+        // The swan pads along on its webbed feet with a little sway.
+        case .swan: return NotchMascotGait(period: 0.26, bob: 0.035, rock: 0.05)
         // The White Rabbit hops along, always in a hurry.
         case .whiteRabbit: return NotchMascotGait(period: 0.2, bob: 0.11, rock: 0)
         default: return .standard

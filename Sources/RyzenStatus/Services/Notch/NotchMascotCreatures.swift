@@ -101,10 +101,11 @@ enum NotchMascotCreatures {
                                          shineCenter: CGPoint(x: 0.27, y: 0.13), shineRadii: CGSize(width: 0.05, height: 0.03),
                                          shineAngle: -0.2)
         case .swan:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.44, y: 0.24), rightEye: CGPoint(x: 0.56, y: 0.24),
-                                         eyeSize: CGSize(width: 0.055, height: 0.12),
-                                         shineCenter: CGPoint(x: 0.42, y: 0.18), shineRadii: CGSize(width: 0.04, height: 0.02),
-                                         shineAngle: -0.3)
+            // Round eyes either side of the knob of its bill.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.425, y: 0.284), rightEye: CGPoint(x: 0.575, y: 0.284),
+                                         eyeSize: CGSize(width: 0.06, height: 0.098),
+                                         shineCenter: CGPoint(x: 0.425, y: 0.185), shineRadii: CGSize(width: 0.04, height: 0.018),
+                                         shineAngle: -0.4)
         case .ballerina, .danseur, .contemporary:
             // Big round eyes under the hairline; the shine hides under the hair.
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.432, y: 0.318), rightEye: CGPoint(x: 0.568, y: 0.318),
@@ -158,7 +159,7 @@ enum NotchMascotCreatures {
         case .capybara: return CGRect(x: 0.12, y: 0.05, width: 0.76, height: 0.89)
         case .dragon: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.90)
         case .frog: return CGRect(x: 0.12, y: 0.06, width: 0.76, height: 0.86)
-        case .swan: return CGRect(x: 0.08, y: 0.05, width: 0.84, height: 0.88)
+        case .swan: return critterBounds(style)
         case .ballerina: return CGRect(x: 0.24, y: 0.04, width: 0.52, height: 0.895)
         case .danseur: return CGRect(x: 0.25, y: 0.083, width: 0.51, height: 0.835)
         case .contemporary: return CGRect(x: 0.30, y: 0.047, width: 0.47, height: 0.886)
@@ -191,7 +192,7 @@ enum NotchMascotCreatures {
         case .capybara: return rect(0.24, 0.18, 0.52, 0.44, size)
         case .dragon: return rect(0.26, 0.12, 0.48, 0.42, size)
         case .frog: return rect(0.20, 0.08, 0.60, 0.46, size)
-        case .swan: return rect(0.36, 0.10, 0.28, 0.26, size)
+        case .swan: return rect(0.32, 0.12, 0.36, 0.32, size)
         case .ballerina, .danseur, .contemporary: return rect(0.33, 0.13, 0.34, 0.31, size)
         case .kitsune: return rect(0.20, 0.20, 0.60, 0.42, size)
         case .penguin: return rect(0.28, 0.10, 0.44, 0.34, size)
@@ -211,7 +212,7 @@ enum NotchMascotCreatures {
         case .cat: return 0.78
         case .phoenix: return 0.545
         case .frog: return 0.5
-        case .swan: return 0.4
+        case .swan: return 0.47
         case .cristobal: return 0.465
         // A shifter's blob runs far below its eyes, so the head's rule
         // would drop the scarf under its hem.
@@ -294,25 +295,7 @@ enum NotchMascotCreatures {
             path.addEllipse(in: rect(0.20, 0.18, 0.60, 0.42, size))
             path.addEllipse(in: rect(0.16, 0.42, 0.68, 0.48, size))
         case .swan:
-            // A magnificent royal swan floating serenely:
-            // Gracefully contoured head, slender arched neck, proud puffed breast,
-            // buoyant floating body and smooth waterline hull.
-            path.move(to: point(0.50, 0.10))
-            path.addQuadCurve(to: point(0.63, 0.20), control: point(0.61, 0.11))
-            path.addQuadCurve(to: point(0.58, 0.29), control: point(0.63, 0.26))
-            path.addCurve(to: point(0.55, 0.39), control1: point(0.56, 0.32), control2: point(0.55, 0.35))
-            path.addCurve(to: point(0.68, 0.54), control1: point(0.55, 0.45), control2: point(0.62, 0.50))
-            path.addCurve(to: point(0.77, 0.69), control1: point(0.74, 0.58), control2: point(0.77, 0.63))
-            path.addQuadCurve(to: point(0.71, 0.84), control: point(0.77, 0.79))
-            path.addQuadCurve(to: point(0.50, 0.86), control: point(0.61, 0.85))
-            path.addQuadCurve(to: point(0.29, 0.84), control: point(0.39, 0.85))
-            path.addQuadCurve(to: point(0.23, 0.69), control: point(0.23, 0.79))
-            path.addCurve(to: point(0.32, 0.54), control1: point(0.23, 0.63), control2: point(0.26, 0.58))
-            path.addCurve(to: point(0.45, 0.39), control1: point(0.38, 0.50), control2: point(0.45, 0.45))
-            path.addCurve(to: point(0.42, 0.29), control1: point(0.45, 0.35), control2: point(0.44, 0.32))
-            path.addQuadCurve(to: point(0.37, 0.20), control: point(0.37, 0.26))
-            path.addQuadCurve(to: point(0.50, 0.10), control: point(0.39, 0.11))
-            path.closeSubpath()
+            path.addPath(critterBody(style, size: size))
         case .ballerina, .danseur, .contemporary:
             path.addPath(dancerBody(style, size: size))
         case .kitsune:
@@ -789,90 +772,6 @@ enum NotchMascotCreatures {
         CGPoint(x: -0.55, y: -0.35), CGPoint(x: -0.35, y: -0.6), CGPoint(x: -0.12, y: -0.75), CGPoint(x: 0.1, y: -0.7),
         CGPoint(x: 0.32, y: -0.62), CGPoint(x: 0.55, y: -0.4), CGPoint(x: -0.45, y: -0.1), CGPoint(x: 0.48, y: -0.12),
     ]
-
-    // MARK: Swan
-
-    /// Proud arched swan wings and upturned tail feathers floating behind the body.
-    static func swanWings(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        for mirror in [false, true] {
-            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
-            // Arched wing with 3 layered primary and secondary flight feathers
-            path.move(to: point(x(0.30), 0.66))
-            path.addCurve(to: point(x(0.10), 0.34), control1: point(x(0.24), 0.58), control2: point(x(0.12), 0.46))
-            path.addQuadCurve(to: point(x(0.16), 0.43), control: point(x(0.12), 0.39))
-            path.addQuadCurve(to: point(x(0.13), 0.48), control: point(x(0.14), 0.45))
-            path.addQuadCurve(to: point(x(0.20), 0.54), control: point(x(0.15), 0.51))
-            path.addQuadCurve(to: point(x(0.17), 0.59), control: point(x(0.18), 0.56))
-            path.addQuadCurve(to: point(x(0.28), 0.68), control: point(x(0.20), 0.64))
-            path.closeSubpath()
-
-            // Upturned rear tail feather peeking behind waterline
-            path.move(to: point(x(0.38), 0.82))
-            path.addQuadCurve(to: point(x(0.44), 0.92), control: point(x(0.39), 0.88))
-            path.addQuadCurve(to: point(x(0.50), 0.85), control: point(x(0.47), 0.90))
-            path.closeSubpath()
-        }
-        return path
-    }
-
-    /// Distinctive amber waterfowl bill.
-    static func swanBeak(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.45, 0.25))
-        path.addQuadCurve(to: point(0.50, 0.34), control: point(0.46, 0.31))
-        path.addQuadCurve(to: point(0.55, 0.25), control: point(0.54, 0.31))
-        path.closeSubpath()
-        return path
-    }
-
-    /// The iconic black mask (lores) and basal knob between the eyes and bill.
-    static func swanMask(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.addEllipse(in: rect(0.47, 0.18, 0.06, 0.05, size))
-        path.move(to: point(0.44, 0.25))
-        path.addLine(to: point(0.41, 0.22))
-        path.addLine(to: point(0.45, 0.21))
-        path.addLine(to: point(0.50, 0.23))
-        path.addLine(to: point(0.55, 0.21))
-        path.addLine(to: point(0.59, 0.22))
-        path.addLine(to: point(0.56, 0.25))
-        path.closeSubpath()
-        return path
-    }
-
-    /// Odette's royal crown resting delicately on the head.
-    static func swanTiara(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.41, 0.11))
-        path.addLine(to: point(0.43, 0.04))
-        path.addLine(to: point(0.47, 0.08))
-        path.addLine(to: point(0.50, 0.02))
-        path.addLine(to: point(0.53, 0.08))
-        path.addLine(to: point(0.57, 0.04))
-        path.addLine(to: point(0.59, 0.11))
-        path.addQuadCurve(to: point(0.41, 0.11), control: point(0.50, 0.13))
-        path.closeSubpath()
-        return path
-    }
-
-    /// Delicate plumage scallops along the folded breast.
-    static func swanChestDetails(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        for mirror in [false, true] {
-            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
-            path.move(to: point(x(0.33), 0.55))
-            path.addCurve(to: point(x(0.38), 0.72), control1: point(x(0.31), 0.62), control2: point(x(0.35), 0.68))
-            path.addQuadCurve(to: point(x(0.35), 0.56), control: point(x(0.33), 0.64))
-            path.closeSubpath()
-        }
-        return path
-    }
 
     // MARK: Kitsune
 

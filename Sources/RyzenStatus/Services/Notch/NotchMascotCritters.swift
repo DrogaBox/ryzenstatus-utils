@@ -33,6 +33,7 @@ extension NotchMascotCreatures {
         case .phoenix: return phoenixParts(colors: colors, hat: hat, size: size)
         case .mouse: return mouseParts(colors: colors, size: size)
         case .axolotl: return axolotlParts(colors: colors, size: size)
+        case .swan: return swanParts(colors: colors, hat: hat, size: size)
         default: return []
         }
     }
@@ -43,6 +44,7 @@ extension NotchMascotCreatures {
         case .phoenix: return phoenixBody(size: size)
         case .mouse: return mouseBody(size: size)
         case .axolotl: return axolotlBody(size: size)
+        case .swan: return swanBody(size: size)
         default: return CGMutablePath()
         }
     }
@@ -67,6 +69,7 @@ extension NotchMascotCreatures {
         case .phoenix: return phoenixAnatomy
         case .mouse: return mouseAnatomy
         case .axolotl: return axolotlAnatomy
+        case .swan: return swanAnatomy
         default: return nil
         }
     }

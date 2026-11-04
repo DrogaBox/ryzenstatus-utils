@@ -286,18 +286,6 @@ final class NotchMascotDecor {
             pins.path = NotchMascotCreatures.frogThroatAndPaws(size: size)
             pins.fillColor = palette.light.cgColor
             show(pins)
-        case .swan:
-            pins.path = NotchMascotCreatures.swanWings(size: size)
-            pins.fillColor = palette.light.cgColor
-            catEars.path = NotchMascotCreatures.swanTiara(size: size)
-            catEars.fillColor = NotchMascotWearableShapes.rgb(0xFFD700)
-            plume.path = NotchMascotCreatures.swanBeak(size: size)
-            plume.fillColor = NotchMascotWearableShapes.rgb(0xFF921E)
-            dogNose.path = NotchMascotCreatures.swanMask(size: size)
-            dogNose.fillColor = NotchMascotWearableShapes.rgb(0x18181B)
-            chipMark.path = NotchMascotCreatures.swanChestDetails(size: size)
-            chipMark.fillColor = palette.shade.cgColor
-            show(pins, catEars, plume, dogNose, chipMark)
         case .kitsune:
             // Tails behind the haunch, more of them as the bond grows; tall
             // ears with pale insides; a pale mask and bib, a black nose and
@@ -339,7 +327,8 @@ final class NotchMascotDecor {
             chipMark.path = NotchMascotCreatures.penguinCheeks(size: size)
             chipMark.fillColor = NotchMascotWearableShapes.rgb(0xFFC83D)
             show(pins, plume, dogNose, chipMark)
-        case .hologram, .android, .ballerina, .danseur, .contemporary, .phoenix, .axolotl, .mouse:
+        case .hologram, .android, .ballerina, .danseur, .contemporary, .phoenix, .axolotl, .mouse,
+             .swan:
             // Drawn by their own parts, configured below for every figure.
             break
         case .chip:
@@ -492,11 +481,11 @@ final class NotchMascotDecor {
         case .ballerina, .danseur, .contemporary:
             // Arms folded, down off their toes.
             dancer.setSleeping(sleeping, animated: animated)
-        case .phoenix, .mouse, .axolotl:
+        case .phoenix, .mouse, .axolotl, .swan:
             // Its own way of curling up: wings folded and fire sunk to
             // embers, ears laid back and paws tucked in.
             critter.setSleeping(sleeping, animated: animated)
-        case .dog, .capybara, .dragon, .frog, .swan:
+        case .dog, .capybara, .dragon, .frog:
             fade(pins, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(plume, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(dogNose, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
@@ -837,10 +826,10 @@ final class NotchMascotDecor {
             signal.flourish(reaction)
         case .ballerina, .danseur, .contemporary:
             dancer.flourish(reaction)
-        case .phoenix, .mouse, .axolotl:
+        case .phoenix, .mouse, .axolotl, .swan:
             critter.flourish(reaction)
         case .slime, .minimal, .robot, .devourer, .shifter, .dog,
-             .capybara, .dragon, .frog, .swan:
+             .capybara, .dragon, .frog:
             break
         }
     }
@@ -1098,7 +1087,7 @@ final class NotchMascotDecor {
             }
         case .ballerina, .danseur, .contemporary:
             dancer.setStriding(striding && !sleeping, period: period)
-        case .phoenix, .mouse, .axolotl:
+        case .phoenix, .mouse, .axolotl, .swan:
             critter.setStriding(striding && !sleeping, period: period)
         default:
             break

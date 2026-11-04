@@ -89,7 +89,7 @@ extension NotchMascotCreatures {
             return .init(rightHand: at(0.92, 0.72), leftHand: at(0.09, 0.72), floor: 0.95,
                          leftFoot: 0.34, rightFoot: 0.66, foot: 0.16, torso: box(0.08, 0.34, 0.85, 0.62))
         // The five animals, where their own parts put hands and feet.
-        case .phoenix, .mouse, .axolotl:
+        case .phoenix, .mouse, .axolotl, .swan:
             return critterAnatomy(style)
         case .dog:
             return .init(rightHand: at(0.82, 0.70), leftHand: at(0.18, 0.70), floor: 0.95,
@@ -108,11 +108,6 @@ extension NotchMascotCreatures {
             return .init(rightHand: at(0.84, 0.68), leftHand: at(0.16, 0.68), floor: 0.90,
                          leftFoot: 0.25, rightFoot: 0.75, foot: 0.18, torso: box(0.16, 0.50, 0.68, 0.40),
                          mouth: at(0.50, 0.40))
-        // A swan floats: what goes on its feet rides its waterline.
-        case .swan:
-            return .init(rightHand: at(0.80, 0.66), leftHand: at(0.20, 0.66), floor: 0.86,
-                         leftFoot: 0.42, rightFoot: 0.58, foot: 0.12, torso: box(0.23, 0.50, 0.54, 0.36),
-                         nose: at(0.50, 0.30), mouth: at(0.50, 0.33))
         // The dancers' hands and feet where their resting pose puts them.
         case .ballerina, .danseur, .contemporary:
             return dancerAnatomy(style)

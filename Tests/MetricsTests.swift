@@ -12178,7 +12178,7 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
-                    // The animals drawn in layers: the phoenix, the mouse and the axolotl.
+                    // The animals drawn in layers: the phoenix, the mouse, the axolotl and the swan.
                     do {
                         typealias C = NotchMascotCreatures
                         func elements(_ path: CGPath) -> [Int32] {
@@ -12186,7 +12186,7 @@ struct MetricsTests {
                             path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
                             return kinds
                         }
-                        let animals: [NotchMascotStyle] = [.phoenix, .mouse, .axolotl]
+                        let animals: [NotchMascotStyle] = [.phoenix, .mouse, .axolotl, .swan]
                         let square = CGRect(x: 0, y: 0, width: 40, height: 40)
                         let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
                         expect(animals.allSatisfy { style in
@@ -12265,6 +12265,22 @@ struct MetricsTests {
                                && part("smile", axolotl) != nil && NotchMascotFeatures.drawsOwnMouth(.axolotl),
                                "the axolotl's gill fronds wave, flare when startled and droop asleep, over its own smile")
                         expect(NotchMascotGait.of(.axolotl).rock > 0, "the axolotl waddles")
+                        let swan = C.critterParts(.swan, colors: sky, size: 40)
+                        expect(part("wings", swan).map { wings in
+                                   wings.path(.cheer, 0).boundingBox.minY < wings.path(.rest, 0).boundingBox.minY
+                                       && wings.path(.spread, 0).boundingBox.width > wings.path(.rest, 0).boundingBox.width
+                               } == true
+                               && part("tail", swan).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.maxY > tail.path(.rest, 0).boundingBox.maxY
+                               } == true
+                               && part("neck", swan) != nil && part("bill", swan) != nil && part("knob", swan) != nil
+                               && part("tiara", swan) != nil
+                               && part("tiara", C.critterParts(.swan, colors: sky, hat: true, size: 40)) == nil,
+                               "the swan raises and spreads its wings, lets its tail droop asleep and takes off its tiara for a hat")
+                        let blackSwan = NotchMascotCritterColors(light: NotchMascotColor(hex: "3A3A44")!,
+                                                                 shade: NotchMascotColor(hex: "1A1A24")!)
+                        expect(part("bill", C.critterParts(.swan, colors: blackSwan, size: 40))?.paint != part("bill", swan)?.paint,
+                               "a dark swan gets a black swan's red bill")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
