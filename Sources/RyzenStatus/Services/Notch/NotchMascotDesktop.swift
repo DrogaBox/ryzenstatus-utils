@@ -313,7 +313,7 @@ final class NotchMascotDesktop: NSObject {
     /// Keeps a new look or mood while it is out. A new pick from its person
     /// ends any dress-up play, so what was chosen shows at once.
     func configure(look newLook: NotchMascotLook, mood: NotchMascotMood) {
-        if newLook.accessory != baseLook.accessory {
+        if newLook.accessory != baseLook.accessory || newLook.style != baseLook.style {
             endDressUp()
             hideWork?.cancel(); hideWork = nil
             itemHidden = false
