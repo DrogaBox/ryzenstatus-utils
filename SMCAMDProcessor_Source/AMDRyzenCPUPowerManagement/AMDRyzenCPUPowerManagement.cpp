@@ -90,6 +90,10 @@ void AMDRyzenCPUPowerManagement::free(){
     // Cleanup resources allocated in init() in case start() failed partway
     // and stop() was never called. IOLockFree handles NULL on some XNU versions
     // but we guard explicitly for safety.
+    // Mapped or probed early in start(); stop() has already cleared both on
+    // the normal path.
+    releaseAcpiCppc();
+    if (superIO) { delete superIO; superIO = nullptr; }
     if (pciConfigLock)   { IOSimpleLockFree(pciConfigLock);   pciConfigLock = nullptr; }
     if (superIOLock)     { IOLockFree(superIOLock);           superIOLock = nullptr; }
     if (smuCmdLock)      { IOLockFree(smuCmdLock);            smuCmdLock = nullptr; }
