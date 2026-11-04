@@ -38,10 +38,11 @@ enum NotchMascotCreatures {
                                          shineCenter: CGPoint(x: 0.25, y: 0.30), shineRadii: CGSize(width: 0.05, height: 0.03),
                                          shineAngle: -0.6)
         case .cat:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.37, y: 0.58), rightEye: CGPoint(x: 0.63, y: 0.58),
-                                         eyeSize: CGSize(width: 0.09, height: 0.18),
-                                         shineCenter: CGPoint(x: 0.30, y: 0.40), shineRadii: CGSize(width: 0.07, height: 0.04),
-                                         shineAngle: -0.5)
+            // Big eyes over its pink nose, the shine up between its ears.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.415, y: 0.45), rightEye: CGPoint(x: 0.585, y: 0.45),
+                                         eyeSize: CGSize(width: 0.072, height: 0.118),
+                                         shineCenter: CGPoint(x: 0.4, y: 0.315), shineRadii: CGSize(width: 0.045, height: 0.021),
+                                         shineAngle: -0.45)
         case .ghost:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.39, y: 0.50), rightEye: CGPoint(x: 0.61, y: 0.50),
                                          eyeSize: CGSize(width: 0.095, height: 0.20),
@@ -147,7 +148,7 @@ enum NotchMascotCreatures {
         case .whiteRabbit: return CGRect(x: 0.27, y: 0.0, width: 0.56, height: 0.91)
         case .chip: return CGRect(x: 0.09, y: 0.17, width: 0.82, height: 0.82)
         case .fan: return CGRect(x: 0.10, y: 0.18, width: 0.80, height: 0.80)
-        case .cat: return CGRect(x: 0.06, y: 0.12, width: 0.94, height: 0.82)
+        case .cat: return critterBounds(style)
         case .ghost: return CGRect(x: 0.16, y: 0.20, width: 0.68, height: 0.74)
         case .slime: return CGRect(x: 0.07, y: 0.22, width: 0.86, height: 0.76)
         case .devourer: return CGRect(x: 0.04, y: 0.20, width: 0.92, height: 0.78)
@@ -180,7 +181,7 @@ enum NotchMascotCreatures {
         case .whiteRabbit: return rect(0.335, 0.215, 0.33, 0.29, size)
         case .chip: return rect(0.18, 0.26, 0.64, 0.64, size)
         case .fan: return rect(0.10, 0.18, 0.80, 0.80, size)
-        case .cat: return rect(0.20, 0.24, 0.60, 0.40, size)
+        case .cat: return rect(catHeadBox.minX, catHeadBox.minY, catHeadBox.width, catHeadBox.height, size)
         case .ghost: return rect(0.16, 0.20, 0.68, 0.56, size)
         case .slime: return rect(0.09, 0.22, 0.82, 0.64, size)
         case .devourer: return rect(0.12, 0.20, 0.76, 0.66, size)
@@ -202,14 +203,14 @@ enum NotchMascotCreatures {
     }
 
     /// Where a scarf goes, from 0 to 1 down the figure, for those whose neck
-    /// is not just under the head outline nor well under the eyes: a cat that
-    /// is all head, a phoenix whose head sits on its chest, a frog with no
+    /// is not just under the head outline nor well under the eyes: a cat and
+    /// a phoenix whose heads sit on their chests, a frog with no
     /// neck at all, a swan with a long one, Cristóbal, whose stubble wants
     /// showing, and the hologram and the android, whose heads are most of
     /// them.
     static func neck(_ style: NotchMascotStyle) -> CGFloat? {
         switch style {
-        case .cat: return 0.78
+        case .cat: return 0.585
         case .phoenix: return 0.545
         case .frog: return 0.5
         case .swan: return 0.47
@@ -240,7 +241,7 @@ enum NotchMascotCreatures {
         case .fan:
             path.addRoundedRect(in: rect(0.10, 0.18, 0.80, 0.80, size), cornerWidth: 0.2 * size, cornerHeight: 0.2 * size)
         case .cat:
-            path.addEllipse(in: rect(0.12, 0.30, 0.76, 0.62, size))
+            path.addPath(critterBody(style, size: size))
         case .ghost:
             path.move(to: point(0.16, 0.56))
             path.addCurve(to: point(0.5, 0.20), control1: point(0.16, 0.36), control2: point(0.30, 0.20))
@@ -564,70 +565,9 @@ enum NotchMascotCreatures {
         return path
     }
 
-    // MARK: Cat
-
+    // MARK: Ears
+    /// How a kitsune holds its ears: up, flicked out, or laid back asleep.
     enum EarPose { case up, twitch, droop }
-    enum TailPose { case rest, sway, curl }
-
-    /// Both ears. `inner` is the shaded inside of each.
-    static func catEars(_ pose: EarPose, inner: Bool, size: CGFloat) -> CGPath {
-        let tip: (CGFloat, CGFloat)
-        switch pose {
-        case .up: tip = (0.20, 0.12)
-        case .twitch: tip = (0.11, 0.17)
-        case .droop: tip = (0.07, 0.38)
-        }
-        let path = CGMutablePath()
-        for mirrored in [false, true] {
-            func x(_ value: CGFloat) -> CGFloat { mirrored ? 1 - value : value }
-            var corners: [CGPoint] = [CGPoint(x: x(0.15), y: 0.52), CGPoint(x: x(tip.0), y: tip.1),
-                                      CGPoint(x: x(0.46), y: 0.34)]
-            if inner {
-                // The same triangle drawn smaller toward its middle.
-                let middle = CGPoint(x: (corners[0].x + corners[1].x + corners[2].x) / 3,
-                                     y: (corners[0].y + corners[1].y + corners[2].y) / 3)
-                corners = corners.map { CGPoint(x: middle.x + ($0.x - middle.x) * 0.5, y: middle.y + ($0.y - middle.y) * 0.5) }
-            }
-            let scaled = corners.map { CGPoint(x: $0.x * size, y: $0.y * size) }
-            path.move(to: scaled[0])
-            path.addLine(to: lerp(scaled[0], scaled[1], 0.82))
-            path.addQuadCurve(to: lerp(scaled[2], scaled[1], 0.82), control: scaled[1])
-            path.addLine(to: scaled[2])
-            path.closeSubpath()
-        }
-        return path
-    }
-
-    /// The tail, a stroke from behind the body.
-    static func catTail(_ pose: TailPose, size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.76, 0.84))
-        switch pose {
-        case .rest:
-            path.addCurve(to: point(0.95, 0.50), control1: point(0.96, 0.86), control2: point(1.0, 0.66))
-        case .sway:
-            path.addCurve(to: point(0.87, 0.42), control1: point(0.98, 0.84), control2: point(0.82, 0.60))
-        case .curl:
-            path.addCurve(to: point(0.62, 0.94), control1: point(0.98, 0.90), control2: point(0.90, 1.0))
-        }
-        return path
-    }
-
-    static func catWhiskers(size: CGFloat) -> CGPath {
-        let path = CGMutablePath()
-        for (from, to) in [((0.06, 0.66), (0.25, 0.70)), ((0.07, 0.79), (0.25, 0.76)),
-                           ((0.94, 0.66), (0.75, 0.70)), ((0.93, 0.79), (0.75, 0.76))] as [((CGFloat, CGFloat), (CGFloat, CGFloat))] {
-            path.move(to: CGPoint(x: from.0 * size, y: from.1 * size))
-            path.addLine(to: CGPoint(x: to.0 * size, y: to.1 * size))
-        }
-        return path
-    }
-
-    static func catNose(size: CGFloat) -> CGPath {
-        polygon([(0.465, 0.715), (0.535, 0.715), (0.5, 0.76)], size: size)
-    }
-
     // MARK: Ghost
 
     /// Its mouth, a small slit or an "o" as it says boo.

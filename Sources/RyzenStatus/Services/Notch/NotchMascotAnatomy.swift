@@ -68,11 +68,9 @@ extension NotchMascotCreatures {
         case .fan:
             return .init(rightHand: at(0.91, 0.64), leftHand: at(0.09, 0.64), floor: 0.98,
                          leftFoot: 0.36, rightFoot: 0.64, foot: 0.18, torso: box(0.10, 0.18, 0.80, 0.80))
-        // A cat is one round loaf; its nose sits well under the eyes.
+        // The cat holds things in its front paws, in front of its belly.
         case .cat:
-            return .init(rightHand: at(0.86, 0.74), leftHand: at(0.14, 0.74), floor: 0.92,
-                         leftFoot: 0.38, rightFoot: 0.62, foot: 0.14, torso: box(0.12, 0.56, 0.76, 0.36),
-                         nose: at(0.50, 0.737), mouth: at(0.50, 0.79))
+            return critterAnatomy(style)
         // A ghost has no feet: what goes on them hangs at its hem.
         case .ghost:
             return .init(rightHand: at(0.86, 0.64), leftHand: at(0.14, 0.64), floor: 0.93,

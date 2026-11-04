@@ -116,6 +116,8 @@ struct NotchMascotGait: Equatable {
 
     static func of(_ style: NotchMascotStyle) -> NotchMascotGait {
         switch style {
+        // The cat pads along softly, low and smooth.
+        case .cat: return NotchMascotGait(period: 0.26, bob: 0.035, rock: 0)
         // Short legs under a big body: small quick steps, rocking side to side.
         case .penguin: return NotchMascotGait(period: 0.26, bob: 0.03, rock: 0.16)
         // A light trot, quicker and lower than a hop.

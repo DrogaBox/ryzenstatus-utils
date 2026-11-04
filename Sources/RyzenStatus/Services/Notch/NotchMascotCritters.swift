@@ -30,6 +30,7 @@ extension NotchMascotCreatures {
     static func critterParts(_ style: NotchMascotStyle, colors: NotchMascotCritterColors, hat: Bool = false,
                              size: CGFloat) -> [NotchMascotCritterPart] {
         switch style {
+        case .cat: return catParts(colors: colors, hat: hat, size: size)
         case .phoenix: return phoenixParts(colors: colors, hat: hat, size: size)
         case .mouse: return mouseParts(colors: colors, size: size)
         case .axolotl: return axolotlParts(colors: colors, size: size)
@@ -41,6 +42,7 @@ extension NotchMascotCreatures {
     /// The figure's own shape that the body's fill paints, for the five.
     static func critterBody(_ style: NotchMascotStyle, size: CGFloat) -> CGPath {
         switch style {
+        case .cat: return catBody(size: size)
         case .phoenix: return phoenixBody(size: size)
         case .mouse: return mouseBody(size: size)
         case .axolotl: return axolotlBody(size: size)
@@ -66,6 +68,7 @@ extension NotchMascotCreatures {
     /// rest, so what it wears follows the drawing.
     static func critterAnatomy(_ style: NotchMascotStyle) -> NotchMascotAnatomy? {
         switch style {
+        case .cat: return catAnatomy
         case .phoenix: return phoenixAnatomy
         case .mouse: return mouseAnatomy
         case .axolotl: return axolotlAnatomy
