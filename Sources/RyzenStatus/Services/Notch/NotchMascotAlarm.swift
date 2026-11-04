@@ -82,17 +82,16 @@ struct NotchMascotAlarm: Codable, Equatable, Identifiable {
     }
 
     /// The list as saved, and back; a list that cannot be read is empty.
+    /// Dates keep the encoder's own form, seconds from the reference date,
+    /// which comes back to the exact same instant; counting from 1970 would
+    /// round off the last bit of a time taken from the clock.
     static func encode(_ alarms: [NotchMascotAlarm]) -> Data? {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        return try? encoder.encode(alarms)
+        try? JSONEncoder().encode(alarms)
     }
 
     static func decode(_ data: Data?) -> [NotchMascotAlarm] {
         guard let data else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .secondsSince1970
-        return (try? decoder.decode([NotchMascotAlarm].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([NotchMascotAlarm].self, from: data)) ?? []
     }
 }
 
