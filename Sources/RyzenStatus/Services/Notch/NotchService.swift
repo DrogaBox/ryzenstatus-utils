@@ -5277,12 +5277,21 @@ extension NotchService {
         if !expanded { stageMascotEntrance(arriving: true) }
     }
 
+    /// Ends any dress-up play on the desktop when the companion's item is picked in Settings.
+    func pickMascotAccessory() {
+        mascotDesktop.wearChosenAccessory()
+        if UserDefaults.standard.string(forKey: DefaultsKey.notchMascotFriendAccessory)?.isEmpty ?? true {
+            mascotFriend.wearChosenAccessory()
+        }
+    }
+
     /// Settings asks it to try what it wears: out on the desktop, it does
     /// its own thing with it there. True when it did.
     @discardableResult
     func useMascotItemOnDesktop() -> Bool {
-        guard mascotDesktop.isOut,
-              let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory, style: mascotDesktop.playLook.style)
+        guard mascotDesktop.isOut else { return false }
+        mascotDesktop.wearChosenAccessory()
+        guard let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory, style: mascotDesktop.playLook.style)
         else { return false }
         mascotDesktop.useItem(use)
         return true

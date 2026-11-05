@@ -317,6 +317,8 @@ final class NotchMascotDesktop: NSObject {
             endDressUp()
             hideWork?.cancel(); hideWork = nil
             itemHidden = false
+        } else if dressUpItem != nil, !UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotDressUp) {
+            endDressUp()
         }
         baseLook = newLook
         self.mood = mood
@@ -426,6 +428,16 @@ final class NotchMascotDesktop: NSObject {
         guard dressUpItem != nil else { return }
         dressUpItem = nil
         if isOut { configure(look: baseLook, mood: mood) }
+    }
+
+    /// Ends any dress-up play at once when its person picks its item in Settings.
+    func wearChosenAccessory() {
+        endDressUp()
+        hideWork?.cancel(); hideWork = nil
+        if itemHidden {
+            itemHidden = false
+            if isOut { configure(look: baseLook, mood: mood) }
+        }
     }
 
     // MARK: Using what it wears
