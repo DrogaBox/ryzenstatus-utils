@@ -175,7 +175,13 @@ final class GamingModeService: ObservableObject {
                 // A newer activation may have started while this restore was
                 // queued — do not clobber its Extreme with the old profile.
                 guard self.activationGeneration == generation, !self.isActive else { return }
-                let restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset)
+                let restore: AMDPowerProfileApplyResult
+                if let name = AmdPresetController.shared.selectedCustomName,
+                   let custom = AmdPresetController.shared.customProfiles.first(where: { $0.name == name }) {
+                    restore = await AmdPresetController.shared.apply(custom: custom)
+                } else {
+                    restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset)
+                }
                 guard self.activationGeneration == generation, !self.isActive else { return }
                 // The snapshot has served its purpose — the user's preset is
                 // back where it belongs (or the restore failed visibly). Only

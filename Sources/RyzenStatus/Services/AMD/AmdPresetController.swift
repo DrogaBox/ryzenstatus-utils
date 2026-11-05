@@ -83,11 +83,14 @@ final class AmdPresetController: ObservableObject {
     }
     /// Puts the user's saved custom profile or preset back: after the kext
     /// loads, which starts from firmware defaults, and after wake. Not while
-    /// Auto EPP or Gaming Mode own the power settings.
+    /// Auto EPP owns the power settings; Gaming Mode re-applies Extreme.
     func reapplySaved() async {
-        guard !AmdSettingsStore.shared.autoEppEnabled,
-              !AmdSettingsStore.shared.gamingModeActive,
-              !GamingModeService.shared.isActive else { return }
+        if AmdSettingsStore.shared.gamingModeActive || GamingModeService.shared.isActive {
+            await withPresetTransaction(.extreme)
+            AdaptivePowerService.shared.limitsReapplied()
+            return
+        }
+        guard !AmdSettingsStore.shared.autoEppEnabled else { return }
         if let name = selectedCustomName, let profile = customProfiles.first(where: { $0.name == name }) {
             _ = await ProcessorModel.shared.applyPowerProfile(profile)
         } else if let preset = AMDPowerPreset.saved() {
@@ -104,6 +107,8 @@ final class AmdPresetController: ObservableObject {
     ///
     /// Called from both `AmdPowerSettingsView.presetCard` and `AmdControlSection.presetButton`.
     func apply(_ preset: AMDPowerPreset) {
+        let previousManualEpp = AmdSettingsStore.shared.manualEpp
+        let previousCustomName = selectedCustomName
         // The preset's EPP becomes the manual one first: switching Auto EPP
         // off below writes the manual EPP, which must not race the preset's
         // own write with a different value.
@@ -116,7 +121,15 @@ final class AmdPresetController: ObservableObject {
         }
         setSelectedCustom(nil)
 
-        Task { await withPresetTransaction(preset) }
+        Task {
+            let result = await withPresetTransaction(preset)
+            if result.privilegeDenied {
+                AmdSettingsStore.shared.manualEpp = previousManualEpp
+                if self.selectedCustomName == nil {
+                    self.setSelectedCustom(previousCustomName)
+                }
+            }
+        }
     }
 
     // MARK: - Custom profiles
@@ -126,12 +139,14 @@ final class AmdPresetController: ObservableObject {
     /// as selected.
     @discardableResult
     func apply(custom profile: AMDPowerProfile) async -> AMDPowerProfileApplyResult {
+        let previousManualEpp = AmdSettingsStore.shared.manualEpp
         if let epp = profile.epp { AmdSettingsStore.shared.manualEpp = epp }
         if AutoEppService.shared.isActive {
             AutoEppService.shared.setEnabled(false, restore: false)
         }
         let result = await ProcessorModel.shared.applyPowerProfile(profile)
         if result.privilegeDenied {
+            AmdSettingsStore.shared.manualEpp = previousManualEpp
             privilegeMessage = result.firstFailureMessage
         } else {
             privilegeMessage = nil
