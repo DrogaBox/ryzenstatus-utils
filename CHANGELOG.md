@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased]
+
+**Sleep does what we said it did.**
+
+### Fixed
+
+- **Your power preset after sleep**: the saved preset or custom profile was meant to come back after wake and never did. The app listened for wake in the wrong place, so the CPU stayed on firmware limits while the window still showed your choice. Thanks to Izzy, who made us notice sleep was not working the way we thought. Gaming Mode now puts Extreme back after wake too.
+- **Core Performance Boost after sleep**: firmware resets it across S3, and now the kext restores your choice. Each core also changes only its own boost bit, instead of receiving one core's whole register.
+- **Settings the SMU forgets in sleep**: the OC VID, all-core Curve Optimizer and boost limit no longer show their pre-sleep values after wake.
+- **Adaptive Power stuck low**: with Auto EPP off, the limit dropped when the CPU got hot and never climbed back.
+- **Custom profiles**: leaving Gaming Mode or turning Auto EPP off now returns to your custom profile instead of a preset.
+- **Refused settings**: a change the kext rejects is no longer saved as if it had worked, and a preset refused for lack of privileges keeps your previous selection.
+- **Fans without privileges**: a manual or curve choice the kext refuses now goes back to the fan's real state, instead of retrying every 1.5 s forever. Picking a curve on a fan card also turns Dynamic Curves on, so it survives a restart.
+- **Detached panel**: closing it could leave every sensor polling at full speed with nothing on screen.
+- **PM table export**: the forced capture could report a failure even though it had worked.
+- **A friend's item**: it was checked against the main companion's level, so an item the friend had unlocked could disappear.
+- **Dress-up**: a companion stops trying things on when it changes figure, when you pick its item or press Use item, and when the option is turned off.
+
+### Improved
+
+- **Less work while hidden**: AMD, fan and C6 polling, network pings, USB watching, wallpaper previews, process lists, one-second countdowns and companion animations now stop while their window is closed or covered.
+- **Less work with many companions**: companions out on the desktop share one set of pointer monitors and one window list, and nothing runs for them while the companion is switched off.
+- **Long sessions**: caches for unmounted disks, past calendar reminders, finished apps and artwork no longer grow without end.
+
+### Kexts
+
+- `SMCAMDProcessor` stays loaded once VirtualSMC holds its plugin, since unloading it could panic the machine.
+- The CPPC channel is no longer shared without its lock between a diagnostics read and the thermal path.
+- A failed start releases what it mapped, cores return to P0 when P-state stepping is switched off on older CPUs, and every call starts with clean output values.
+
 ## [1.78.1] — 2026-11-04 — kexts 3.40.0 (No kext changes)
 
 **A companion keeps its shape.**
