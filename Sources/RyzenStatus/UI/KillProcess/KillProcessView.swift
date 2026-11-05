@@ -10,6 +10,7 @@ import SwiftUI
 struct KillProcessView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = KillProcessService.shared
+    @ObservedObject private var visibility = SettingsWindowVisibility.shared
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var refreshTimer: Timer?
     @State private var pendingAction: PendingAction?
@@ -38,6 +39,9 @@ struct KillProcessView: View {
         .onDisappear { stopTimer() }
         .onChange(of: controlActiveState) { _, newValue in
             updateTimer(for: newValue)
+        }
+        .onChange(of: visibility.isVisible) { _, _ in
+            updateTimer(for: controlActiveState)
         }
         .alert(alertTitle,
                isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
@@ -282,7 +286,7 @@ struct KillProcessView: View {
     /// The interval matches the service's own freshness cache exactly, so
     /// every tick does real work instead of a third of them being no-ops.
     private func updateTimer(for state: ControlActiveState) {
-        guard state != .inactive else {
+        guard visibility.isVisible, state != .inactive else {
             stopTimer()
             return
         }

@@ -252,6 +252,7 @@ final class AutoQuitService: ObservableObject {
         observers[pid] = nil
         hadWindows[pid] = nil
         retryingApps.remove(pid)
+        windowWatchRetries[pid] = nil
         recentCloseButtonRequests[pid] = nil
         minimizedWindows[pid] = nil
         pendingRefreshes.remove(pid)

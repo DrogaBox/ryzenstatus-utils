@@ -90,6 +90,10 @@ void AMDRyzenCPUPowerManagement::free(){
     // Cleanup resources allocated in init() in case start() failed partway
     // and stop() was never called. IOLockFree handles NULL on some XNU versions
     // but we guard explicitly for safety.
+    // Mapped or probed early in start(); stop() has already cleared both on
+    // the normal path.
+    releaseAcpiCppc();
+    if (superIO) { delete superIO; superIO = nullptr; }
     if (pciConfigLock)   { IOSimpleLockFree(pciConfigLock);   pciConfigLock = nullptr; }
     if (superIOLock)     { IOLockFree(superIOLock);           superIOLock = nullptr; }
     if (smuCmdLock)      { IOLockFree(smuCmdLock);            smuCmdLock = nullptr; }
@@ -920,6 +924,10 @@ void AMDRyzenCPUPowerManagement::forgetSMUSettingsForSleep() {
     smuOcModeState = 0;
     ocFreqMHzAllCores = 0;
     memset(ocFreqMHzPerCcd, 0, sizeof(ocFreqMHzPerCcd));
+    ocVidCache = 0;
+    curveOptimizerAllCache = 0;
+    curveOptimizerAllSet = false;
+    boostLimitMHzCache = 0;
     if (controlLock) IOLockUnlock(controlLock);
 }
 
@@ -1215,6 +1223,9 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
             return;
         }
         hwConfig |= (1ULL << 30);
+        // HWCR[25] CpbDis: firmware resets it across S3.
+        if (provider->cpbRequested == 1) hwConfig &= ~(1ULL << 25);
+        else if (provider->cpbRequested == 0) hwConfig |= (1ULL << 25);
         provider->write_msr(kMSR_HWCR, hwConfig);
 
         uint32_t cpu_num = (uint32_t)cpu_number();
@@ -1834,29 +1845,33 @@ bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
 void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
     if(!cpbSupported) return;
 
-    uint64_t hwConfig;
-    if(!read_msr(kMSR_HWCR, &hwConfig)) {
-        IOLog("AMDRyzenCPUPowerManagement::setCPBState failed to read MSR 0xC0010015\n");
-        return;
-    }
-
-    if(enabled){
-        hwConfig &= ~(1ULL << 25);
-    } else {
-        hwConfig |= (1ULL << 25);
-    }
-
+    // Each core changes only CpbDis in its own HWCR: the other bits are
+    // per core, and one core's value must not be written over the rest.
     struct CPBArgs {
         AMDRyzenCPUPowerManagement *provider;
-        uint64_t hwConfig;
-    } cpbArgs{this, hwConfig};
+        bool enabled;
+        volatile SInt32 failures;
+    } cpbArgs{this, enabled, 0};
 
     IOLockLock(rendezvousLock);
+    cpbRequested = enabled ? 1 : 0;
     mp_rendezvous(nullptr, [](void *obj) {
         auto args = static_cast<CPBArgs*>(obj);
-        args->provider->write_msr(kMSR_HWCR, args->hwConfig);
+        uint64_t hwConfig;
+        if (!args->provider->read_msr(kMSR_HWCR, &hwConfig)) {
+            OSIncrementAtomic(&args->failures);
+            return;
+        }
+        if (args->enabled) hwConfig &= ~(1ULL << 25);
+        else hwConfig |= (1ULL << 25);
+        args->provider->write_msr(kMSR_HWCR, hwConfig);
     }, nullptr, &cpbArgs);
     IOLockUnlock(rendezvousLock);
+
+    if (cpbArgs.failures) {
+        IOLog("AMDRyzenCPUPowerManagement::setCPBState failed to read MSR 0xC0010015 on %d core(s)\n",
+              (int)cpbArgs.failures);
+    }
 }
 
 bool AMDRyzenCPUPowerManagement::getCPBState(){
@@ -3356,12 +3371,14 @@ uint32_t AMDRyzenCPUPowerManagement::getPMPStateLimit(){
 
 void AMDRyzenCPUPowerManagement::setPMPStateLimit(uint32_t state){
     uint32_t safeState = state < 2 ? state : 2;
+    // Switching stepping off: bring the cores back to P0 first, while
+    // set_PState still writes. With a limit of 0 nothing would ever move a
+    // core out of P1 or P2 again.
+    if (rendezvousLock) IOLockLock(rendezvousLock);
+    if (safeState > 0) pmRyzen_pstatelimit = safeState;
+    pmRyzen_PState_reset();
     pmRyzen_pstatelimit = safeState;
-    if (safeState > 0) {
-        if (rendezvousLock) IOLockLock(rendezvousLock);
-        pmRyzen_PState_reset();
-        if (rendezvousLock) IOLockUnlock(rendezvousLock);
-    }
+    if (rendezvousLock) IOLockUnlock(rendezvousLock);
 }
 
 uint32_t AMDRyzenCPUPowerManagement::getHPcpus(){

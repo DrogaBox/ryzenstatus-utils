@@ -91,6 +91,7 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
             let resolved = Self.resolveStream(for: descriptor, quality: quality)
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
+                if self.resolutionCache.count >= 64 { self.resolutionCache.removeAll() }
                 self.resolutionCache[cacheKey] = resolved
                 self.streamURL = resolved
             }

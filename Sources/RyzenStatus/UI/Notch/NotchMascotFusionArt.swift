@@ -17,6 +17,7 @@ final class NotchMascotFusionArt {
     /// In front of the body, leaning with it.
     let front = CALayer()
 
+    private var configuredState: (look: NotchMascotLook, size: CGFloat, scale: CGFloat, reduceMotion: Bool)?
     private let glow = CAGradientLayer()
     private let motifs = CALayer()
     private let particles = CAEmitterLayer()
@@ -44,6 +45,11 @@ final class NotchMascotFusionArt {
     /// Sets it up for `look` at `size` points; a look that is not fused
     /// takes it all away.
     func configure(look: NotchMascotLook, size: CGFloat, scale: CGFloat, reduceMotion: Bool) {
+        if let configuredState, configuredState.look == look, configuredState.size == size,
+           configuredState.scale == scale, configuredState.reduceMotion == reduceMotion {
+            return
+        }
+        configuredState = (look, size, scale, reduceMotion)
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         for layer in [back, front, motifs, particles, sparks, marks] {
             layer.frame = box

@@ -108,6 +108,11 @@ struct NotchMascotSettings: View {
         return look
     }
 
+    private var friendLook: NotchMascotLook? {
+        _ = (desktop, friend, friendAccessory, friendPalette, friendCustomColor, friendFormChoice, seasonal, gaming, hardware, petName)
+        return NotchMascotSupport.desktopFriend()
+    }
+
     /// Picks a color by hand; the swatches read it back as the chosen one.
     private func colorBinding(_ stored: Binding<String>) -> Binding<Color> {
         Binding(get: {
@@ -147,9 +152,9 @@ struct NotchMascotSettings: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 if !islandOn { islandNote }
-                NotchMascotStageCard(look: look, side: restingSide, awake: enabled, canGreet: enabled && islandOn,
-                                     visits: visits, reactions: reactions, hides: hidesWhenIdle, text: text,
-                                     language: l10n.language)
+                NotchMascotStageCard(look: look, friendLook: friendLook, side: restingSide, awake: enabled,
+                                     canGreet: enabled && islandOn, visits: visits, reactions: reactions,
+                                     hides: hidesWhenIdle, text: text, language: l10n.language)
                 // Nine cards one under the other were too much to take in at
                 // once, so they are grouped, one group at a time.
                 Picker(text.appearance, selection: $section) {
@@ -480,7 +485,10 @@ struct NotchMascotSettings: View {
                     let unlocked = item.unlockLevel <= level
                     NotchMascotAccessoryTile(accessory: item, selected: chosenAccessory == item, unlocked: unlocked,
                                             title: unlocked ? life.name(of: item) : lockedTitle(item)) {
-                        if unlocked { accessory = item.rawValue }
+                        if unlocked {
+                            accessory = item.rawValue
+                            NotchService.shared.pickMascotAccessory()
+                        }
                     }
                 }
             }
@@ -709,6 +717,10 @@ struct NotchMascotSettings: View {
             }
             .transition(.opacity)
         }
+        let alarmText = FeatureStrings.notchMascotAlarms(l10n.language)
+        SettingsRow(symbol: "alarm", title: alarmText.alarms, caption: alarmText.settingsCaption) {
+            Button(alarmText.openSign) { NotchMascotAlarmSign.shared.open() }
+        }
     }
 
     // MARK: Automatic reactions
@@ -816,6 +828,7 @@ struct NotchMascotSettings: View {
 /// it sleeps.
 private struct NotchMascotStageCard: View {
     let look: NotchMascotLook
+    let friendLook: NotchMascotLook?
     let side: NotchMascotSide
     let awake: Bool
     /// Whether it can say hello in the island itself.
@@ -1013,7 +1026,7 @@ private struct NotchMascotStageCard: View {
     /// The friend shown beside it: the one picked, or, with none, a stand-in
     /// of another figure so the combos can still be tried.
     private var stageFriend: NotchMascotLook {
-        if let friend = NotchMascotSupport.desktopFriend() { return friend }
+        if let friend = friendLook ?? NotchMascotSupport.desktopFriend() { return friend }
         var stand = look
         stand.style = NotchMascotStyle.available(name: UserDefaults.standard.string(forKey: DefaultsKey.notchMascotName))
             .first { $0 != look.style } ?? .cat

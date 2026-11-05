@@ -138,6 +138,9 @@ struct MetricDetailView: View {
     @State private var lastProcessRefresh = Date.distantPast
     @State private var refreshSerial = 0
     @State private var networkMonitoringActive = false
+    @State private var connectedDevicesWatching = false
+    @State private var appeared = false
+    @State private var windowVisible = false
     private let processLimit = 15
 
     var body: some View {
@@ -151,37 +154,51 @@ struct MetricDetailView: View {
                 processCard
             }
         }
+        .background(WindowVisibilityReader { windowVisible = $0 })
         .onAppear {
-            if kind == .network {
-                startNetworkMonitoringIfNeeded()
-            }
-            if kind == .connectedDevices {
-                connectedDevices.beginWatching()
-            }
-            refreshProcessRows(force: true, delay: 0.2)
+            appeared = true
+            syncLiveState(forceRefresh: true)
         }
-        .onChange(of: kind) { oldKind, newKind in
-            if oldKind == .network, newKind != .network {
-                stopNetworkMonitoringIfNeeded()
-            } else if oldKind != .network, newKind == .network {
-                startNetworkMonitoringIfNeeded()
-            }
-            if oldKind == .connectedDevices, newKind != .connectedDevices {
-                connectedDevices.endWatching()
-            } else if oldKind != .connectedDevices, newKind == .connectedDevices {
-                connectedDevices.beginWatching()
-            }
-            refreshProcessRows(force: true, delay: 0.2)
+        .onChange(of: kind) { _, _ in
+            syncLiveState(forceRefresh: true)
         }
-        .onReceive(monitor.$snapshot) { _ in refreshProcessRows(force: false, delay: 0.85) }
+        .onChange(of: windowVisible) { _, _ in
+            syncLiveState(forceRefresh: true)
+        }
+        .onReceive(monitor.$snapshot) { _ in
+            guard appeared, windowVisible else { return }
+            refreshProcessRows(force: false, delay: 0.85)
+        }
         .onDisappear {
+            appeared = false
+            syncLiveState(forceRefresh: false)
+        }
+    }
+
+    private func syncLiveState(forceRefresh: Bool) {
+        let onScreen = appeared && windowVisible
+        if onScreen && kind == .network {
+            startNetworkMonitoringIfNeeded()
+        } else {
+            stopNetworkMonitoringIfNeeded()
+        }
+        let shouldWatchDevices = onScreen && kind == .connectedDevices
+        if shouldWatchDevices != connectedDevicesWatching {
+            connectedDevicesWatching = shouldWatchDevices
+            if shouldWatchDevices {
+                connectedDevices.beginWatching()
+            } else {
+                connectedDevices.endWatching()
+            }
+        }
+        if onScreen {
+            if forceRefresh {
+                refreshProcessRows(force: true, delay: 0.2)
+            }
+        } else {
             refreshSerial &+= 1
             processRows = []
             processRowsLoading = false
-            stopNetworkMonitoringIfNeeded()
-            if kind == .connectedDevices {
-                connectedDevices.endWatching()
-            }
         }
     }
 

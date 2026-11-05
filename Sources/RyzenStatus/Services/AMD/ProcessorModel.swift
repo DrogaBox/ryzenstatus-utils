@@ -2249,7 +2249,11 @@ actor ProcessorModel {
     @discardableResult
     nonisolated func forcePMTableCapture() -> kern_return_t {
         var input: [UInt64] = [2]
-        return safeIOConnectCallMethod(AMDKextSelector.pmTableRaw.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        // The kext answers with one scalar; with no room for it the call
+        // comes back as failed even though the capture ran.
+        var output: UInt64 = 0
+        var outputCount: UInt32 = 1
+        return safeIOConnectCallMethod(AMDKextSelector.pmTableRaw.id, &input, 1, nil, 0, &output, &outputCount, nil, nil)
     }
 
     /// On-demand mailbox health report (selector 58, privileged — the kext

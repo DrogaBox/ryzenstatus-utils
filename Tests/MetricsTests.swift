@@ -5,6 +5,7 @@ import CoreGraphics
 import Carbon.HIToolbox
 import Darwin
 import Foundation
+import QuartzCore
 
 // Standalone unit tests for pure helpers. Compiled without IOKit or UI by
 // `./build.sh --test`, so they run fast and deterministically on any machine.
@@ -11964,7 +11965,7 @@ struct MetricsTests {
                         let waddle = NotchMascotGait.of(.penguin), trot = NotchMascotGait.of(.kitsune)
                         expect(waddle.rock > 0 && waddle.bob < NotchMascotGait.standard.bob
                                && trot.rock == 0 && trot.period < NotchMascotGait.standard.period
-                               && NotchMascotGait.of(.cat) == .standard,
+                               && NotchMascotGait.of(.dog) == .standard,
                                "the penguin waddles, the kitsune trots, the rest walk as before")
                         expect(NotchMascotAbility.of(.kitsune) == .fireballBreath && NotchMascotAbility.of(.penguin) == .dolphinDive,
                                "foxfire for the kitsune, a dive for the penguin")
@@ -12104,6 +12105,365 @@ struct MetricsTests {
                                "each grows close in its own way")
                         expect(NotchMascotSpecialDays.foolsCall(for: .hologram) != NotchMascotSpecialDays.foolsCall(for: .android),
                                "each makes the wrong sound of its own")
+                    }
+                    // The three dancers.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let dancers: [NotchMascotStyle] = [.ballerina, .danseur, .contemporary]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        expect(dancers.allSatisfy { style in
+                                   C.dancers.contains(style) && C.face(style) != nil && C.headOutline(style, size: 40) != nil
+                                       && C.body(style, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                                       && C.anatomy(style) != nil && style.takesAccessory
+                               }, "the dancers are drawn figures that stand inside their square and wear items")
+                        let poses = C.DancerPose.allCases
+                        let limbs: [(NotchMascotStyle, C.DancerPose) -> CGPath] = [
+                            { C.dancerArms($0, $1, size: 40) }, { C.dancerSleeves($0, $1, size: 40) },
+                            { C.dancerCuffs($0, $1, size: 40) }, { C.dancerLegs($0, $1, left: true, size: 40) },
+                            { C.dancerLegs($0, $1, left: false, size: 40) }, { C.dancerFeet($0, $1, size: 40) },
+                            { C.dancerLaces($0, $1, size: 40) }, { C.dancerVeil($0, $1, size: 40) },
+                        ]
+                        expect(dancers.allSatisfy { style in
+                                   limbs.allSatisfy { limb in Set(poses.map { elements(limb(style, $0)) }).count == 1 }
+                               }
+                               && Set([0, 0.5, 1].map { elements(C.dancerVeil(.contemporary, .rest, sway: $0, size: 40)) }).count == 1
+                               && Set([0, 0.5, 1].map { elements(C.dancerPanel(.contemporary, sway: $0, size: 40)) }).count == 1,
+                               "their arms, legs, shoes and veil morph between every pose, and the veil sways")
+                        expect(dancers.allSatisfy { style in
+                                   poses.allSatisfy { pose in
+                                       limbs.allSatisfy { square.insetBy(dx: -0.5, dy: -0.5).contains($0(style, pose).boundingBoxOfPath) }
+                                   }
+                               }, "every pose stays inside the figure's square")
+                        expect(dancers.allSatisfy { style in
+                                   guard let anatomy = C.anatomy(style), let figure = C.bounds(style) else { return false }
+                                   let rest = C.dancerJoints(style, .rest)
+                                   let feet = C.dancerFeet(style, .rest, size: 1).boundingBoxOfPath
+                                   return anatomy.rightHand == rest.rightArm[2] && anatomy.leftHand == rest.leftArm[2]
+                                       && abs(anatomy.floor - feet.maxY) < 0.001 && abs(figure.maxY - feet.maxY) < 0.03
+                                       && anatomy.leftFoot < anatomy.rightFoot && anatomy.torso.minY > 0.44
+                               }, "what they hold is in their hands and what they wear on their feet is on their feet")
+                        expect(C.dancerJoints(.ballerina, .rest).leftLeg[3].y > C.dancerJoints(.ballerina, .rest).leftLeg[2].y + 0.05
+                               && C.dancerJoints(.ballerina, .folded).leftLeg[3].y < C.dancerJoints(.ballerina, .rest).leftLeg[3].y
+                               && C.dancerJoints(.danseur, .rest).rightArm[2].x > 0.7
+                               && C.dancerJoints(.ballerina, .arabesque).rightLeg[3].x > 0.75
+                               && C.dancerJoints(.danseur, .jete).leftLeg[3].x < 0.3 && C.dancerJoints(.danseur, .jete).rightLeg[3].x > 0.7,
+                               "she stands en pointe and comes down asleep; he holds a strong second; the steps reach out")
+                        expect(!C.dancerHairBack(.ballerina, size: 40).isEmpty
+                               && C.dancerHairBack(.ballerina, hat: true, size: 40).boundingBox.minY
+                                   > C.dancerHairBack(.ballerina, size: 40).boundingBox.minY
+                               && C.dancerTrim(.ballerina, hat: true, size: 40).boundingBox.minY
+                                   > C.dancerTrim(.ballerina, size: 40).boundingBox.minY,
+                               "a hat hides her bun and tiara")
+                        let pearl = NotchMascotDancerColors(style: .ballerina, light: NotchMascotPalette.pearl.light,
+                                                            shade: NotchMascotPalette.pearl.shade)
+                        expect(pearl.costume.hsb.1 < 0.1 && pearl.costume.hsb.2 > 0.9
+                               && NotchMascotPalette.allCases.allSatisfy { palette in
+                                   let colors = NotchMascotDancerColors(style: .danseur, light: palette.light, shade: palette.shade)
+                                   return colors.skin == NotchMascotDancerColors(style: .danseur, light: NotchMascotPalette.sky.light,
+                                                                                  shade: NotchMascotPalette.sky.shade).skin
+                                       && colors.costumeDeep.hsb.2 < colors.costume.hsb.2
+                                       && colors.costumeLight.hsb.2 >= colors.costume.hsb.2 - 0.001
+                               }
+                               && abs(NotchMascotDancerColors(style: .contemporary, light: NotchMascotPalette.sky.light,
+                                                              shade: NotchMascotPalette.sky.shade).costume.hsb.0
+                                      - NotchMascotPalette.sky.shade.hsb.0) < 0.01
+                               && Set(dancers.map { NotchMascotDancerColors(style: $0, light: NotchMascotPalette.rose.light,
+                                                                            shade: NotchMascotPalette.rose.shade).skin.hsb.0 }).count == 3,
+                               "the palette dyes their costumes, white and silver on pearl, while skin and hair stay their own")
+                        expect(dancers.allSatisfy { NotchMascotGait.of($0).bob < NotchMascotGait.standard.bob }
+                               && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
+                               "the dancers glide, the ballerina in quick little steps")
+                    }
+                    // Drawn again, a figure with a grown body keeps its head the
+                    // size of its square: on another screen, and as another figure.
+                    do {
+                        func oversized(_ layer: CALayer) -> Bool {
+                            layer.bounds.width > 40.5 || layer.bounds.height > 40.5
+                                || (layer.sublayers ?? []).contains(where: oversized)
+                        }
+                        let rig = NotchMascotRig()
+                        rig.growsBody = true
+                        let head = NotchMascotLook(style: .minimal, shape: .ball, palette: .sky)
+                        rig.configure(look: head, size: 40, contentsScale: 2)
+                        let first = !oversized(rig.root)
+                        rig.configure(look: head, size: 40, contentsScale: 1)
+                        let moved = !oversized(rig.root)
+                        rig.configure(look: NotchMascotLook(style: .penguin, shape: .ball, palette: .sky), size: 40,
+                                      contentsScale: 1)
+                        expect(first && moved && !oversized(rig.root),
+                               "a figure with a grown body drawn again keeps every layer the size of its square")
+                    }
+                    // The bodies the four heads grow on the desktop.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let heads: [NotchMascotStyle] = [.minimal, .robot, .chip, .fan]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let poses = C.BodyPose.allCases
+                        expect(C.headOnly == Set(heads) && heads.allSatisfy { $0.sprite == nil && $0.takesAccessory }
+                               && !C.headOnly.contains(.android) && !C.headOnly.contains(.cat),
+                               "only the four figures that are a head alone grow a body")
+                        let limbs: [(NotchMascotStyle, C.BodyPose) -> CGPath] = [
+                            { C.bodyArms($0, $1, size: 40) }, { C.bodyHands($0, $1, size: 40) },
+                            { C.bodyHandHubs($0, $1, size: 40) }, { C.bodyLegs($0, $1, size: 40) },
+                            { C.bodyFeet($0, $1, size: 40) }, { C.bodyJointBalls($0, $1, size: 40) },
+                        ]
+                        expect(heads.allSatisfy { style in
+                                   limbs.allSatisfy { limb in Set(poses.map { elements(limb(style, $0)) }).count == 1 }
+                               }, "their arms, hands, legs, feet and joints morph between every pose")
+                        expect(heads.allSatisfy { style in
+                                   poses.allSatisfy { pose in limbs.allSatisfy { square.contains($0(style, pose).boundingBoxOfPath) } }
+                               }, "every pose stays inside the figure's square")
+                        let shapes = NotchMascotShape.allCases.map { NotchMascotLook(style: .minimal, shape: $0, palette: .sky) }
+                        let looks = heads.filter { $0 != .minimal }.map { NotchMascotLook(style: $0, shape: .ball, palette: .sky) } + shapes
+                        expect(looks.allSatisfy { look in
+                                   let fit = C.headFit(look)
+                                   let figure = C.bodiedBounds(look)
+                                   let face = C.bodiedFace(look)
+                                   let head = NotchMascotGeometry.body(look.shape, size: 1).boundingBoxOfPath
+                                   let torso = C.bodyTorso(look, size: 1).boundingBoxOfPath
+                                   return fit.a < 0.7 && fit.a == fit.d && figure.minY >= 0 && figure.maxY <= 1
+                                       && figure.minX >= 0 && figure.maxX <= 1
+                                       && abs(figure.midX - 0.5) < 0.02 && face.leftEye.y < torso.minY
+                                       && face.eyeSize.width < look.face.eyeSize.width
+                                       && (look.style != .minimal || abs(head.applying(fit).maxY - C.bodyChin) < 0.001)
+                                       && torso.minY < C.bodyChin && torso.maxY < figure.maxY
+                               }, "the head shrinks onto the body's shoulders, eyes and all, and the whole figure fits its square")
+                        expect(looks.allSatisfy { look in
+                                   let bounds = C.bodiedBounds(look)
+                                   return abs(bounds.maxY - C.bodyFeet(look.style, .rest, size: 1).boundingBoxOfPath.maxY) < 0.001
+                                       && bounds.maxY > 0.93
+                               }, "it stands on its soles at the bottom of its square")
+                        expect(heads.allSatisfy { style in
+                                   let anatomy = C.bodiedAnatomy(style)
+                                   let rest = C.bodyJoints(style, .rest)
+                                   let feet = C.bodyFeet(style, .rest, size: 1).boundingBoxOfPath
+                                   return anatomy.rightHand == rest.rightArm[2] && anatomy.leftHand == rest.leftArm[2]
+                                       && abs(anatomy.floor - feet.maxY) < 0.001 && anatomy.leftFoot < 0.5 && anatomy.rightFoot > 0.5
+                                       && abs(anatomy.leftFoot + anatomy.rightFoot - 1) < 0.001
+                                       && anatomy.torso.minY > C.bodyChin - 0.03 && anatomy.torso.maxY < anatomy.floor
+                                       && anatomy.leftHand.y > C.bodyChin && anatomy.rightHand.x > 0.5
+                               }, "what they hold is in their hands and what they wear on their feet is on their feet")
+                        expect(heads.allSatisfy { style in
+                                   let rest = C.bodyJoints(style, .rest), step = C.bodyJoints(style, .step)
+                                   let other = C.bodyJoints(style, .stepOther), up = C.bodyJoints(style, .up)
+                                   let wave = C.bodyJoints(style, .wave)
+                                   return step.leftLeg[2].y < rest.leftLeg[2].y - 0.02 && step.rightLeg[2] == rest.rightLeg[2]
+                                       && other.rightLeg[2].y < rest.rightLeg[2].y - 0.02 && other.leftLeg[2] == rest.leftLeg[2]
+                                       && up.leftArm[2].y < rest.leftArm[0].y && up.rightArm[2].y < rest.rightArm[0].y
+                                       && wave.rightArm[2].y < rest.rightArm[0].y && wave.leftArm == rest.leftArm
+                               }, "it marches one knee up then the other, cheers with both arms and waves with one")
+                        expect(C.bodyPose(for: .sleepy) == .folded && C.bodyPose(for: .angry) == .akimbo
+                               && C.bodyPose(for: .terrified) == .up && C.bodyPose(for: .starstruck) == .fists
+                               && C.bodyPose(for: .bored) == .droop && C.bodyPose(for: .idle) == .rest,
+                               "its arms and legs answer its face")
+                        expect(!C.bodyJointBalls(.robot, .rest, size: 40).isEmpty && C.bodyJointBalls(.chip, .rest, size: 40).isEmpty
+                               && !C.bodyGlow(.robot, size: 40).isEmpty && C.bodyGlow(.fan, size: 40).isEmpty
+                               && !C.bodyPanel(.fan, size: 40).isEmpty && !C.bodyAccents(.chip, size: 40).isEmpty
+                               && !C.bodyShine(.minimal, size: 40).isEmpty && !C.bodyHandHubs(.fan, .rest, size: 40).isEmpty,
+                               "the robot has joints and a heart light, the chip side pins, the fan a grille and grommets")
+                        expect(NotchMascotPalette.allCases.allSatisfy { palette in
+                                   let robot = NotchMascotBodyColors(style: .robot, light: palette.light, shade: palette.shade)
+                                   let minimal = NotchMascotBodyColors(style: .minimal, light: palette.light, shade: palette.shade)
+                                   return robot.limbs == palette.shade && robot.glow == palette.light
+                                       && robot.joints.hsb.2 < 0.3 && minimal.hands == palette.light
+                                       && minimal.limbs.hsb.2 <= max(palette.light.hsb.2, palette.shade.hsb.2) + 0.001
+                               }
+                               && NotchMascotBodyColors(NotchMascotLook(style: .fan, shape: .ball, palette: .sky,
+                                                                        customColor: NotchMascotColor(red: 0.9, green: 0.2, blue: 0.2)))
+                                   != NotchMascotBodyColors(NotchMascotLook(style: .fan, shape: .ball, palette: .sky)),
+                               "the palette and a hand-picked colour dye the body as they dye the head")
+                        expect(heads.allSatisfy { C.bodiedGait($0).bob < NotchMascotGait.standard.bob && C.bodiedGait($0).period > 0.15 }
+                               && C.bodiedNeck > C.bodyChin - 0.02 && C.bodiedNeck < 0.62,
+                               "it walks on its legs rather than hopping, and its scarf goes round its neck")
+                    }
+                    // The animals drawn in layers: the phoenix, the mouse, the axolotl and the swan.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let animals: [NotchMascotStyle] = [.phoenix, .mouse, .axolotl, .swan]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
+                        expect(animals.allSatisfy { style in
+                                   C.critters.contains(style) && C.face(style) != nil && C.headOutline(style, size: 40) != nil
+                                       && C.body(style, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                                       && C.anatomy(style) != nil && style.takesAccessory
+                                       && !C.critterParts(style, colors: sky, size: 40).isEmpty
+                               }, "the animals are drawn figures in parts that stand inside their square and wear items")
+                        let poses = C.CritterPose.allCases
+                        expect(animals.allSatisfy { style in
+                                   C.critterParts(style, colors: sky, size: 40).allSatisfy { part in
+                                       Set(poses.map { elements(part.path($0, 0)) }).count == 1
+                                           && Set([0, 0.25, 0.5, 0.75].map { elements(part.path(.rest, $0)) }).count == 1
+                                   }
+                               }, "every part of every animal morphs between every pose and through its idle motion")
+                        expect(animals.allSatisfy { style in
+                                   C.critterParts(style, colors: sky, size: 40).allSatisfy { part in
+                                       part.effect || poses.allSatisfy {
+                                           square.insetBy(dx: -1, dy: -1).contains(part.path($0, 0).boundingBoxOfPath)
+                                       }
+                                   }
+                               }, "every pose stays inside the figure's square")
+                        expect(animals.allSatisfy { style in
+                                   guard let anatomy = C.anatomy(style), let face = C.face(style), let figure = C.bounds(style)
+                                   else { return false }
+                                   let eyes = face.leftEye.y + face.eyeSize.height / 2
+                                   return abs(figure.maxY - anatomy.floor) < 0.04 && anatomy.leftFoot < anatomy.rightFoot
+                                       && anatomy.rightHand.y > eyes && anatomy.leftHand.y > eyes
+                                       && anatomy.rightHand.x > 0.5 && anatomy.leftHand.x < 0.5
+                                       && figure == C.critterBounds(style)
+                               }, "what they hold is in their paws or wings and what they wear on their feet is on their feet")
+                        expect(C.critterParts(.phoenix, colors: sky, hat: true, size: 40).count
+                               < C.critterParts(.phoenix, colors: sky, size: 40).count,
+                               "a hat puts out the phoenix's crest")
+                        let rest = C.critterParts(.phoenix, colors: sky, size: 40)
+                        func part(_ name: String, _ parts: [NotchMascotCritterPart]) -> NotchMascotCritterPart? {
+                            parts.first { $0.name == name }
+                        }
+                        expect(part("crest", rest).map { crest in
+                                   crest.path(.asleep, 0).boundingBox.minY > crest.path(.rest, 0).boundingBox.minY
+                                       && crest.path(.cheer, 0).boundingBox.minY < crest.path(.rest, 0).boundingBox.minY
+                                       && crest.asleep < 1 && crest.idle != nil
+                               } == true
+                               && part("embers", rest).map { $0.idlesAsleep && $0.effect } == true
+                               && part("wings", rest).map { wings in
+                                   wings.path(.cheer, 0).boundingBox.minY < wings.path(.rest, 0).boundingBox.minY
+                               } == true,
+                               "the phoenix's fire sinks to embers asleep and flares back up, its wings rise in a cheer")
+                        let rose = NotchMascotCritterColors(light: NotchMascotPalette.rose.light, shade: NotchMascotPalette.rose.shade)
+                        expect(part("crest", rest)?.paint == part("crest", C.critterParts(.phoenix, colors: rose, size: 40))?.paint
+                               && part("wings", rest)?.paint != part("wings", C.critterParts(.phoenix, colors: rose, size: 40))?.paint,
+                               "the phoenix burns in fire's own colours on every palette, while its feathers take the palette")
+                        expect(NotchMascotGait.of(.phoenix).period < NotchMascotGait.standard.period
+                               && NotchMascotGait.of(.phoenix).bob > 0,
+                               "the phoenix hops along on its little talons")
+                        let mouse = C.critterParts(.mouse, colors: sky, size: 40)
+                        expect(part("ears", mouse).map { ears in
+                                   ears.path(.asleep, 0).boundingBox.minY > ears.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("tail", mouse).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.minY > tail.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("paws", mouse).map { paws in
+                                   paws.path(.cheer, 0).boundingBox.minY < paws.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("innerEars", mouse) != nil && part("whiskers", mouse) != nil,
+                               "the mouse lays its ears back and curls its tail asleep, and throws up its paws for a cheer")
+                        expect(NotchMascotGait.of(.mouse).period < NotchMascotGait.of(.phoenix).period,
+                               "the mouse scurries")
+                        let axolotl = C.critterParts(.axolotl, colors: sky, size: 40)
+                        expect(part("gills", axolotl).map { gills in
+                                   gills.idle != nil && gills.path(.rest, 0) != gills.path(.rest, 0.25)
+                                       && gills.path(.twitch, 0).boundingBox.height > gills.path(.rest, 0).boundingBox.height
+                                       && gills.path(.asleep, 0).boundingBox.minY > gills.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("smile", axolotl) != nil && NotchMascotFeatures.drawsOwnMouth(.axolotl),
+                               "the axolotl's gill fronds wave, flare when startled and droop asleep, over its own smile")
+                        expect(NotchMascotGait.of(.axolotl).rock > 0, "the axolotl waddles")
+                        let swan = C.critterParts(.swan, colors: sky, size: 40)
+                        expect(part("wings", swan).map { wings in
+                                   wings.path(.cheer, 0).boundingBox.minY < wings.path(.rest, 0).boundingBox.minY
+                                       && wings.path(.spread, 0).boundingBox.width > wings.path(.rest, 0).boundingBox.width
+                               } == true
+                               && part("tail", swan).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.maxY > tail.path(.rest, 0).boundingBox.maxY
+                               } == true
+                               && part("neck", swan) != nil && part("bill", swan) != nil && part("knob", swan) != nil
+                               && part("tiara", swan) != nil
+                               && part("tiara", C.critterParts(.swan, colors: sky, hat: true, size: 40)) == nil,
+                               "the swan raises and spreads its wings, lets its tail droop asleep and takes off its tiara for a hat")
+                        let blackSwan = NotchMascotCritterColors(light: NotchMascotColor(hex: "3A3A44")!,
+                                                                 shade: NotchMascotColor(hex: "1A1A24")!)
+                        expect(part("bill", C.critterParts(.swan, colors: blackSwan, size: 40))?.paint != part("bill", swan)?.paint,
+                               "a dark swan gets a black swan's red bill")
+                    }
+                    // The cat, drawn in layers like the phoenix and the mouse.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        func part(_ name: String, _ parts: [NotchMascotCritterPart]) -> NotchMascotCritterPart? {
+                            parts.first { $0.name == name }
+                        }
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
+                        let cat = C.critterParts(.cat, colors: sky, size: 40)
+                        let poses = C.CritterPose.allCases
+                        expect(C.critters.contains(.cat) && C.face(.cat) != nil && C.headOutline(.cat, size: 40) != nil
+                               && C.body(.cat, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                               && NotchMascotStyle.cat.takesAccessory && !cat.isEmpty
+                               && [false, true].allSatisfy { hat in
+                                   C.critterParts(.cat, colors: sky, hat: hat, size: 40).allSatisfy { part in
+                                       Set(poses.map { elements(part.path($0, 0)) }).count == 1
+                                           && Set([0, 0.25, 0.5, 0.75].map { elements(part.path(.rest, $0)) }).count == 1
+                                           && poses.allSatisfy {
+                                               square.insetBy(dx: -1, dy: -1).contains(part.path($0, 0).boundingBoxOfPath)
+                                           }
+                                   }
+                               },
+                               "the cat is drawn in parts that morph between every pose and stay inside its square, hat or not")
+                        expect(C.anatomy(.cat).map { anatomy in
+                                   guard let face = C.face(.cat), let figure = C.bounds(.cat) else { return false }
+                                   let eyes = face.leftEye.y + face.eyeSize.height / 2
+                                   let paws = part("paws", cat)?.rest().boundingBoxOfPath ?? .null
+                                   let point = CGPoint(x: anatomy.rightHand.x * 40, y: anatomy.rightHand.y * 40)
+                                   return abs(figure.maxY - anatomy.floor) < 0.04 && figure == C.critterBounds(.cat)
+                                       && anatomy.rightHand.y > eyes && anatomy.rightHand.x > 0.5 && anatomy.leftHand.x < 0.5
+                                       && paws.insetBy(dx: -1, dy: -1).contains(point)
+                                       && anatomy.leftFoot < anatomy.rightFoot
+                               } == true,
+                               "what the cat holds is in its front paws and what it wears on its feet is on its feet")
+                        expect(part("ears", cat).map { ears in
+                                   ears.path(.twitch, 0) != ears.path(.rest, 0)
+                                       && ears.rest().boundingBoxOfPath.minY < C.headOutline(.cat, size: 40)!.minY
+                               } == true
+                               && part("ears", C.critterParts(.cat, colors: sky, hat: true, size: 40)).map { ears in
+                                   ears.rest().boundingBoxOfPath.minY > part("ears", cat)!.rest().boundingBoxOfPath.minY
+                               } == true,
+                               "the cat's pointed ears stand over its head and flick, and lie out to the sides under a hat")
+                        expect(cat.filter { part in poses.contains { part.path($0, 0) != part.path(.rest, 0) } }
+                                   .allSatisfy { part in
+                                       ["ears", "innerEars"].contains(part.name) || part.path(.twitch, 0) == part.path(.rest, 0)
+                                   },
+                               "a twitch flicks only the cat's ears, so it can twitch them now and then")
+                        expect(part("tail", cat).map { tail in
+                                   tail.idle != nil && tail.path(.asleep, 0).boundingBox.minY > tail.path(.rest, 0).boundingBox.minY + 8
+                                       && tail.path(.cheer, 0).boundingBox.minY < tail.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && part("paws", cat).map { paws in
+                                   paws.path(.cheer, 0).boundingBox.minY < paws.path(.rest, 0).boundingBox.minY
+                               } == true
+                               && ["stripes", "tailStripes", "whiskers", "nose", "muzzle"].allSatisfy { part($0, cat) != nil },
+                               "the striped cat wraps its tail round asleep, raises it high and throws up its paws for a cheer")
+                        let black = NotchMascotCritterColors(light: NotchMascotColor(red: 0.2, green: 0.2, blue: 0.22),
+                                                             shade: NotchMascotColor(red: 0.1, green: 0.1, blue: 0.11))
+                        let tuxedo = C.critterParts(.cat, colors: black, size: 40)
+                        if case .color(let sock)? = part("paws", tuxedo)?.paint, case .color(let stripe)? = part("stripes", cat)?.paint,
+                           case .color(let lemonStripe)? = part("stripes", C.critterParts(.cat, colors: NotchMascotCritterColors(
+                               light: NotchMascotPalette.lemon.light, shade: NotchMascotPalette.lemon.shade), size: 40))?.paint {
+                            expect(sock.hsb.2 > 0.8 && stripe != lemonStripe,
+                                   "a dark cat wears white socks and the stripes take each palette's colour")
+                        } else {
+                            expect(false, "the cat's socks and stripes are painted in plain colours")
+                        }
+                        expect(NotchMascotGait.of(.cat).bob < NotchMascotGait.standard.bob,
+                               "the cat pads along softly")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
@@ -13108,6 +13468,8 @@ struct MetricsTests {
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),
+                ("NotchMascotDisplaysTests", NotchMascotDisplaysTests.run),
+                ("NotchMascotAlarmTests", NotchMascotAlarmTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }

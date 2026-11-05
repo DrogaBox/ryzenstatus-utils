@@ -154,10 +154,16 @@ final class AmdPowerControlsModel: ObservableObject {
     // MARK: - Actions
 
     func setEPP(_ value: UInt8) {
+        let previous = AmdSettingsStore.shared.manualEpp
         AmdSettingsStore.shared.manualEpp = value
         userWriteGeneration &+= 1
         selectedEpp = value
-        Task { await self.sendEPP(value) }
+        Task {
+            let res = await self.sendEPP(value)
+            if res != KERN_SUCCESS, AmdSettingsStore.shared.manualEpp == value {
+                AmdSettingsStore.shared.manualEpp = previous
+            }
+        }
     }
 
     /// The EPP the user chose by hand: the picker's last value, else the
@@ -215,16 +221,26 @@ final class AmdPowerControlsModel: ObservableObject {
     }
 
     func setCPB(_ enabled: Bool) {
+        let previous = UserDefaults.standard.object(forKey: DefaultsKey.amdCpbEnabled) as? Bool
         userWriteGeneration &+= 1
         corePerformanceBoost = enabled
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.amdCpbEnabled)
         Task {
             let res = await perform { await ProcessorModel.shared.setCPB(enabled: enabled) }
+            if res != KERN_SUCCESS {
+                if let previous {
+                    UserDefaults.standard.set(previous, forKey: DefaultsKey.amdCpbEnabled)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: DefaultsKey.amdCpbEnabled)
+                }
+            }
             await self.reportWriteFailure(res)
         }
     }
 
     func setPPM(_ enabled: Bool) {
+        let previousPpm = UserDefaults.standard.bool(forKey: DefaultsKey.amdPpmEnabled)
+        let previousLpm = UserDefaults.standard.bool(forKey: DefaultsKey.amdLpmEnabled)
         userWriteGeneration &+= 1
         ppmEnabled = enabled
         if enabled { lpmEnabled = false }
@@ -232,11 +248,17 @@ final class AmdPowerControlsModel: ObservableObject {
         UserDefaults.standard.set(lpmEnabled, forKey: DefaultsKey.amdLpmEnabled)
         Task {
             let res = await perform { await ProcessorModel.shared.setPPM(enabled: enabled) }
+            if res != KERN_SUCCESS {
+                UserDefaults.standard.set(previousPpm, forKey: DefaultsKey.amdPpmEnabled)
+                UserDefaults.standard.set(previousLpm, forKey: DefaultsKey.amdLpmEnabled)
+            }
             await self.reportWriteFailure(res)
         }
     }
 
     func setLPM(_ enabled: Bool) {
+        let previousLpm = UserDefaults.standard.bool(forKey: DefaultsKey.amdLpmEnabled)
+        let previousPpm = UserDefaults.standard.bool(forKey: DefaultsKey.amdPpmEnabled)
         userWriteGeneration &+= 1
         lpmEnabled = enabled
         if enabled { ppmEnabled = false }
@@ -244,6 +266,10 @@ final class AmdPowerControlsModel: ObservableObject {
         UserDefaults.standard.set(ppmEnabled, forKey: DefaultsKey.amdPpmEnabled)
         Task {
             let res = await perform { await ProcessorModel.shared.setLPM(enabled: enabled) }
+            if res != KERN_SUCCESS {
+                UserDefaults.standard.set(previousLpm, forKey: DefaultsKey.amdLpmEnabled)
+                UserDefaults.standard.set(previousPpm, forKey: DefaultsKey.amdPpmEnabled)
+            }
             await self.reportWriteFailure(res)
         }
     }
@@ -251,10 +277,14 @@ final class AmdPowerControlsModel: ObservableObject {
     /// CC6 idle (selector 61). The choice is kept, so it comes back when the
     /// kext reloads after a reboot (`reapplyC6Idle`).
     func setC6Idle(_ on: Bool) {
+        let previous = AmdSettingsStore.shared.c6IdleEnabled
         userWriteGeneration &+= 1
         AmdSettingsStore.shared.c6IdleEnabled = on
         Task {
             let res = await perform { ProcessorModel.shared.setC6Idle(on) }
+            if res != KERN_SUCCESS {
+                AmdSettingsStore.shared.c6IdleEnabled = previous
+            }
             await self.reportWriteFailure(res)
             await self.syncFromKext()
         }
@@ -467,7 +497,7 @@ final class AmdPowerControlsModel: ObservableObject {
         // intent; the values read here would put the old state back.
         let userWroteMeanwhile = generation != userWriteGeneration
         if !userWroteMeanwhile {
-            if let cppcState {
+            if let cppcState, cppcState.active {
                 let target = AMDPowerPreset.snapEPP(cppcState.epp)
                 if selectedEpp != target { selectedEpp = target }
             }

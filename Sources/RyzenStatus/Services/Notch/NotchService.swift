@@ -5277,12 +5277,21 @@ extension NotchService {
         if !expanded { stageMascotEntrance(arriving: true) }
     }
 
+    /// Ends any dress-up play on the desktop when the companion's item is picked in Settings.
+    func pickMascotAccessory() {
+        mascotDesktop.wearChosenAccessory()
+        if UserDefaults.standard.string(forKey: DefaultsKey.notchMascotFriendAccessory)?.isEmpty ?? true {
+            mascotFriend.wearChosenAccessory()
+        }
+    }
+
     /// Settings asks it to try what it wears: out on the desktop, it does
     /// its own thing with it there. True when it did.
     @discardableResult
     func useMascotItemOnDesktop() -> Bool {
-        guard mascotDesktop.isOut,
-              let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory, style: mascotDesktop.playLook.style)
+        guard mascotDesktop.isOut else { return false }
+        mascotDesktop.wearChosenAccessory()
+        guard let use = NotchMascotItemUse.of(mascotDesktop.playLook.accessory, style: mascotDesktop.playLook.style)
         else { return false }
         mascotDesktop.useItem(use)
         return true
@@ -5754,11 +5763,17 @@ extension NotchService {
 
     /// Looks now and then for a moment to play, while the island runs.
     private func scheduleMascotIslandPlayTick() {
+        guard NotchMascotSupport.isEnabled() else {
+            mascotIslandPlayTick?.cancel(); mascotIslandPlayTick = nil
+            lastMascotRPGTick = CACurrentMediaTime()
+            NotchMascotRPG.flush()
+            return
+        }
         guard mascotIslandPlayTick == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.mascotIslandPlayTick = nil
-            guard self.running else { return }
+            guard self.running, NotchMascotSupport.isEnabled() else { return }
             let now = CACurrentMediaTime()
             NotchMascotRPG.tick(elapsed: now - self.lastMascotRPGTick, level: NotchMascotSupport.shownLevel())
             self.lastMascotRPGTick = now
@@ -6612,6 +6627,35 @@ extension NotchService {
             self.commandBarHeight = measured
             self.refreshPresentation()
         }
+    }
+}
+
+// MARK: Alarms
+
+extension NotchService {
+    /// The companion and everyone out with it, for an alarm or for sending
+    /// the guests home; nil while the island is stopped or the companion off.
+    var mascotAlarmCast: (lead: NotchMascotDesktop, gang: NotchMascotGang)? {
+        guard running, panel != nil, NotchMascotSupport.isEnabled() else { return nil }
+        return (mascotDesktop, mascotGang)
+    }
+
+    /// Brings the companion out onto the desktop on its own, as an alarm
+    /// does; false when it may not go there.
+    @discardableResult
+    func bringMascotOutForAlarm() -> Bool {
+        guard mascotAlarmCast != nil, NotchMascotSupport.roamsDesktop() else { return false }
+        if !mascotOnDesktop { beginMascotDesktop(grabbedAt: nil) }
+        return mascotOnDesktop
+    }
+
+    /// Where the companion rests in the closed island, its centre on screen
+    /// and its size, and the top of that screen; nil while it is out or the
+    /// island is stopped.
+    var mascotAlarmRest: (center: CGPoint, size: CGFloat, screenTop: CGFloat)? {
+        guard mascotAlarmCast != nil, !mascotOnDesktop else { return nil }
+        let rest = mascotRestScreenPoint
+        return (rest.center, rest.size, geometry.screen.maxY)
     }
 }
 

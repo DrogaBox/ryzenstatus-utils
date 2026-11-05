@@ -886,6 +886,10 @@ final class NowPlayingService: ObservableObject {
     // MARK: - Menu bar item
 
     private func installStatusItem() {
+        guard statusItem == nil else {
+            renderMenuBar()
+            return
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.autosaveName = "RyzenStatusNowPlaying"
         item.behavior = []

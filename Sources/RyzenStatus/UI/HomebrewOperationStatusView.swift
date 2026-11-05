@@ -6,6 +6,7 @@ import SwiftUI
 
 struct HomebrewOperationStatusView: View {
     @ObservedObject private var l10n = L10n.shared
+    @State private var windowVisible = false
 
     let status: HomebrewOperationStatus
     let log: String
@@ -40,6 +41,7 @@ struct HomebrewOperationStatusView: View {
                 technicalLog
             }
         }
+        .background(WindowVisibilityReader { windowVisible = $0 })
     }
 
     private var header: some View {
@@ -62,10 +64,18 @@ struct HomebrewOperationStatusView: View {
                     if status.isActive {
                         Text(phaseText)
                         Text("|")
-                    }
-                    TimelineView(.periodic(from: status.startedAt, by: 1)) { context in
+                        if windowVisible {
+                            TimelineView(.periodic(from: status.startedAt, by: 1)) { context in
+                                Text(String(format: l10n.s.homebrewOperationElapsedFormat,
+                                            elapsedText(now: context.date)))
+                            }
+                        } else {
+                            Text(String(format: l10n.s.homebrewOperationElapsedFormat,
+                                        elapsedText(now: Date())))
+                        }
+                    } else {
                         Text(String(format: l10n.s.homebrewOperationElapsedFormat,
-                                    elapsedText(now: context.date)))
+                                    elapsedText(now: status.finishedAt ?? Date())))
                     }
                 }
                 .font(.system(size: compact ? 9.5 : 11))

@@ -480,6 +480,7 @@ private struct NetworkLatencyBlock: View {
     @AppStorage(DefaultsKey.networkPingEnabled) private var enabled = false
     @State private var watching = false
     @State private var onScreen = false
+    @State private var windowVisible = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -522,6 +523,7 @@ private struct NetworkLatencyBlock: View {
                         .frame(height: 18)
                 }
             }
+            .background(WindowVisibilityReader { windowVisible = $0 })
             .onAppear {
                 onScreen = true
                 updateWatching()
@@ -530,6 +532,7 @@ private struct NetworkLatencyBlock: View {
                 onScreen = false
                 updateWatching()
             }
+            .onChange(of: windowVisible) { _, _ in updateWatching() }
             .onChange(of: enabled) { _, _ in updateWatching() }
         }
     }
@@ -541,7 +544,7 @@ private struct NetworkLatencyBlock: View {
 
     /// Pings only while started and on screen; every start is balanced.
     private func updateWatching() {
-        let shouldWatch = enabled && onScreen
+        let shouldWatch = enabled && onScreen && windowVisible
         guard shouldWatch != watching else { return }
         watching = shouldWatch
         if shouldWatch { ping.beginWatching() } else { ping.endWatching() }

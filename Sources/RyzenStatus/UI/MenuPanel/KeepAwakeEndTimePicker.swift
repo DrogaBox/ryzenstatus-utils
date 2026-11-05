@@ -164,15 +164,20 @@ private struct TimeDigitWheel: View {
             neighbour(1)
         }
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .background(WindowVisibilityReader { visible in
+            if !visible {
+                hovering = false
+                removeMonitor()
+            }
+        })
+        .onHover { isHovering in
+            hovering = isHovering
+            if isHovering { installMonitor() } else { removeMonitor() }
+        }
         .focusable()
         .onKeyPress(.upArrow) { step(-1); return .handled }
         .onKeyPress(.downArrow) { step(1); return .handled }
-        .onAppear(perform: installMonitor)
-        .onDisappear {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            monitor = nil
-        }
+        .onDisappear(perform: removeMonitor)
         .accessibilityElement()
         .accessibilityLabel(title)
         .accessibilityValue(String(format: "%02d", value))
@@ -216,5 +221,10 @@ private struct TimeDigitWheel: View {
             }
             return nil
         }
+    }
+
+    private func removeMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }

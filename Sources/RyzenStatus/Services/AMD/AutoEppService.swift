@@ -179,7 +179,11 @@ final class AutoEppService: ObservableObject {
         stopLoop()
         guard restore, !isSuspended else { return }
         Task {
-            if let preset = AMDPowerPreset.saved() {
+            if let name = AmdPresetController.shared.selectedCustomName,
+               let custom = AmdPresetController.shared.customProfiles.first(where: { $0.name == name }) {
+                let result = await AmdPresetController.shared.apply(custom: custom)
+                self.privilegeDenied = result.privilegeDenied
+            } else if let preset = AMDPowerPreset.saved() {
                 let result = await AmdPresetController.shared.withPresetTransaction(preset)
                 self.privilegeDenied = result.privilegeDenied
             } else {

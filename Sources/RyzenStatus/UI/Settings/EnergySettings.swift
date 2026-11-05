@@ -15,6 +15,7 @@ struct EnergySettings: View {
     @ObservedObject private var permissions = Permissions.shared
     @ObservedObject private var extraBrightness = ExtraBrightnessService.shared
     @ObservedObject private var brightness = BrightnessService.shared
+    @ObservedObject private var visibility = SettingsWindowVisibility.shared
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
     @AppStorage(DefaultsKey.brightnessKeysEnabled) private var brightnessKeysEnabled = false
     @AppStorage(DefaultsKey.brightnessOSDEnabled) private var brightnessOSDEnabled = false
@@ -126,7 +127,11 @@ struct EnergySettings: View {
             // A running countdown only while there is one to run down; an
             // automatic session names its condition instead, as in the panel.
             if awake.isActive, awake.sessionTrigger != .automation, let end = awake.endDate {
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                if visibility.isVisible {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        sessionRow(status: "\(l10n.s.keepAwakeEndsIn) \(KeepAwakeCard.remainingText(until: end))")
+                    }
+                } else {
                     sessionRow(status: "\(l10n.s.keepAwakeEndsIn) \(KeepAwakeCard.remainingText(until: end))")
                 }
             } else {

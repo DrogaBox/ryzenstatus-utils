@@ -75,7 +75,7 @@ final class NotchLeaveService: NSObject, CLLocationManagerDelegate {
     /// The event and transport the current plan was made for.
     private var planned: String?
     /// Plans already announced, so a refresh never repeats one.
-    private var announced = Set<String>()
+    private var announced: [String: Date] = [:]
     private var waitingForLocation: [(CLLocation?) -> Void] = []
     private var search: MKLocalSearch?
     private var directions: MKDirections?
@@ -106,13 +106,14 @@ final class NotchLeaveService: NSObject, CLLocationManagerDelegate {
 
     private func plan() {
         let now = Date()
+        announced = announced.filter { $0.value > now }
         let transport = NotchLeaveSupport.transport()
         guard let event = NotchLeaveSupport.candidate(NotchCalendarService.shared.events, now: now) else {
             cancelPlan(); planned = nil
             return
         }
         let key = event.id + "|" + event.location + "|" + transport.rawValue
-        guard planned != key, !announced.contains(key) else { return }
+        guard planned != key, announced[key] == nil else { return }
         cancelPlan()
         planned = key
         locate { [weak self] here in
@@ -153,7 +154,7 @@ final class NotchLeaveService: NSObject, CLLocationManagerDelegate {
                          transport: NotchLeaveTransport, key: String) {
         guard planned == key, Date() < event.start else { return }
         if announce(event: event, travel: travel, transport: transport) {
-            announced.insert(key)
+            announced[key] = event.start
         } else {
             arm(at: Date().addingTimeInterval(60), event: event, travel: travel, transport: transport, key: key)
         }

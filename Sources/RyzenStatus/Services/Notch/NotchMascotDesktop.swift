@@ -63,6 +63,9 @@ final class NotchMascotDesktop: NSObject {
     /// How many times its walking pace it wanders at on its own: a sleepy
     /// guest dawdles, a show-off struts.
     var gait: CGFloat = 1
+    /// Where it is going across the displays, and how the floors between
+    /// them take its last throw (see `NotchMascotDesktop+Displays`).
+    var roaming = NotchMascotRoaming()
 
     private(set) var isOut = false
     /// Counts its outings, so what one scheduled stays with it.
@@ -310,10 +313,12 @@ final class NotchMascotDesktop: NSObject {
     /// Keeps a new look or mood while it is out. A new pick from its person
     /// ends any dress-up play, so what was chosen shows at once.
     func configure(look newLook: NotchMascotLook, mood: NotchMascotMood) {
-        if newLook.accessory != baseLook.accessory {
+        if newLook.accessory != baseLook.accessory || newLook.style != baseLook.style {
             endDressUp()
             hideWork?.cancel(); hideWork = nil
             itemHidden = false
+        } else if dressUpItem != nil, !UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotDressUp) {
+            endDressUp()
         }
         baseLook = newLook
         self.mood = mood
@@ -423,6 +428,16 @@ final class NotchMascotDesktop: NSObject {
         guard dressUpItem != nil else { return }
         dressUpItem = nil
         if isOut { configure(look: baseLook, mood: mood) }
+    }
+
+    /// Ends any dress-up play at once when its person picks its item in Settings.
+    func wearChosenAccessory() {
+        endDressUp()
+        hideWork?.cancel(); hideWork = nil
+        if itemHidden {
+            itemHidden = false
+            if isOut { configure(look: baseLook, mood: mood) }
+        }
     }
 
     // MARK: Using what it wears
@@ -2473,6 +2488,7 @@ final class NotchMascotDesktop: NSObject {
             guard let self else { return }
             self.occasionMarker(move.marker)
             sound(Self.cue(for: move), pan: self.pan(self.body.position.x))
+            self.host?.mascot.dance(move)
             self.perform(move, toward: way, on: canvas)
         }
         finishOccasion(after: start + move.length)
@@ -2851,8 +2867,12 @@ final class NotchMascotDesktop: NSObject {
     }
     // MARK: Playing
 
-    /// Free to play: out, standing on the floor on its own and not held.
-    var isFree: Bool {
+    /// Free to play: out, standing on the floor on its own and not held,
+    /// and not on its way to another display.
+    var isFree: Bool { standsIdle && !isTravelling }
+    /// Out, standing on the floor with nothing in hand, whether or not it
+    /// is on its way somewhere.
+    var standsIdle: Bool {
         isOut && mode == .standing && press == nil && !inPlay && !body.airborne && perch == nil && peekDepth == 0
             && !usingItem && !inEncounter && occasion == nil
     }
@@ -2947,6 +2967,21 @@ final class NotchMascotDesktop: NSObject {
         setRun(direction)
         resumeTicking()
         return duration
+    }
+
+    /// Walks toward `direction` for `duration` at `pace` times its walking
+    /// pace, on into a display beside it where the floor goes on. False when
+    /// it cannot walk off now.
+    @discardableResult
+    func wander(toward direction: CGFloat, for duration: TimeInterval, pace: CGFloat = 1) -> Bool {
+        guard isOut, !isHoming, press == nil, !body.airborne, perch == nil, !holdsStill, duration > 0 else { return false }
+        planWork?.cancel(); planWork = nil
+        self.pace = max(0.2, pace)
+        let way: CGFloat = direction > 0 ? 1 : -1
+        mode = .walking(direction: way, until: CACurrentMediaTime() + duration)
+        setRun(way)
+        resumeTicking()
+        return true
     }
 
     /// A hop of its own, `dx` and `dy` points a second.
@@ -3132,6 +3167,7 @@ final class NotchMascotDesktop: NSObject {
     func goHome() {
         guard isOut, !isHoming, let host else { return }
         cancelDizzy()
+        abandonTrip()
         if inPlay { interrupted?() }
         cancelPlans()
         cancelWindowPlans()
@@ -3165,6 +3201,7 @@ final class NotchMascotDesktop: NSObject {
         guard isOut else { return }
         outing += 1
         cancelDizzy()
+        abandonTrip()
         if inPlay { interrupted?() }
         cancelPlans()
         cancelWindowPlans()
@@ -3218,7 +3255,8 @@ final class NotchMascotDesktop: NSObject {
 
     private func resumeTicking() {
         if displayLink == nil, let stage {
-            let link = stage.displayLink(target: self, selector: #selector(tick(_:)))
+            let link = stage.displayLink(target: NotchMascotDisplayLinkTarget(self),
+                                         selector: #selector(NotchMascotDisplayLinkTarget.step(_:)))
             link.preferredFrameRateRange = Self.frameRates
             link.add(to: .main, forMode: .common)
             displayLink = link
@@ -3238,7 +3276,7 @@ final class NotchMascotDesktop: NSObject {
         displayLink = nil
     }
 
-    @objc private func tick(_ link: CADisplayLink) {
+    fileprivate func tick(_ link: CADisplayLink) {
         let now = CACurrentMediaTime()
         let dt = (now - lastTick) * cheatPace
         lastTick = now
@@ -3264,7 +3302,7 @@ final class NotchMascotDesktop: NSObject {
 
     private func fly(by dt: TimeInterval) {
         if body.airborne { checkTrampoline() }
-        let area = cheatArea(self.area(for: body.position), body: &body)
+        let area = cheatArea(flightArea(around: self.area(for: body.position)), body: &body)
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
                                           ledges: inPlay || yardPlay != nil || cheatPassesThrough ? [] : currentLedges(),
                                           gravityScale: cheatGravity)
@@ -3286,13 +3324,16 @@ final class NotchMascotDesktop: NSObject {
             case .landed(let impact):
                 host?.mascot.land(impact: impact / 2000)
                 host?.mascot.lean(0)
-                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
+                let soft = roaming.softLanding
+                roaming.landed()
+                if impact >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable, !soft { landDizzy(); thrown = false; landedHard?() }
             case .bumped(let speed):
                 host?.mascot.land(impact: speed / 3000)
                 if speed >= NotchMascotRoam.dizzySpeed, !cheatInvulnerable { landDizzy(); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
                 dropped = false
+                roaming.settled()
                 leapTarget = nil
                 setRun(nil)
                 host?.mascot.lean(0)
@@ -3334,8 +3375,12 @@ final class NotchMascotDesktop: NSObject {
         let walkway = perch == nil ? nil : perchLedge
         let low = walkway.map { $0.minX + half * 0.5 } ?? area.minX + half
         let high = walkway.map { $0.maxX - half * 0.5 } ?? area.maxX - half
-        // At the end of the way it turns around, or jumps off when it meant to.
-        if body.position.x <= low || body.position.x >= high {
+        // At the end of the way it turns around, or jumps off when it meant
+        // to; on the floor, it may walk on into a display beside it.
+        let onward = walkway == nil && (body.position.x <= low || body.position.x >= high)
+            ? walksOn(direction, low: low, high: high) : .back
+        if onward == .leapt { return }
+        if onward == .back, body.position.x <= low || body.position.x >= high {
             body.position.x = min(high, max(low, body.position.x))
             if leavesLedge, walkway != nil {
                 leavesLedge = false
@@ -3347,6 +3392,10 @@ final class NotchMascotDesktop: NSObject {
             direction = -direction
             setRun(direction)
             mode = .walking(direction: direction, until: until)
+        }
+        // A floor a stride higher, on the display it walked into, it steps up onto.
+        if perch == nil, area.minY > body.position.y, area.minY - body.position.y <= NotchMascotDisplays.stride {
+            body.position.y = area.minY
         }
         // The floor moved under it, as a Dock that shows or hides, or the
         // window it walks on went away.
@@ -3389,6 +3438,8 @@ final class NotchMascotDesktop: NSObject {
         guard isOut, mode == .standing, !inPlay, peekDepth == 0, climbWork == nil, !riding, !usingItem, !inEncounter,
               occasion == nil, let host
         else { return }
+        // On its way to another display, it walks on before anything else.
+        if perch == nil, continueTrip() { return }
         if perch == nil, invitePlay?() == true { return }
         if perch == nil, greetIfNear() { return }
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -3404,6 +3455,7 @@ final class NotchMascotDesktop: NSObject {
             if !reduceMotion, maybeHideAndSeek() { return }
         }
         let still = staysPut || reduceMotion || lowPower || host.mascot.isDozing
+        if !still, perch == nil, maybeWander() { return }
         if !still, windowActivity() { return }
         let area = self.area(for: body.position)
         let half = size * figureAspect / 2
@@ -3441,7 +3493,7 @@ final class NotchMascotDesktop: NSObject {
                 self.scheduleExcursionEnd(after: 5)
                 return
             }
-            self.goHome()
+            self.headHome()
         }
         excursionWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -3872,6 +3924,7 @@ final class NotchMascotDesktop: NSObject {
         if inPlay { interrupted?() }
         // Played with, it is no longer on a walk of its own: it stays out.
         excursionWork?.cancel(); excursionWork = nil
+        abandonTrip()
         if clicks >= 2 { goHome(); return }
         planWork?.cancel(); planWork = nil
         setRun(nil)
@@ -3942,6 +3995,7 @@ final class NotchMascotDesktop: NSObject {
         samples.removeAll()
         body.velocity = velocity
         body.airborne = true
+        roaming.letGo(at: velocity)
         thrown = hypot(velocity.dx, velocity.dy) > 600
         dropped = true
         mode = .flying
@@ -4042,6 +4096,17 @@ final class NotchMascotDesktop: NSObject {
         menu.addItem(shop)
         menu.addItem(gamesItem())
         if let fusion = fusionMenu?() { menu.addItem(fusion) }
+        let alarmText = FeatureStrings.notchMascotAlarms(L10n.shared.language)
+        let alarms = NSMenuItem(title: alarmText.alarmsMenu, action: #selector(menuAlarms), keyEquivalent: "")
+        alarms.target = self
+        alarms.image = NSImage(systemSymbolName: "alarm", accessibilityDescription: nil)
+        menu.addItem(alarms)
+        if NotchService.shared.mascotAlarmCast?.gang.hasGuests == true {
+            let home = NSMenuItem(title: alarmText.everyoneHome, action: #selector(menuEveryoneHome), keyEquivalent: "")
+            home.target = self
+            home.image = NSImage(systemSymbolName: "light.beacon.max", accessibilityDescription: nil)
+            menu.addItem(home)
+        }
         menu.addItem(.separator())
         let home = NSMenuItem(title: text.goHome, action: #selector(menuGoHome), keyEquivalent: "")
         home.target = self
@@ -4093,6 +4158,7 @@ final class NotchMascotDesktop: NSObject {
 
     @objc private func menuStayPut() {
         staysPut.toggle()
+        if staysPut { endTrip(arrived: false) }
         if staysPut, isWalking {
             setRun(nil)
             mode = .standing
@@ -4103,25 +4169,13 @@ final class NotchMascotDesktop: NSObject {
     @objc private func menuSettings() { openSettings?() }
 
     @objc private func menuShop() { openShop?() }
+    @objc private func menuAlarms() { NotchMascotAlarmSign.shared.open(heldBy: self) }
+    @objc private func menuEveryoneHome() { NotchService.shared.mascotAlarmCast?.gang.sendEveryoneHome(from: self) }
 
     // MARK: The pointer
 
     private func installMonitors() {
-        guard monitors.isEmpty else { return }
-        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
-            self?.pointerMoved(NSEvent.mouseLocation)
-        }) { monitors.append(global) }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
-            self?.pointerMoved(NSEvent.mouseLocation)
-            return event
-        }) { monitors.append(local) }
-        // A button held in another app may be a window on the move: it looks
-        // at the windows more often until the button comes up.
-        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { [weak self] event in
-            self?.buttonChanged(held: event.type == .leftMouseDown)
-        }) { monitors.append(global) }
+        NotchMascotPointerHub.add(self)
         screenObserver = screenObserver ?? NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
@@ -4135,8 +4189,11 @@ final class NotchMascotDesktop: NSObject {
     }
 
     private func removeMonitors() {
+        NotchMascotPointerHub.remove(self)
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
         if let appObserver { NSWorkspace.shared.notificationCenter.removeObserver(appObserver) }
         appObserver = nil
         watchTimer?.cancel(); watchTimer = nil
@@ -4144,7 +4201,7 @@ final class NotchMascotDesktop: NSObject {
         buttonHeld = false
     }
 
-    private func buttonChanged(held: Bool) {
+    fileprivate func buttonChanged(held: Bool) {
         guard buttonHeld != held else { return }
         buttonHeld = held
         updateWindowWatch()
@@ -4152,7 +4209,7 @@ final class NotchMascotDesktop: NSObject {
 
     /// Its eyes go to a pointer that comes near, and it takes clicks only
     /// where its body is, so the space around it stays the desktop's.
-    private func pointerMoved(_ point: CGPoint) {
+    fileprivate func pointerMoved(_ point: CGPoint) {
         guard isOut, let panel, let host else { return }
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
         // A yard game that takes every click keeps it out of the pointer's way.
@@ -4313,6 +4370,8 @@ final class NotchMascotDesktop: NSObject {
         stage.controller = self
         stage.host.followsAutomation = true
         stage.host.followsPointer = true
+        // Out of the island, a figure that is only a head walks on a body.
+        stage.host.mascot.growsBody = true
         stage.acceptDrops()
         panel.contentView = stage
         self.stage = stage
@@ -4400,5 +4459,45 @@ final class NotchMascotDesktopView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = controller?.menu() else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+}
+
+private final class NotchMascotDisplayLinkTarget: NSObject {
+    weak var owner: NotchMascotDesktop?
+    init(_ owner: NotchMascotDesktop) { self.owner = owner }
+    @objc func step(_ link: CADisplayLink) { owner?.tick(link) }
+}
+
+private enum NotchMascotPointerHub {
+    private static let listeners = NSHashTable<NotchMascotDesktop>.weakObjects()
+    private static var monitors: [Any] = []
+
+    static func add(_ desktop: NotchMascotDesktop) {
+        listeners.add(desktop)
+        guard monitors.isEmpty else { return }
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { _ in
+            let point = NSEvent.mouseLocation
+            for item in listeners.allObjects { item.pointerMoved(point) }
+        }) { monitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { event in
+            let point = NSEvent.mouseLocation
+            for item in listeners.allObjects { item.pointerMoved(point) }
+            return event
+        }) { monitors.append(local) }
+        // A button held in another app may be a window on the move: it looks
+        // at the windows more often until the button comes up.
+        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { event in
+            let held = event.type == .leftMouseDown
+            for item in listeners.allObjects { item.buttonChanged(held: held) }
+        }) { monitors.append(global) }
+    }
+
+    static func remove(_ desktop: NotchMascotDesktop) {
+        listeners.remove(desktop)
+        guard listeners.allObjects.isEmpty else { return }
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors.removeAll()
     }
 }

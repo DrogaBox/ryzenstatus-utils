@@ -547,6 +547,9 @@ enum WindowActivator {
 
     private static func beginActivation(for pid: pid_t) -> UInt64 {
         activationLock.withLock {
+            if activationGenerationsByPID.count >= 64 {
+                activationGenerationsByPID = activationGenerationsByPID.filter { kill($0.key, 0) == 0 || errno == EPERM }
+            }
             activationGeneration &+= 1
             activationGenerationsByPID[pid] = activationGeneration
             return activationGeneration

@@ -14,6 +14,9 @@ struct PanelConnectedDevicesRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = ConnectedDevicesMonitor.shared
     @State private var expanded = false
+    @State private var appeared = false
+    @State private var windowVisible = false
+    @State private var watching = false
     let editing: Bool
     @Binding var isVisible: Bool
 
@@ -45,8 +48,17 @@ struct PanelConnectedDevicesRow: View {
                 }
             }
         }
-        .onAppear { monitor.beginWatching() }
-        .onDisappear { monitor.endWatching() }
+        .background(WindowVisibilityReader { windowVisible = $0 })
+        .onAppear { appeared = true; syncWatching() }
+        .onDisappear { appeared = false; syncWatching() }
+        .onChange(of: windowVisible) { _, _ in syncWatching() }
+    }
+
+    private func syncWatching() {
+        let shouldWatch = appeared && windowVisible
+        guard shouldWatch != watching else { return }
+        watching = shouldWatch
+        if shouldWatch { monitor.beginWatching() } else { monitor.endWatching() }
     }
 
     private func rowContent<Trailing: View>(isInteractive: Bool,

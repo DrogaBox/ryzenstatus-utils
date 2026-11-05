@@ -43,6 +43,7 @@ final class NotchMascotAura {
     let front = CALayer()
 
     private(set) var form: NotchMascotForm?
+    private var configuredState: (form: NotchMascotForm?, size: CGFloat, scale: CGFloat, reduceMotion: Bool)?
     private let glow = CAGradientLayer()
     private let flames = CAEmitterLayer()
     private var bolts: [CAShapeLayer] = []
@@ -76,6 +77,11 @@ final class NotchMascotAura {
     /// nil takes it away. `reduceMotion` keeps the glow still and the
     /// flames and lightning out.
     func configure(form: NotchMascotForm?, size: CGFloat, scale: CGFloat, reduceMotion: Bool) {
+        if let configuredState, configuredState.form == form, configuredState.size == size,
+           configuredState.scale == scale, configuredState.reduceMotion == reduceMotion {
+            return
+        }
+        configuredState = (form, size, scale, reduceMotion)
         self.form = form
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         back.frame = box

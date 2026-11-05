@@ -207,6 +207,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         // scalarInput[0..1] after only checking the count for equality.
         return kIOReturnBadArgument;
     }
+    // Selectors that leave the caller's count untouched would otherwise hand
+    // back whatever the reply buffer held.
+    if (arguments->scalarOutput && arguments->scalarOutputCount > 0) {
+        bzero(arguments->scalarOutput, arguments->scalarOutputCount * sizeof(uint64_t));
+    }
 
     switch (selector) {
 
@@ -921,6 +926,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (first >= CPUInfo::MaxCpus) return kIOReturnUnsupported;
 
             if (provider->controlLock) IOLockLock(provider->controlLock);
+            // The PCC channel is serialised by rendezvousLock, which the
+            // thermal path through applyEPPControl() holds without controlLock.
+            if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
             bool ok = true;
             for (uint32_t id = 0; id < provider->kPccMaxSubspaces && ok; id++) {
                 if (a.pcc[id].present) ok = provider->pccCommand(a.pcc[id], 0x00);
@@ -930,6 +938,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                                        provider->kSlotLowestNonlinear, provider->kSlotLowest,
                                        provider->kSlotEpp };
             for (uint32_t i = 0; i < 5 && ok; i++) ok = provider->cpcRead(a.cpc[first][slots[i]], values[i]);
+            if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
             if (!ok) return kIOReturnTimeout;
 

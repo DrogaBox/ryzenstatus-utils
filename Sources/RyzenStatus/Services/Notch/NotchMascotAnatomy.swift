@@ -8,7 +8,8 @@ import CoreGraphics
 /// sword in its hand rather than floating by its cheek, wings out of its
 /// back. Shares of its size from the top left corner, y growing downward;
 /// left and right as seen on screen. Read off the outlines in
-/// `NotchMascotCreatures` and `NotchMascotHologramAndroid`, so a figure
+/// `NotchMascotCreatures`, `NotchMascotHologramAndroid`,
+/// `NotchMascotDancers` and the animals' own files, so a figure
 /// redrawn there wants its numbers checked here too.
 struct NotchMascotAnatomy: Equatable {
     /// The hand that holds things, on the right of the screen, and the other.
@@ -67,11 +68,9 @@ extension NotchMascotCreatures {
         case .fan:
             return .init(rightHand: at(0.91, 0.64), leftHand: at(0.09, 0.64), floor: 0.98,
                          leftFoot: 0.36, rightFoot: 0.64, foot: 0.18, torso: box(0.10, 0.18, 0.80, 0.80))
-        // A cat is one round loaf; its nose sits well under the eyes.
+        // The cat holds things in its front paws, in front of its belly.
         case .cat:
-            return .init(rightHand: at(0.86, 0.74), leftHand: at(0.14, 0.74), floor: 0.92,
-                         leftFoot: 0.38, rightFoot: 0.62, foot: 0.14, torso: box(0.12, 0.56, 0.76, 0.36),
-                         nose: at(0.50, 0.737), mouth: at(0.50, 0.79))
+            return critterAnatomy(style)
         // A ghost has no feet: what goes on them hangs at its hem.
         case .ghost:
             return .init(rightHand: at(0.86, 0.64), leftHand: at(0.14, 0.64), floor: 0.93,
@@ -87,25 +86,13 @@ extension NotchMascotCreatures {
         case .shifter:
             return .init(rightHand: at(0.92, 0.72), leftHand: at(0.09, 0.72), floor: 0.95,
                          leftFoot: 0.34, rightFoot: 0.66, foot: 0.16, torso: box(0.08, 0.34, 0.85, 0.62))
-        // A bird holds things against its chest and stands on its talons.
-        case .phoenix:
-            return .init(rightHand: at(0.78, 0.64), leftHand: at(0.22, 0.64), floor: 0.855,
-                         leftFoot: 0.42, rightFoot: 0.58, foot: 0.12, torso: box(0.26, 0.36, 0.48, 0.46),
-                         nose: at(0.50, 0.36), mouth: at(0.50, 0.40))
-        // Its head is wider than its body, so it holds things out past the
-        // head's edge, where a sword raised up stays clear of its eyes.
-        case .axolotl:
-            return .init(rightHand: at(0.75, 0.70), leftHand: at(0.25, 0.70), floor: 0.87,
-                         leftFoot: 0.40, rightFoot: 0.60, foot: 0.12, torso: box(0.32, 0.50, 0.36, 0.38),
-                         nose: at(0.50, 0.38), mouth: at(0.50, 0.42))
+        // The five animals, where their own parts put hands and feet.
+        case .phoenix, .mouse, .axolotl, .swan:
+            return critterAnatomy(style)
         case .dog:
             return .init(rightHand: at(0.82, 0.70), leftHand: at(0.18, 0.70), floor: 0.95,
                          leftFoot: 0.36, rightFoot: 0.64, foot: 0.18, torso: box(0.17, 0.46, 0.66, 0.46),
                          nose: at(0.50, 0.345), mouth: at(0.50, 0.42))
-        case .mouse:
-            return .init(rightHand: at(0.69, 0.64), leftHand: at(0.31, 0.64), floor: 0.86,
-                         leftFoot: 0.42, rightFoot: 0.58, foot: 0.10, torso: box(0.33, 0.46, 0.34, 0.40),
-                         nose: at(0.50, 0.40), mouth: at(0.50, 0.45))
         case .capybara:
             return .init(rightHand: at(0.83, 0.70), leftHand: at(0.17, 0.70), floor: 0.93,
                          leftFoot: 0.38, rightFoot: 0.62, foot: 0.16, torso: box(0.16, 0.50, 0.68, 0.42),
@@ -119,25 +106,9 @@ extension NotchMascotCreatures {
             return .init(rightHand: at(0.84, 0.68), leftHand: at(0.16, 0.68), floor: 0.90,
                          leftFoot: 0.25, rightFoot: 0.75, foot: 0.18, torso: box(0.16, 0.50, 0.68, 0.40),
                          mouth: at(0.50, 0.40))
-        // A swan floats: what goes on its feet rides its waterline.
-        case .swan:
-            return .init(rightHand: at(0.80, 0.66), leftHand: at(0.20, 0.66), floor: 0.86,
-                         leftFoot: 0.42, rightFoot: 0.58, foot: 0.12, torso: box(0.23, 0.50, 0.54, 0.36),
-                         nose: at(0.50, 0.30), mouth: at(0.50, 0.33))
-        // Her arms are up in a crown over her head, so she holds things at
-        // the rim of her tutu, and her two pointes are close together.
-        case .ballerina:
-            return .init(rightHand: at(0.84, 0.62), leftHand: at(0.16, 0.62), floor: 0.96,
-                         leftFoot: 0.455, rightFoot: 0.545, foot: 0.075, torso: box(0.38, 0.44, 0.24, 0.18),
-                         nose: at(0.50, 0.37), mouth: at(0.50, 0.40))
-        case .danseur:
-            return .init(rightHand: at(0.78, 0.60), leftHand: at(0.22, 0.60), floor: 0.96,
-                         leftFoot: 0.415, rightFoot: 0.585, foot: 0.11, torso: box(0.24, 0.44, 0.52, 0.22),
-                         nose: at(0.50, 0.36), mouth: at(0.50, 0.40))
-        case .contemporary:
-            return .init(rightHand: at(0.83, 0.66), leftHand: at(0.17, 0.66), floor: 0.96,
-                         leftFoot: 0.38, rightFoot: 0.62, foot: 0.12, torso: box(0.20, 0.45, 0.60, 0.33),
-                         nose: at(0.50, 0.39), mouth: at(0.50, 0.43))
+        // The dancers' hands and feet where their resting pose puts them.
+        case .ballerina, .danseur, .contemporary:
+            return dancerAnatomy(style)
         // Held out by its haunch, below the wide mask, so nothing tall it
         // carries rises over its face.
         case .kitsune:

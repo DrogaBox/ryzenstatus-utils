@@ -41,6 +41,8 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchMascotName) private var mascotName = ""
     @AppStorage(DefaultsKey.notchMascotShape) private var mascotShape = NotchMascotShape.ball.rawValue
     @AppStorage(DefaultsKey.notchMascotPalette) private var mascotPalette = NotchMascotPalette.pearl.rawValue
+    @AppStorage(DefaultsKey.notchMascotCustomColor) private var mascotCustomColor = ""
+    @AppStorage(DefaultsKey.notchMascotAccessory) private var mascotAccessory = NotchMascotAccessory.none.rawValue
     @AppStorage(DefaultsKey.notchMascotSide) private var mascotSide = NotchMascotSide.left.rawValue
     @AppStorage(DefaultsKey.notchDisplay) private var display = NotchDisplay.automatic.rawValue
     @AppStorage(DefaultsKey.notchSilhouette) private var silhouette = NotchSilhouette.capsule.rawValue
@@ -1158,9 +1160,8 @@ struct NotchSettings: View {
 
     /// The companion where it rests, beside a camera drawn black on black.
     private var restingMascot: some View {
-        let look = NotchMascotLook(style: NotchMascotStyle.resolved(mascotStyle, name: mascotName),
-                                   shape: NotchMascotShape(rawValue: mascotShape) ?? .ball,
-                                   palette: NotchMascotPalette(rawValue: mascotPalette) ?? .pearl)
+        let _ = (mascotStyle, mascotName, mascotShape, mascotPalette, mascotCustomColor, mascotAccessory)
+        let look = NotchMascotSupport.look()
         let right = NotchMascotSide(rawValue: mascotSide) == .right
         return HStack(spacing: 14) {
             if right { Color.clear.frame(width: 12, height: 12) }

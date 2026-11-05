@@ -75,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // The companion's alarm clocks keep time from launch, companion or not.
+        NotchMascotAlarms.shared.start()
         Self.boundAccessibilityWaits()
         // Pay the first AppKit process lookup before an input callback needs
         // it. Each click still resolves the current process independently.
@@ -1214,11 +1216,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     NotificationCenter.default.removeObserver(occToken)
                     self?.detachedOcclusionObserver = nil
                 }
+                let wasVisible = self?.detachedWindowVisible == true
                 self?.detachedWindowVisible = false
                 self?.detachedWindowController = nil
                 // Full monitor surface: a panel client, so the popover
                 // lifecycle cannot wipe these needs while the window is open.
-                SystemMonitor.shared.panelDidDisappear()
+                // Covered, it already stood down.
+                if wasVisible { SystemMonitor.shared.panelDidDisappear() }
               }
             }
 
@@ -1261,8 +1265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             self.detachedWindowController?.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            // Ensure monitor is active (panel client, immune to popover wipes)
-            SystemMonitor.shared.panelDidAppear()
+            // Ensure monitor is active (panel client, immune to popover wipes),
+            // through the same boolean edge as the occlusion observer above.
+            if !self.detachedWindowVisible {
+                self.detachedWindowVisible = true
+                SystemMonitor.shared.panelDidAppear()
+            }
         })
     }
 

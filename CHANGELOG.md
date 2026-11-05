@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.78.2] — 2026-11-05 — kexts 3.40.1
+
+**Sleep does what we said it did.** Install the new kexts from the DMG to get every fix below.
+
+### Fixed
+
+- **Your power preset after sleep**: the saved preset or custom profile was meant to come back after wake and never did. The app listened for wake in the wrong place, so the CPU stayed on firmware limits while the window still showed your choice. Thanks to Izzy, who made us notice sleep was not working the way we thought. Gaming Mode now puts Extreme back after wake too.
+- **Core Performance Boost after sleep**: the kext now restores your choice after wake. Each core also changes only its own boost bit, instead of receiving one core's whole register.
+- **Settings the SMU forgets in sleep**: the OC VID, all-core Curve Optimizer and boost limit no longer show their pre-sleep values after wake.
+- **Adaptive Power stuck low**: with Auto EPP off, the limit dropped when the CPU got hot and never climbed back.
+- **Custom profiles**: leaving Gaming Mode or turning Auto EPP off now returns to your custom profile instead of a preset.
+- **Refused settings**: a change the kext rejects is no longer saved as if it had worked, and a preset refused for lack of privileges keeps your previous selection.
+- **Fans without privileges**: a manual or curve choice the kext refuses now goes back to the fan's real state, instead of retrying every 1.5 s forever. Picking a curve on a fan card also turns Dynamic Curves on, so it survives a restart.
+- **Detached panel**: closing it could leave every sensor polling at full speed with nothing on screen.
+- **PM table export**: the forced capture could report a failure even though it had worked.
+- **A friend's item**: it was checked against the main companion's level, so an item the friend had unlocked could disappear.
+- **Dress-up**: a companion stops trying things on when it changes figure, when you pick its item or press Use item, and when the option is turned off.
+
+### Improved
+
+- **Less work while hidden**: AMD, fan and C6 polling, network pings, USB watching, wallpaper previews, process lists, one-second countdowns and companion animations now stop while their window is closed or covered.
+- **Less work with many companions**: companions out on the desktop share one set of pointer monitors and one window list, and nothing runs for them while the companion is switched off.
+- **Long sessions**: caches for unmounted disks, past calendar reminders, finished apps and artwork no longer grow without end.
+
+### Kexts
+
+- `SMCAMDProcessor` stays loaded once VirtualSMC holds its plugin, since unloading it could panic the machine.
+- The CPPC channel is no longer shared without its lock between a diagnostics read and the thermal path.
+- A failed start releases what it mapped, cores return to P0 when P-state stepping is switched off on older CPUs, and every call starts with clean output values.
+
+## [1.78.1] — 2026-11-04 — kexts 3.40.0 (No kext changes)
+
+**A companion keeps its shape.**
+
+### Fixed
+
+- **Companions out of shape**: after an alarm, or moving to another display, a companion out on the desktop could be left with its head too big and off to one side, its colours washed out, until it was changed for another. It now keeps its shape.
+
+## [1.78.0] — 2026-11-04 — kexts 3.40.0 (No kext changes)
+
+**The companions get the whole desktop.** They now roam every display, can wake you up, and a big group of them has been drawn again from scratch.
+
+### Added
+
+- **Companions on every display**: companions and visitors are no longer kept to the screen with the island. They walk from one display to the next, show up on any of them, and group games happen on whichever screen the gang is on.
+- **Alarms**: a companion can now be your alarm clock. Set as many alarms as you like, each with its own time, label, days of the week and sound, picked from a list or one of your own. You set them on a sign the companion holds up, and when one goes off it puts on a show you can stop or snooze, from the keyboard too.
+- **Send everyone home**: the companion's menu has a new choice that sends every visitor home at once.
+- **Bodies on the desktop**: the robot, the chip, the fan and the minimal figure grow a little body of their own when they walk out onto the desktop, with arms and legs that match their design, a pose for every mood, and every item sitting right on them. In the island they stay as they were.
+
+### Changed
+
+- **Eight companions, drawn anew**: the ballerina, the danseur, the contemporary dancer, the phoenix, the mouse, the axolotl, the swan and the cat have been redrawn from scratch as layered chibi figures, with their own poses, faces that work in every mood, colours that suit every palette and custom colour, and every item placed by their own anatomy.
+
 ## [1.77.0] — 2026-11-03 — kexts 3.40.0 (No kext changes)
 
 **Fusion!** Two companions out on the desktop can now dance the fusion dance and merge into one, and the gang gets more of everything.

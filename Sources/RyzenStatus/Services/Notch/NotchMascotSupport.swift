@@ -116,6 +116,8 @@ struct NotchMascotGait: Equatable {
 
     static func of(_ style: NotchMascotStyle) -> NotchMascotGait {
         switch style {
+        // The cat pads along softly, low and smooth.
+        case .cat: return NotchMascotGait(period: 0.26, bob: 0.035, rock: 0)
         // Short legs under a big body: small quick steps, rocking side to side.
         case .penguin: return NotchMascotGait(period: 0.26, bob: 0.03, rock: 0.16)
         // A light trot, quicker and lower than a hop.
@@ -124,6 +126,20 @@ struct NotchMascotGait: Equatable {
         case .hologram: return NotchMascotGait(period: 0.26, bob: 0.07, rock: 0)
         // It glides: no steps at all, only a slow float up and down.
         case .android: return NotchMascotGait(period: 0.6, bob: 0.025, rock: 0)
+        // The dancers glide: the ballerina in a quick bourrée on her toes,
+        // the danseur in long light steps, the contemporary dancer with a
+        // slow sway.
+        case .ballerina: return NotchMascotGait(period: 0.16, bob: 0.012, rock: 0)
+        case .danseur: return NotchMascotGait(period: 0.32, bob: 0.035, rock: 0)
+        case .contemporary: return NotchMascotGait(period: 0.42, bob: 0.025, rock: 0.04)
+        // The phoenix hops along on its little talons, wings bobbing.
+        case .phoenix: return NotchMascotGait(period: 0.24, bob: 0.08, rock: 0)
+        // The mouse scurries on quick little feet.
+        case .mouse: return NotchMascotGait(period: 0.18, bob: 0.05, rock: 0)
+        // The axolotl waddles on its stubby legs, rocking side to side.
+        case .axolotl: return NotchMascotGait(period: 0.28, bob: 0.04, rock: 0.08)
+        // The swan pads along on its webbed feet with a little sway.
+        case .swan: return NotchMascotGait(period: 0.26, bob: 0.035, rock: 0.05)
         // The White Rabbit hops along, always in a hurry.
         case .whiteRabbit: return NotchMascotGait(period: 0.2, bob: 0.11, rock: 0)
         default: return .standard
@@ -1639,9 +1655,13 @@ enum NotchMascotSupport {
         } else if let remembered = NotchMascotStyleColors.paint(for: style, in: defaults) {
             friend = remembered.paint(friend)
         }
+        // An item given to it was offered by its own level, so that is the one
+        // to check it against; with none given it keeps the pick it always had.
+        let chosen = friendAccessoryChoice(in: defaults)
+        let level = chosen == nil ? shownLevel(in: defaults) : NotchMascotBondStore.shared.shownLevel(for: style)
         friend.accessory = style.takesAccessory
-            ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
-                                                  style: style, chosen: friendAccessoryChoice(in: defaults))
+            ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: level,
+                                                  style: style, chosen: chosen)
             : .none
         friend.form = friendForm(in: defaults)
         return NotchMascotDisguise.apply(to: friend)
