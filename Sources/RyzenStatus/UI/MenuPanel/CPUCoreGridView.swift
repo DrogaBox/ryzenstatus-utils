@@ -96,6 +96,8 @@ public struct CPUCoreGridView: View {
     let metric: PanelCoreGridMetric
     @Environment(\.colorScheme) private var colorScheme
     @State private var holdsLiveSync = false
+    @State private var holdsResidency = false
+    @State private var windowVisible = false
 
     /// SMU mode is live only when data exists; otherwise load.
     private var smuActive: Bool { metric != .load && !smuCores.isEmpty }
@@ -150,21 +152,36 @@ public struct CPUCoreGridView: View {
                 }
             }
         }
+        .background(WindowVisibilityReader { windowVisible = $0 })
         // The residency dots are polled only while a grid is on screen.
         .onAppear {
-            C6ResidencyService.shared.startPolling()
-            syncLiveDemand(onScreen: true)
+            setResidencyPolling(windowVisible)
+            syncLiveDemand(onScreen: windowVisible)
             // The load view needs no SMU readings; one read tells the section
             // whether the table decodes, so it can offer the other modes.
             if metric == .load && smuCores.isEmpty {
                 Task { await AmdPowerControlsModel.shared.syncFromKext() }
             }
         }
+        .onChange(of: windowVisible) { _, visible in
+            setResidencyPolling(visible)
+            syncLiveDemand(onScreen: visible)
+        }
         .onDisappear {
-            C6ResidencyService.shared.stopPolling()
+            setResidencyPolling(false)
             syncLiveDemand(onScreen: false)
         }
-        .onChange(of: metric) { _, _ in syncLiveDemand(onScreen: true) }
+        .onChange(of: metric) { _, _ in syncLiveDemand(onScreen: windowVisible) }
+    }
+
+    private func setResidencyPolling(_ onScreen: Bool) {
+        guard onScreen != holdsResidency else { return }
+        holdsResidency = onScreen
+        if onScreen {
+            C6ResidencyService.shared.startPolling()
+        } else {
+            C6ResidencyService.shared.stopPolling()
+        }
     }
 
     /// The SMU modes keep the AMD model live while the grid shows them; the

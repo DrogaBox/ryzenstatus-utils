@@ -17,6 +17,8 @@ struct AmdControlSection: View {
     // for its live poll while it is expanded and on screen.
     @State private var selectedFanId: Int = 0
     @State private var isPollingFans = false
+    @State private var holdsLiveSync = false
+    @State private var windowVisible = false
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -465,18 +467,23 @@ struct AmdControlSection: View {
             }
             // The same rounded card every other panel section sits in.
             .panelCard()
+            .background(WindowVisibilityReader { windowVisible = $0 })
             .onAppear {
                 // The model runs one 3 s loop for every view that shows it.
-                controls.beginLiveSync()
-                setFanPolling(showFansInAmdPower)
+                setLiveSync(windowVisible)
+                setFanPolling(windowVisible && showFansInAmdPower)
                 keepFanSelectionVisible()
             }
+            .onChange(of: windowVisible) { _, visible in
+                setLiveSync(visible)
+                setFanPolling(visible && showFansInAmdPower)
+            }
             .onDisappear {
-                controls.endLiveSync()
+                setLiveSync(false)
                 setFanPolling(false)
             }
             .onChange(of: showFansInAmdPower) { _, expanded in
-                setFanPolling(expanded)
+                setFanPolling(windowVisible && expanded)
             }
             .onChange(of: visibleFans.map(\.id)) { _, _ in
                 keepFanSelectionVisible()
@@ -502,6 +509,12 @@ struct AmdControlSection: View {
         guard !visibleFans.contains(where: { $0.id == selectedFanId }),
               let first = visibleFans.first else { return }
         selectedFanId = first.id
+    }
+
+    private func setLiveSync(_ on: Bool) {
+        guard on != holdsLiveSync else { return }
+        holdsLiveSync = on
+        if on { controls.beginLiveSync() } else { controls.endLiveSync() }
     }
 
     /// S2-T1: the RPM poll only matters while the fan disclosure is expanded
