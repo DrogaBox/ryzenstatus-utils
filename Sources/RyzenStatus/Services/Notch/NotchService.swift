@@ -5763,11 +5763,17 @@ extension NotchService {
 
     /// Looks now and then for a moment to play, while the island runs.
     private func scheduleMascotIslandPlayTick() {
+        guard NotchMascotSupport.isEnabled() else {
+            mascotIslandPlayTick?.cancel(); mascotIslandPlayTick = nil
+            lastMascotRPGTick = CACurrentMediaTime()
+            NotchMascotRPG.flush()
+            return
+        }
         guard mascotIslandPlayTick == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.mascotIslandPlayTick = nil
-            guard self.running else { return }
+            guard self.running, NotchMascotSupport.isEnabled() else { return }
             let now = CACurrentMediaTime()
             NotchMascotRPG.tick(elapsed: now - self.lastMascotRPGTick, level: NotchMascotSupport.shownLevel())
             self.lastMascotRPGTick = now
