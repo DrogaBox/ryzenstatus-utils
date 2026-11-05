@@ -1,13 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [1.78.2] — 2026-11-05 — kexts 3.40.1
 
-**Sleep does what we said it did.**
+**Sleep does what we said it did.** Install the new kexts from the DMG to get every fix below.
 
 ### Fixed
 
 - **Your power preset after sleep**: the saved preset or custom profile was meant to come back after wake and never did. The app listened for wake in the wrong place, so the CPU stayed on firmware limits while the window still showed your choice. Thanks to Izzy, who made us notice sleep was not working the way we thought. Gaming Mode now puts Extreme back after wake too.
-- **Core Performance Boost after sleep**: firmware resets it across S3, and now the kext restores your choice. Each core also changes only its own boost bit, instead of receiving one core's whole register.
+- **Core Performance Boost after sleep**: the kext now restores your choice after wake. Each core also changes only its own boost bit, instead of receiving one core's whole register.
 - **Settings the SMU forgets in sleep**: the OC VID, all-core Curve Optimizer and boost limit no longer show their pre-sleep values after wake.
 - **Adaptive Power stuck low**: with Auto EPP off, the limit dropped when the CPU got hot and never climbed back.
 - **Custom profiles**: leaving Gaming Mode or turning Auto EPP off now returns to your custom profile instead of a preset.
