@@ -34,12 +34,17 @@ final class DiskSampler {
 
     func sample(now: TimeInterval, refreshMetadata: Bool = true) -> DiskReading {
         let counters = Self.readCounters()
-        let devices = Self.mountedVolumes().map { volume -> DiskDeviceReading in
+        let volumes = Self.mountedVolumes()
+        var activeMountPaths = Set<String>()
+        var activeDiskIDs = Set<String>()
+        let devices = volumes.map { volume -> DiskDeviceReading in
+            activeMountPaths.insert(volume.mountPath)
             let metadata = metadata(for: volume, now: now, refresh: refreshMetadata)
             let wholeDisk = metadata.wholeDisk
             let counter = Self.bestCounter(from: metadata.ioCounterIDs, counters: counters)
             let ioCounters = counter?.counters ?? DiskIOCounters()
             let diskID = counter?.id ?? wholeDisk ?? metadata.bsdName ?? volume.mountPath
+            activeDiskIDs.insert(diskID)
             let rates = ratesAndTotals(for: diskID, counters: ioCounters, now: now)
             let isInternal = metadata.isInternal ?? volume.isInternal
             let isRemovable = metadata.isRemovable ?? volume.isRemovable
@@ -66,6 +71,9 @@ final class DiskSampler {
                                      totalReadBytes: rates.totalRead,
                                      totalWrittenBytes: rates.totalWritten)
         }
+        metadataCache = metadataCache.filter { activeMountPaths.contains($0.key) }
+        previous = previous.filter { activeDiskIDs.contains($0.key) }
+        sessionTotals = sessionTotals.filter { activeDiskIDs.contains($0.key) }
         return DiskReading(devices: devices.sorted(by: sortVolumes))
     }
 
