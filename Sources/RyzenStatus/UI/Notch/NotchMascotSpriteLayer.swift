@@ -313,7 +313,10 @@ final class NotchMascotSpriteLayer: CALayer {
     private func startLoop() {
         guard let frames else { return }
         contents = frames.images(loopState).first
-        guard let animation = cycle(loopState, speed: loopSpeed) else { return }
+        guard loopSpeed > 0, let animation = cycle(loopState, speed: loopSpeed) else {
+            removeAnimation(forKey: "loop")
+            return
+        }
         animation.repeatCount = .infinity
         add(animation, forKey: "loop")
     }

@@ -255,8 +255,9 @@ final class NotchMascotRig: NSObject {
                                 anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
         }
         fitHead(bodied)
-        aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
-        fusionArt.configure(look: look, size: size, scale: scale, reduceMotion: reduceMotion)
+        let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        aura.configure(form: look.form, size: size, scale: scale, reduceMotion: !motion)
+        fusionArt.configure(look: look, size: size, scale: scale, reduceMotion: !motion)
         bodyFlash.frame = box
         bodyFlash.contentsScale = scale
         bodyFlash.path = fillMask.path
@@ -340,7 +341,8 @@ final class NotchMascotRig: NSObject {
     private func syncSpriteLoop() {
         guard showsSprite, let sheet = sprite.sheet else { return }
         let loop = NotchMascotSpriteChoreography.loop(for: mood, in: sheet)
-        sprite.loop(loop.state, speed: reduceMotion ? 0 : loop.speed)
+        let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        sprite.loop(loop.state, speed: motion ? loop.speed : 0)
     }
 
     // MARK: Faces
@@ -490,6 +492,9 @@ final class NotchMascotRig: NSObject {
     private func applyAmbient() {
         guard size > 0 else { return }
         let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        aura.configure(form: look.form, size: size, scale: root.contentsScale, reduceMotion: !motion)
+        fusionArt.configure(look: look, size: size, scale: root.contentsScale, reduceMotion: !motion)
+        syncSpriteLoop()
         decor.setAmbient(ambient, motion: motion)
         bodyParts.setIdle(motion)
         features.setMotion(motion)
@@ -1631,18 +1636,24 @@ final class NotchMascotHostView: NSView {
     var dances = false {
         didSet {
             guard dances != oldValue else { return }
-            grooveSubscription = dances
-                ? NotchAudioLevelService.shared.$spectrum.receive(on: DispatchQueue.main).sink { [weak self] spectrum in
-                    guard let self else { return }
-                    if let spectrum, !spectrum.isEmpty {
-                        self.mascot.groove(bass: NotchAudioLevelSupport.bass(spectrum))
-                    } else {
-                        self.mascot.setGrooving(true)
-                    }
-                }
-                : nil
-            if !dances { mascot.setGrooving(false) }
+            syncDancing()
         }
+    }
+
+    private func syncDancing() {
+        let active = dances && isOnScreen
+        guard (grooveSubscription != nil) != active else { return }
+        grooveSubscription = active
+            ? NotchAudioLevelService.shared.$spectrum.receive(on: DispatchQueue.main).sink { [weak self] spectrum in
+                guard let self else { return }
+                if let spectrum, !spectrum.isEmpty {
+                    self.mascot.groove(bass: NotchAudioLevelSupport.bass(spectrum))
+                } else {
+                    self.mascot.setGrooving(true)
+                }
+            }
+            : nil
+        if !active { mascot.setGrooving(false) }
     }
     /// Resting in the island, it keeps the mood automatic reactions publish.
     var followsAutomation = false {
@@ -1932,6 +1943,7 @@ final class NotchMascotHostView: NSView {
 
     private func syncIdling() {
         mascot.setIdles(idlesWhenVisible, visible: isOnScreen)
+        syncDancing()
     }
 
     func configure(look: NotchMascotLook, size: CGFloat, mood: NotchMascotMood, idles: Bool,
