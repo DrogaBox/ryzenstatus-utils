@@ -180,11 +180,16 @@ struct PlainTextEditor: NSViewRepresentable {
             self.selectedRange = selectedRange
         }
 
+        deinit {
+            removeLineMoveMonitor()
+        }
+
         /// Option-Up/Down moves the current line (or every line a selection
         /// touches) past its neighbor, as in most code editors. AppKit has
         /// no default key binding for it, so it is caught here rather than
         /// through a selector NSTextView would otherwise never resolve.
         func installLineMoveMonitor(for textView: NSTextView) {
+            removeLineMoveMonitor()
             self.textView = textView
             lineMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 if let self, let textView = self.textView,

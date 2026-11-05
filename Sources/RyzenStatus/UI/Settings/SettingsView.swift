@@ -637,7 +637,12 @@ struct SettingsView: View {
                 self.handleKey = handleKey
             }
 
+            deinit {
+                removeMonitor()
+            }
+
             func install(for view: NSView) {
+                removeMonitor()
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
                     [weak self, weak view] event in
                     guard let self, let view, let window = view.window,

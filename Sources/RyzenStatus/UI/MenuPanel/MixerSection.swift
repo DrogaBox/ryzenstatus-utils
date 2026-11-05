@@ -1279,6 +1279,10 @@ private struct AutofocusingVolumeTextField: NSViewRepresentable {
             if isActive { startMonitoringEscape() }
         }
 
+        deinit {
+            stopMonitoringEscape()
+        }
+
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             text.wrappedValue = field.stringValue

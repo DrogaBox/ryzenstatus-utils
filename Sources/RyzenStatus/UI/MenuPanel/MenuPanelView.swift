@@ -2867,6 +2867,7 @@ struct KeepAwakeCard: View {
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleInterval) private var keepAwakeMouseJiggleInterval = 5
     @State private var optionsExpanded = false
     @State private var automationExpanded = false
+    @State private var windowVisible = false
     /// The last started end time, which the popover opens on.
     @AppStorage(DefaultsKey.keepAwakeUntilTime) private var savedUntilTime = 0.0
     /// An edit not started yet; only starting saves it, so the switch keeps
@@ -2968,6 +2969,7 @@ struct KeepAwakeCard: View {
             }
             .panelCard()
         }
+        .background(WindowVisibilityReader { windowVisible = $0 })
         .onAppear {
             defaultDuration = Defaults.sanitizedDefaultDuration(defaultDuration)
             keepAwakeIconTint = Defaults.sanitizedKeepAwakeIconTint(keepAwakeIconTint).rawValue
@@ -3162,7 +3164,11 @@ struct KeepAwakeCard: View {
                 if awake.sessionTrigger == .automation {
                     Text(automationStrings.activeStatus(for: awake.activeAutomationConditions))
                 } else if let end = awake.endDate {
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    if windowVisible {
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text("\(l10n.s.keepAwakeEndsIn) \(Self.remainingText(until: end))")
+                        }
+                    } else {
                         Text("\(l10n.s.keepAwakeEndsIn) \(Self.remainingText(until: end))")
                     }
                 } else {
@@ -3196,7 +3202,12 @@ struct KeepAwakeCard: View {
                 .opacity(selected && awake.endDate != nil ? 0 : 1)
                 .overlay {
                     if selected, let end = awake.endDate {
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        if windowVisible {
+                            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                                Text(Self.countdownText(until: end))
+                                    .fixedSize()
+                            }
+                        } else {
                             Text(Self.countdownText(until: end))
                                 .fixedSize()
                         }

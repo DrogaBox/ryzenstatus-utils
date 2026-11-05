@@ -13,6 +13,9 @@ struct WallpaperSection: View {
     @State private var page = 1
     @State private var isRemovingSources = false
     @State private var viewerID = UUID()
+    @State private var appeared = false
+    @State private var windowVisible = false
+    @State private var viewing = false
     var collapsible = true
 
     private var text: WallpaperFeatureStrings {
@@ -58,13 +61,19 @@ struct WallpaperSection: View {
                         .foregroundStyle(.orange)
                 }
             }
+            .background(WindowVisibilityReader { windowVisible = $0 })
             .onAppear {
-                // own folders can change on disk; keep Apple catalog cache
-                service.beginViewing(viewerID)
+                appeared = true
+                syncViewing()
             }
             .onDisappear {
+                appeared = false
                 isRemovingSources = false
-                service.endViewing(viewerID)
+                syncViewing()
+            }
+            .onChange(of: windowVisible) { _, _ in
+                if !windowVisible { isRemovingSources = false }
+                syncViewing()
             }
             .onChange(of: currentPage) { _, newPage in
                 service.preparePageThumbs(for: service.filter, around: newPage)
@@ -81,6 +90,14 @@ struct WallpaperSection: View {
                 }
             }
         }
+    }
+
+    private func syncViewing() {
+        let shouldView = appeared && windowVisible
+        guard shouldView != viewing else { return }
+        viewing = shouldView
+        // own folders can change on disk; keep Apple catalog cache
+        if shouldView { service.beginViewing(viewerID) } else { service.endViewing(viewerID) }
     }
 
     private var controls: some View {
