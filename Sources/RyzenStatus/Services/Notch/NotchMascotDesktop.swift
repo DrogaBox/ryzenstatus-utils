@@ -3255,7 +3255,8 @@ final class NotchMascotDesktop: NSObject {
 
     private func resumeTicking() {
         if displayLink == nil, let stage {
-            let link = stage.displayLink(target: self, selector: #selector(tick(_:)))
+            let link = stage.displayLink(target: NotchMascotDisplayLinkTarget(self),
+                                         selector: #selector(NotchMascotDisplayLinkTarget.step(_:)))
             link.preferredFrameRateRange = Self.frameRates
             link.add(to: .main, forMode: .common)
             displayLink = link
@@ -3275,7 +3276,7 @@ final class NotchMascotDesktop: NSObject {
         displayLink = nil
     }
 
-    @objc private func tick(_ link: CADisplayLink) {
+    fileprivate func tick(_ link: CADisplayLink) {
         let now = CACurrentMediaTime()
         let dt = (now - lastTick) * cheatPace
         lastTick = now
@@ -4174,21 +4175,7 @@ final class NotchMascotDesktop: NSObject {
     // MARK: The pointer
 
     private func installMonitors() {
-        guard monitors.isEmpty else { return }
-        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
-            self?.pointerMoved(NSEvent.mouseLocation)
-        }) { monitors.append(global) }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
-            self?.pointerMoved(NSEvent.mouseLocation)
-            return event
-        }) { monitors.append(local) }
-        // A button held in another app may be a window on the move: it looks
-        // at the windows more often until the button comes up.
-        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { [weak self] event in
-            self?.buttonChanged(held: event.type == .leftMouseDown)
-        }) { monitors.append(global) }
+        NotchMascotPointerHub.add(self)
         screenObserver = screenObserver ?? NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
@@ -4202,8 +4189,11 @@ final class NotchMascotDesktop: NSObject {
     }
 
     private func removeMonitors() {
+        NotchMascotPointerHub.remove(self)
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
         if let appObserver { NSWorkspace.shared.notificationCenter.removeObserver(appObserver) }
         appObserver = nil
         watchTimer?.cancel(); watchTimer = nil
@@ -4211,7 +4201,7 @@ final class NotchMascotDesktop: NSObject {
         buttonHeld = false
     }
 
-    private func buttonChanged(held: Bool) {
+    fileprivate func buttonChanged(held: Bool) {
         guard buttonHeld != held else { return }
         buttonHeld = held
         updateWindowWatch()
@@ -4219,7 +4209,7 @@ final class NotchMascotDesktop: NSObject {
 
     /// Its eyes go to a pointer that comes near, and it takes clicks only
     /// where its body is, so the space around it stays the desktop's.
-    private func pointerMoved(_ point: CGPoint) {
+    fileprivate func pointerMoved(_ point: CGPoint) {
         guard isOut, let panel, let host else { return }
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
         // A yard game that takes every click keeps it out of the pointer's way.
@@ -4469,5 +4459,45 @@ final class NotchMascotDesktopView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = controller?.menu() else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+}
+
+private final class NotchMascotDisplayLinkTarget: NSObject {
+    weak var owner: NotchMascotDesktop?
+    init(_ owner: NotchMascotDesktop) { self.owner = owner }
+    @objc func step(_ link: CADisplayLink) { owner?.tick(link) }
+}
+
+private enum NotchMascotPointerHub {
+    private static let listeners = NSHashTable<NotchMascotDesktop>.weakObjects()
+    private static var monitors: [Any] = []
+
+    static func add(_ desktop: NotchMascotDesktop) {
+        listeners.add(desktop)
+        guard monitors.isEmpty else { return }
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { _ in
+            let point = NSEvent.mouseLocation
+            for item in listeners.allObjects { item.pointerMoved(point) }
+        }) { monitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { event in
+            let point = NSEvent.mouseLocation
+            for item in listeners.allObjects { item.pointerMoved(point) }
+            return event
+        }) { monitors.append(local) }
+        // A button held in another app may be a window on the move: it looks
+        // at the windows more often until the button comes up.
+        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { event in
+            let held = event.type == .leftMouseDown
+            for item in listeners.allObjects { item.buttonChanged(held: held) }
+        }) { monitors.append(global) }
+    }
+
+    static func remove(_ desktop: NotchMascotDesktop) {
+        listeners.remove(desktop)
+        guard listeners.allObjects.isEmpty else { return }
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors.removeAll()
     }
 }

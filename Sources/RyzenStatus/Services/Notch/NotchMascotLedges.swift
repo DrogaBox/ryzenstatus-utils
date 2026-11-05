@@ -209,14 +209,18 @@ enum NotchMascotLedges {
 
 /// Reads where the other apps' windows are from the window server.
 enum NotchMascotWindowReader {
+    private static var cachedWindows: (at: CFTimeInterval, windows: [NotchMascotLedges.Window]) = (0, [])
+
     /// The normal windows of other apps on screen, front to back, in screen
     /// points with y growing upward.
-    static func windows() -> [NotchMascotLedges.Window] {
+    static func windows(maxAge: CFTimeInterval = 0.08) -> [NotchMascotLedges.Window] {
+        let now = CACurrentMediaTime()
+        if maxAge > 0, now - cachedWindows.at <= maxAge { return cachedWindows.windows }
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]]
         else { return [] }
         let own = ProcessInfo.processInfo.processIdentifier
-        return list.compactMap { info in
+        let result = list.compactMap { info -> NotchMascotLedges.Window? in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != own,
                   (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,
@@ -225,6 +229,8 @@ enum NotchMascotWindowReader {
             else { return nil }
             return NotchMascotLedges.Window(id: id, pid: pid, frame: frame)
         }
+        cachedWindows = (now, result)
+        return result
     }
 
     /// Where window `id` is now, or nil once it is closed, minimized or on
