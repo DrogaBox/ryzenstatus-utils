@@ -477,6 +477,9 @@ final class FanCurveController: ObservableObject {
         for (write, status) in zip(writes, statuses) {
             guard status == KERN_SUCCESS else {
                 if firstFailure == KERN_SUCCESS { firstFailure = status }
+                // Refused for good: drop the state the thermal guard would
+                // retry forever. A passing failure keeps the user's choice.
+                if status == kIOReturnNotPrivileged { revertFailedWrite(write) }
                 continue
             }
             if let held = FanKextWritePlan.heldCurve(after: write) {
@@ -485,6 +488,27 @@ final class FanCurveController: ObservableObject {
         }
         if firstFailure != KERN_SUCCESS {
             privilegeError = ProcessorModel.privilegeHint(for: firstFailure)
+        }
+    }
+
+    private func revertFailedWrite(_ write: FanKextWrite) {
+        let fan: Int
+        switch write {
+        case .mapToCurve(let id, _), .manualDuty(let id, _), .biosControl(let id):
+            fan = id
+        }
+        let held = kextMappings[fan]
+        if let held, held >= 0 && held < customCurves.count {
+            if fanMappings[fan] != held { fanMappings[fan] = held }
+            updateFanLocalState(fanId: fan, mode: .curve, curveIdx: held, manualPWM: nil)
+        } else {
+            if fanMappings[fan] != -1 { fanMappings[fan] = -1 }
+            let isAuto = fans.first(where: { $0.id == fan })?.isKextAuto ?? true
+            let currentPWM = fans.first(where: { $0.id == fan })?.throttlePWM
+            updateFanLocalState(fanId: fan,
+                                mode: isAuto ? .auto : .manual,
+                                curveIdx: nil,
+                                manualPWM: isAuto ? nil : currentPWM)
         }
     }
 
@@ -648,6 +672,7 @@ final class FanCurveController: ObservableObject {
         case .curve:
             let targetIdx = curveIndex ?? 0
             guard targetIdx >= 0 && targetIdx < customCurves.count else { return }
+            UserDefaults.standard.set(true, forKey: DefaultsKey.fanCurvesEditorEnabled)
             // The mapping's didSet queues the curve upload and then the
             // mapping write, so the fan only follows a slot already uploaded.
             var updated = fanMappings
