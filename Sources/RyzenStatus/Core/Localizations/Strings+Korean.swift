@@ -412,6 +412,8 @@ extension Strings {
         homebrewSourceBuildWarning: "소스에서 빌드 중: 이 Mac에서는 몇 시간이 걸릴 수 있습니다.",
         homebrewSkipHeavyFormulas: "무거운 수식 건너뛰기(node, llvm 등)",
         homebrewSkipHeavyFormulasFootnote: "수 시간의 빌드를 방지: bottle이 없는 수식은 구버전으로 유지됩니다.",
+        homebrewLastLogView: "마지막 로그 보기",
+        homebrewLastLogHide: "마지막 로그 숨기기",
         homebrewLogTitle: "로그",
         homebrewVersion: "버전",
         homebrewDescription: "설명",

@@ -576,6 +576,8 @@ struct Strings {
     let homebrewSourceBuildWarning: String
     let homebrewSkipHeavyFormulas: String
     let homebrewSkipHeavyFormulasFootnote: String
+    let homebrewLastLogView: String
+    let homebrewLastLogHide: String
     let homebrewLogTitle: String
     let homebrewVersion: String
     let homebrewDescription: String
@@ -1801,6 +1803,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Compilando do código-fonte: isso pode levar horas neste Mac.",
         homebrewSkipHeavyFormulas: "Pular fórmulas pesadas (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Evita compilações de horas: fórmulas sem garrafa ficam desatualizadas.",
+        homebrewLastLogView: "Ver o último log",
+        homebrewLastLogHide: "Ocultar o último log",
         homebrewLogTitle: "Log",
         homebrewVersion: "Versão",
         homebrewDescription: "Tipo",
@@ -2997,6 +3001,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Building from source: this can take hours on this Mac.",
         homebrewSkipHeavyFormulas: "Skip heavy formulas (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Avoids hours-long compiles: bottle-less formulas stay outdated.",
+        homebrewLastLogView: "View last log",
+        homebrewLastLogHide: "Hide last log",
         homebrewLogTitle: "Log",
         homebrewVersion: "Version",
         homebrewDescription: "Type",

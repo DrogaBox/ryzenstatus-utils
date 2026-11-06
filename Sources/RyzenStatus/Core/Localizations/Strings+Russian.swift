@@ -412,6 +412,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Сборка из исходников: на этом Mac это может занять часы.",
         homebrewSkipHeavyFormulas: "Пропускать тяжёлые формулы (node, llvm и др.)",
         homebrewSkipHeavyFormulasFootnote: "Избегает многочасовой сборки: формулы без бутылок остаются устаревшими.",
+        homebrewLastLogView: "Показать последний лог",
+        homebrewLastLogHide: "Скрыть последний лог",
         homebrewLogTitle: "Лог",
         homebrewVersion: "Версия",
         homebrewDescription: "Тип",

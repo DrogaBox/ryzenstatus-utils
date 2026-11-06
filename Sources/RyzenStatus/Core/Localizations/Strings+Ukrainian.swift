@@ -398,6 +398,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Збирання з вихідного коду: на цьому Mac це може тривати години.",
         homebrewSkipHeavyFormulas: "Пропускати важкі formulae (node, llvm тощо)",
         homebrewSkipHeavyFormulasFootnote: "Уникає багатогодинного збирання: formulae без bottle залишаються застарілими.",
+        homebrewLastLogView: "Показати останній журнал",
+        homebrewLastLogHide: "Сховати останній журнал",
         homebrewLogTitle: "Журнал",
         homebrewVersion: "Версія",
         homebrewDescription: "Тип",

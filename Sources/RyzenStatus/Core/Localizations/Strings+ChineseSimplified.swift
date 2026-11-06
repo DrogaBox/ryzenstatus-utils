@@ -411,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "正在从源码编译：在这台 Mac 上可能需要数小时。",
         homebrewSkipHeavyFormulas: "跳过重型软件包（node、llvm 等）",
         homebrewSkipHeavyFormulasFootnote: "避免数小时的编译：无 bottle 的软件包将保持旧版本。",
+        homebrewLastLogView: "查看上次日志",
+        homebrewLastLogHide: "隐藏上次日志",
         homebrewLogTitle: "日志",
         homebrewVersion: "版本",
         homebrewDescription: "类型",

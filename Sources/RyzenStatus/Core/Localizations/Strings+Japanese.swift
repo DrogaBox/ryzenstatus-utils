@@ -411,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "ソースからビルド中: この Mac では数時間かかることがあります。",
         homebrewSkipHeavyFormulas: "重いフォーミュラをスキップ（node、llvm など）",
         homebrewSkipHeavyFormulasFootnote: "長時間のビルドを回避：ボトル未提供のフォーミュラは古いままになります。",
+        homebrewLastLogView: "前回のログを表示",
+        homebrewLastLogHide: "前回のログを隠す",
         homebrewLogTitle: "ログ",
         homebrewVersion: "バージョン",
         homebrewDescription: "種類",

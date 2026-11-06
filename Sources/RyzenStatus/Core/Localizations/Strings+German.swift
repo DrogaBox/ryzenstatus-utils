@@ -411,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Wird aus dem Quellcode kompiliert: das kann auf diesem Mac Stunden dauern.",
         homebrewSkipHeavyFormulas: "Schwere Formeln überspringen (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Vermeidet stundenlange Kompilierungen: Formeln ohne Bottle bleiben veraltet.",
+        homebrewLastLogView: "Letztes Protokoll anzeigen",
+        homebrewLastLogHide: "Letztes Protokoll ausblenden",
         homebrewLogTitle: "Protokoll",
         homebrewVersion: "Version",
         homebrewDescription: "Typ",

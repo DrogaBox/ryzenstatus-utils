@@ -411,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Compilazione dai sorgenti: può richiedere ore su questo Mac.",
         homebrewSkipHeavyFormulas: "Salta formule pesanti (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Evita ore di compilazione: le formule senza bottiglia restano non aggiornate.",
+        homebrewLastLogView: "Mostra ultimo registro",
+        homebrewLastLogHide: "Nascondi ultimo registro",
         homebrewLogTitle: "Registro",
         homebrewVersion: "Versione",
         homebrewDescription: "Tipo",

@@ -399,6 +399,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Kompilácia zo zdrojového kódu: na tomto Macu môže trvať hodiny.",
         homebrewSkipHeavyFormulas: "Preskočiť náročné formulae (node, llvm atď.)",
         homebrewSkipHeavyFormulasFootnote: "Zabráni mnohohodinovej kompilácii: formulae bez bottle ostanú zastarané.",
+        homebrewLastLogView: "Zobraziť posledný protokol",
+        homebrewLastLogHide: "Skryť posledný protokol",
         homebrewLogTitle: "Protokol",
         homebrewVersion: "Verzia",
         homebrewDescription: "Typ",

@@ -411,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Kaynaktan derleniyor: bu Mac'te saatler sürebilir.",
         homebrewSkipHeavyFormulas: "Ağır formülleri atla (node, llvm vb.)",
         homebrewSkipHeavyFormulasFootnote: "Saatler süren derlemeleri önler: bottle'sız formüller eski kalır.",
+        homebrewLastLogView: "Son günlüğü göster",
+        homebrewLastLogHide: "Son günlüğü gizle",
         homebrewLogTitle: "Günlük",
         homebrewVersion: "Sürüm",
         homebrewDescription: "Tür",
