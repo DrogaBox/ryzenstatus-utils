@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.80.0] — 2026-11-06 — kexts 3.40.1 (No kext changes)
+
+**A second round of small features and fixes.** The AMD side is untouched; this release reaches the window layout, the switcher, the Dock, the island's timer, the clipboard history, Homebrew and Settings search.
+
+### Added
+
+- **Window layout: Minimize**: a Minimize action joins the panel's placements and gets a shortcut of its own, so the focused window can go to the Dock from the keyboard. It works on windows whose frame cannot be moved.
+- **Switcher: mix windowless apps**: apps without open windows can be listed in recent-use order among the rest instead of after a divider. The option appears when the switcher lists such apps.
+- **Dock: middle-click for a new window**: a middle-click on an app's Dock icon opens a new window in it without switching desktops, launching the app first if it is not running. Off by default, in Dock click.
+- **Timer with hours, minutes and seconds**: the island's timer gains three typed fields beside its ruler, up to 23:59:59. Tab moves between them, the arrows step them and Escape restores. The ruler still sets whole minutes.
+- **Clipboard history: transform text**: a text entry's menu, in the island and in the quick panel, offers UPPERCASE, lowercase, Title Case and Sentence case. The rewritten text is copied without touching the saved entry.
+
+### Improved
+
+- **Homebrew**: the log of the last operation stays until the next run or Clear log instead of vanishing with the status card, with a "View last log" footer that brings it back. A failed or terminal-fallback card keeps its reason until then.
+- **Settings search**: everyday words find an option named otherwise, so "storage" finds the low disk space alert, "ram" the memory rows and "warn" the alerts. A result whose feature lives on another page opens the page that lists it instead of jumping away.
+- **Quick tools**: emptying the Trash follows the Finder's own "Show warning before emptying the Trash" setting, so with the warning off the island, the panel and the command bar empty it on one click as the Finder does.
+- **Island**: a header menu whose anchor went away after Cancel opens in the invoking window instead of not at all.
+
 ## [1.79.0] — 2026-11-06 — kexts 3.40.1 (No kext changes)
 
 **A round of fixes and small features across the whole app.** Nothing changes for the AMD side; this release brings the switcher, the island, the clipboard, the recorder and the screenshot editor up to date.
