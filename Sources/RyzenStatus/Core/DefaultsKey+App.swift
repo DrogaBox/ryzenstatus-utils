@@ -84,6 +84,7 @@ extension DefaultsKey {
     static let dockPreviewOpenDelay = "dockPreviewOpenDelay"
     static let dockClickMinimize = "dockClickMinimize"    // click the active app's Dock icon to minimize its windows
     static let dockClickCycleWindows = "dockClickCycleWindows" // click the active app's Dock icon to cycle through its windows
+    static let dockClickNewWindow = "dockClickNewWindow"  // middle-click an app's Dock icon to open a new window
     static let middleClickEnabled = "middleClickEnabled"  // three-finger PHYSICAL click on the trackpad acts as a middle click
     static let middleClickTapFingers = "middleClickTapFingers"  // 0 = off (default); 3 or 4 = a light tap with that many fingers also middle-clicks (issue #161)
     static let previewSize = "previewSize"                // app switcher + dock preview thumbnail size
@@ -443,6 +444,7 @@ extension DefaultsKey {
     static let panelControlMouseAcceleration = "panelControlMouseAcceleration"
     static let panelControlMouseClickDebounce = "panelControlMouseClickDebounce"
     static let panelControlSpacesOrder = "panelControlSpacesOrder"
+    static let panelControlDockClickNewWindow = "panelControlDockClickNewWindow"
 
     // Mouse button shortcuts: programmable mouse buttons.
     static let mouseButtonShortcutsEnabled = "mouseButtonShortcutsEnabled"

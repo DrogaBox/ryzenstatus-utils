@@ -221,7 +221,8 @@ extension AppFeature {
         case .dockPreview: return [DefaultsKey.dockPreviewEnabled]
         case .dockClick: return [DefaultsKey.dockClickMinimize,
                                  DefaultsKey.dockClickHide,
-                                 DefaultsKey.dockClickCycleWindows]
+                                 DefaultsKey.dockClickCycleWindows,
+                                 DefaultsKey.dockClickNewWindow]
         case .windowMaximizer: return [DefaultsKey.windowMaximizeEnabled]
         case .autoQuit: return [DefaultsKey.autoQuitEnabled]
         case .scrollInverter: return [DefaultsKey.scrollInverterEnabled,
