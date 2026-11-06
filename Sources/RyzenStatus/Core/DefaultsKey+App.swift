@@ -988,6 +988,7 @@ extension DefaultsKey {
     static let windowLayoutShortcutRightMiddleQuarter = "windowLayoutShortcutRightMiddleQuarter"
     static let windowLayoutShortcutRightQuarter = "windowLayoutShortcutRightQuarter"
     static let windowLayoutShortcutFullScreen = "windowLayoutShortcutFullScreen"
+    static let windowLayoutShortcutMinimize = "windowLayoutShortcutMinimize"
     static let notchAgentsOptInMigrated = "notchAgentsOptInMigrated" // local migration marker; never backed up
     static let notchAgentsClaude = "notchAgentsClaude"
     static let notchAgentsCodex = "notchAgentsCodex"

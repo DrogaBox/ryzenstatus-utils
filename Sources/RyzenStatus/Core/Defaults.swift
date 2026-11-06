@@ -1160,6 +1160,7 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutRightMiddleQuarter: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutRightQuarter: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutFullScreen: WindowLayoutAction.clearedShortcutStorageValue,
+        DefaultsKey.windowLayoutShortcutMinimize: WindowLayoutAction.clearedShortcutStorageValue,
     ]
 
     private static let currentMigrationVersion = 7
