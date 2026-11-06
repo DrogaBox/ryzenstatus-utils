@@ -1224,9 +1224,10 @@ struct UtilitiesSection: View {
     /// feature and its shortcut toggle), so the badge never advertises a
     /// combo that does nothing.
     private func shortcutHint(_ role: GlobalShortcutRole) -> String? {
-        guard role.requiredEnableKeys.allSatisfy({ UserDefaults.standard.bool(forKey: $0) })
+        guard role.isAvailable(using: { $0.isAvailable }),
+              role.requiredEnableKeys.allSatisfy({ UserDefaults.standard.bool(forKey: $0) })
         else { return nil }
-        return role.savedShortcut.displayString
+        return role.assignedShortcut()?.displayString
     }
 
     private var ocrCaption: String {

@@ -17,7 +17,7 @@ enum NotchModule: String, CaseIterable, Identifiable {
         // gear looked like a second settings button.
         case .mixer: return "speaker.wave.2"
         case .music: return "music.note"
-        case .timer: return "timer"
+        case .timer: return "timer.circle"
         case .camera: return "web.camera"
         case .downloads: return "arrow.down.circle"
         case .notifications: return "bell"
@@ -1571,7 +1571,7 @@ enum NotchSupport {
         value.isFinite ? min(hoverDelayRange.upperBound, max(hoverDelayRange.lowerBound, value)) : defaultHoverDelay
     }
 
-    /// How long an island opened by hover waits after the pointer leaves.
+    /// How long an automatically closing island waits after the pointer leaves.
     static let defaultCloseDelay = NotchQuickAccessLayout.hoverExitDelay
     static let closeDelayRange = 0.10...2.0
 
@@ -1962,12 +1962,13 @@ enum NotchSupport {
     }
 
     /// Direct openings are dismissed explicitly, never by the pointer's
-    /// initial position at the menu bar or in the application being used.
+    /// initial position at the menu bar or in the application being used,
+    /// unless closing on the pointer's exit was switched on for them too.
     /// A hover opening being typed into stays as the pointer drifts off: a
     /// field lost mid-word costs more than the click away that closes it.
     static func closesOnPointerExit(expanded: Bool, peeking: Bool, openedByHover: Bool,
-                                    typing: Bool = false) -> Bool {
-        peeking || (expanded && openedByHover && !typing)
+                                    typing: Bool = false, closeAfterClick: Bool = false) -> Bool {
+        peeking || (expanded && (openedByHover || closeAfterClick) && !typing)
     }
 
     /// Typing holds the island only while the field typed into keeps the

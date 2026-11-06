@@ -289,6 +289,7 @@ enum SettingsDirectory {
                 SettingsDirectoryItem(page: .switcher, title: s.tabSwitcher, icon: "rectangle.on.rectangle",
                                        featureKeywords: [
                                         (.switcher, [s.switcherEnable, s.switcherInstantSelection,
+                                                     s.switcherIgnoreHoverSelection,
                                                      FeatureStrings.switcherShortcuts(language).allWindows,
                                                      s.switcherWindowlessApps,
                                                      s.switcherShowShortcutHints, s.switcherMaxColumns,
@@ -321,6 +322,7 @@ enum SettingsDirectory {
                                       featureKeywords: [
                                         (.windowLayout, [s.dockClickCycleWindows,
                                                          FeatureStrings.windowLayout(language).edgeSnapEnable,
+                                                         WindowEdgeSnapRestoreStrings.localized(language).title,
                                                          FeatureStrings.windowLayout(language).gestureEnable,
                                                          FeatureStrings.windowLayout(language).gestureResize,
                                                          FeatureStrings.windowLayoutIgnoredApps(language).listTitle]),
@@ -415,6 +417,7 @@ enum SettingsDirectory {
                                                  FeatureStrings.notchActivities(language).keepAwakeActivity,
                                                  FeatureStrings.notchActivities(language).hideTimerCountdown,
                                                  FeatureStrings.notchCalendar(language).weekNumbers,
+                                                 FeatureStrings.notchCalendar(language).hideAllDay,
                                                  FeatureStrings.hub(language).titleNotchMascot,
                                                  "notch", "camera", "music", "clipboard",
                                                  FeatureStrings.notchAgents(language).title, "Claude", "Codex", "OpenCode", "GitHub Copilot", "AI", "tokens",

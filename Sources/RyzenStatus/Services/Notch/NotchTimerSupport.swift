@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import CoreGraphics
 import Foundation
-
 enum NotchTimerMode: String, CaseIterable { case timer, pomodoro, stopwatch }
+/// How long the alarm keeps ringing once the timer is up.
+enum NotchTimerSoundDuration: Int, CaseIterable, Identifiable {
+    case fiveSeconds = 5
+    case tenSeconds = 10
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case fiveMinutes = 300
+    static let defaultValue = Self.fiveMinutes.rawValue
+    var id: Int { rawValue }
+    static func normalized(_ value: Int) -> Self {
+        Self(rawValue: value) ?? .fiveMinutes
+    }
+    var duration: Duration { .seconds(Int64(rawValue)) }
+}
 // NotchTimerPhase lives in Core/NotchTimerPhase.swift, beside the strings
 // that name each phase, so the unit harness can compile those strings alone.
 
@@ -197,6 +211,23 @@ enum NotchTimerSupport {
     static func isSoundEnabled(in defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: DefaultsKey.notchTimerSoundEnabled) as? Bool ?? true
     }
+    /// The sound the alarm rings with, falling back to Glass when the stored
+    /// choice is not one this Mac has.
+    static func soundName(in defaults: UserDefaults = .standard,
+                          available: [String] = NotchTimerSound.all) -> String? {
+        TextSnippetSupport.resolvedSoundName(stored: defaults.string(forKey: DefaultsKey.notchTimerSoundName),
+                                             available: available, fallback: Defaults.defaultNotchTimerSoundName)
+    }
+    /// Loads the alarm's tone, or nil to fall back to the system beep.
+    static func sound(in defaults: UserDefaults = .standard) -> NSSound? {
+        soundName(in: defaults).flatMap { NSSound(contentsOf: NotchTimerSound.url(for: $0), byReference: false) }
+    }
+
+    static func soundDuration(in defaults: UserDefaults = .standard) -> Duration {
+        let stored = defaults.object(forKey: DefaultsKey.notchTimerSoundDuration) as? Int
+            ?? NotchTimerSoundDuration.defaultValue
+        return NotchTimerSoundDuration.normalized(stored).duration
+    }
 
     static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
         NotchSupport.isEnabled(in: defaults) && AppFeature.notchTimer.isAvailable(in: defaults)
@@ -337,5 +368,50 @@ enum NotchTimerSupport {
     static func stripIconSize(height: CGFloat) -> CGFloat { min(20, height - NotchLayout.compactEdgeGap * 2) }
     static func stripAgentMarkSize(height: CGFloat, working: Int) -> CGFloat {
         min(working > 1 ? 11 : 14, max(8, height - NotchLayout.compactEdgeGap * 2 - 4))
+    }
+}
+
+/// The alarm's choices: the ringtones and alarm tones macOS shares with the
+/// iPhone, stored as "ringtone:<file>", then the classic alert sounds by name.
+enum NotchTimerSound {
+    static let ringtonesPath = "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones"
+    static let ringtonePrefix = "ringtone:"
+    /// A newer edition of a tone. It is offered under the plain name, and
+    /// only when the original does not ship beside it.
+    static let editionSuffix = "-EncoreInfinitum"
+
+    /// Read from the directory, so a tone missing on another macOS is simply
+    /// not offered and a stored choice of it falls back to Glass.
+    static let ringtones = ringtoneIDs(fromFiles: (try? FileManager.default.contentsOfDirectory(atPath: ringtonesPath)) ?? [])
+
+    static var all: [String] { ringtones + TextSnippetSupport.alertSoundNames }
+
+    static func ringtoneIDs(fromFiles files: [String]) -> [String] {
+        let names = Set(files.filter { $0.lowercased().hasSuffix(".m4r") }.map { String($0.dropLast(".m4r".count)) })
+        return names.filter { name in
+            !name.hasSuffix(editionSuffix) || !names.contains(String(name.dropLast(editionSuffix.count)))
+        }
+        .map { ringtonePrefix + $0 }
+        .sorted { ringtoneTitle($0).localizedStandardCompare(ringtoneTitle($1)) == .orderedAscending }
+    }
+
+    static func isRingtone(_ id: String) -> Bool { id.hasPrefix(ringtonePrefix) }
+
+    static func url(for id: String) -> URL {
+        guard isRingtone(id) else { return TextSnippetSupport.soundFileURL(for: id) }
+        return URL(fileURLWithPath: ringtonesPath)
+            .appendingPathComponent(String(id.dropFirst(ringtonePrefix.count)))
+            .appendingPathExtension("m4r")
+    }
+
+    /// Ringtones keep the names macOS and iOS give them; alert sounds use
+    /// the names Sound settings shows.
+    static func title(for id: String, language: AppLanguage) -> String {
+        isRingtone(id) ? ringtoneTitle(id) : AlertSoundStrings.displayName(for: id, language: language)
+    }
+
+    private static func ringtoneTitle(_ id: String) -> String {
+        let file = String(id.dropFirst(ringtonePrefix.count))
+        return file.hasSuffix(editionSuffix) ? String(file.dropLast(editionSuffix.count)) : file
     }
 }

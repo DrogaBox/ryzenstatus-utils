@@ -19,6 +19,14 @@ enum ClipboardHistoryMoveDirection {
 /// images and files; keeps a small local history. Confidential pasteboard
 /// content is excluded; guessing sensitive text is a separate opt-in.
 final class ClipboardHistoryService: ObservableObject {
+    /// The system alert sounds the copy sound can be, by name, such as "Glass".
+    static let copySoundNames: [String] = {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds")) ?? []
+        return files.filter { $0.hasSuffix(".aiff") }
+            .map { String($0.dropLast(".aiff".count)) }
+            .sorted()
+    }()
+
     static let shared = ClipboardHistoryService()
 
     @Published private(set) var entries: [ClipboardHistoryEntry] = [] {
@@ -94,6 +102,8 @@ final class ClipboardHistoryService: ObservableObject {
     private static let pasteboardTimeout: TimeInterval = 5
     private var panel: NSPanel?
     private var panelResizeObserver: NSObjectProtocol?
+    private var panelMoveObserver: NSObjectProtocol?
+    private var adjustingPanelFrame = false
     private var panelSizeLimit: ClipboardPanelSizeLimit?
     private var keyMonitor: Any?
     private var localClickMonitor: Any?
@@ -771,6 +781,10 @@ final class ClipboardHistoryService: ObservableObject {
                 return
             }
             guard !source.excluded, let content = result.content else { return }
+            if UserDefaults.standard.bool(forKey: DefaultsKey.clipboardHistoryCopySound),
+               let sound = UserDefaults.standard.string(forKey: DefaultsKey.clipboardHistoryCopySoundName) {
+                NSSound(named: sound)?.play()
+            }
             // A copy out of the history's own panel, such as text selected in
             // the preview, is of an entry already there, and its app stays.
             let keepsSource = source.fromHistoryPanel
@@ -1324,6 +1338,7 @@ final class ClipboardHistoryService: ObservableObject {
             return
         }
         app.activate(options: [])
+        guard ClipboardHistoryPasteTarget.acceptsSyntheticPaste(bundleID: app.bundleIdentifier) else { return }
         guard AXIsProcessTrusted() else {
             if promptedForAccessibility {
                 NSSound.beep()
@@ -1382,14 +1397,27 @@ final class ClipboardHistoryService: ObservableObject {
         // AppKit owns the window size; SwiftUI fills its content view.
         host.sizingOptions = []
         panel.contentViewController = host
+        observePanelGeometry(panel)
+        self.panel = panel
+        return panel
+    }
+
+    private func observePanelGeometry(_ panel: NSPanel) {
         panelResizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didEndLiveResizeNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
-            guard let self, let panel else { return }
+            guard let self, let panel, panel.isVisible, !self.adjustingPanelFrame else { return }
             self.savePanelSize(panel)
+            // Resizing from the left or bottom also moves the origin, but
+            // AppKit does not send didMove when the size changes with it.
+            self.savePanelPosition(panel)
         }
-        self.panel = panel
-        return panel
+        panelMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { [weak self, weak panel] _ in
+            guard let self, let panel else { return }
+            self.savePanelPosition(panel)
+        }
     }
 
     /// Read on every opening, so a layout picked in Settings applies the next
@@ -1424,11 +1452,18 @@ final class ClipboardHistoryService: ObservableObject {
         UserDefaults.standard.set(Double(size.height), forKey: DefaultsKey.clipboardHistoryWindowHeight)
     }
 
+    private func savePanelPosition(_ panel: NSPanel) {
+        guard panel.isVisible, quickLayout == .list, !adjustingPanelFrame else { return }
+        UserDefaults.standard.set(Double(panel.frame.minX), forKey: DefaultsKey.clipboardHistoryWindowX)
+        UserDefaults.standard.set(Double(panel.frame.minY), forKey: DefaultsKey.clipboardHistoryWindowY)
+    }
+
     /// Placed again on every open, so a changed display never strands it.
     /// Cards make a shelf along the bottom of the screen the pointer is on.
-    /// The list is a window of the size the user last gave it, centered
-    /// toward the top.
+    /// The list keeps its chosen location when that display is still usable.
     private func position(_ panel: NSPanel) {
+        adjustingPanelFrame = true
+        defer { adjustingPanelFrame = false }
         let screen = NSScreen.pointerVisibleFrame
         switch quickLayout {
         case .cards:
@@ -1439,6 +1474,17 @@ final class ClipboardHistoryService: ObservableObject {
                            animate: false)
         case .list:
             panel.styleMask.insert(.resizable)
+            let defaults = UserDefaults.standard
+            if defaults.object(forKey: DefaultsKey.clipboardHistoryWindowX) != nil,
+               defaults.object(forKey: DefaultsKey.clipboardHistoryWindowY) != nil,
+               let restored = ClipboardHistoryWindowPlacement.restoredFrame(
+                   origin: NSPoint(x: defaults.double(forKey: DefaultsKey.clipboardHistoryWindowX),
+                                   y: defaults.double(forKey: DefaultsKey.clipboardHistoryWindowY)),
+                   visibleFrames: NSScreen.screens.map(\.visibleFrame),
+                   size: preferredPanelSize(visibleFrame:)) {
+                panel.setFrame(restored, display: true, animate: false)
+                return
+            }
             let size = preferredPanelSize(visibleFrame: screen)
             let x = screen.midX - size.width / 2
             let y = min(screen.maxY - size.height - 54, screen.midY - size.height / 2)
@@ -1453,6 +1499,8 @@ final class ClipboardHistoryService: ObservableObject {
 
     private func resize(_ panel: NSPanel, to contentSize: NSSize,
                         around current: NSRect, animated: Bool) {
+        adjustingPanelFrame = true
+        defer { adjustingPanelFrame = false }
         var target = NSRect(origin: .zero, size: contentSize)
         target.origin.x = current.midX - target.width / 2
         target.origin.y = current.midY - target.height / 2

@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.79.0] — 2026-11-06 — kexts 3.40.1 (No kext changes)
+
+**A round of fixes and small features across the whole app.** Nothing changes for the AMD side; this release brings the switcher, the island, the clipboard, the recorder and the screenshot editor up to date.
+
+### Added
+
+- **Timer sounds**: pick the sound the island's timer rings with, from the ringtones and alarm tones macOS shares with the iPhone or the classic alert sounds, and choose how long it keeps ringing, from five seconds to five minutes.
+- **Hide all-day events**: an option in the island's calendar keeps birthdays, holidays and multi-day blocks out of the agenda and the month dots.
+- **Close the island when the pointer leaves**: an island opened with a click can now close on its own once the pointer moves away, with the same delay as hover openings.
+- **Clipboard sound**: an optional sound plays each time the history saves a copy, with the sound of your choice.
+- **Clipboard window position**: the history window in list layout remembers where you left it, on whichever display still shows it.
+- **Switcher: ignore hover selection**: moving the pointer over apps and windows no longer moves the highlight when this option is on. Clicking still opens one.
+- **Snapped windows get their size back**: dragging a window away from the edge it was snapped to restores its earlier size, as an option.
+- **Uninstaller: select all**: a checkbox at the top of the results selects or clears every item.
+- **Recorder export controls**: GIF exports come out sharper and the export sheet lets you pick the format, the frame rate and the size.
+- **Large images in the editor**: a huge image pasted from the clipboard is scaled down before the screenshot editor opens it, so the editor stays quick.
+- **Software dimming for readable monitors**: a monitor that answers DDC reads can now dim its picture in software instead, from the brightness controls.
+
+### Improved
+
+- **Switcher**: a quick switch lands faster and minimized windows no longer flash on the way, the shortcut keeps working while secure input is on, and focus without raising works even when the no-raise path is refused.
+- **Mixer**: a volume change slides across the audio block instead of stepping at its edge, so dragging a slider no longer sounds like a zipper.
+- **Recorder**: GPU programs are compiled once per export instead of once per frame, and the pointer no longer stays hidden in a recording after typing in a text field.
+- **Byte units**: readings round before picking their unit, so 9.96 shows as "10" and 999.6 GB reads "1.0 TB".
+- **URL Cleaner**: links copied from Safari keep their preview card and still get cleaned, and Amazon product links shrink to their `/dp/ASIN` form.
+- **Command bar**: the selected row carries an outline so it reads on dark surfaces, and `localhost:3000` or `example.com:8080` open as sites instead of searches.
+- **AI agents**: today's hour bars follow the local day across daylight-saving changes, a slash command in Claude Code no longer opens a turn, a forked skill's work shows as running with its session's project, and a call another app makes to the CLI no longer shows Claude as always running.
+- **Keep Awake in the island**: the indicator takes the icon tint you chose for the menu bar.
+- **Quit protection**: the hold confirmation can be as short as 125 ms.
+- **Network monitor**: process names with commas are read whole.
+- **Cleaner**: support folders named after a vendor's site, such as Battle.net, are kept when the app is installed.
+- **Settings export**: the same settings always produce the same file.
+- **Disk image installer**: images mounted by build or notarization scripts, or outside Downloads without a quarantine mark, are left alone.
+- **Super Key**: a solo tap that turns Caps Lock on keeps it on.
+- **Island**: the window-level slider stays under the pointer while scrubbing, the display picker stays reachable once "All displays" is chosen, the capsule does not name a new song when that notice is off, the native banner is hidden on macOS 26 too, mirrored banners are hidden before they draw, the Notification Center list stays out of the island, and the island hides over an app's own full screen on every display and shrinks towards its centre as it goes.
+- **Mic mute**: muting zeroes the input volume so capture actually stops, and the previous levels come back on unmute.
+- **DDC brightness**: the read checksum now includes the host address, so monitors that check it answer the luminance read and their range is learned.
+- **Clipboard history**: a pick made while Microsoft Remote Desktop is in front only copies, since a synthetic paste would type a bare "v" into the session.
+- **Smooth scrolling**: the glide leaves the app's own windows alone, so the clipboard history and the panel's lists scroll as the wheel asks.
+- **Shortcuts**: the Keep Awake and snippet shortcuts can be cleared.
+- **Window layout**: a gesture finds its window even when the child hit test fails.
+- **Media tools**: compact workspaces use one scroll region.
+- **AI prices**: the price list is current.
+
 ## [1.78.2] — 2026-11-05 — kexts 3.40.1
 
 **Sleep does what we said it did.** Install the new kexts from the DMG to get every fix below.

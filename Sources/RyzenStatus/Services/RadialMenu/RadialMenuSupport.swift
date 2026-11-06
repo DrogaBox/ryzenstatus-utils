@@ -524,6 +524,23 @@ enum RadialNowPlayingState: Equatable {
 
 enum RadialNowPlayingSupport {
     private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
+
+    /// The process to show and open for a reading. Safari and other WebKit
+    /// apps play a page's sound from their GPU helper, so the reading names
+    /// `com.apple.WebKit.GPU` and that helper's pid, and the helper's icon is
+    /// a blank executable (#3590). Every WebKit app runs a helper with that
+    /// identifier, so the reading's own pid decides which one, and the
+    /// regular app answering for it is the player.
+    static func playerPID(bundleMatch: pid_t?, readingPID: pid_t?,
+                          isRegularApp: (pid_t) -> Bool,
+                          regularOwner: (pid_t) -> pid_t?) -> pid_t? {
+        if let bundleMatch, isRegularApp(bundleMatch) { return bundleMatch }
+        // A shared helper identifier cannot tell which app owns this reading.
+        // Without its pid, keep the helper fallback without resolving an owner.
+        guard let process = readingPID else { return bundleMatch }
+        if isRegularApp(process) { return process }
+        return regularOwner(process) ?? process
+    }
     /// Artwork above this is dropped rather than drawn on the card.
     static let maximumArtworkBytes = 12 * 1_024 * 1_024
 

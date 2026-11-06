@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import SwiftUI
 import EventKit
 
@@ -16,6 +17,10 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchDismissNativeNotifications) private var dismissNativeNotifications = false
     @AppStorage(DefaultsKey.notchTimerEnabled) private var timerEnabled = true
     @AppStorage(DefaultsKey.notchTimerSoundEnabled) private var timerSoundEnabled = true
+    @AppStorage(DefaultsKey.notchTimerSoundName) private var timerSoundName = Defaults.defaultNotchTimerSoundName
+    /// Held so a long ringtone preview stops when another sound is picked.
+    @State private var timerSoundPreview: NSSound?
+    @AppStorage(DefaultsKey.notchTimerSoundDuration) private var timerSoundDuration = NotchTimerSoundDuration.defaultValue
     @AppStorage(DefaultsKey.notchHideTimerCountdown) private var hideTimerCountdown = false
     @AppStorage(DefaultsKey.notchCameraEnabled) private var cameraEnabled = true
     @AppStorage(DefaultsKey.notchAccessoriesEnabled) private var accessoriesEnabled = true
@@ -24,6 +29,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchCalendarCountdownLead) private var calendarCountdownLead = NotchCalendarSupport.defaultCountdownLeadMinutes
     @AppStorage(DefaultsKey.notchCalendarTimeLeft) private var calendarTimeLeft = false
     @AppStorage(DefaultsKey.notchCalendarWeekNumbers) private var calendarWeekNumbers = false
+    @AppStorage(DefaultsKey.notchCalendarHidesAllDay) private var calendarHidesAllDay = false
     @AppStorage(DefaultsKey.notchAgentsEnabled) private var agentsEnabled = false
     @AppStorage(DefaultsKey.notchWatchEnabled) private var watchEnabled = true
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
@@ -59,6 +65,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchCoversMenus) private var coversMenus = true
     @AppStorage(DefaultsKey.notchHoverDelay) private var hoverDelay = NotchSupport.defaultHoverDelay
     @AppStorage(DefaultsKey.notchCloseDelay) private var closeDelay = NotchSupport.defaultCloseDelay
+    @AppStorage(DefaultsKey.notchCloseOnPointerExit) private var closeOnPointerExit = false
     @AppStorage(DefaultsKey.notchReturnHome) private var returnHome = false
     @AppStorage(DefaultsKey.notchHomeModule) private var homeModule = NotchModule.controls.rawValue
     @AppStorage(DefaultsKey.notchOpensActivity) private var opensActivity = true
@@ -140,18 +147,18 @@ struct NotchSettings: View {
 
     private var configuration: [String] {
         [String(enabled), String(calendarEnabled), String(calendarCountdown), String(calendarCountdownLead),
-         String(calendarTimeLeft),
+         String(calendarTimeLeft), String(calendarHidesAllDay),
          String(notificationsEnabled), String(dismissNativeNotifications), String(gesturesEnabled),
          String(lyricsEnabled), String(lyricsOnline), String(queueEnabled), String(liveEqualizer),
          String(showPlayingMusic), String(includeOtherPlayers), idle, hiddenControls, controlOrder, size,
-         String(timerEnabled), String(timerSoundEnabled), String(hideTimerCountdown),
+         String(timerEnabled), String(timerSoundEnabled), String(timerSoundDuration), String(hideTimerCountdown),
          String(cameraEnabled), String(accessoriesEnabled), String(outlineEnabled), String(hideMenuBarGap),
          String(customWidth), String(customHeight), String(cameraFitWidth), String(cameraFitHeight),
          String(capsuleFitWidth), String(capsuleFitHeight), String(capsuleFitDrop), String(hapticFeedback),
          String(shelfWindow), String(dragReveal), String(captureControls), String(quickPanel), String(appPanel),
          String(hoverExpand), String(hideUntilHover), String(hiddenShowsActivity), String(hideInFullscreen),
          String(hoverInFullscreen), String(coversMenus),
-         display, silhouette, capsuleCenter, capsuleMetric, String(hover), hidden, order, String(volume), String(inputSource),
+         display, silhouette, capsuleCenter, capsuleMetric, String(hover), String(closeOnPointerExit), hidden, order, String(volume), String(inputSource),
          String(brightness), String(keyboardLight),
          String(microphone), String(battery), String(clipboard), String(clipboardWindow), clipboardCardSize,
          String(capture), String(trackChange), captureAction, String(showInCaptures),
@@ -296,6 +303,17 @@ struct NotchSettings: View {
                         Text(text.withoutNotchUnreached).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Button(text.showOnAllDisplays) { display = NotchDisplay.all.rawValue }
+                    } else if enabled, display == NotchDisplay.all.rawValue {
+                        // The display card above hides with the shape, so the
+                        // choice stays reachable here to pick another display.
+                        Picker(text.display, selection: $display) {
+                            Text(text.automatic).tag(NotchDisplay.automatic.rawValue)
+                            Text(text.builtIn).tag(NotchDisplay.builtIn.rawValue)
+                            Text(text.mainDisplay).tag(NotchDisplay.main.rawValue)
+                            Text(text.followPointer).tag(NotchDisplay.pointer.rawValue)
+                            Text(text.allDisplays).tag(NotchDisplay.all.rawValue)
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
                 // A capsule has no camera in its middle, so it can carry a reading there.
@@ -570,6 +588,7 @@ struct NotchSettings: View {
             }
             switchRow("hourglass", calendar.timeLeft, caption: calendar.timeLeftHint, isOn: $calendarTimeLeft)
             switchRow("number", calendar.weekNumbers, isOn: $calendarWeekNumbers)
+            switchRow("eye.slash", calendar.hideAllDay, isOn: $calendarHidesAllDay)
             switchRow("figure.walk.departure", extras.leaveAlert, caption: extras.leaveAlertHint, isOn: $leaveAlert)
             if leaveAlert {
                 SettingsRow(symbol: "map", title: extras.transport) {
@@ -589,6 +608,16 @@ struct NotchSettings: View {
                       isOn: $hideTimerCountdown)
                 .disabled(!AppFeature.notchTimer.isAvailable)
             switchRow("speaker.wave.2", activities.soundEnabled, isOn: $timerSoundEnabled)
+                .disabled(!AppFeature.notchTimer.isAvailable)
+            if timerSoundEnabled { timerSoundPicker }
+            let soundDuration = NotchTimerSoundDuration.normalized(timerSoundDuration)
+            SettingsMenuRow(symbol: "speaker.wave.2", title: activities.soundDuration, selection: Binding(
+                get: { soundDuration.rawValue }, set: { timerSoundDuration = NotchTimerSoundDuration.normalized($0).rawValue })) {
+                ForEach(NotchTimerSoundDuration.allCases) { choice in
+                    Text(AgentFormat.duration(TimeInterval(choice.rawValue), locale: l10n.language.formattingLocale(), style: .short))
+                        .tag(choice.rawValue)
+                }
+            }
                 .disabled(!AppFeature.notchTimer.isAvailable)
         case .camera:
             Text(FeatureStrings.notchActivities(l10n.language).cameraHint).font(.callout).foregroundStyle(.secondary)
@@ -764,7 +793,12 @@ struct NotchSettings: View {
                 }
                 if hover || (hideInFullscreen && hoverInFullscreen) {
                     hoverDelayControl
-                    if hoverExpand { closeDelayControl }
+                }
+                if !hover {
+                    switchRow("cursorarrow", editor.closeOnPointerExit, isOn: $closeOnPointerExit)
+                }
+                if (hover || (hideInFullscreen && hoverInFullscreen)) && hoverExpand || !hover && closeOnPointerExit {
+                    closeDelayControl
                 }
                 switchRow("keyboard", l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
                 if shortcutEnabled {
@@ -1222,6 +1256,35 @@ struct NotchSettings: View {
     }
 
     /// An option with its icon, one line and a switch, like every other page.
+    /// The alarm's sound, listed like the snippet sound and previewed on change.
+    private var timerSoundPicker: some View {
+        let snippets = FeatureStrings.snippets(l10n.language)
+        return SettingsRow(symbol: "bell", title: snippets.soundPickerLabel) {
+            Picker(snippets.soundPickerLabel, selection: $timerSoundName) {
+                ForEach(NotchTimerSound.ringtones, id: \.self) { id in
+                    Text(NotchTimerSound.title(for: id, language: l10n.language)).tag(id)
+                }
+                if !NotchTimerSound.ringtones.isEmpty { Divider() }
+                ForEach(AlertSoundStrings.sortedNames(TextSnippetSupport.alertSoundNames,
+                                                      language: l10n.language), id: \.self) { name in
+                    Text(AlertSoundStrings.displayName(for: name, language: l10n.language)).tag(name)
+                }
+                if NotchTimerSupport.soundName() != timerSoundName {
+                    Text(snippets.soundUnavailable).tag(timerSoundName)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .onChange(of: timerSoundName) { _, _ in
+                timerSoundPreview?.stop()
+                timerSoundPreview = NotchTimerSupport.sound()
+                timerSoundPreview?.play()
+            }
+        }
+        .disabled(!AppFeature.notchTimer.isAvailable)
+        .onDisappear { timerSoundPreview?.stop() }
+    }
+
     private func switchRow(_ symbol: String, _ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
         SettingsRow(symbol: symbol, title: title, caption: caption) {
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
