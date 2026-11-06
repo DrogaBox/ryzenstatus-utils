@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "显示快捷键提示",
         switcherShowShortcutHintsCaption: "在图标下方显示 App 和窗口快捷键。",
         switcherWindowlessAppsLockedFormat: "开启“%@”时，会保留所有正在运行的 App 入口。如需选择，请关闭此选项。",
+        switcherWindowlessAppsMixedOrder: "与其他 App 混排",
+        switcherWindowlessAppsMixedOrderCaption: "将没有打开窗口的 App 按最近使用顺序与其他 App 排列在一起，而不是单独分区显示。",
         switcherNoOpenWindow: "没有打开的窗口",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "搜索、安装和移除 formula 与 cask。",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "正在从源码编译：在这台 Mac 上可能需要数小时。",
         homebrewSkipHeavyFormulas: "跳过重型软件包（node、llvm 等）",
         homebrewSkipHeavyFormulasFootnote: "避免数小时的编译：无 bottle 的软件包将保持旧版本。",
+        homebrewLastLogView: "查看上次日志",
+        homebrewLastLogHide: "隐藏上次日志",
         homebrewLogTitle: "日志",
         homebrewVersion: "版本",
         homebrewDescription: "类型",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "固定空间顺序",
         spacesOrderCaption: "阻止 macOS 按最近使用情况重新排列空间，让它们保持你设定的顺序。关闭此选项后会恢复之前的设置。为应用更改，Dock 可能会重新启动一次。",
         quitAppsName: "退出应用",
-        quitAppsCaption: "列出打开的应用，可逐个退出、全部退出，或退出最前面应用以外的所有应用。退出任何应用前都会先显示列表。"
+        quitAppsCaption: "列出打开的应用，可逐个退出、全部退出，或退出最前面应用以外的所有应用。退出任何应用前都会先显示列表。",
+        dockClickNewWindow: "中键点按程序坞图标打开新窗口",
+        dockClickNewWindowCaption: "中键点按应用的程序坞图标即可打开该应用的新窗口，即使已有窗口打开。"
     )
 }

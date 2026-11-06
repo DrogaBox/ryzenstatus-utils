@@ -48,6 +48,7 @@ extension DefaultsKey {
     static let switcherSimpleMode = "switcherSimpleMode"  // app-only row without window captures
     static let switcherMergeTabs = "switcherMergeTabs"     // show one switcher entry per app (collapse all of an app's windows)
     static let switcherWindowlessApps = "switcherWindowlessApps" // SwitcherWindowlessApps raw value
+    static let switcherWindowlessAppsMixedOrder = "switcherWindowlessAppsMixedOrder" // list apps with no open windows in recent-use order among the other apps instead of after a divider
     static let switcherAppRules = "switcherAppRules" // [bundle id: SwitcherAppRule raw value]
     static let windowPreviewExcludedApps = "windowPreviewExcludedApps" // pause thumbnail capture while these apps are in front
     static let switcherCurrentSpaceOnly = "switcherCurrentSpaceOnly" // list only windows on the desktop the user is in
@@ -83,6 +84,7 @@ extension DefaultsKey {
     static let dockPreviewOpenDelay = "dockPreviewOpenDelay"
     static let dockClickMinimize = "dockClickMinimize"    // click the active app's Dock icon to minimize its windows
     static let dockClickCycleWindows = "dockClickCycleWindows" // click the active app's Dock icon to cycle through its windows
+    static let dockClickNewWindow = "dockClickNewWindow"  // middle-click an app's Dock icon to open a new window
     static let middleClickEnabled = "middleClickEnabled"  // three-finger PHYSICAL click on the trackpad acts as a middle click
     static let middleClickTapFingers = "middleClickTapFingers"  // 0 = off (default); 3 or 4 = a light tap with that many fingers also middle-clicks (issue #161)
     static let previewSize = "previewSize"                // app switcher + dock preview thumbnail size
@@ -442,6 +444,7 @@ extension DefaultsKey {
     static let panelControlMouseAcceleration = "panelControlMouseAcceleration"
     static let panelControlMouseClickDebounce = "panelControlMouseClickDebounce"
     static let panelControlSpacesOrder = "panelControlSpacesOrder"
+    static let panelControlDockClickNewWindow = "panelControlDockClickNewWindow"
 
     // Mouse button shortcuts: programmable mouse buttons.
     static let mouseButtonShortcutsEnabled = "mouseButtonShortcutsEnabled"
@@ -628,6 +631,7 @@ extension DefaultsKey {
     static let notchTimerEnabled = "notchTimerEnabled"
     static let notchTimerMode = "notchTimerMode"
     static let notchTimerMinutes = "notchTimerMinutes"
+    static let notchTimerSeconds = "notchTimerSeconds"
     static let notchTimerSoundEnabled = "notchTimerSoundEnabled"
     static let notchTimerSoundName = "notchTimerSoundName"
     static let notchTimerSoundDuration = "notchTimerSoundDuration"
@@ -988,6 +992,7 @@ extension DefaultsKey {
     static let windowLayoutShortcutRightMiddleQuarter = "windowLayoutShortcutRightMiddleQuarter"
     static let windowLayoutShortcutRightQuarter = "windowLayoutShortcutRightQuarter"
     static let windowLayoutShortcutFullScreen = "windowLayoutShortcutFullScreen"
+    static let windowLayoutShortcutMinimize = "windowLayoutShortcutMinimize"
     static let notchAgentsOptInMigrated = "notchAgentsOptInMigrated" // local migration marker; never backed up
     static let notchAgentsClaude = "notchAgentsClaude"
     static let notchAgentsCodex = "notchAgentsCodex"

@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Kurzbefehlhinweise anzeigen",
         switcherShowShortcutHintsCaption: "Zeigt die Kurzbefehle für Apps und Fenster unter den Symbolen.",
         switcherWindowlessAppsLockedFormat: "Alle laufenden Apps bleiben erreichbar, solange „%@“ eingeschaltet ist. Schalte die Option aus, um zu wählen.",
+        switcherWindowlessAppsMixedOrder: "Mit den anderen Apps mischen",
+        switcherWindowlessAppsMixedOrderCaption: "Listet Apps ohne geöffnete Fenster in der Reihenfolge der letzten Benutzung zusammen mit den anderen Apps auf, statt in einem eigenen Abschnitt.",
         switcherNoOpenWindow: "Kein Fenster geöffnet",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Suche, installiere und entferne Formeln und Casks.",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Wird aus dem Quellcode kompiliert: das kann auf diesem Mac Stunden dauern.",
         homebrewSkipHeavyFormulas: "Schwere Formeln überspringen (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Vermeidet stundenlange Kompilierungen: Formeln ohne Bottle bleiben veraltet.",
+        homebrewLastLogView: "Letztes Protokoll anzeigen",
+        homebrewLastLogHide: "Letztes Protokoll ausblenden",
         homebrewLogTitle: "Protokoll",
         homebrewVersion: "Version",
         homebrewDescription: "Typ",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "Spaces in fester Reihenfolge halten",
         spacesOrderCaption: "Verhindert, dass macOS die Spaces nach der letzten Nutzung neu anordnet, damit sie in deiner Reihenfolge bleiben. Deine vorherige Einstellung kehrt zurück, wenn du dies ausschaltest. Das Dock startet dafür eventuell einmal neu.",
         quitAppsName: "Apps beenden",
-        quitAppsCaption: "Listet deine geöffneten Apps auf, um sie einzeln, alle auf einmal oder alle außer der vorderen zu beenden. Zeigt immer zuerst die Liste, bevor etwas beendet wird."
+        quitAppsCaption: "Listet deine geöffneten Apps auf, um sie einzeln, alle auf einmal oder alle außer der vorderen zu beenden. Zeigt immer zuerst die Liste, bevor etwas beendet wird.",
+        dockClickNewWindow: "Mittelklick auf das Dock-Symbol öffnet neues Fenster",
+        dockClickNewWindowCaption: "Öffnet beim Mittelklick auf das Dock-Symbol einer App ein neues Fenster, auch wenn bereits eines geöffnet ist."
     )
 }

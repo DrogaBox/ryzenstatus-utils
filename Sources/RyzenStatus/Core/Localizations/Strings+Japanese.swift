@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "ショートカットのヒントを表示",
         switcherShowShortcutHintsCaption: "アイコンの下にアプリとウインドウのショートカットを表示します。",
         switcherWindowlessAppsLockedFormat: "「%@」がオンの間は、実行中のすべてのアプリに切り替えられます。選ぶにはオフにしてください。",
+        switcherWindowlessAppsMixedOrder: "ほかのアプリと混ぜて並べる",
+        switcherWindowlessAppsMixedOrderCaption: "ウインドウを開いていないアプリを、独立したセクションではなく、最後に使った順にほかのアプリと並べて表示します。",
         switcherNoOpenWindow: "開いているウインドウがありません",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula と cask を検索、インストール、削除します。",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "ソースからビルド中: この Mac では数時間かかることがあります。",
         homebrewSkipHeavyFormulas: "重いフォーミュラをスキップ（node、llvm など）",
         homebrewSkipHeavyFormulasFootnote: "長時間のビルドを回避：ボトル未提供のフォーミュラは古いままになります。",
+        homebrewLastLogView: "前回のログを表示",
+        homebrewLastLogHide: "前回のログを隠す",
         homebrewLogTitle: "ログ",
         homebrewVersion: "バージョン",
         homebrewDescription: "種類",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "スペースの順序を固定",
         spacesOrderCaption: "最近の使用状況に応じてmacOSがスペースを並べ替えないようにし、設定した順序を保ちます。オフにすると以前の設定に戻ります。変更を適用するためにDockが一度再起動することがあります。",
         quitAppsName: "アプリを終了",
-        quitAppsCaption: "開いているアプリを一覧表示し、1つずつ、すべてまとめて、または最前面以外をすべて終了できます。何かを終了する前に必ず一覧を表示します。"
+        quitAppsCaption: "開いているアプリを一覧表示し、1つずつ、すべてまとめて、または最前面以外をすべて終了できます。何かを終了する前に必ず一覧を表示します。",
+        dockClickNewWindow: "Dock の中クリックで新規ウインドウを開く",
+        dockClickNewWindowCaption: "すでにウインドウが開いていても、Dock アイコンを中クリックするとそのアプリの新しいウインドウを開きます。"
     )
 }

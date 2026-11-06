@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Mostra suggerimenti scorciatoie",
         switcherShowShortcutHintsCaption: "Mostra le scorciatoie per app e finestre sotto le icone.",
         switcherWindowlessAppsLockedFormat: "Tutte le app aperte restano raggiungibili finché l’opzione “%@” è attiva. Disattivala per scegliere.",
+        switcherWindowlessAppsMixedOrder: "Unisci alle altre app",
+        switcherWindowlessAppsMixedOrderCaption: "Elenca le app senza finestre aperte insieme alle altre app, in ordine di ultimo uso, anziché in una sezione separata.",
         switcherNoOpenWindow: "Nessuna finestra aperta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Cerca, installa e rimuovi formule e cask.",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Compilazione dai sorgenti: può richiedere ore su questo Mac.",
         homebrewSkipHeavyFormulas: "Salta formule pesanti (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Evita ore di compilazione: le formule senza bottiglia restano non aggiornate.",
+        homebrewLastLogView: "Mostra ultimo registro",
+        homebrewLastLogHide: "Nascondi ultimo registro",
         homebrewLogTitle: "Registro",
         homebrewVersion: "Versione",
         homebrewDescription: "Tipo",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "Mantieni gli Spazi in ordine fisso",
         spacesOrderCaption: "Impedisce a macOS di riordinare gli Spazi in base all’uso più recente, così restano nell’ordine che hai scelto. L’impostazione precedente torna quando disattivi questa opzione. Il Dock potrebbe riavviarsi una volta per applicare la modifica.",
         quitAppsName: "Esci dalle app",
-        quitAppsCaption: "Elenca le app aperte per uscirne una alla volta, tutte insieme o tutte tranne quella in primo piano. Mostra sempre l’elenco prima di chiudere qualcosa."
+        quitAppsCaption: "Elenca le app aperte per uscirne una alla volta, tutte insieme o tutte tranne quella in primo piano. Mostra sempre l’elenco prima di chiudere qualcosa.",
+        dockClickNewWindow: "Clic centrale sul Dock per una nuova finestra",
+        dockClickNewWindowCaption: "Apre una nuova finestra dell’app quando fai clic centrale sulla sua icona nel Dock, anche se una finestra è già aperta."
     )
 }

@@ -533,6 +533,8 @@ struct Strings {
     let switcherShowShortcutHints: String
     let switcherShowShortcutHintsCaption: String
     let switcherWindowlessAppsLockedFormat: String
+    let switcherWindowlessAppsMixedOrder: String
+    let switcherWindowlessAppsMixedOrderCaption: String
     let switcherNoOpenWindow: String
     // MARK: Feature — Homebrew manager
     let homebrewName: String
@@ -574,6 +576,8 @@ struct Strings {
     let homebrewSourceBuildWarning: String
     let homebrewSkipHeavyFormulas: String
     let homebrewSkipHeavyFormulasFootnote: String
+    let homebrewLastLogView: String
+    let homebrewLastLogHide: String
     let homebrewLogTitle: String
     let homebrewVersion: String
     let homebrewDescription: String
@@ -1386,6 +1390,8 @@ struct Strings {
     let spacesOrderCaption: String
     let quitAppsName: String
     let quitAppsCaption: String
+    let dockClickNewWindow: String
+    let dockClickNewWindowCaption: String
 }
 
 // MARK: - Português (Brasil)
@@ -1757,6 +1763,8 @@ extension Strings {
         switcherShowShortcutHints: "Mostrar dicas de atalhos",
         switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones.",
         switcherWindowlessAppsLockedFormat: "Todos os apps abertos continuam acessíveis enquanto “%@” estiver ativado. Desative para escolher.",
+        switcherWindowlessAppsMixedOrder: "Misturar com os outros apps",
+        switcherWindowlessAppsMixedOrderCaption: "Lista os apps sem janelas abertas na ordem de uso recente, junto com os outros apps, em vez de em uma seção separada.",
         switcherNoOpenWindow: "Nenhuma janela aberta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Pesquise, instale e remova fórmulas e casks.",
@@ -1797,6 +1805,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Compilando do código-fonte: isso pode levar horas neste Mac.",
         homebrewSkipHeavyFormulas: "Pular fórmulas pesadas (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Evita compilações de horas: fórmulas sem garrafa ficam desatualizadas.",
+        homebrewLastLogView: "Ver o último log",
+        homebrewLastLogHide: "Ocultar o último log",
         homebrewLogTitle: "Log",
         homebrewVersion: "Versão",
         homebrewDescription: "Tipo",
@@ -2577,7 +2587,9 @@ extension Strings {
         spacesOrderName: "Manter os Espaços em ordem fixa",
         spacesOrderCaption: "Impede que o macOS reorganize os Espaços pelo uso mais recente, para que fiquem na ordem que você definiu. A configuração anterior volta ao desligar esta opção. O Dock pode reiniciar uma vez para aplicar a mudança.",
         quitAppsName: "Encerrar apps",
-        quitAppsCaption: "Lista seus apps abertos para encerrar um por um, todos de uma vez ou todos exceto o da frente. Sempre mostra a lista antes de encerrar qualquer um."
+        quitAppsCaption: "Lista seus apps abertos para encerrar um por um, todos de uma vez ou todos exceto o da frente. Sempre mostra a lista antes de encerrar qualquer um.",
+        dockClickNewWindow: "Clicar com o botão do meio no Dock abre nova janela",
+        dockClickNewWindowCaption: "Clique com o botão do meio no ícone de qualquer app no Dock para abrir uma nova janela, mesmo que já exista uma aberta. O clique normal continua fazendo o que as opções acima definem."
     )
 }
 
@@ -2950,6 +2962,8 @@ extension Strings {
         switcherShowShortcutHints: "Show shortcut hints",
         switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
         switcherWindowlessAppsLockedFormat: "All running apps stay reachable while “%@” is on. Turn it off to choose.",
+        switcherWindowlessAppsMixedOrder: "Mix with the other apps",
+        switcherWindowlessAppsMixedOrderCaption: "Lists apps without open windows in recent-use order among the other apps, instead of in a separate section.",
         switcherNoOpenWindow: "No open window",
 
         homebrewName: "Homebrew",
@@ -2991,6 +3005,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Building from source: this can take hours on this Mac.",
         homebrewSkipHeavyFormulas: "Skip heavy formulas (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Avoids hours-long compiles: bottle-less formulas stay outdated.",
+        homebrewLastLogView: "View last log",
+        homebrewLastLogHide: "Hide last log",
         homebrewLogTitle: "Log",
         homebrewVersion: "Version",
         homebrewDescription: "Type",
@@ -3771,6 +3787,8 @@ extension Strings {
         spacesOrderName: "Keep Spaces in a fixed order",
         spacesOrderCaption: "Stops macOS from rearranging Spaces by most recent use, so they stay in the order you set. Your previous setting returns when this is turned off. The Dock may restart once to apply the change.",
         quitAppsName: "Quit apps",
-        quitAppsCaption: "Lists your open apps to quit one by one, all at once, or all but the one in front. Always shows the list before anything quits."
+        quitAppsCaption: "Lists your open apps to quit one by one, all at once, or all but the one in front. Always shows the list before anything quits.",
+        dockClickNewWindow: "Middle-click the Dock icon to open a new window",
+        dockClickNewWindowCaption: "Middle-click any app’s Dock icon to open a new window, even when one is already open. A regular click keeps doing what the options above set."
     )
 }

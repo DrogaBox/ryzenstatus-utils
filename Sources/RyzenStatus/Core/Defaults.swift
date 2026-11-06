@@ -326,6 +326,7 @@ enum Defaults {
         DefaultsKey.panelControlMouseAcceleration: true,
         DefaultsKey.panelControlMouseClickDebounce: true,
         DefaultsKey.panelControlSpacesOrder: true,
+        DefaultsKey.panelControlDockClickNewWindow: true,
         DefaultsKey.mouseNavigationEnabled: false,
         DefaultsKey.switcherEnabled: true,
         DefaultsKey.switcherShortcut: "command:48",
@@ -335,6 +336,7 @@ enum Defaults {
         DefaultsKey.switcherMergeTabs: false,
         DefaultsKey.switcherShowWindowlessFinder: true,
         DefaultsKey.switcherWindowlessApps: SwitcherWindowlessApps.fallback.rawValue,
+        DefaultsKey.switcherWindowlessAppsMixedOrder: false,
         DefaultsKey.switcherAppRules: [String: String](),
         DefaultsKey.windowPreviewExcludedApps: [String](),
         DefaultsKey.switcherCurrentSpaceOnly: false,
@@ -364,6 +366,7 @@ enum Defaults {
         DefaultsKey.dockClickMinimize: false,
         DefaultsKey.dockClickHide: false,
         DefaultsKey.dockClickCycleWindows: false,
+        DefaultsKey.dockClickNewWindow: false,
         DefaultsKey.middleClickEnabled: false,
         DefaultsKey.middleClickTapFingers: 0,
         DefaultsKey.previewSize: "normal",
@@ -563,6 +566,7 @@ enum Defaults {
         DefaultsKey.notchTimerEnabled: true,
         DefaultsKey.notchTimerMode: "timer",
         DefaultsKey.notchTimerMinutes: 15,
+        DefaultsKey.notchTimerSeconds: 0,
         DefaultsKey.notchTimerSoundEnabled: true,
         DefaultsKey.notchTimerSoundName: defaultNotchTimerSoundName,
         DefaultsKey.notchTimerSoundDuration: NotchTimerSoundDuration.defaultValue,
@@ -1160,6 +1164,7 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutRightMiddleQuarter: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutRightQuarter: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutFullScreen: WindowLayoutAction.clearedShortcutStorageValue,
+        DefaultsKey.windowLayoutShortcutMinimize: WindowLayoutAction.clearedShortcutStorageValue,
     ]
 
     private static let currentMigrationVersion = 7

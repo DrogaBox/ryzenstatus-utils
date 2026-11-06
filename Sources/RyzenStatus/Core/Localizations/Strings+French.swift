@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Afficher les raccourcis",
         switcherShowShortcutHintsCaption: "Affiche les raccourcis des apps et des fenêtres sous les icônes.",
         switcherWindowlessAppsLockedFormat: "Toutes les apps ouvertes restent accessibles tant que l’option «\u{00A0}%@\u{00A0}» est activée. Désactivez-la pour choisir.",
+        switcherWindowlessAppsMixedOrder: "Mélanger avec les autres apps",
+        switcherWindowlessAppsMixedOrderCaption: "Liste les apps sans fenêtre ouverte parmi les autres apps, dans l’ordre de leur dernière utilisation, plutôt que dans une section séparée.",
         switcherNoOpenWindow: "Aucune fenêtre ouverte",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Recherchez, installez et retirez des formules et des casks.",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Compilation depuis les sources : cela peut prendre des heures sur ce Mac.",
         homebrewSkipHeavyFormulas: "Ignorer les formules lourdes (node, llvm, etc.)",
         homebrewSkipHeavyFormulasFootnote: "Évite des heures de compilation : les formules sans bouteille restent non mises à jour.",
+        homebrewLastLogView: "Afficher le dernier journal",
+        homebrewLastLogHide: "Masquer le dernier journal",
         homebrewLogTitle: "Journal",
         homebrewVersion: "Version",
         homebrewDescription: "Type",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "Garder les Espaces dans un ordre fixe",
         spacesOrderCaption: "Empêche macOS de réorganiser les Espaces selon leur utilisation récente, pour qu’ils restent dans l’ordre choisi. Votre réglage précédent revient quand cette option est désactivée. Le Dock peut redémarrer une fois pour appliquer le changement.",
         quitAppsName: "Quitter des apps",
-        quitAppsCaption: "Liste vos apps ouvertes pour les quitter une par une, toutes à la fois ou toutes sauf celle au premier plan. La liste s’affiche toujours avant toute fermeture."
+        quitAppsCaption: "Liste vos apps ouvertes pour les quitter une par une, toutes à la fois ou toutes sauf celle au premier plan. La liste s’affiche toujours avant toute fermeture.",
+        dockClickNewWindow: "Clic central sur le Dock pour une nouvelle fenêtre",
+        dockClickNewWindowCaption: "Ouvre une nouvelle fenêtre de l’app lorsque vous faites un clic central sur son icône dans le Dock, même si une fenêtre est déjà ouverte."
     )
 }

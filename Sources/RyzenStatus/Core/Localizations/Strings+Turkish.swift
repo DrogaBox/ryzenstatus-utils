@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Kısayol ipuçlarını göster",
         switcherShowShortcutHintsCaption: "Simge sırasının altında uygulama ve pencere kısayollarını gösterir.",
         switcherWindowlessAppsLockedFormat: "“%@” açıkken çalışan tüm uygulamalara erişim korunur. Seçim yapmak için bu seçeneği kapatın.",
+        switcherWindowlessAppsMixedOrder: "Diğer uygulamalarla birleştir",
+        switcherWindowlessAppsMixedOrderCaption: "Açık penceresi olmayan uygulamaları, ayrı bir bölüm yerine son kullanım sırasına göre diğer uygulamalarla birlikte listeler.",
         switcherNoOpenWindow: "Açık pencere yok",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Formülleri ve cask'leri ara, yükle ve kaldır.",
@@ -409,6 +411,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Kaynaktan derleniyor: bu Mac'te saatler sürebilir.",
         homebrewSkipHeavyFormulas: "Ağır formülleri atla (node, llvm vb.)",
         homebrewSkipHeavyFormulasFootnote: "Saatler süren derlemeleri önler: bottle'sız formüller eski kalır.",
+        homebrewLastLogView: "Son günlüğü göster",
+        homebrewLastLogHide: "Son günlüğü gizle",
         homebrewLogTitle: "Günlük",
         homebrewVersion: "Sürüm",
         homebrewDescription: "Tür",
@@ -1189,6 +1193,8 @@ extension Strings {
         spacesOrderName: "Space sırasını sabit tut",
         spacesOrderCaption: "macOS’un Space’leri son kullanıma göre yeniden sıralamasını engeller, böylece belirlediğiniz sırada kalırlar. Seçenek kapatıldığında önceki ayar geri yüklenir. Değişikliği uygulamak için Dock bir kez yeniden başlayabilir.",
         quitAppsName: "Uygulamaları kapat",
-        quitAppsCaption: "Açık uygulamalarınızı tek tek, hepsini birden ya da öndeki dışında hepsini kapatmak için listeler. Herhangi biri kapanmadan önce listeyi her zaman gösterir."
+        quitAppsCaption: "Açık uygulamalarınızı tek tek, hepsini birden ya da öndeki dışında hepsini kapatmak için listeler. Herhangi biri kapanmadan önce listeyi her zaman gösterir.",
+        dockClickNewWindow: "Dock simgesine orta tıklayınca yeni pencere aç",
+        dockClickNewWindowCaption: "Zaten açık bir pencere olsa bile uygulamanın Dock simgesine orta tıkladığınızda yeni bir pencere açar."
     )
 }

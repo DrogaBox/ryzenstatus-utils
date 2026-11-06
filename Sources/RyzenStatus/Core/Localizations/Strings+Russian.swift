@@ -370,6 +370,8 @@ extension Strings {
         switcherShowShortcutHints: "Показывать подсказки сочетаний клавиш",
         switcherShowShortcutHintsCaption: "Показывает сочетания клавиш для приложений и окон под значками.",
         switcherWindowlessAppsLockedFormat: "Пока параметр «%@» включён, все запущенные приложения остаются доступны. Чтобы выбрать, выключите параметр.",
+        switcherWindowlessAppsMixedOrder: "Смешивать с другими приложениями",
+        switcherWindowlessAppsMixedOrderCaption: "Приложения без открытых окон перечисляются вместе с остальными в порядке последнего использования, а не отдельным разделом.",
         switcherNoOpenWindow: "Нет открытых окон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Поиск, установка и удаление пакетов Homebrew.",
@@ -410,6 +412,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Сборка из исходников: на этом Mac это может занять часы.",
         homebrewSkipHeavyFormulas: "Пропускать тяжёлые формулы (node, llvm и др.)",
         homebrewSkipHeavyFormulasFootnote: "Избегает многочасовой сборки: формулы без бутылок остаются устаревшими.",
+        homebrewLastLogView: "Показать последний лог",
+        homebrewLastLogHide: "Скрыть последний лог",
         homebrewLogTitle: "Лог",
         homebrewVersion: "Версия",
         homebrewDescription: "Тип",
@@ -1190,6 +1194,8 @@ extension Strings {
         spacesOrderName: "Фиксированный порядок Spaces",
         spacesOrderCaption: "Не даёт macOS переставлять Spaces по недавнему использованию, чтобы они оставались в заданном порядке. Прежняя настройка вернётся после выключения функции. Для применения Dock может один раз перезапуститься.",
         quitAppsName: "Закрытие приложений",
-        quitAppsCaption: "Показывает открытые приложения, чтобы закрыть их по одному, все сразу или все, кроме активного. Список всегда появляется до того, как что-либо закроется."
+        quitAppsCaption: "Показывает открытые приложения, чтобы закрыть их по одному, все сразу или все, кроме активного. Список всегда появляется до того, как что-либо закроется.",
+        dockClickNewWindow: "Средний клик по Dock открывает новое окно",
+        dockClickNewWindowCaption: "Открывает новое окно приложения при клике средней кнопкой мыши по его значку в Dock, даже если окно уже открыто."
     )
 }

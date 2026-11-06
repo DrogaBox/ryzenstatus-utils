@@ -356,6 +356,8 @@ extension Strings {
         switcherShowShortcutHints: "Показувати підказки поєднань клавіш",
         switcherShowShortcutHintsCaption: "Показує клавіатурні скорочення для програм та вікон під значками.",
         switcherWindowlessAppsLockedFormat: "Поки параметр «%@» увімкнено, усі запущені програми лишаються доступними. Щоб вибрати, вимкніть параметр.",
+        switcherWindowlessAppsMixedOrder: "Змішувати з іншими програмами",
+        switcherWindowlessAppsMixedOrderCaption: "Програми без відкритих вікон перелічуються разом з іншими в порядку останнього використання, а не окремим розділом.",
         switcherNoOpenWindow: "Без відкритих вікон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Пошук, встановлення та видалення formulae і casks.",
@@ -396,6 +398,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Збирання з вихідного коду: на цьому Mac це може тривати години.",
         homebrewSkipHeavyFormulas: "Пропускати важкі formulae (node, llvm тощо)",
         homebrewSkipHeavyFormulasFootnote: "Уникає багатогодинного збирання: formulae без bottle залишаються застарілими.",
+        homebrewLastLogView: "Показати останній журнал",
+        homebrewLastLogHide: "Сховати останній журнал",
         homebrewLogTitle: "Журнал",
         homebrewVersion: "Версія",
         homebrewDescription: "Тип",
@@ -1157,6 +1161,8 @@ extension Strings {
         spacesOrderName: "Фіксований порядок Spaces",
         spacesOrderCaption: "Не дає macOS змінювати порядок Spaces за останнім використанням, тож вони лишаються в заданому вами порядку. Попереднє налаштування повернеться, коли цю опцію вимкнено. Dock може один раз перезапуститися, щоб застосувати зміну.",
         quitAppsName: "Закриття програм",
-        quitAppsCaption: "Показує відкриті програми, щоб закрити їх по одній, усі одразу або всі, крім активної. Список завжди з’являється до того, як щось закриється."
+        quitAppsCaption: "Показує відкриті програми, щоб закрити їх по одній, усі одразу або всі, крім активної. Список завжди з’являється до того, як щось закриється.",
+        dockClickNewWindow: "Середній клац по Dock відкриває нове вікно",
+        dockClickNewWindowCaption: "Відкриває нове вікно програми під час клацання середньою кнопкою миші по її значку в Dock, навіть якщо вікно вже відкрито."
     )
 }

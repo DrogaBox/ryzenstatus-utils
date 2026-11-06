@@ -292,6 +292,7 @@ enum SettingsDirectory {
                                                      s.switcherIgnoreHoverSelection,
                                                      FeatureStrings.switcherShortcuts(language).allWindows,
                                                      s.switcherWindowlessApps,
+                                                     s.switcherWindowlessAppsMixedOrder,
                                                      s.switcherShowShortcutHints, s.switcherMaxColumns,
                                                      FeatureStrings.switcherAppRules(language).listTitle,
                                                      FeatureStrings.switcherAppRules(language)
@@ -312,7 +313,7 @@ enum SettingsDirectory {
                                                         FeatureStrings.windowPreviewExclusions(language).listTitle]),
                                         (.dockClick, [FeatureStrings.hub(language).titleDockClick,
                                                       s.dockClickMinimize, s.dockClickHide,
-                                                      s.dockClickCycleWindows]),
+                                                      s.dockClickCycleWindows, s.dockClickNewWindow]),
                                         (.spacesOrder, [s.spacesOrderName]),
                                        ]),
                 SettingsDirectoryItem(page: .windowLayout,

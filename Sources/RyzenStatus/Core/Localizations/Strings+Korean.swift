@@ -370,6 +370,8 @@ extension Strings {
         switcherShowShortcutHints: "단축키 힌트 보기",
         switcherShowShortcutHintsCaption: "아이콘 아래에 앱 및 윈도우 단축키를 표시합니다.",
         switcherWindowlessAppsLockedFormat: "‘%@’ 옵션이 켜져 있는 동안에는 실행 중인 모든 앱에 계속 접근할 수 있습니다. 직접 고르려면 이 옵션을 꺼 주세요.",
+        switcherWindowlessAppsMixedOrder: "다른 앱과 섞어서 표시",
+        switcherWindowlessAppsMixedOrderCaption: "열려 있는 윈도우가 없는 앱을 별도 구간 대신 마지막 사용 순서대로 다른 앱과 함께 표시합니다.",
         switcherNoOpenWindow: "열린 창이 없습니다",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula와 cask를 검색, 설치 및 제거합니다.",
@@ -410,6 +412,8 @@ extension Strings {
         homebrewSourceBuildWarning: "소스에서 빌드 중: 이 Mac에서는 몇 시간이 걸릴 수 있습니다.",
         homebrewSkipHeavyFormulas: "무거운 수식 건너뛰기(node, llvm 등)",
         homebrewSkipHeavyFormulasFootnote: "수 시간의 빌드를 방지: bottle이 없는 수식은 구버전으로 유지됩니다.",
+        homebrewLastLogView: "마지막 로그 보기",
+        homebrewLastLogHide: "마지막 로그 숨기기",
         homebrewLogTitle: "로그",
         homebrewVersion: "버전",
         homebrewDescription: "설명",
@@ -1190,6 +1194,8 @@ extension Strings {
         spacesOrderName: "공간 순서 고정",
         spacesOrderCaption: "macOS가 최근 사용 순서에 따라 공간을 재정렬하지 않도록 해 정한 순서를 유지합니다. 끄면 이전 설정으로 돌아갑니다. 변경 사항을 적용하려고 Dock이 한 번 다시 시작될 수 있습니다.",
         quitAppsName: "앱 종료",
-        quitAppsCaption: "열려 있는 앱을 나열해 하나씩, 한 번에 모두, 또는 맨 앞의 앱을 제외하고 모두 종료할 수 있습니다. 무엇이든 종료하기 전에 항상 목록을 먼저 보여 줍니다."
+        quitAppsCaption: "열려 있는 앱을 나열해 하나씩, 한 번에 모두, 또는 맨 앞의 앱을 제외하고 모두 종료할 수 있습니다. 무엇이든 종료하기 전에 항상 목록을 먼저 보여 줍니다.",
+        dockClickNewWindow: "Dock 가운데 클릭으로 새 윈도우 열기",
+        dockClickNewWindowCaption: "이미 열려 있는 윈도우가 있어도 앱의 Dock 아이콘을 가운데 클릭하면 새 윈도우를 엽니다."
     )
 }

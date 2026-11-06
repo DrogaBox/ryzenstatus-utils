@@ -674,8 +674,8 @@ enum CommandBarCatalog {
                 icon: .symbol("trash"),
                 trouble: automationDenied ? .needsPermission : nil,
                 // The toggles service asks for its own confirmation before it
-                // tells the Finder to empty the Trash, so the row does not ask
-                // a second time.
+                // tells the Finder to empty the Trash (and skips it when the
+                // Finder's own warning is off), so the row does not ask again.
                 run: { _ in QuickTogglesService.shared.emptyTrash() }))
         }
 

@@ -357,6 +357,8 @@ extension Strings {
         switcherShowShortcutHints: "Zobraziť nápovedu ku skratkám",
         switcherShowShortcutHintsCaption: "Zobrazí skratky pre aplikácie a okná pod ikonami.",
         switcherWindowlessAppsLockedFormat: "Kým je voľba „%@“ zapnutá, všetky spustené aplikácie ostanú dostupné. Ak chcete vybrať, vypnite ju.",
+        switcherWindowlessAppsMixedOrder: "Zmiešať s ostatnými aplikáciami",
+        switcherWindowlessAppsMixedOrderCaption: "Aplikácie bez otvorených okien zaradí medzi ostatné aplikácie podľa poradia posledného použitia, a nie do samostatnej časti.",
         switcherNoOpenWindow: "Žiadne otvorené okno",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Hľadajte, inštalujte a odstraňujte formulae a casks.",
@@ -397,6 +399,8 @@ extension Strings {
         homebrewSourceBuildWarning: "Kompilácia zo zdrojového kódu: na tomto Macu môže trvať hodiny.",
         homebrewSkipHeavyFormulas: "Preskočiť náročné formulae (node, llvm atď.)",
         homebrewSkipHeavyFormulasFootnote: "Zabráni mnohohodinovej kompilácii: formulae bez bottle ostanú zastarané.",
+        homebrewLastLogView: "Zobraziť posledný protokol",
+        homebrewLastLogHide: "Skryť posledný protokol",
         homebrewLogTitle: "Protokol",
         homebrewVersion: "Verzia",
         homebrewDescription: "Typ",
@@ -1158,6 +1162,8 @@ extension Strings {
         spacesOrderName: "Udržať plochy v pevnom poradí",
         spacesOrderCaption: "Zabráni systému macOS meniť poradie plôch podľa posledného použitia, takže zostanú v poradí, ktoré ste nastavili. Po vypnutí sa vráti predchádzajúce nastavenie. Dock sa môže raz reštartovať, aby sa zmena použila.",
         quitAppsName: "Ukončenie aplikácií",
-        quitAppsCaption: "Zobrazí otvorené aplikácie, aby ste ich mohli ukončiť jednu po druhej, všetky naraz alebo všetky okrem tej vpredu. Zoznam sa vždy zobrazí skôr, než sa čokoľvek ukončí."
+        quitAppsCaption: "Zobrazí otvorené aplikácie, aby ste ich mohli ukončiť jednu po druhej, všetky naraz alebo všetky okrem tej vpredu. Zoznam sa vždy zobrazí skôr, než sa čokoľvek ukončí.",
+        dockClickNewWindow: "Stredným kliknutím na ikonu v Docku otvoriť nové okno",
+        dockClickNewWindowCaption: "Otvorí nové okno aplikácie pri kliknutí stredným tlačidlom na jej ikonu v Docku, aj keď už má okno otvorené."
     )
 }

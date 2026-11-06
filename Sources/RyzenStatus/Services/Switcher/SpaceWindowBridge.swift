@@ -495,6 +495,17 @@ enum SpaceWindowBridge {
         }
     }
 
+    /// Brings an application forward without raising its existing windows or switching
+    /// Spaces to another desktop (kCPSNoWindows).
+    @discardableResult
+    static func activateProcessWithoutSpaceSwitch(pid: pid_t) -> Bool {
+        guard let setFrontProcess, let processForPID else { return false }
+        var psn = ProcessSerialNumber()
+        guard processForPID(pid, &psn) == noErr else { return false }
+        let noWindows: UInt32 = 0x400 // kCPSNoWindows
+        return setFrontProcess(&psn, kCGNullWindowID, noWindows) == .success
+    }
+
     /// Tries activation without ordering windows, then sends the focus record
     /// even when that activation is unavailable or refused. Failure must not
     /// fall back to frontWindow: its user-generated activation and mouse press
