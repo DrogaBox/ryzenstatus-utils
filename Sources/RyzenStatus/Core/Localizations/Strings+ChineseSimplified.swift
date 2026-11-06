@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "显示快捷键提示",
         switcherShowShortcutHintsCaption: "在图标下方显示 App 和窗口快捷键。",
         switcherWindowlessAppsLockedFormat: "开启“%@”时，会保留所有正在运行的 App 入口。如需选择，请关闭此选项。",
+        switcherWindowlessAppsMixedOrder: "与其他 App 混排",
+        switcherWindowlessAppsMixedOrderCaption: "将没有打开窗口的 App 按最近使用顺序与其他 App 排列在一起，而不是单独分区显示。",
         switcherNoOpenWindow: "没有打开的窗口",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "搜索、安装和移除 formula 与 cask。",

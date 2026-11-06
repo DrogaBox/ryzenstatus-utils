@@ -533,6 +533,8 @@ struct Strings {
     let switcherShowShortcutHints: String
     let switcherShowShortcutHintsCaption: String
     let switcherWindowlessAppsLockedFormat: String
+    let switcherWindowlessAppsMixedOrder: String
+    let switcherWindowlessAppsMixedOrderCaption: String
     let switcherNoOpenWindow: String
     // MARK: Feature — Homebrew manager
     let homebrewName: String
@@ -1757,6 +1759,8 @@ extension Strings {
         switcherShowShortcutHints: "Mostrar dicas de atalhos",
         switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones.",
         switcherWindowlessAppsLockedFormat: "Todos os apps abertos continuam acessíveis enquanto “%@” estiver ativado. Desative para escolher.",
+        switcherWindowlessAppsMixedOrder: "Misturar com os outros apps",
+        switcherWindowlessAppsMixedOrderCaption: "Lista os apps sem janelas abertas na ordem de uso recente, junto com os outros apps, em vez de em uma seção separada.",
         switcherNoOpenWindow: "Nenhuma janela aberta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Pesquise, instale e remova fórmulas e casks.",
@@ -2950,6 +2954,8 @@ extension Strings {
         switcherShowShortcutHints: "Show shortcut hints",
         switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
         switcherWindowlessAppsLockedFormat: "All running apps stay reachable while “%@” is on. Turn it off to choose.",
+        switcherWindowlessAppsMixedOrder: "Mix with the other apps",
+        switcherWindowlessAppsMixedOrderCaption: "Lists apps without open windows in recent-use order among the other apps, instead of in a separate section.",
         switcherNoOpenWindow: "No open window",
 
         homebrewName: "Homebrew",

@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Afficher les raccourcis",
         switcherShowShortcutHintsCaption: "Affiche les raccourcis des apps et des fenêtres sous les icônes.",
         switcherWindowlessAppsLockedFormat: "Toutes les apps ouvertes restent accessibles tant que l’option «\u{00A0}%@\u{00A0}» est activée. Désactivez-la pour choisir.",
+        switcherWindowlessAppsMixedOrder: "Mélanger avec les autres apps",
+        switcherWindowlessAppsMixedOrderCaption: "Liste les apps sans fenêtre ouverte parmi les autres apps, dans l’ordre de leur dernière utilisation, plutôt que dans une section séparée.",
         switcherNoOpenWindow: "Aucune fenêtre ouverte",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Recherchez, installez et retirez des formules et des casks.",

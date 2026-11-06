@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "ショートカットのヒントを表示",
         switcherShowShortcutHintsCaption: "アイコンの下にアプリとウインドウのショートカットを表示します。",
         switcherWindowlessAppsLockedFormat: "「%@」がオンの間は、実行中のすべてのアプリに切り替えられます。選ぶにはオフにしてください。",
+        switcherWindowlessAppsMixedOrder: "ほかのアプリと混ぜて並べる",
+        switcherWindowlessAppsMixedOrderCaption: "ウインドウを開いていないアプリを、独立したセクションではなく、最後に使った順にほかのアプリと並べて表示します。",
         switcherNoOpenWindow: "開いているウインドウがありません",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula と cask を検索、インストール、削除します。",

@@ -292,6 +292,7 @@ enum SettingsDirectory {
                                                      s.switcherIgnoreHoverSelection,
                                                      FeatureStrings.switcherShortcuts(language).allWindows,
                                                      s.switcherWindowlessApps,
+                                                     s.switcherWindowlessAppsMixedOrder,
                                                      s.switcherShowShortcutHints, s.switcherMaxColumns,
                                                      FeatureStrings.switcherAppRules(language).listTitle,
                                                      FeatureStrings.switcherAppRules(language)

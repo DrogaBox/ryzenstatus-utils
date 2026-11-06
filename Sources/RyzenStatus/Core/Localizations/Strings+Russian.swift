@@ -370,6 +370,8 @@ extension Strings {
         switcherShowShortcutHints: "Показывать подсказки сочетаний клавиш",
         switcherShowShortcutHintsCaption: "Показывает сочетания клавиш для приложений и окон под значками.",
         switcherWindowlessAppsLockedFormat: "Пока параметр «%@» включён, все запущенные приложения остаются доступны. Чтобы выбрать, выключите параметр.",
+        switcherWindowlessAppsMixedOrder: "Смешивать с другими приложениями",
+        switcherWindowlessAppsMixedOrderCaption: "Приложения без открытых окон перечисляются вместе с остальными в порядке последнего использования, а не отдельным разделом.",
         switcherNoOpenWindow: "Нет открытых окон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Поиск, установка и удаление пакетов Homebrew.",

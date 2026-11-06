@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Kısayol ipuçlarını göster",
         switcherShowShortcutHintsCaption: "Simge sırasının altında uygulama ve pencere kısayollarını gösterir.",
         switcherWindowlessAppsLockedFormat: "“%@” açıkken çalışan tüm uygulamalara erişim korunur. Seçim yapmak için bu seçeneği kapatın.",
+        switcherWindowlessAppsMixedOrder: "Diğer uygulamalarla birleştir",
+        switcherWindowlessAppsMixedOrderCaption: "Açık penceresi olmayan uygulamaları, ayrı bir bölüm yerine son kullanım sırasına göre diğer uygulamalarla birlikte listeler.",
         switcherNoOpenWindow: "Açık pencere yok",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Formülleri ve cask'leri ara, yükle ve kaldır.",

@@ -370,6 +370,8 @@ extension Strings {
         switcherShowShortcutHints: "단축키 힌트 보기",
         switcherShowShortcutHintsCaption: "아이콘 아래에 앱 및 윈도우 단축키를 표시합니다.",
         switcherWindowlessAppsLockedFormat: "‘%@’ 옵션이 켜져 있는 동안에는 실행 중인 모든 앱에 계속 접근할 수 있습니다. 직접 고르려면 이 옵션을 꺼 주세요.",
+        switcherWindowlessAppsMixedOrder: "다른 앱과 섞어서 표시",
+        switcherWindowlessAppsMixedOrderCaption: "열려 있는 윈도우가 없는 앱을 별도 구간 대신 마지막 사용 순서대로 다른 앱과 함께 표시합니다.",
         switcherNoOpenWindow: "열린 창이 없습니다",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula와 cask를 검색, 설치 및 제거합니다.",

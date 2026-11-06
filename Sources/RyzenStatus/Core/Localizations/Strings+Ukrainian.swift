@@ -356,6 +356,8 @@ extension Strings {
         switcherShowShortcutHints: "Показувати підказки поєднань клавіш",
         switcherShowShortcutHintsCaption: "Показує клавіатурні скорочення для програм та вікон під значками.",
         switcherWindowlessAppsLockedFormat: "Поки параметр «%@» увімкнено, усі запущені програми лишаються доступними. Щоб вибрати, вимкніть параметр.",
+        switcherWindowlessAppsMixedOrder: "Змішувати з іншими програмами",
+        switcherWindowlessAppsMixedOrderCaption: "Програми без відкритих вікон перелічуються разом з іншими в порядку останнього використання, а не окремим розділом.",
         switcherNoOpenWindow: "Без відкритих вікон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Пошук, встановлення та видалення formulae і casks.",

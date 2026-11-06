@@ -335,6 +335,7 @@ enum Defaults {
         DefaultsKey.switcherMergeTabs: false,
         DefaultsKey.switcherShowWindowlessFinder: true,
         DefaultsKey.switcherWindowlessApps: SwitcherWindowlessApps.fallback.rawValue,
+        DefaultsKey.switcherWindowlessAppsMixedOrder: false,
         DefaultsKey.switcherAppRules: [String: String](),
         DefaultsKey.windowPreviewExcludedApps: [String](),
         DefaultsKey.switcherCurrentSpaceOnly: false,

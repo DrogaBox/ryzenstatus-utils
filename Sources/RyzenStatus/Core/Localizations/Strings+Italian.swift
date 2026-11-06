@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Mostra suggerimenti scorciatoie",
         switcherShowShortcutHintsCaption: "Mostra le scorciatoie per app e finestre sotto le icone.",
         switcherWindowlessAppsLockedFormat: "Tutte le app aperte restano raggiungibili finché l’opzione “%@” è attiva. Disattivala per scegliere.",
+        switcherWindowlessAppsMixedOrder: "Unisci alle altre app",
+        switcherWindowlessAppsMixedOrderCaption: "Elenca le app senza finestre aperte insieme alle altre app, in ordine di ultimo uso, anziché in una sezione separata.",
         switcherNoOpenWindow: "Nessuna finestra aperta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Cerca, installa e rimuovi formule e cask.",

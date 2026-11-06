@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Kurzbefehlhinweise anzeigen",
         switcherShowShortcutHintsCaption: "Zeigt die Kurzbefehle für Apps und Fenster unter den Symbolen.",
         switcherWindowlessAppsLockedFormat: "Alle laufenden Apps bleiben erreichbar, solange „%@“ eingeschaltet ist. Schalte die Option aus, um zu wählen.",
+        switcherWindowlessAppsMixedOrder: "Mit den anderen Apps mischen",
+        switcherWindowlessAppsMixedOrderCaption: "Listet Apps ohne geöffnete Fenster in der Reihenfolge der letzten Benutzung zusammen mit den anderen Apps auf, statt in einem eigenen Abschnitt.",
         switcherNoOpenWindow: "Kein Fenster geöffnet",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Suche, installiere und entferne Formeln und Casks.",

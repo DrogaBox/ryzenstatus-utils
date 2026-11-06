@@ -369,6 +369,8 @@ extension Strings {
         switcherShowShortcutHints: "Mostrar indicaciones de atajos",
         switcherShowShortcutHintsCaption: "Muestra los atajos de apps y ventanas debajo de los iconos.",
         switcherWindowlessAppsLockedFormat: "Todas las apps abiertas siguen accesibles mientras “%@” está activado. Desactívalo para elegir.",
+        switcherWindowlessAppsMixedOrder: "Mezclar con las demás apps",
+        switcherWindowlessAppsMixedOrderCaption: "Coloca las apps sin ventanas abiertas, en orden de último uso, junto a las demás apps, en vez de en una sección aparte.",
         switcherNoOpenWindow: "Ninguna ventana abierta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Busca, instala y elimina fórmulas y casks.",
