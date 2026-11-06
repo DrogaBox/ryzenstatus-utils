@@ -564,6 +564,7 @@ enum Defaults {
         DefaultsKey.notchTimerEnabled: true,
         DefaultsKey.notchTimerMode: "timer",
         DefaultsKey.notchTimerMinutes: 15,
+        DefaultsKey.notchTimerSeconds: 0,
         DefaultsKey.notchTimerSoundEnabled: true,
         DefaultsKey.notchTimerSoundName: defaultNotchTimerSoundName,
         DefaultsKey.notchTimerSoundDuration: NotchTimerSoundDuration.defaultValue,

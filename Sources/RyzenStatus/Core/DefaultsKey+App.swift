@@ -629,6 +629,7 @@ extension DefaultsKey {
     static let notchTimerEnabled = "notchTimerEnabled"
     static let notchTimerMode = "notchTimerMode"
     static let notchTimerMinutes = "notchTimerMinutes"
+    static let notchTimerSeconds = "notchTimerSeconds"
     static let notchTimerSoundEnabled = "notchTimerSoundEnabled"
     static let notchTimerSoundName = "notchTimerSoundName"
     static let notchTimerSoundDuration = "notchTimerSoundDuration"
