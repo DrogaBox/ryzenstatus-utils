@@ -472,6 +472,7 @@ struct Strings {
     let uninstallerRemoving: String
     let uninstallerFoundTitle: String
     let uninstallerSelectedFormat: String   // + selected, total
+    let uninstallerSelectAll: String
     let uninstallerRemove: String
     let uninstallerCancel: String
     let uninstallerDoneTitle: String
@@ -1191,6 +1192,8 @@ struct Strings {
     let switcherMaxColumnsAuto: String
     let switcherInstantSelection: String
     let switcherInstantSelectionCaption: String
+    let switcherIgnoreHoverSelection: String
+    let switcherIgnoreHoverSelectionCaption: String
     let switcherOtherDesktop: String
     let dockPreviewCurrentSpaceOnlyCaption: String
     let dockPreviewBackgroundOpacityGlassCaption: String
@@ -1693,6 +1696,7 @@ extension Strings {
         uninstallerRemoving: "Movendo para a Lixeira…",
         uninstallerFoundTitle: "encontrado",
         uninstallerSelectedFormat: "%d de %d selecionados",
+        uninstallerSelectAll: "Selecionar tudo",
         uninstallerRemove: "Mover para a Lixeira",
         uninstallerCancel: "Cancelar",
         uninstallerDoneTitle: "Pronto!",
@@ -2382,6 +2386,8 @@ extension Strings {
         switcherMaxColumnsAuto: "Automático",
         switcherInstantSelection: "Seleção instantânea",
         switcherInstantSelectionCaption: "Move o destaque e a rolagem imediatamente ao navegar por apps e janelas.",
+        switcherIgnoreHoverSelection: "Ignorar seleção ao passar o cursor",
+        switcherIgnoreHoverSelectionCaption: "Mover o ponteiro sobre apps e janelas deixa o destaque onde está. Clicar ainda abre um.",
         switcherOtherDesktop: "Outra Mesa",
         dockPreviewCurrentSpaceOnlyCaption: "Quando desligado, mostra janelas de todas as mesas. Escolher uma janela em outra mesa leva você até ela.",
         dockPreviewBackgroundOpacityGlassCaption: "Com o Liquid Glass ligado, a transparência do painel é definida em Ajustes do Sistema > Aparência.",
@@ -2883,6 +2889,7 @@ extension Strings {
         uninstallerRemoving: "Moving to the Trash…",
         uninstallerFoundTitle: "found",
         uninstallerSelectedFormat: "%d of %d selected",
+        uninstallerSelectAll: "Select all",
         uninstallerRemove: "Move to Trash",
         uninstallerCancel: "Cancel",
         uninstallerDoneTitle: "Done!",
@@ -3573,6 +3580,8 @@ extension Strings {
         switcherMaxColumnsAuto: "Automático",
         switcherInstantSelection: "Instant selection",
         switcherInstantSelectionCaption: "Moves the highlight and scroll position immediately as you browse apps and windows.",
+        switcherIgnoreHoverSelection: "Ignore hover selection",
+        switcherIgnoreHoverSelectionCaption: "Moving the pointer over apps and windows leaves the highlight where it is. Clicking still opens one.",
         switcherOtherDesktop: "Other desktop",
         dockPreviewCurrentSpaceOnlyCaption: "When off, shows windows from all desktops. Choosing a window on another desktop takes you there.",
         dockPreviewBackgroundOpacityGlassCaption: "Liquid Glass is on, so the panel’s transparency is set in System Settings > Appearance.",

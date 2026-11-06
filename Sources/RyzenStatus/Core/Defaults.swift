@@ -196,6 +196,8 @@ enum Defaults {
     static let allowedMonitorIntervals: [Double] = [1.0, 2.0, 5.0]
     static let defaultKeyboardDebounceWindowMs = 5
     static let defaultSnippetSoundName = "Tink"
+    /// The timer's alarm until the user picks another sound.
+    static let defaultNotchTimerSoundName = "Glass"
     static let allowedKeyboardDebounceWindowRange = 0...500
     /// Stepper increment for the keyboard debounce window. Kept at 1 ms so
     /// magnetic-keyboard users can pick values below the old 5 ms UI step
@@ -337,6 +339,7 @@ enum Defaults {
         DefaultsKey.windowPreviewExcludedApps: [String](),
         DefaultsKey.switcherCurrentSpaceOnly: false,
         DefaultsKey.switcherSearchPinEnabled: false, // S pins the search field open, off by default
+        DefaultsKey.switcherIgnoreHoverSelection: false,
         DefaultsKey.switcherMaxColumns: 0,
         DefaultsKey.pinchZoomEnabled: false,
         DefaultsKey.pinchZoomModifier: ScrollZoomModifier.control.rawValue,
@@ -493,6 +496,7 @@ enum Defaults {
         DefaultsKey.notchLowBatteryMenuBar: true,
         DefaultsKey.notchHoverDelay: 0.25,
         DefaultsKey.notchCloseDelay: 0.3,
+        DefaultsKey.notchCloseOnPointerExit: false,
         DefaultsKey.notchReturnHome: false,
         DefaultsKey.notchHomeModule: "controls",
         DefaultsKey.notchOpensActivity: true,
@@ -560,6 +564,8 @@ enum Defaults {
         DefaultsKey.notchTimerMode: "timer",
         DefaultsKey.notchTimerMinutes: 15,
         DefaultsKey.notchTimerSoundEnabled: true,
+        DefaultsKey.notchTimerSoundName: defaultNotchTimerSoundName,
+        DefaultsKey.notchTimerSoundDuration: NotchTimerSoundDuration.defaultValue,
         DefaultsKey.notchHideTimerCountdown: false,
         DefaultsKey.notchPomodoroFocusMinutes: 25,
         DefaultsKey.notchPomodoroShortBreakMinutes: 5,
@@ -572,6 +578,7 @@ enum Defaults {
         DefaultsKey.notchCalendarCountdown: false,
         DefaultsKey.notchCalendarTimeLeft: false,
         DefaultsKey.notchCalendarWeekNumbers: false,
+        DefaultsKey.notchCalendarHidesAllDay: false,
         DefaultsKey.notchCalendarExcluded: [String](),
         DefaultsKey.notchAgentsEnabled: false,
         DefaultsKey.notchLyricsEnabled: true,
@@ -1079,6 +1086,8 @@ enum Defaults {
         DefaultsKey.clipboardHistoryWindowHeight: 0.0,
         DefaultsKey.clipboardHistoryMenuBarPreview: false,
         DefaultsKey.clipboardHistoryMenuBarPreviewLength: Defaults.defaultClipboardMenuBarPreviewLength,
+        DefaultsKey.clipboardHistoryCopySound: false,
+        DefaultsKey.clipboardHistoryCopySoundName: "Glass",
         DefaultsKey.clipboardAutoClearOnDelay: false,
         DefaultsKey.clipboardAutoClearDelay: Defaults.defaultClipboardAutoClearDelay,
         DefaultsKey.clipboardAutoClearOnSleep: false,
@@ -1134,6 +1143,7 @@ enum Defaults {
         DefaultsKey.windowEdgeSnapEnabled: false,
         DefaultsKey.windowEdgeSnapDisabledZones: "",
         DefaultsKey.windowEdgeSnapZoneActions: "",
+        DefaultsKey.windowEdgeSnapRestoreOnDrag: false,
         DefaultsKey.windowLayoutShortcutCenterHalf: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutCenterTwoThirds: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutTopThird: WindowLayoutAction.clearedShortcutStorageValue,
@@ -1260,14 +1270,15 @@ enum Defaults {
                      forKey: DefaultsKey.monitorPwrTemperature)
     }
 
-    /// Discovery used to send one request per read, which reads a monitor that
-    /// answers only paired requests as write-only. That verdict is cached and
-    /// never re-probed, so it would outlive the fix: drop the cache once.
+    /// Both unpaired discovery requests and the old read checksum could cache
+    /// a readable monitor as write-only. Recheck after the checksum fix even
+    /// if the paired-request migration ran; keep later verdicts intact.
     static func recheckBrightnessDDCWriteOnlyPaths(in defaults: UserDefaults) {
-        guard !defaults.bool(forKey: DefaultsKey.brightnessDDCWriteOnlyPathsRechecked) else {
+        guard !defaults.bool(forKey: DefaultsKey.brightnessDDCReadChecksumRechecked) else {
             return
         }
         defaults.set(true, forKey: DefaultsKey.brightnessDDCWriteOnlyPathsRechecked)
+        defaults.set(true, forKey: DefaultsKey.brightnessDDCReadChecksumRechecked)
         defaults.removeObject(forKey: DefaultsKey.brightnessDDCWriteOnlyPaths)
     }
 

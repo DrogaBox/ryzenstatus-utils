@@ -320,6 +320,7 @@ extension DefaultsKey {
     static let micMuteSavedVolume = "micMuteSavedVolume"     // input volume to restore on unmute (pre 3.2.0 state)
     static let micMuteSavedVolumes = "micMuteSavedVolumes"   // [device uid: input volume] to restore on unmute
     static let micMuteSavedChannelVolumes = "micMuteSavedChannelVolumes" // [device uid: [channel: input volume]] to restore on unmute
+    static let micMuteSavedControls = "micMuteSavedControls" // [device uid: [selector:element: original value]] pending restoration
     static let micMuteMutedDevices = "micMuteMutedDevices"   // uids of the devices this app muted
     static let micMuteMenuBarIndicator = "micMuteMenuBarIndicator" // badge the status icon while muted
     static let quickLauncherShortcutEnabled = "quickLauncherShortcutEnabled"
@@ -577,6 +578,7 @@ extension DefaultsKey {
     static let notchHoverExpands = "notchHoverExpands"
     static let notchHoverDelay = "notchHoverDelay"
     static let notchCloseDelay = "notchCloseDelay"
+    static let notchCloseOnPointerExit = "notchCloseOnPointerExit" // a click-opened island closes once the pointer leaves
     static let notchHideUntilHover = "notchHideUntilHover"
     static let notchHiddenShowsActivity = "notchHiddenShowsActivity"
     static let notchHideInFullscreen = "notchHideInFullscreen"
@@ -627,6 +629,8 @@ extension DefaultsKey {
     static let notchTimerMode = "notchTimerMode"
     static let notchTimerMinutes = "notchTimerMinutes"
     static let notchTimerSoundEnabled = "notchTimerSoundEnabled"
+    static let notchTimerSoundName = "notchTimerSoundName"
+    static let notchTimerSoundDuration = "notchTimerSoundDuration"
     static let notchHideTimerCountdown = "notchHideTimerCountdown"
     static let notchPomodoroFocusMinutes = "notchPomodoroFocusMinutes"
     static let notchPomodoroShortBreakMinutes = "notchPomodoroShortBreakMinutes"
@@ -642,6 +646,7 @@ extension DefaultsKey {
     static let notchCalendarCountdown = "notchCalendarCountdown"
     static let notchCalendarTimeLeft = "notchCalendarTimeLeft"
     static let notchCalendarWeekNumbers = "notchCalendarWeekNumbers"
+    static let notchCalendarHidesAllDay = "notchCalendarHidesAllDay" // all-day events stay out of the island
     static let notchCalendarExcluded = "notchCalendarExcluded"
     static let notchCalendarChosenCountdowns = "notchCalendarChosenCountdowns"
     static let notchNotificationsEnabled = "notchNotificationsEnabled"
@@ -811,6 +816,7 @@ extension DefaultsKey {
     static let switcherTreatHiddenAppsLikeMinimized = "switcherTreatHiddenAppsLikeMinimized"
     static let switcherShowFullscreenWindows = "switcherShowFullscreenWindows"
     static let switcherInstantSelection = "switcherInstantSelection" // skip selection and reveal animations while browsing
+    static let switcherIgnoreHoverSelection = "switcherIgnoreHoverSelection" // pointer movement does not change the highlight; click still commits
     static let switcherScreenPlacement = "switcherScreenPlacement" // SwitcherScreenPlacement raw value: which display the panel opens on
     static let switcherCurrentDisplayOnly = "switcherCurrentDisplayOnly" // list only windows on the display under the pointer (issue #1391)
     static let switcherMaxColumns = "switcherMaxColumns" // 0 = Auto, else the most items per row (SwitcherSupport.maxColumnsRange)
@@ -840,6 +846,9 @@ extension DefaultsKey {
     // Set once the paths cached before paired discovery requests have been
     // dropped, so a monitor written off then is classified again exactly once.
     static let brightnessDDCWriteOnlyPathsRechecked = "brightnessDDCWriteOnlyPathsRechecked"
+    // The read checksum fix needs its own recheck even if the paired-request
+    // migration already ran and cached the monitor as write-only again.
+    static let brightnessDDCReadChecksumRechecked = "brightnessDDCReadChecksumRechecked"
     // Per-monitor connection paths a person has told this app to dim in
     // software: the only way to know a write-only channel swallows its writes
     // is to watch the panel, which no probe can do. Issue #1589.
@@ -908,8 +917,12 @@ extension DefaultsKey {
     static let clipboardHistoryLayout = "clipboardHistoryLayout" // cards | list, how the history window shows entries
     static let clipboardHistoryWindowWidth = "clipboardHistoryWindowWidth" // the list window's chosen size
     static let clipboardHistoryWindowHeight = "clipboardHistoryWindowHeight"
+    static let clipboardHistoryWindowX = "clipboardHistoryWindowX"
+    static let clipboardHistoryWindowY = "clipboardHistoryWindowY"
     static let clipboardHistoryMenuBarPreview = "clipboardHistoryMenuBarPreview" // show latest copy next to the menu bar icon
     static let clipboardHistoryMenuBarPreviewLength = "clipboardHistoryMenuBarPreviewLength" // characters shown before truncating
+    static let clipboardHistoryCopySound = "clipboardHistoryCopySound" // play a sound for each saved copy
+    static let clipboardHistoryCopySoundName = "clipboardHistoryCopySoundName" // a sound in /System/Library/Sounds
     // Auto clear: wipes the system pasteboard on a delay or on sleep and lock.
     // Deliberately outside the clipboardHistory family, since it clears the
     // pasteboard without touching saved entries, and runs with capture off.
@@ -958,6 +971,7 @@ extension DefaultsKey {
     static let windowEdgeSnapEnabled = "windowEdgeSnapEnabled"
     static let windowEdgeSnapDisabledZones = "windowEdgeSnapDisabledZones" // comma-separated visual zone ids
     static let windowEdgeSnapZoneActions = "windowEdgeSnapZoneActions" // zone=action entries, + between split areas
+    static let windowEdgeSnapRestoreOnDrag = "windowEdgeSnapRestoreOnDrag" // dragging a snapped window away restores its earlier size
     static let windowLayoutShortcutCenterHalf = "windowLayoutShortcutCenterHalf"
     static let windowLayoutShortcutCenterTwoThirds = "windowLayoutShortcutCenterTwoThirds"
     static let windowLayoutShortcutTopThird = "windowLayoutShortcutTopThird"
