@@ -193,8 +193,11 @@ enum NotchMascotCompanionsTests {
                          && use?.islandBeats(byLeader: true).isEmpty == false,
                          "\(item.rawValue) has a trick of its own, on the desktop and in the island")
             suite.expect(item.rarity.priceRange.contains(item.price), "\(item.rawValue) costs what its rarity costs")
-            suite.expect(FeatureStrings.notchMascotLife(.es).name(of: item) == FeatureStrings.notchMascotCraft(.es).name(of: item)
-                         && FeatureStrings.notchMascotShop(.es).gag(of: item) != nil,
+            // Life and shop word the things they do not own in the app's
+            // language, whatever language they were asked in.
+            let spoken = L10n.shared.language
+            suite.expect(FeatureStrings.notchMascotLife(spoken).name(of: item) == FeatureStrings.notchMascotCraft(spoken).name(of: item)
+                         && FeatureStrings.notchMascotShop(spoken).gag(of: item) == FeatureStrings.notchMascotCraft(spoken).gag(of: item),
                          "\(item.rawValue) is named and explained wherever things are")
         }
         suite.expect(NotchMascotItemUse.of(.matchaBowl, style: .capybara) != NotchMascotItemUse.of(.matchaBowl, style: .cat)
