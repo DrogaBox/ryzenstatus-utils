@@ -93,8 +93,6 @@ struct NotchMascotSettings: View {
         return NotchMascotTransformation.friendForm(own: friendFormChoice, companions: formChoice, level: friendLevel,
                                                     style: style)
     }
-    private var hasUnlockedForm: Bool { NotchMascotForm.allCases.contains { $0.unlockLevel <= level } }
-    private var friendHasUnlockedForm: Bool { NotchMascotForm.allCases.contains { $0.unlockLevel <= friendLevel } }
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
@@ -546,9 +544,8 @@ struct NotchMascotSettings: View {
                 NotchMascotChoiceTile(title: forms.random, selected: choice == .random) {
                     drawRandomForm(for: currentStyle.rawValue)
                 } preview: {
-                    randomFormPreview(unlocked: hasUnlockedForm)
+                    randomFormPreview()
                 }
-                .disabled(!hasUnlockedForm)
             }
             .id("forms-\(randomTick)")
             .padding(.leading, settingsRowTextInset)
@@ -594,9 +591,8 @@ struct NotchMascotSettings: View {
                     NotchMascotChoiceTile(title: forms.random, selected: friendChoice == .random) {
                         drawRandomForm(for: friendStyleChosen?.rawValue ?? "friend")
                     } preview: {
-                        randomFormPreview(unlocked: friendHasUnlockedForm)
+                        randomFormPreview()
                     }
-                    .disabled(!friendHasUnlockedForm)
                 }
                 .id("friend-forms-\(randomTick)")
                 .padding(.leading, settingsRowTextInset)
@@ -615,12 +611,14 @@ struct NotchMascotSettings: View {
         NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
     }
 
-    private func randomFormPreview(unlocked: Bool) -> some View {
-        formPreview(nil, unlocked: unlocked)
+    /// Random mode is always open: before the first form is unlocked it shows
+    /// none, and from then on it draws among the forms the figure has earned.
+    private func randomFormPreview() -> some View {
+        formPreview(nil, unlocked: true)
             .overlay {
                 Image(systemName: "dice.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(unlocked ? 0.92 : 0.4))
+                    .foregroundStyle(.white.opacity(0.92))
             }
     }
 
