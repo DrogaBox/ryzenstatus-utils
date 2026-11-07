@@ -48,10 +48,14 @@ struct NotchMascotFusionLook: Equatable {
 enum NotchMascotFusion {
     // MARK: When
 
-    /// At least this long between two fusions of their own.
-    static let interval: TimeInterval = 540
+    /// At least this long between two fusions of their own: half an hour,
+    /// so a fusion is a rarer sight than a transformation, which comes
+    /// with a level.
+    static let interval: TimeInterval = 1800
     /// Once one is due and a play would start, the share of chances it is a fusion.
-    static let chance = 0.2
+    static let chance = 0.1
+    /// No more than this many of their own accord a day; the menu always may.
+    static let dailyCap = 2
     /// Farther apart than this they do not dance it; they play something else.
     static let reach: CGFloat = 640
     /// How long the fused one stays out, and a fusion gone wrong.
@@ -59,19 +63,60 @@ enum NotchMascotFusion {
     static let flopLength: ClosedRange<TimeInterval> = 12...18
     /// The share of fusions in which the poses do not match.
     static let flopChance = 0.12
-    /// Between two power moves of the fused one.
+    /// Between two power moves of the fused one, at level one.
     static let moveGap: ClosedRange<TimeInterval> = 6...11
+    /// How many times the pair's power a fused one hits with: it is an
+    /// upgrade, not a costume.
+    static let powerBoost: CGFloat = 1.5
+    /// What a fusion that went well leaves each of the two, and the pocket.
+    static let experience = 20
+    static let gold = 25
+    /// A press on the fused one sets off a move, at most this often.
+    static let tapCooldown: TimeInterval = 1.5
+    /// How long after a stroll begins the sparks follow its feet, and how often.
+    static let trailStep: TimeInterval = 0.35
+
+    /// Between two power moves at `level`, the higher of the two's: the
+    /// stronger the pair, the busier the fused one, down to about half the
+    /// gap at the top.
+    static func moveGap(level: Int) -> ClosedRange<TimeInterval> {
+        let share = 1 - 0.45 * min(1, max(0, Double(level - 1) / 49))
+        return (moveGap.lowerBound * share)...(moveGap.upperBound * share)
+    }
 
     /// Whether two out together start a fusion of their own now: one is due,
-    /// a play would be too, and they get on well. The island's own two,
-    /// `relation` nil, always do.
+    /// a play would be too, the day has one left, and they get on well. The
+    /// island's own two, `relation` nil, always do.
     static func due(since: TimeInterval, sincePlay: TimeInterval, relation: NotchMascotRelation?,
-                    random: Double) -> Bool {
-        guard since >= interval, sincePlay >= NotchMascotPlay.interval else { return false }
+                    today: Int = 0, random: Double) -> Bool {
+        guard since >= interval, sincePlay >= NotchMascotPlay.interval, today < dailyCap else { return false }
         switch relation {
         case nil, .friends?, .crush?: return random < chance
         case .rivals?, .strangers?: return false
         }
+    }
+
+    /// How many fusions came of their own accord on `day`, from the
+    /// "day:count" record kept in the preferences; none on another day.
+    static func count(in record: String?, day: String) -> Int {
+        let parts = (record ?? "").split(separator: ":")
+        guard parts.count == 2, String(parts[0]) == day else { return 0 }
+        return max(0, Int(parts[1]) ?? 0)
+    }
+
+    /// The record with one more on `day`.
+    static func recording(_ record: String?, day: String) -> String {
+        "\(day):\(count(in: record, day: day) + 1)"
+    }
+
+    static func fusionsToday(defaults: UserDefaults = .standard, now: Date = Date()) -> Int {
+        count(in: defaults.string(forKey: DefaultsKey.notchMascotFusionsToday), day: NotchMascotSpecialDays.key(for: now))
+    }
+
+    static func noteFusion(defaults: UserDefaults = .standard, now: Date = Date()) {
+        let day = NotchMascotSpecialDays.key(for: now)
+        defaults.set(recording(defaults.string(forKey: DefaultsKey.notchMascotFusionsToday), day: day),
+                     forKey: DefaultsKey.notchMascotFusionsToday)
     }
 
     /// Never with Reduce Motion or Low Power Mode: it is all motion and flashes.

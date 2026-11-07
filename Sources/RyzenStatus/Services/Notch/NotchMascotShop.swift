@@ -40,6 +40,12 @@ extension NotchMascotAccessory {
              .maracas, .soccerBall, .pillow, .marshmallowStick, .paperPlane, .whistle,
              .pizzaSlice, .kazoo, .bubbleGum, .crackerCrown, .rubberChicken:
             return .common
+        case .matchaBowl, .shovel:
+            return .common
+        case .karateBelt, .painterBeret, .boxingGloves, .pogoStick:
+            return .uncommon
+        case .electricGuitar, .telescope:
+            return .rare
         case .legendShield, .knightHelm, .vikingHelm, .wingBoots, .rangerBow, .boomerang, .heartPotion, .bardLute,
              .dumbbells, .detectiveLens, .gameController, .goldenKey,
              .creamPie, .fakeMustache, .stormCloud, .lonelyBalloon, .teddyBear, .tinfoilHat, .dynamiteStick,
@@ -75,52 +81,114 @@ extension NotchMascotAccessory {
     }
 }
 
-/// What has been bought, and what the shop shows. Readable from anywhere:
-/// the wardrobe asks it while it draws.
+/// What each companion has bought and brought along, and what the shop
+/// shows. Readable from anywhere: the wardrobe asks it while it draws.
+/// Every figure keeps a wardrobe of its own: the island's companion, its
+/// friend and every guest own what was bought for them and a couple of
+/// things they came with, and none of them wears another's.
 enum NotchMascotShop {
     /// Items shown at a time.
     static let slots = 4
     /// What changing the display costs.
     static let rerollPrice = 25
-
+    /// How many things a figure brings along from home before anything is
+    /// bought for it, so a guest has something to play with.
+    static let kitSize = 2
     private static let lock = NSLock()
-    private static var cached: Set<String>?
-
-    /// Whether `item` is worn-ready: the name that unlocks everything owns it all.
-    static func owns(_ item: NotchMascotAccessory) -> Bool {
+    /// Style raw value to what was bought for it.
+    private static var cached: [String: Set<String>]?
+    /// The figure a plain question is about: the island's own companion.
+    static func activeStyle(in defaults: UserDefaults = .standard) -> NotchMascotStyle {
+        NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle),
+                                  name: defaults.string(forKey: DefaultsKey.notchMascotName))
+    }
+    /// Whether the island's companion may wear `item`.
+    static func owns(_ item: NotchMascotAccessory) -> Bool { owns(item, by: activeStyle()) }
+    /// Whether `style` may wear `item`: bought for it, brought along by it,
+    /// or everything for the island's companion when its name unlocks it
+    /// all. The name lifts only the companion itself, never its friend or a
+    /// guest, so they keep wardrobes of their own.
+    static func owns(_ item: NotchMascotAccessory, by style: NotchMascotStyle) -> Bool {
         guard item.isPurchasable else { return true }
-        if NotchMascotGrowth.unlocksEverything(name: UserDefaults.standard.string(forKey: DefaultsKey.notchMascotName)) {
+        if style == activeStyle(),
+           NotchMascotGrowth.unlocksEverything(name: UserDefaults.standard.string(forKey: DefaultsKey.notchMascotName)) {
             return true
         }
-        return ownedSet().contains(item.rawValue)
+        return bought(by: style).contains(item.rawValue) || startingKit(for: style).contains(item)
     }
-
-    static func ownedSet() -> Set<String> {
+    /// What was bought for `style`, raw values.
+    static func bought(by style: NotchMascotStyle) -> Set<String> {
+        inventories()[style.rawValue] ?? []
+    }
+    /// The island's companion's own bought things, as it has always read.
+    static func ownedSet() -> Set<String> { bought(by: activeStyle()) }
+    /// Everything `style` may wear that is bought with gold: bought or brought along.
+    static func inventory(of style: NotchMascotStyle) -> Set<NotchMascotAccessory> {
+        var items = Set(bought(by: style).compactMap(NotchMascotAccessory.init(rawValue:)))
+        items.formUnion(startingKit(for: style))
+        return items
+    }
+    /// The two things a figure brings along from home: always the same for
+    /// the same figure, drawn from the toys, the party gear and the
+    /// oddities, so every figure has its own habits from the first visit.
+    static func startingKit(for style: NotchMascotStyle) -> [NotchMascotAccessory] {
+        let pool = NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems
+        var kit: [NotchMascotAccessory] = []
+        var hash = NotchMascotRapport.stableHash(style.rawValue + "·kit")
+        while kit.count < kitSize, kit.count < pool.count {
+            let pick = pool[Int(hash % UInt64(pool.count))]
+            if !kit.contains(pick) { kit.append(pick) }
+            hash = NotchMascotRapport.stableHash(String(hash))
+        }
+        return kit
+    }
+    private static func inventories() -> [String: Set<String>] {
         lock.lock(); defer { lock.unlock() }
         if let cached { return cached }
-        let loaded = Set(UserDefaults.standard.stringArray(forKey: DefaultsKey.notchMascotOwned) ?? [])
+        let defaults = UserDefaults.standard
+        var loaded: [String: Set<String>] = [:]
+        if let stored = defaults.dictionary(forKey: DefaultsKey.notchMascotInventories) as? [String: [String]] {
+            loaded = stored.mapValues(Set.init)
+        }
+        // What was bought before every figure had a wardrobe of its own
+        // belongs to the companion it was bought for: the island's own.
+        if !defaults.bool(forKey: DefaultsKey.notchMascotInventoryMigrated) {
+            let legacy = Set(defaults.stringArray(forKey: DefaultsKey.notchMascotOwned) ?? [])
+            if !legacy.isEmpty {
+                let owner = activeStyle(in: defaults).rawValue
+                loaded[owner, default: []].formUnion(legacy)
+            }
+            defaults.set(true, forKey: DefaultsKey.notchMascotInventoryMigrated)
+            defaults.set(loaded.mapValues { $0.sorted() }, forKey: DefaultsKey.notchMascotInventories)
+        }
         cached = loaded
         return loaded
     }
-
-    static func grant(_ item: NotchMascotAccessory) {
+    /// Buys `item` for `style`, the island's companion by default.
+    static func grant(_ item: NotchMascotAccessory, to style: NotchMascotStyle? = nil) {
         guard item.isPurchasable else { return }
-        var owned = ownedSet()
-        owned.insert(item.rawValue)
-        store(owned)
+        let owner = style ?? activeStyle()
+        var all = inventories()
+        all[owner.rawValue, default: []].insert(item.rawValue)
+        store(all)
     }
-
-    static func resetOwned() { store([]) }
-
-    private static func store(_ owned: Set<String>) {
+    /// Starts `style` over with only what it brought along; every figure with nil.
+    static func resetOwned(for style: NotchMascotStyle? = nil) {
+        var all = inventories()
+        if let style { all[style.rawValue] = nil } else { all = [:] }
+        store(all)
+    }
+    private static func store(_ all: [String: Set<String>]) {
         lock.lock()
-        cached = owned
+        cached = all
         lock.unlock()
-        UserDefaults.standard.set(owned.sorted(), forKey: DefaultsKey.notchMascotOwned)
+        let defaults = UserDefaults.standard
+        defaults.set(all.mapValues { $0.sorted() }, forKey: DefaultsKey.notchMascotInventories)
+        // The companion's own, as older readers of the single list expect.
+        defaults.set((all[activeStyle(in: defaults).rawValue] ?? []).sorted(), forKey: DefaultsKey.notchMascotOwned)
     }
-
     /// Carries the old level unlocks over once: what a level had already
-    /// opened stays owned.
+    /// opened stays owned by the island's companion.
     static func migrateOnce(level: Int) {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: DefaultsKey.notchMascotShopMigrated) else { return }
@@ -130,21 +198,27 @@ enum NotchMascotShop {
             grant(item)
         }
     }
-
-    /// Everything that can still be bought.
-    static var unowned: [NotchMascotAccessory] {
-        let owned = ownedSet()
-        let forSale = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
+    /// Everything that can be bought at all.
+    static var forSale: [NotchMascotAccessory] {
+        NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
             + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems
-            + NotchMascotAccessory.oddityItems
-        return forSale.filter { !owned.contains($0.rawValue) }
+            + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems
+    }
+    /// Everything the island's companion can still be bought.
+    static var unowned: [NotchMascotAccessory] { unowned(for: activeStyle()) }
+    /// Everything `style` does not have yet.
+    static func unowned(for style: NotchMascotStyle) -> [NotchMascotAccessory] {
+        let owned = inventory(of: style)
+        return forSale.filter { !owned.contains($0) }
     }
 
     /// What the shop shows now: a draw by rarity, never twice the same thing and
     /// never what is owned. A rarity with nothing left gives way to the next
     /// nearest. With `gold` too little for anything shown, the cheapest thing
     /// takes the last slot, so a visit always has something within reach.
-    static func roll(gold: Int, random: () -> Double = { Double.random(in: 0..<1) }) -> [NotchMascotAccessory] {
+    static func roll(gold: Int, for style: NotchMascotStyle? = nil,
+                     random: () -> Double = { Double.random(in: 0..<1) }) -> [NotchMascotAccessory] {
+        let unowned = unowned(for: style ?? activeStyle())
         var pool = unowned
         var stock: [NotchMascotAccessory] = []
         while stock.count < slots, !pool.isEmpty {

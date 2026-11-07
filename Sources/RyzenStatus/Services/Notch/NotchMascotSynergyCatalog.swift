@@ -7,6 +7,10 @@ import Foundation
 enum SynergyCategory: Int, CaseIterable, Identifiable {
     case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots, dance
     case toys, legends, signals, party, oddities
+    /// A transformed companion meeting what the other wears.
+    case forms
+    /// The workshop's things.
+    case workshop
 
     var id: Int { rawValue }
 
@@ -30,6 +34,8 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .signals: return "Hologram and Android"
         case .party: return "Party and play"
         case .oddities: return "Oddities and wonders"
+        case .forms: return "Transformations"
+        case .workshop: return "The workshop"
         }
     }
 
@@ -53,6 +59,8 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .signals: return "Holograma y Androide"
         case .party: return "Fiesta y juego"
         case .oddities: return "Rarezas y maravillas"
+        case .forms: return "Transformaciones"
+        case .workshop: return "El taller"
         }
     }
 }
@@ -71,22 +79,32 @@ enum NotchMascotSynergyMatch: Equatable {
     case styleWears(NotchMascotStyle, NotchMascotAccessory)
     /// Either is this figure.
     case style(NotchMascotStyle)
+    /// One is transformed, whatever its form, and the other wears this:
+    /// a thing bought for one companion meets the power of another.
+    case formWears(NotchMascotAccessory)
+    /// Both are transformed.
+    case bothFormed
     /// Played on demand: from the Pocket Card, a click or a door.
     case quest
 
     /// A pair of things worn beats one worn, which beats one figure alone.
     var specificity: Int {
         switch self {
-        case .pair, .twin, .styleWears: return 3
-        case .styles: return 2
+        case .pair, .twin, .styleWears, .formWears: return 3
+        case .styles, .bothFormed: return 2
         case .wears, .style: return 1
         case .quest: return 0
         }
     }
 
     func matches(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> Bool {
+                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                 leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil) -> Bool {
         switch self {
+        case .formWears(let a):
+            return (leaderForm != nil && friendWears == a) || (friendForm != nil && leaderWears == a)
+        case .bothFormed:
+            return leaderForm != nil && friendForm != nil
         case .pair(let a, let b):
             return (leaderWears == a && friendWears == b) || (leaderWears == b && friendWears == a)
         case .twin(let a): return leaderWears == a && friendWears == a
@@ -101,10 +119,18 @@ enum NotchMascotSynergyMatch: Equatable {
     }
 
     /// Whether the companion starts it: the one wearing or being the first
-    /// thing named does, and with nothing to tell them apart, `fallback`.
+    /// thing named does, the transformed one where a form meets a thing,
+    /// and with nothing to tell them apart, `fallback`.
     func starterIsLeader(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle, fallback: Bool) -> Bool {
+                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                         leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil, fallback: Bool) -> Bool {
         switch self {
+        case .formWears(let a):
+            if leaderForm != nil, friendWears == a { return true }
+            if friendForm != nil, leaderWears == a { return false }
+            return fallback
+        case .bothFormed:
+            return fallback
         case .pair(let a, let b):
             if a == b { return fallback }
             if leaderWears == a && friendWears == b { return true }
@@ -236,15 +262,18 @@ struct NotchMascotSynergy: Identifiable, Equatable {
     let script: NotchMascotSynergyScript
 
     func matches(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> Bool {
+                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                 leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil) -> Bool {
         match.matches(leaderWears: leaderWears, friendWears: friendWears,
-                      leaderStyle: leaderStyle, friendStyle: friendStyle)
+                      leaderStyle: leaderStyle, friendStyle: friendStyle, leaderForm: leaderForm, friendForm: friendForm)
     }
 
     func starterIsLeader(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle, fallback: Bool) -> Bool {
+                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                         leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil, fallback: Bool) -> Bool {
         match.starterIsLeader(leaderWears: leaderWears, friendWears: friendWears,
-                              leaderStyle: leaderStyle, friendStyle: friendStyle, fallback: fallback)
+                              leaderStyle: leaderStyle, friendStyle: friendStyle,
+                              leaderForm: leaderForm, friendForm: friendForm, fallback: fallback)
     }
 
     /// The play it makes, started by the companion or by its friend.
@@ -285,10 +314,11 @@ enum NotchMascotSynergyCatalog {
     /// The combos this pair can play: when some are made of a pair of things
     /// worn, only those, otherwise all that fit. Never the quests.
     static func candidates(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                           leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> [NotchMascotSynergy] {
+                           leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                           leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil) -> [NotchMascotSynergy] {
         let fits = all.filter {
             $0.matches(leaderWears: leaderWears, friendWears: friendWears,
-                       leaderStyle: leaderStyle, friendStyle: friendStyle)
+                       leaderStyle: leaderStyle, friendStyle: friendStyle, leaderForm: leaderForm, friendForm: friendForm)
         }
         guard let best = fits.map({ $0.match.specificity }).max() else { return [] }
         return best >= 3 ? fits.filter { $0.match.specificity >= 3 } : fits
@@ -304,6 +334,8 @@ enum NotchMascotSynergyCatalog {
             case .pair(let a, let b) where a == item: partner = b
             case .pair(let a, let b) where b == item: partner = a
             case .twin(let a) where a == item: partner = a
+            // A transformed friend partners it with nothing of its own.
+            case .formWears(let a) where a == item: partner = .none
             default: return nil
             }
             guard seen.insert(partner).inserted else { return nil }
@@ -312,9 +344,10 @@ enum NotchMascotSynergyCatalog {
     }
     /// The combo that best fits this pair, if any.
     static func resolveSynergy(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
-                               leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> NotchMascotSynergy? {
+                               leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle,
+                               leaderForm: NotchMascotForm? = nil, friendForm: NotchMascotForm? = nil) -> NotchMascotSynergy? {
         candidates(leaderWears: leaderWears, friendWears: friendWears,
-                   leaderStyle: leaderStyle, friendStyle: friendStyle).first
+                   leaderStyle: leaderStyle, friendStyle: friendStyle, leaderForm: leaderForm, friendForm: friendForm).first
     }
 
     /// A combo not found yet, for the tavern to hint at: one that plays by
@@ -1758,5 +1791,88 @@ enum NotchMascotSynergyCatalog {
           "A squeak for every flap: the whole party joins the chicken dance.",
           "Un chillido por cada aleteo: toda la fiesta se suma al baile del pollito.",
           .pair(.rubberChicken, .partyHat), .chorus(.note, .bounce, "BAWK BAWK")),
+        // A transformation meets what the other wears: a thing bought for
+        // one companion mixes with the power of another.
+        S(341, "midasTouch", .forms, "Midas Touch", "Toque de Midas",
+          "A transformed one and a bag of gold: everything it touches rains coins.",
+          "Un transformado y una bolsa de oro: todo lo que toca llueve monedas.",
+          .formWears(.goldBag), .ritual(.celebrate, .perk, .coins, "MIDAS")),
+        S(342, "stormLord", .forms, "Storm Lord", "Señor de la tormenta",
+          "Lightning answers lightning: a transformed one duels the thunder talisman.",
+          "El rayo responde al rayo: un transformado duela con el talismán del trueno.",
+          .formWears(.thunderTalisman), .duel(.bolt, .magic, "THUNDER")),
+        S(343, "sharedAura", .forms, "Shared Aura", "Aura compartida",
+          "Two transformed at once: their auras meet in a shower of sparks.",
+          "Dos transformados a la vez: sus auras se encuentran en una lluvia de chispas.",
+          .bothFormed, .chorus(.spark, .perk, "POWER")),
+        S(344, "haloChoir", .forms, "Halo Choir", "Coro del halo",
+          "A halo over one and an aura round the other: a moment of grace.",
+          "Un halo sobre uno y un aura en el otro: un momento de gracia.",
+          .formWears(.halo), .calm(.relax, .love, .sparkles, nil)),
+        S(345, "legendClash", .forms, "Legend Clash", "Choque de leyendas",
+          "The sword of legend against a transformed one: steel rings on power.",
+          "La espada legendaria contra un transformado: el acero tañe contra el poder.",
+          .formWears(.legendSword), .duel(.sword, .sparkles, "CLASH")),
+        S(346, "goldenFeast", .forms, "Golden Feast", "Festín dorado",
+          "Ramen served to a transformed one: it is a feast fit for its aura.",
+          "Ramen servido a un transformado: un festín a la altura de su aura.",
+          .formWears(.ramenBowl), .give(.snack(.ramen), .celebrate, .confetti, "+500")),
+        S(347, "sparkingPunch", .forms, "Sparking Punch", "Puñetazo chispeante",
+          "Boxing gloves against an aura: every jab throws sparks.",
+          "Guantes de boxeo contra un aura: cada golpe lanza chispas.",
+          .formWears(.boxingGloves), .duel(.spark, .smoke, "KO!")),
+        S(348, "forgedBelt", .forms, "Forged Belt", "Cinturón forjado",
+          "A black belt bows to a transformed master, and the dojo lights up.",
+          "Un cinturón negro saluda a un maestro transformado, y el dojo se enciende.",
+          .formWears(.karateBelt), .ritual(.ready, .ready, .magic, "HIYA!")),
+        S(349, "litStage", .forms, "Lit Stage", "Escenario encendido",
+          "A guitar solo with an aura for stage lights: the crowd wants more.",
+          "Un solo de guitarra con un aura de foco: el público pide más.",
+          .formWears(.electricGuitar), .chorus(.note, .groove, "ENCORE")),
+        S(350, "starGazing", .forms, "Star Gazing", "Mirando estrellas",
+          "A telescope turned on a transformed one: the brightest star in the room.",
+          "Un telescopio apuntado a un transformado: la estrella más brillante de la sala.",
+          .formWears(.telescope), .calm(.peek, .love, .sparkles, "WOW")),
+        S(351, "goldDig", .forms, "Gold Dig", "Cavando oro",
+          "A shovel beside a transformed one: the ground gives up its coins.",
+          "Una pala junto a un transformado: el suelo suelta sus monedas.",
+          .formWears(.shovel), .give(.coin, .celebrate, .coins, "+100")),
+        S(352, "powerBounce", .forms, "Power Bounce", "Rebote de poder",
+          "A pogo stick and an aura: it bounces higher than ever.",
+          "Un saltarín y un aura: rebota más alto que nunca.",
+          .formWears(.pogoStick), .volley(.ball, 3, .sparkles, "BOING")),
+        // The workshop's things, together and with the right figure.
+        S(353, "rockDuet", .workshop, "Rock Duet", "Dúo de rock",
+          "An electric guitar and a lute: the oldest and the loudest make a band.",
+          "Una guitarra eléctrica y un laúd: lo más viejo y lo más ruidoso hacen una banda.",
+          .pair(.electricGuitar, .bardLute), .chorus(.note, .groove, "ROCK ON")),
+        S(354, "dojo", .workshop, "Dojo", "Dojo",
+          "A karate belt faces boxing gloves: a friendly bout, and a bow.",
+          "Una cinta de karate frente a guantes de boxeo: un combate amistoso, y una reverencia.",
+          .pair(.karateBelt, .boxingGloves), .duel(.spark, .smoke, "HIYA")),
+        S(355, "pleinAir", .workshop, "Plein Air", "Al aire libre",
+          "A painter and a flower: the model holds still, mostly.",
+          "Un pintor y una flor: la modelo se queda quieta, más o menos.",
+          .pair(.painterBeret, .flower), .give(.flower, .love, .sparkles, "ART")),
+        S(356, "teaCeremony", .workshop, "Tea Ceremony", "Ceremonia del té",
+          "A bowl of matcha and a chef's hat: whisked, served and sipped in silence.",
+          "Un cuenco de matcha y un gorro de chef: batido, servido y sorbido en silencio.",
+          .pair(.matchaBowl, .chefHat), .calm(.sip, .relax, .sparkles, nil)),
+        S(357, "nightWatch", .workshop, "Night Watch", "Guardia nocturna",
+          "A telescope and a lantern: one lights the way, the other finds the star.",
+          "Un telescopio y un farol: uno alumbra el camino, el otro encuentra la estrella.",
+          .pair(.telescope, .lantern), .calm(.peek, .surprised, .magic, "STAR")),
+        S(358, "treasureHunt", .workshop, "Treasure Hunt", "Caza del tesoro",
+          "A shovel and a detective's lens: X marks the spot, and the spot pays.",
+          "Una pala y una lupa de detective: la X marca el lugar, y el lugar paga.",
+          .pair(.shovel, .detectiveLens), .give(.key, .celebrate, .coins, "FOUND")),
+        S(359, "pogoRace", .workshop, "Pogo Race", "Carrera de saltarines",
+          "Two pogo sticks: a race across the floor, boing by boing.",
+          "Dos saltarines: una carrera por el suelo, bote a bote.",
+          .twin(.pogoStick), .volley(.ball, 4, .confetti, "BOING")),
+        S(360, "capyMatcha", .workshop, "Capy Matcha", "Capi matcha",
+          "A capybara with a bowl of matcha: the whole desktop calms down.",
+          "Un capibara con un cuenco de matcha: todo el escritorio se calma.",
+          .styleWears(.capybara, .matchaBowl), .calm(.relax, .sip, .sparkles, "ZEN")),
     ]
 }

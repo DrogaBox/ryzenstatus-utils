@@ -198,6 +198,16 @@ struct NotchMascotItemSignature: Equatable {
         case .beeHalo: return .init(.shiver, .spark, .smoke, .panic)
         case .spiderMonocle: return .init(.slip, .key, .smoke, .panic)
         case .ufoHat: return .init(.float, .bolt, .magic, .surprised)
+        // The workshop: a riff, a kata, a brushstroke, a sip, a jab, a
+        // look at the sky, a dig and a bounce.
+        case .electricGuitar: return .init(.strut, .note, .sparkles, .groove)
+        case .karateBelt: return .init(.stomp, .spark, .smoke, .ready)
+        case .painterBeret: return .init(.bow, .flower, .confetti, .wave)
+        case .matchaBowl: return .init(.bow, .snack(.bobaTea), .sparkles, .sip)
+        case .boxingGloves: return .init(.charge, .spark, .smoke, .ready)
+        case .telescope: return .init(.sneak, .star, .magic, .peek)
+        case .shovel: return .init(.stomp, .coin, .coins, .celebrate)
+        case .pogoStick: return .init(.highJump, .ball, .sparkles, .bounce)
         }
     }
 }
@@ -217,7 +227,9 @@ enum NotchMascotComboChoreography {
         case .pair(let a, let b): return (a, b)
         case .twin(let a): return (a, a)
         case .wears(let a), .styleWears(_, let a): return (a, nil)
-        case .styles, .style, .quest: return (nil, nil)
+        // The transformed one starts, with nothing in hand; the other wears the thing.
+        case .formWears(let a): return (nil, a)
+        case .styles, .style, .bothFormed, .quest: return (nil, nil)
         }
     }
 

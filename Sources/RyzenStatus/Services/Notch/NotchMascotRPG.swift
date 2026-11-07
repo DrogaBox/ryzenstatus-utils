@@ -298,6 +298,14 @@ public final class NotchMascotRPGState: ObservableObject {
     @Published private(set) var shopStock: [NotchMascotAccessory]
     /// Counts the purchases, so a view that lists what is owned redraws.
     @Published public private(set) var purchases = 0
+    /// The figure the shop buys for: nil for the island's own companion.
+    /// Each figure keeps what is bought for it.
+    @Published var shopRecipient: NotchMascotStyle? {
+        didSet { defaults.set(shopRecipient?.rawValue ?? "", forKey: DefaultsKey.notchMascotShopRecipient) }
+    }
+    /// The last thing bought, and who it was for, so the companion can
+    /// show it off at once; counts up with each purchase.
+    @Published private(set) var lastPurchase: (item: NotchMascotAccessory, style: NotchMascotStyle, count: Int)?
 
     /// The last hint the tavern gave: the name of a combo not found yet.
     @Published public private(set) var lastHint: String?
@@ -345,9 +353,10 @@ public final class NotchMascotRPGState: ObservableObject {
         goldCoins = max(0, defaults.integer(forKey: DefaultsKey.notchMascotGold))
         discoveredSynergies = Set(defaults.stringArray(forKey: DefaultsKey.notchMascotSynergies) ?? [])
         NotchMascotShop.migrateOnce(level: NotchMascotSupport.shownLevel())
+        shopRecipient = NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotShopRecipient) ?? "")
         shopStock = (defaults.stringArray(forKey: DefaultsKey.notchMascotShopStock) ?? [])
             .compactMap(NotchMascotAccessory.init(rawValue:))
-            .filter { $0.isPurchasable && !NotchMascotShop.owns($0) }
+            .filter { $0.isPurchasable }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.flush() }
@@ -421,27 +430,37 @@ public final class NotchMascotRPGState: ObservableObject {
         defaults.set(shopStock.map(\.rawValue), forKey: DefaultsKey.notchMascotShopStock)
     }
 
+    /// The figure the shop sells to now: the one picked, else the island's companion.
+    var shopFor: NotchMascotStyle { shopRecipient ?? NotchMascotShop.activeStyle(in: defaults) }
+
     private func restock() {
-        shopStock = NotchMascotShop.roll(gold: goldCoins)
+        shopStock = NotchMascotShop.roll(gold: goldCoins, for: shopFor)
         saveStock()
     }
+
+    /// Whether the figure the shop sells to already has `item`.
+    func recipientOwns(_ item: NotchMascotAccessory) -> Bool { NotchMascotShop.owns(item, by: shopFor) }
 
     /// Opens the stall: stocked on the first visit, as it was left after.
     func openShop() {
         if shopStock.isEmpty { restock() }
     }
 
-    /// Pays for something shown. False when it is not shown or the gold falls short.
+    /// Pays for something shown, for the figure the shop sells to. False
+    /// when it is not shown, that figure has it, or the gold falls short.
     @discardableResult
     func buy(_ item: NotchMascotAccessory) -> Bool {
-        guard shopStock.contains(item), goldCoins >= item.price else { return false }
+        let owner = shopFor
+        guard shopStock.contains(item), goldCoins >= item.price, !NotchMascotShop.owns(item, by: owner) else { return false }
         goldCoins -= item.price
         // The item is kept at once, so the gold paid for it is too.
         flush()
-        NotchMascotShop.grant(item)
+        NotchMascotShop.grant(item, to: owner)
         shopStock.removeAll { $0 == item }
         saveStock()
         purchases += 1
+        lastPurchase = (item, owner, purchases)
+        NotchService.shared.celebrateMascotPurchase(item, for: owner)
         return true
     }
 
@@ -471,7 +490,7 @@ public final class NotchMascotRPGState: ObservableObject {
         goldCoins = 0
         discoveredSynergies = []
         lastHint = nil
-        NotchMascotShop.resetOwned()
+        NotchMascotShop.resetOwned(for: nil)
         shopStock = []
         saveStock()
         purchases += 1

@@ -118,6 +118,10 @@ struct NotchMascotIslandPlay: Equatable {
         var friendWears: NotchMascotAccessory = .none
         var leaderStyle: NotchMascotStyle = .minimal
         var friendStyle: NotchMascotStyle = .minimal
+        /// The transformation each shows, if any: a form meets what the
+        /// other wears in combos of their own.
+        var leaderForm: NotchMascotForm? = nil
+        var friendForm: NotchMascotForm? = nil
         /// Hearts, the hourglass, gold and the combos found.
         var rpg = NotchMascotRPGSnapshot()
     }
@@ -125,7 +129,8 @@ struct NotchMascotIslandPlay: Equatable {
     /// The combos the pair can play now, as kinds.
     static func synergyKinds(in context: Context) -> [Kind] {
         NotchMascotSynergyCatalog.candidates(leaderWears: context.leaderWears, friendWears: context.friendWears,
-                                             leaderStyle: context.leaderStyle, friendStyle: context.friendStyle)
+                                             leaderStyle: context.leaderStyle, friendStyle: context.friendStyle,
+                                             leaderForm: context.leaderForm, friendForm: context.friendForm)
             .map { .synergy($0.id) }
     }
 

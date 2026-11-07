@@ -32,6 +32,10 @@ final class NotchMascotFusionDirector {
     /// The first fusion of their own comes a few minutes after the app starts.
     private var lastFusion = CACurrentMediaTime() - NotchMascotFusion.interval + 240
     private var recentMoves: [NotchMascotFusion.Move] = []
+    /// When the fused one last did a move for a press on it.
+    private var lastTap: CFTimeInterval = -.infinity
+    /// The sparks that follow the fused one's feet as it strolls.
+    private var trailWork: [DispatchWorkItem] = []
 
     /// The others about who would stop to watch `one`.
     var watchers: (NotchMascotDesktop) -> [NotchMascotDesktop] = { _ in [] }
@@ -61,10 +65,25 @@ final class NotchMascotFusionDirector {
               !one.isDozing, !other.isDozing, let a = one.feet, let b = other.feet, one.playScreen != nil,
               one.playScreen == other.playScreen, abs(a.x - b.x) <= NotchMascotFusion.reach,
               NotchMascotFusion.due(since: CACurrentMediaTime() - lastFusion, sincePlay: pair.since, relation: relation,
-                                    random: Double.random(in: 0..<1))
+                                    today: NotchMascotFusion.fusionsToday(), random: Double.random(in: 0..<1))
         else { return false }
         pair.played()
-        return start(one, other)
+        guard start(one, other) else { return false }
+        NotchMascotFusion.noteFusion()
+        return true
+    }
+
+    /// `one` was pressed: fused, it shows off a move for it rather than
+    /// split, at most every so often. False when the press is not for it.
+    func tapped(_ one: NotchMascotDesktop) -> Bool {
+        guard merged, one === body, let fused, mayMove else { return false }
+        let now = CACurrentMediaTime()
+        guard now - lastTap >= NotchMascotFusion.tapCooldown else { return true }
+        lastTap = now
+        let move = NotchMascotFusion.nextMove(for: fused, recent: recentMoves, random: { Double.random(in: 0..<1) })
+        recentMoves = Array((recentMoves + [move]).suffix(3))
+        _ = perform(move, by: one, fused: fused)
+        return true
     }
 
     /// Fuses `one` with `other` at once, as asked from `one`'s menu: what
@@ -200,6 +219,11 @@ final class NotchMascotFusionDirector {
                 if let canvas = self.canvas() {
                     NotchMascotFusionEffects.shockwave(in: canvas, at: self.onCanvas(CGPoint(x: self.x(body), y: self.floorY)),
                                                        reach: body.figureSize * 2.6, color: fused.look.secondary)
+                    // The upgrade, said the arcade way.
+                    NotchMascotPlayEffects.arcadeMarker("POWER UP", in: canvas,
+                                                        at: self.onCanvas(CGPoint(x: self.x(body),
+                                                                                  y: self.floorY + body.figureSize * 1.4)),
+                                                        cell: max(1.8, body.figureSize * 0.055))
                 }
                 body.pullFace(.determined, for: 1.4)
                 NotchMascotSound.play(.thud, pan: body.soundPan)
@@ -240,18 +264,46 @@ final class NotchMascotFusionDirector {
         let move = NotchMascotFusion.nextMove(for: fused, recent: recentMoves, random: { Double.random(in: 0..<1) })
         recentMoves = Array((recentMoves + [move]).suffix(3))
         let took = perform(move, by: body, fused: fused)
-        // Between moves it strolls about, pleased with itself.
-        if Bool.random() {
+        // Between moves it strolls about, pleased with itself, sparks at
+        // its heels and wisps of its aura drifting off it.
+        if fused.flop == nil || Bool.random() {
             at(took + 0.8) { [weak self] in
                 guard let self, body.feet != nil else { return }
                 let floor = body.floor
                 let x = self.x(body)
-                let to = min(floor.upperBound, max(floor.lowerBound, x + CGFloat.random(in: -1...1) * body.figureSize * 3))
-                body.stroll(to: to, pace: fused.flop == nil ? 1.2 : 0.6)
+                let to = min(floor.upperBound, max(floor.lowerBound, x + CGFloat.random(in: -1...1) * body.figureSize * 3.5))
+                let walk = body.stroll(to: to, pace: fused.flop == nil ? 1.6 : 0.6)
                 body.pullFace(fused.flop == nil ? .smug : .bored, for: 2)
+                if fused.flop == nil { self.trail(body, for: walk, color: fused.look.secondary) }
             }
         }
-        at(took + Double.random(in: NotchMascotFusion.moveGap)) { [weak self] in self?.live() }
+        if fused.flop == nil {
+            at(took + 0.3) { [weak self] in
+                guard let self, let canvas = self.canvas(), body.isOut else { return }
+                NotchMascotFusionEffects.wisps(in: canvas, around: self.onCanvas(body.screenCenter),
+                                               radius: body.figureSize * 0.8, color: fused.look.secondary, count: 3,
+                                               duration: 1.6)
+            }
+        }
+        at(took + Double.random(in: NotchMascotFusion.moveGap(level: level()))) { [weak self] in self?.live() }
+    }
+
+    /// Sparks at `one`'s feet every little while for `duration`.
+    private func trail(_ one: NotchMascotDesktop, for duration: TimeInterval, color: NotchMascotColor) {
+        trailWork.forEach { $0.cancel() }
+        trailWork.removeAll()
+        let energy = energy(color)
+        var time: TimeInterval = NotchMascotFusion.trailStep
+        while time < duration {
+            let work = DispatchWorkItem { [weak self, weak one] in
+                guard let self, let one, one.isOut, let feet = one.feet, let canvas = self.canvas(on: one) else { return }
+                NotchMascotPlayEffects.sparks(in: canvas, at: self.onCanvas(CGPoint(x: feet.x, y: feet.y + 3)),
+                                              reach: one.figureSize * 0.35, energy: energy, count: 3)
+            }
+            trailWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + time, execute: work)
+            time += NotchMascotFusion.trailStep
+        }
     }
 
     /// Plays `move`, and says how long it takes.
@@ -267,7 +319,7 @@ final class NotchMascotFusionDirector {
         one.face(toward: x + side * 200)
         switch move {
         case .blast:
-            let power = NotchMascotPlay.power(level: level())
+            let power = NotchMascotPlay.power(level: level()) * NotchMascotFusion.powerBoost
             one.pullFace(.determined, for: 2.4)
             one.react(.ready)
             if let layer = one.effects {
@@ -567,6 +619,8 @@ final class NotchMascotFusionDirector {
         let wasMerged = merged
         steps.forEach { $0.cancel() }
         steps.removeAll()
+        trailWork.forEach { $0.cancel() }
+        trailWork.removeAll()
         self.body = nil
         self.partner = nil
         self.fused = nil
@@ -599,11 +653,31 @@ final class NotchMascotFusionDirector {
         }
         body.endPlay(after: 3.5)
         partner.endPlay(after: 4)
+        let wentWell = wasMerged && fused?.flop == nil
+        if wentWell { reward(body, partner) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             guard let self, self.body == nil else { return }
             self.stage.close()
         }
-        ended?(body, partner, wasMerged && fused?.flop == nil)
+        ended?(body, partner, wentWell)
+    }
+
+    /// A fusion that went well leaves both the wiser and the pocket fuller:
+    /// experience for each, by its own bond, and gold with a shower of coins.
+    private func reward(_ body: NotchMascotDesktop, _ partner: NotchMascotDesktop) {
+        let store = NotchMascotBondStore.shared
+        for one in [body, partner] { store.award(experience: NotchMascotFusion.experience, for: one.playLook.style) }
+        NotchMascotRPG.collect(gold: NotchMascotFusion.gold)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self, weak body] in
+            guard let self, let body, body.isOut, let canvas = self.canvas(on: body) else { return }
+            let energy = NotchMascotPlay.Energy(red: 1, green: 0.85, blue: 0.3)
+            NotchMascotPlayEffects.burst(.coins, in: canvas, at: self.stage.point(body.head), size: body.figureSize * 0.9,
+                                         energy: energy)
+            NotchMascotPlayEffects.arcadeMarker("+\(NotchMascotFusion.gold)", in: canvas,
+                                                at: self.stage.point(CGPoint(x: body.head.x, y: body.head.y + body.figureSize * 0.4)),
+                                                cell: max(1.6, body.figureSize * 0.05))
+            NotchMascotSound.play(.chime, pan: body.soundPan)
+        }
     }
 
     // MARK: The menu

@@ -78,17 +78,23 @@ struct NotchMascotSettings: View {
     private var forms: NotchMascotFormStrings { FeatureStrings.notchMascotForms(l10n.language) }
     private var choice: NotchMascotFormChoice { NotchMascotFormChoice(rawValue: formChoice) }
     private var shownForm: NotchMascotForm? {
-        NotchMascotTransformation.effective(choice: choice, level: level, companion: "companion")
+        NotchMascotTransformation.effective(choice: choice, level: level, companion: currentStyle.rawValue)
     }
-    /// Nil while the friend keeps whatever the companion wears.
+    /// Nil while the friend follows the companion's choice, against its own level.
     private var friendChoice: NotchMascotFormChoice? {
         friendFormChoice.isEmpty ? nil : NotchMascotFormChoice(rawValue: friendFormChoice)
     }
+    /// The friend's own figure, if one comes out with the companion.
+    private var friendStyleChosen: NotchMascotStyle? { NotchMascotStyle(rawValue: friend) }
+    /// The friend's own level: its forms open as it grows, not as the companion does.
+    private var friendLevel: Int { friendStyleChosen.map { bondStore.shownLevel(for: $0) } ?? 1 }
     private var friendShownForm: NotchMascotForm? {
-        guard let friendChoice else { return shownForm }
-        return NotchMascotTransformation.effective(choice: friendChoice, level: level, companion: "friend")
+        guard let style = friendStyleChosen else { return nil }
+        return NotchMascotTransformation.friendForm(own: friendFormChoice, companions: formChoice, level: friendLevel,
+                                                    style: style)
     }
     private var hasUnlockedForm: Bool { NotchMascotForm.allCases.contains { $0.unlockLevel <= level } }
+    private var friendHasUnlockedForm: Bool { NotchMascotForm.allCases.contains { $0.unlockLevel <= friendLevel } }
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
@@ -102,7 +108,7 @@ struct NotchMascotSettings: View {
                         palette: NotchMascotPalette(rawValue: palette) ?? .pearl,
                         accessory: NotchMascotWardrobe.effective(chosen: chosenAccessory, level: level, date: Date(),
                                                                  adopted: bondStore.bond(for: currentStyle).adopted, seasonal: seasonal,
-                                                                 gaming: gaming && hardware),
+                                                                 gaming: gaming && hardware, style: currentStyle),
                         form: shownForm)
         look.customColor = NotchMascotColor(hex: customColor)
         return look
@@ -393,7 +399,7 @@ struct NotchMascotSettings: View {
                         if NotchMascotGrowth.unlocksEverything(name: name),
                            !NotchMascotGrowth.unlocksEverything(name: old) {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+                                NotificationCenter.default.post(name: .notchMascotTransforms, object: currentStyle.rawValue)
                             }
                         }
                     }
@@ -496,9 +502,10 @@ struct NotchMascotSettings: View {
             .id(purchases)
             if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory {
                 let friendLevel = bondStore.shownLevel(for: friendStyle)
+                // Its own wardrobe: what its level unlocks and what was bought for it.
                 SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
                     Text(desktopText.friendItemOwn).tag("")
-                    ForEach(NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= friendLevel }) {
+                    ForEach(NotchMascotAccessory.wardrobe.filter { $0.isUnlocked(level: friendLevel, for: friendStyle) }) {
                         Text(life.name(of: $0)).tag($0.rawValue)
                     }
                 }
@@ -537,7 +544,7 @@ struct NotchMascotSettings: View {
                     .disabled(!unlocked)
                 }
                 NotchMascotChoiceTile(title: forms.random, selected: choice == .random) {
-                    drawRandomForm(for: "companion")
+                    drawRandomForm(for: currentStyle.rawValue)
                 } preview: {
                     randomFormPreview(unlocked: hasUnlockedForm)
                 }
@@ -573,7 +580,7 @@ struct NotchMascotSettings: View {
                         formPreview(nil, unlocked: true)
                     }
                     ForEach(NotchMascotForm.allCases) { item in
-                        let unlocked = item.unlockLevel <= level
+                        let unlocked = item.unlockLevel <= friendLevel
                         NotchMascotChoiceTile(title: unlocked ? forms.name(of: item)
                                               : life.locked(at: item.unlockLevel),
                                               selected: friendChoice != nil && friendChoice != .random
@@ -585,11 +592,11 @@ struct NotchMascotSettings: View {
                         .disabled(!unlocked)
                     }
                     NotchMascotChoiceTile(title: forms.random, selected: friendChoice == .random) {
-                        drawRandomForm(for: "friend")
+                        drawRandomForm(for: friendStyleChosen?.rawValue ?? "friend")
                     } preview: {
-                        randomFormPreview(unlocked: hasUnlockedForm)
+                        randomFormPreview(unlocked: friendHasUnlockedForm)
                     }
-                    .disabled(!hasUnlockedForm)
+                    .disabled(!friendHasUnlockedForm)
                 }
                 .id("friend-forms-\(randomTick)")
                 .padding(.leading, settingsRowTextInset)
@@ -600,8 +607,8 @@ struct NotchMascotSettings: View {
     /// Draws again in random mode: a new form for `companion`, a new aura to
     /// show it, and the island redrawn around it.
     private func drawRandomForm(for companion: String) {
-        if companion == "friend" { friendFormChoice = NotchMascotFormChoice.random.rawValue }
-        else { formChoice = NotchMascotFormChoice.random.rawValue }
+        if companion == currentStyle.rawValue { formChoice = NotchMascotFormChoice.random.rawValue }
+        else { friendFormChoice = NotchMascotFormChoice.random.rawValue }
         NotchMascotTransformation.rerollRandomForm(for: companion)
         randomTick += 1
         NotchService.shared.syncWithPreferences()

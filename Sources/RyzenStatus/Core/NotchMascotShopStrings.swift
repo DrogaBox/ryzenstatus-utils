@@ -36,6 +36,7 @@ struct NotchMascotShopStrings {
             return FeatureStrings.notchMascotToys(language).gag(of: accessory)
                 ?? FeatureStrings.notchMascotParty(language).gag(of: accessory)
                 ?? FeatureStrings.notchMascotOddities(language).gag(of: accessory)
+                ?? FeatureStrings.notchMascotCraft(language).gag(of: accessory)
         }
         return gags[index]
     }

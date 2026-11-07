@@ -34,6 +34,9 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     /// Oddities and wonders: a pet snail, bees, a beard and a hat that beams things up.
     case pizzaSlice, kazoo, bubbleGum, crackerCrown, rubberChicken, snail, jesterHat, snorkelMask
     case pirateHook, featherBoa, rollerSkates, lantern, wizardBeard, beeHalo, spiderMonocle, ufoHat
+    /// The workshop: things with a craft or a sport to them, each with a
+    /// habit that shows the moment it is worn.
+    case electricGuitar, karateBelt, painterBeret, matchaBowl, boxingGloves, telescope, shovel, pogoStick
 
     var id: String { rawValue }
 
@@ -42,7 +45,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
                                                    .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
-                                                   + partyItems + oddityItems
+                                                   + partyItems + oddityItems + craftItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -79,10 +82,25 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .pizzaSlice, .kazoo, .bubbleGum, .crackerCrown, .rubberChicken, .snail, .jesterHat, .snorkelMask,
         .pirateHook, .featherBoa, .rollerSkates, .lantern, .wizardBeard, .beeHalo, .spiderMonocle, .ufoHat]
     var isOddity: Bool { Self.oddityItems.contains(self) }
+    /// The eight of the workshop: a guitar, a belt, a beret, a bowl, two
+    /// gloves, a telescope, a shovel and a pogo stick.
+    static let craftItems: [NotchMascotAccessory] = [
+        .electricGuitar, .karateBelt, .painterBeret, .matchaBowl, .boxingGloves, .telescope, .shovel, .pogoStick]
     var isDanceItem: Bool { Self.danceItems.contains(self) }
     var isToyItem: Bool { Self.toyItems.contains(self) }
+    var isCraftItem: Bool { Self.craftItems.contains(self) }
     /// Bought with gold rather than earned by level.
-    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity }
+    var isPurchasable: Bool {
+        isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity || isCraftItem
+    }
+
+    /// Whether `style`, at `level`, may wear it: earned by its own level,
+    /// or bought for it or brought along by it when it is sold. A figure
+    /// never wears what another owns.
+    func isUnlocked(level: Int, for style: NotchMascotStyle) -> Bool {
+        if isPurchasable { return NotchMascotShop.owns(self, by: style) }
+        return unlockLevel <= level
+    }
 
 
     /// The level it unlocks at; zero for the ones that are put on for it.
@@ -120,6 +138,12 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         // a beard or a kazoo on the face, the boa round the neck, skates on
         // the feet, the snail riding its shoulder and the rest in its hand.
         case .jesterHat, .crackerCrown, .beeHalo, .ufoHat: return .head
+        // The workshop: the beret on the head, the belt round the middle
+        // where a scarf goes, the pogo stick under the feet and the rest in hand.
+        case .painterBeret: return .head
+        case .karateBelt: return .neck
+        case .pogoStick: return .feet
+        case .electricGuitar, .matchaBowl, .boxingGloves, .telescope, .shovel: return .hand
         case .bubbleGum, .kazoo, .snorkelMask, .wizardBeard, .spiderMonocle: return .eyes
         case .featherBoa: return .neck
         case .rollerSkates: return .feet
@@ -417,9 +441,11 @@ enum NotchMascotWardrobe {
     /// An explicit pick always beats the costume — a hat chosen for it stays
     /// on even the week it would dress up on its own.
     static func effective(chosen: NotchMascotAccessory, level: Int, date: Date, adopted: Date?,
-                          seasonal: Bool, gaming: Bool, calendar: Calendar = .current) -> NotchMascotAccessory {
+                          seasonal: Bool, gaming: Bool, style: NotchMascotStyle? = nil,
+                          calendar: Calendar = .current) -> NotchMascotAccessory {
         if gaming { return .headband }
-        let pick: NotchMascotAccessory? = chosen != .none && chosen.isPickable && chosen.unlockLevel <= level ? chosen : nil
+        let unlocked = style.map { chosen.isUnlocked(level: level, for: $0) } ?? (chosen.unlockLevel <= level)
+        let pick: NotchMascotAccessory? = chosen != .none && chosen.isPickable && unlocked ? chosen : nil
         if pick == nil, seasonal, let costume = NotchMascotSeason.accessory(on: date, adopted: adopted, calendar: calendar) {
             return costume
         }
@@ -428,24 +454,30 @@ enum NotchMascotWardrobe {
 
     /// What the friend wears beside a companion wearing `main`: a costume or
     /// the Gaming Mode headband the same, so the two match; otherwise the
-    /// one `chosen` for it once unlocked, or with nothing chosen, one of its
-    /// own among those `level` unlocks, worn somewhere else on it than the
-    /// companion's, and always the same one for its `style`.
+    /// one `chosen` for it once its own level or its own wardrobe allows,
+    /// or with nothing chosen, one of its own among those its `level`
+    /// unlocks and what it owns itself, worn somewhere else on it than the
+    /// companion's, and always the same one for its `style`. `owns` says
+    /// what is bought for it; the shop's own answer by default.
     static func friendAccessory(main: NotchMascotAccessory, level: Int, style: NotchMascotStyle,
-                                chosen: NotchMascotAccessory? = nil) -> NotchMascotAccessory {
+                                chosen: NotchMascotAccessory? = nil,
+                                owns: ((NotchMascotAccessory) -> Bool)? = nil) -> NotchMascotAccessory {
         guard main.isPickable else { return main }
-        if let chosen { return chosen.isPickable && chosen.unlockLevel <= level ? chosen : .none }
+        let owns = owns ?? { NotchMascotShop.owns($0, by: style) }
+        func unlocked(_ item: NotchMascotAccessory) -> Bool { item.isPurchasable ? owns(item) : item.unlockLevel <= level }
+        if let chosen { return chosen.isPickable && unlocked(chosen) ? chosen : .none }
         let options = NotchMascotAccessory.wardrobe.filter {
-            $0 != .none && $0 != main && $0.unlockLevel <= level && (main == .none || $0.placement != main.placement)
+            $0 != .none && $0 != main && unlocked($0) && (main == .none || $0.placement != main.placement)
         }
         guard !options.isEmpty else { return .none }
         let seed = style.rawValue.unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
         return options[Int(seed % UInt32(options.count))]
     }
 
-    /// The accessory a level unlocks, if any.
+    /// The accessory a level unlocks, if any: one of the first eighteen,
+    /// never something bought, which no level opens.
     static func unlocked(at level: Int) -> NotchMascotAccessory? {
-        NotchMascotAccessory.wardrobe.first { $0.unlockLevel == level && $0 != .none }
+        NotchMascotAccessory.wardrobe.first { !$0.isPurchasable && $0.unlockLevel == level && $0 != .none }
     }
 }
 
@@ -527,11 +559,31 @@ enum NotchMascotTransformation {
     static func rerollRandomForm(for companion: String = "companion") {
         randomPicks[companion] = nil
     }
+
+    /// The form a companion other than the island's own shows: its `own`
+    /// choice, or the companion's when it has none, always against its own
+    /// `level`. Pure, so the rule that a friend never transforms on the
+    /// companion's level is tested.
+    static func friendForm(own: String?, companions: String?, level: Int, style: NotchMascotStyle) -> NotchMascotForm? {
+        let raw = (own ?? "").isEmpty ? companions : own
+        return effective(choice: NotchMascotFormChoice(rawValue: raw), level: level, companion: style.rawValue)
+    }
 }
 
 extension Notification.Name {
-    /// Plays the transformation on every companion on screen that has one.
+    /// Plays the transformation on the companions on screen that have one:
+    /// every one of them with no object, or only the figure whose
+    /// `NotchMascotStyle` raw value is the object.
     static let notchMascotTransforms = Notification.Name("NotchMascotTransforms")
+}
+
+extension NotchMascotTransformation {
+    /// Whether a figure of `style` plays the transformation `notification`
+    /// asks for: asked of everyone, or of it by name.
+    static func concerns(_ notification: Notification, style: NotchMascotStyle) -> Bool {
+        guard let named = notification.object as? String else { return true }
+        return named == style.rawValue
+    }
 }
 
 // MARK: - Greetings
@@ -634,8 +686,13 @@ final class NotchMascotBondStore: ObservableObject {
         NotchMascotGrowth.level(for: bond(for: style).experience)
     }
 
+    /// The level `style` shows and unlocks with: the one it earned, lifted
+    /// to the top by the name only for the island's own companion. A friend
+    /// or a guest keeps the level it earned itself, whatever the companion
+    /// is called, so none transforms on the companion's account.
     func shownLevel(for style: NotchMascotStyle) -> Int {
-        NotchMascotGrowth.shownLevel(earned: level(for: style), name: displayName)
+        guard style == activeStyle else { return level(for: style) }
+        return NotchMascotGrowth.shownLevel(earned: level(for: style), name: displayName)
     }
 
     func progress(for style: NotchMascotStyle) -> (done: Int, span: Int)? {
@@ -668,7 +725,7 @@ final class NotchMascotBondStore: ObservableObject {
         save(targetBond, for: targetStyle)
         if event != .dayTogether { NotchMascotRPG.collect(gold: 2) }
         else if firstOfDay { NotchMascotRPG.collect(gold: 40) }
-        if levels.after > levels.before { announceLevel(levels.after) }
+        if levels.after > levels.before { announceLevel(levels.after, for: targetStyle) }
         return gained
     }
 
@@ -682,7 +739,7 @@ final class NotchMascotBondStore: ObservableObject {
         next.experience += amount
         save(next, for: targetStyle)
         let after = NotchMascotGrowth.level(for: next.experience)
-        if after > before { announceLevel(after) }
+        if after > before { announceLevel(after, for: targetStyle) }
     }
 
     /// Once a day, the first time you are around: a greeting for the time of
@@ -751,21 +808,28 @@ final class NotchMascotBondStore: ObservableObject {
         save(next, for: activeStyle)
     }
 
-    private func announceLevel(_ level: Int) {
+    /// `style` reached `level`: a notice, and the transformation it brings
+    /// played by that figure alone. The friend's and the guests' levels are
+    /// their own, so only the one that grew bursts into its new form.
+    private func announceLevel(_ level: Int, for style: NotchMascotStyle) {
         let text = FeatureStrings.notchMascotLife(L10n.shared.language)
         if let form = NotchMascotTransformation.unlocked(at: level) {
             let forms = FeatureStrings.notchMascotForms(L10n.shared.language)
-            let choice = NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm))
+            let key = style == activeStyle ? DefaultsKey.notchMascotForm : DefaultsKey.notchMascotFriendForm
+            let raw = defaults.string(forKey: key) ?? ""
+            let choice = raw.isEmpty && style != activeStyle
+                ? NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm))
+                : NotchMascotFormChoice(rawValue: raw)
             // A new form shows at once, unless transformations were turned off.
             // Random keeps drawing, now from the wider set.
-            if choice != .off, choice != .random {
+            if choice != .off, choice != .random, style == activeStyle {
                 defaults.set(NotchMascotFormChoice.automatic.rawValue, forKey: DefaultsKey.notchMascotForm)
             }
             announce(title: text.levelReached(level), detail: forms.unlocked(forms.name(of: form)), reaction: .celebrate)
             if choice != .off {
                 // Once the notice and its companion are on screen.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+                    NotificationCenter.default.post(name: .notchMascotTransforms, object: style.rawValue)
                 }
             }
             return
@@ -791,14 +855,17 @@ extension NotchMascotSupport {
             level: shownLevel(in: defaults), companion: "companion")
     }
 
-    /// The friend's own transformation; empty keeps whatever the companion
-    /// wears, so the pair can match or transform separately.
+    /// The friend's own transformation, by the friend's own level: a form
+    /// opens for it only once it has grown to it itself, never because the
+    /// companion did. Empty keeps the companion's choice (automatic, none,
+    /// random or a form) but still measures it against the friend's level.
     static func friendForm(in defaults: UserDefaults = .standard) -> NotchMascotForm? {
-        let raw = defaults.string(forKey: DefaultsKey.notchMascotFriendForm) ?? ""
-        guard !raw.isEmpty else { return form(in: defaults) }
-        return NotchMascotTransformation.effective(
-            choice: NotchMascotFormChoice(rawValue: raw),
-            level: shownLevel(in: defaults), companion: "friend")
+        guard let style = NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotDesktopFriend) ?? "")
+        else { return nil }
+        return NotchMascotTransformation.friendForm(
+            own: defaults.string(forKey: DefaultsKey.notchMascotFriendForm),
+            companions: defaults.string(forKey: DefaultsKey.notchMascotForm),
+            level: NotchMascotBondStore.shared.shownLevel(for: style), style: style)
     }
 
     /// The level stored with its experience, lifted by the name that
@@ -817,6 +884,7 @@ extension NotchMascotSupport {
                                              adopted: NotchMascotBondStore.shared.bond.adopted,
                                              seasonal: defaults.bool(forKey: DefaultsKey.notchMascotSeasonal),
                                              gaming: defaults.bool(forKey: DefaultsKey.gamingModeActive)
-                                                 && defaults.bool(forKey: DefaultsKey.notchMascotHardware))
+                                                 && defaults.bool(forKey: DefaultsKey.notchMascotHardware),
+                                             style: NotchMascotShop.activeStyle(in: defaults))
     }
 }

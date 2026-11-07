@@ -81,6 +81,13 @@ final class NotchMascotRig: NSObject {
     var growsBody = false
     /// Whether it shows a grown body now.
     private(set) var showsBody = false
+    /// In the island it shows its face alone: zoomed in on its head, the
+    /// body out of the picture under its chin.
+    var facesOnly = false
+    /// Whether it shows a face alone now.
+    private(set) var showsFace = false
+    /// The window the face shows through.
+    private let faceMask = CAShapeLayer()
     /// A sprite companion's figure, shown in place of the drawn body.
     private let sprite = NotchMascotSpriteLayer()
     /// It is drawn from a sprite sheet now, rather than with shapes.
@@ -143,9 +150,11 @@ final class NotchMascotRig: NSObject {
         bodyFlash.actions = Self.noActions
         bodyFlash.fillColor = NSColor.white.cgColor
         bodyFlash.opacity = 0
+        faceMask.actions = Self.noActions
         transformObserver = NotificationCenter.default.addObserver(forName: .notchMascotTransforms, object: nil,
-                                                                   queue: .main) { [weak self] _ in
-            self?.playTransformation()
+                                                                   queue: .main) { [weak self] notification in
+            guard let self, NotchMascotTransformation.concerns(notification, style: self.look.style) else { return }
+            self.playTransformation()
         }
     }
 
@@ -166,9 +175,11 @@ final class NotchMascotRig: NSObject {
     /// new look at the same size cross-fades in, as a choice in Settings does.
     func configure(look: NotchMascotLook, size: CGFloat, contentsScale scale: CGFloat) {
         let bodied = growsBody && NotchMascotCreatures.headOnly.contains(look.style)
+        let faced = facesOnly && !bodied && NotchMascotCreatures.showsFaceOnly(look)
         guard !configured || look != self.look || size != self.size || scale != root.contentsScale
-            || bodied != showsBody else { return }
+            || bodied != showsBody || faced != showsFace else { return }
         showsBody = bodied
+        showsFace = faced
         let restyled = configured && look != self.look && size == self.size && !reduceMotion
         configured = true
         self.look = look
@@ -250,11 +261,15 @@ final class NotchMascotRig: NSObject {
                                 face: NotchMascotCreatures.bodiedFace(look), neck: NotchMascotCreatures.bodiedNeck,
                                 anatomy: NotchMascotCreatures.bodiedAnatomy(look.style), size: size, scale: scale)
         } else {
-            wearables.configure(accessory: look.accessory, body: headPath,
+            // A portrait shows what is on its head and face; what it holds
+            // is out of the picture with the rest of it.
+            let worn = faced && !NotchMascotCreatures.faceShows(look.accessory) ? .none : look.accessory
+            wearables.configure(accessory: worn, body: headPath,
                                 face: look.face, neck: NotchMascotCreatures.neck(look.style),
                                 anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
         }
         fitHead(bodied)
+        fitFace(faced)
         let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: !motion)
         fusionArt.configure(look: look, size: size, scale: scale, reduceMotion: !motion)
@@ -330,11 +345,36 @@ final class NotchMascotRig: NSObject {
         wearables.face.transform = CATransform3DInvert(fit)
     }
 
+    /// With a face alone, everything in the figure is drawn zoomed in on
+    /// its head, and a window just wider than the head, open above for a
+    /// hat and closed under the chin, cuts the body off. The window sits
+    /// over the breathing, under the hop and the squash, so it moves with
+    /// the face and the tilt turns inside it.
+    private func fitFace(_ faced: Bool) {
+        guard faced else {
+            tilter.sublayerTransform = CATransform3DIdentity
+            if breather.mask != nil { breather.mask = nil }
+            return
+        }
+        // About the middle of the box, as a sublayer transform is.
+        let middle = size / 2
+        let fit = CGAffineTransform(translationX: middle, y: middle)
+            .concatenating(NotchMascotCreatures.faceFit(look, size: size))
+            .concatenating(CGAffineTransform(translationX: -middle, y: -middle))
+        tilter.sublayerTransform = CATransform3DMakeAffineTransform(fit)
+        faceMask.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        faceMask.contentsScale = root.contentsScale
+        faceMask.path = NotchMascotCreatures.faceMask(look, size: size)
+        if breather.mask !== faceMask { breather.mask = faceMask }
+    }
+
     /// Its box's offset from the figure's own middle, so a caller centres
     /// the body that shows. With a grown body it stands on its soles
-    /// instead, however tall its head, where other figures' feet come to.
+    /// instead, however tall its head, where other figures' feet come to;
+    /// a face alone is centred in its box already.
     var figureOffset: CGFloat {
-        showsBody ? NotchMascotCreatures.bodiedBounds(look).maxY - NotchMascotCreatures.bodiedFloor
+        if showsFace { return 0 }
+        return showsBody ? NotchMascotCreatures.bodiedBounds(look).maxY - NotchMascotCreatures.bodiedFloor
             : NotchMascotGeometry.figureOffset(look)
     }
     /// A sprite companion keeps the row its mood calls for.
@@ -1947,8 +1987,9 @@ final class NotchMascotHostView: NSView {
     }
 
     func configure(look: NotchMascotLook, size: CGFloat, mood: NotchMascotMood, idles: Bool,
-                   reduceMotion: Bool, animated: Bool) {
+                   reduceMotion: Bool, animated: Bool, facesOnly: Bool = false) {
         mascot.reduceMotion = reduceMotion
+        mascot.facesOnly = facesOnly
         let shift = figureShift
         mascot.configure(look: look, size: size, contentsScale: backingScale)
         if figureShift != shift { applyPlacement() }
@@ -2074,12 +2115,14 @@ struct NotchMascotView: NSViewRepresentable {
     var reaction: NotchMascotReaction? = nil
     /// It bobs to the music, beside the island's visualizer.
     var dances = false
+    /// Its face alone, as in the island, rather than the whole figure.
+    var facesOnly = false
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         let view = NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         view.followsDrag = followsDrag
         view.configure(look: look, size: size, mood: mood, idles: idles,
-                       reduceMotion: context.environment.accessibilityReduceMotion, animated: false)
+                       reduceMotion: context.environment.accessibilityReduceMotion, animated: false, facesOnly: facesOnly)
         view.dances = dances
         if let reaction {
             // Small in a notice, it hops a little higher for its size to read.
@@ -2091,7 +2134,7 @@ struct NotchMascotView: NSViewRepresentable {
 
     func updateNSView(_ view: NotchMascotHostView, context: Context) {
         view.configure(look: look, size: size, mood: mood, idles: idles,
-                       reduceMotion: context.environment.accessibilityReduceMotion, animated: true)
+                       reduceMotion: context.environment.accessibilityReduceMotion, animated: true, facesOnly: facesOnly)
         view.place(at: nil, visible: nil)
         view.dances = dances
         if let cue { view.play(cue, id: cueID) }
@@ -2125,6 +2168,9 @@ struct NotchMascotTrackView: NSViewRepresentable {
     var ambient: MascotMoodState? = nil
     /// It is the friend that lives with the companion, not the companion.
     var isFriend = false
+    /// In a strip it shows its face alone; the whole figure only where a
+    /// caller asks for it.
+    var facesOnly = true
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: track.width, height: track.height))
@@ -2132,7 +2178,7 @@ struct NotchMascotTrackView: NSViewRepresentable {
 
     func updateNSView(_ view: NotchMascotHostView, context: Context) {
         view.configure(look: look, size: track.size, mood: awake ? mood : .sleepy, idles: rests && awake,
-                       reduceMotion: context.environment.accessibilityReduceMotion, animated: true)
+                       reduceMotion: context.environment.accessibilityReduceMotion, animated: true, facesOnly: facesOnly)
         // Off stage at the far end once a visit is over, so nothing jumps
         // when its last frame hands back to where it stands.
         let x = rests ? track.rest : track.mirrored ? -track.size * 2 : track.width + track.size * 2

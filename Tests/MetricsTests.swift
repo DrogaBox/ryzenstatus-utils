@@ -11548,8 +11548,8 @@ struct MetricsTests {
                    && ownItem.unlockLevel <= 10
                    && ownItem == NotchMascotWardrobe.friendAccessory(main: .flower, level: 10, style: .cristobal),
                    "the friend wears an item of its own, elsewhere on it, the same every time")
-            expect(NotchMascotWardrobe.friendAccessory(main: .none, level: 1, style: .cat) == .none,
-                   "before anything is unlocked the friend wears nothing")
+            expect(NotchMascotWardrobe.friendAccessory(main: .none, level: 1, style: .cat, owns: { _ in false }) == .none,
+                   "before anything is unlocked or owned the friend wears nothing")
             expect(NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .halo) == .halo
                    && NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .flower) == .flower,
                    "the item picked for the friend is the one it wears, even the companion's own")
@@ -11619,11 +11619,12 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 340 && NotchMascotSynergyCatalog.total == 340, "the catalog holds 340 combos")
-                    expect(all.map(\.number) == Array(1...340) && Set(all.map(\.id)).count == 340,
-                           "the combos are numbered 1 to 340 with an id each")
+                    expect(all.count == 360 && NotchMascotSynergyCatalog.total == 360, "the catalog holds 360 combos")
+                    expect(all.map(\.number) == Array(1...360) && Set(all.map(\.id)).count == 360,
+                           "the combos are numbered 1 to 360 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24, 20], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24, 20, 12, 8],
+                           "each family holds its share: \(sizes)")
                     expect(NotchMascotSynergyCatalog.synergies(in: .oddities).allSatisfy { synergy in
                         switch synergy.match {
                         case .pair(let a, let b): return a.isOddity || b.isOddity
@@ -11766,7 +11767,7 @@ struct MetricsTests {
                     expect(NotchMascotEncounter.allCases.filter(\.grounded).sorted { $0.rawValue < $1.rawValue }
                                == [.cardboardBox, .coffee, .merchant, .mimic, .trashCan],
                            "those that need the floor are known, the rest can come on a window too")
-                    expect(NotchMascotEncounter.allCases.count == 20, "every rare encounter of the bank is there")
+                    expect(NotchMascotEncounter.allCases.count == 22, "every rare encounter of the bank is there")
                     expect(NotchMascotEncounter.meteorShower.allowed(hour: 1, wearsItem: false)
                            && !NotchMascotEncounter.meteorShower.allowed(hour: 21, wearsItem: false)
                            && NotchMascotEncounter.rainbow.allowed(hour: 15, wearsItem: false)
@@ -12607,12 +12608,12 @@ struct MetricsTests {
                            "snacks score in arcade points")
 
                     // The wardrobe: a hundred and nine, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 129 && NotchMascotAccessory.rpgItems.count == 32
+                    expect(NotchMascotAccessory.allCases.count == 137 && NotchMascotAccessory.rpgItems.count == 32
                            && NotchMascotAccessory.shopItems.count == 24 && NotchMascotAccessory.danceItems.count == 7
                            && NotchMascotAccessory.toyItems.count == 12 && NotchMascotAccessory.partyItems.count == 16
-                           && NotchMascotAccessory.oddityItems.count == 16
-                           && NotchMascotAccessory.wardrobe.count == 125,
-                           "a hundred and twenty-nine accessories, a hundred and twenty-five to pick")
+                           && NotchMascotAccessory.oddityItems.count == 16 && NotchMascotAccessory.craftItems.count == 8
+                           && NotchMascotAccessory.wardrobe.count == 133,
+                           "a hundred and thirty-seven accessories, a hundred and thirty-three to pick")
                     expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
@@ -12650,7 +12651,7 @@ struct MetricsTests {
             do {
                 expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
                 let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
-                    + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems
+                    + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems
                 expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
                        "every thing for sale costs what its rarity costs")
                 expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
@@ -12808,17 +12809,21 @@ struct MetricsTests {
             defer { defaults.removePersistentDomain(forName: suite) }
             defaults.set(50, forKey: DefaultsKey.notchMascotLevel)
             defaults.set(NotchMascotFormChoice.form(.divine).rawValue, forKey: DefaultsKey.notchMascotForm)
+            defaults.set(NotchMascotStyle.dog.rawValue, forKey: DefaultsKey.notchMascotDesktopFriend)
+            // The friend's level is its own, read from its bond, never the companion's.
+            let friendLevel = NotchMascotBondStore.shared.shownLevel(for: .dog)
             expect(NotchMascotSupport.form(in: defaults) == .divine
-                   && NotchMascotSupport.friendForm(in: defaults) == .divine,
-                   "with no choice of its own the friend wears the companion's transformation")
+                   && NotchMascotSupport.friendForm(in: defaults)
+                       == NotchMascotTransformation.friendForm(own: nil, companions: "divine", level: friendLevel, style: .dog),
+                   "with no choice of its own the friend follows the companion's choice against its own level")
             defaults.set(NotchMascotFormChoice.off.rawValue, forKey: DefaultsKey.notchMascotFriendForm)
             expect(NotchMascotSupport.friendForm(in: defaults) == nil
                    && NotchMascotSupport.form(in: defaults) == .divine,
                    "the friend can stay plain while the companion transforms")
             defaults.set(NotchMascotFormChoice.form(.golden).rawValue, forKey: DefaultsKey.notchMascotFriendForm)
-            expect(NotchMascotSupport.friendForm(in: defaults) == .golden
+            expect(NotchMascotSupport.friendForm(in: defaults) == (friendLevel >= NotchMascotForm.golden.unlockLevel ? .golden : nil)
                    && NotchMascotSupport.form(in: defaults) == .divine,
-                   "each companion keeps a transformation of its own")
+                   "each companion keeps a transformation of its own, opened by its own level")
             expect(AppLanguage.allCases.allSatisfy {
                        let words = FeatureStrings.notchMascotForms($0)
                        return !words.random.isEmpty && !words.friendTitle.isEmpty && !words.friendSame.isEmpty
@@ -12924,7 +12929,7 @@ struct MetricsTests {
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
                    && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count + NotchMascotAccessory.danceItems.count + NotchMascotAccessory.toyItems.count
-                       + NotchMascotAccessory.partyItems.count + NotchMascotAccessory.oddityItems.count
+                       + NotchMascotAccessory.partyItems.count + NotchMascotAccessory.oddityItems.count + NotchMascotAccessory.craftItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
@@ -13470,6 +13475,7 @@ struct MetricsTests {
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),
+                ("NotchMascotCompanionsTests", NotchMascotCompanionsTests.run),
                 ("NotchMascotDisplaysTests", NotchMascotDisplaysTests.run),
                 ("NotchMascotAlarmTests", NotchMascotAlarmTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),

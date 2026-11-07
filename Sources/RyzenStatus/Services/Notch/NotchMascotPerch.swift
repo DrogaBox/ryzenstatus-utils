@@ -112,7 +112,7 @@ final class NotchMascotPerch {
         // Side by side, each stays near its seat so they never walk through each other.
         if side != 0 { reach = min(reach, size * NotchMascotPerchLayout.pairReach) }
         host.configure(look: look, size: size, mood: mood, idles: true, reduceMotion: reduceMotion,
-                       animated: !arriving)
+                       animated: !arriving, facesOnly: true)
         host.place(at: nil, visible: nil)
         if returning, !arriving {
             panel.animator().alphaValue = 1

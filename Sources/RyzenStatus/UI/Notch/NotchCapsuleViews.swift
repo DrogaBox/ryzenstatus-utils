@@ -145,7 +145,7 @@ struct NotchCapsuleNoticeView: View {
         if NotchMascotSupport.isEnabled(), let reaction = notice.mascot {
             let side = min(CapsuleLayout.symbolWidth, CapsuleLayout.artworkSide(geometry))
             NotchMascotView(look: NotchMascotSupport.look(), mood: NotchService.shared.mascotRestingMood,
-                            size: side, reaction: NotchMascotSupport.reacts() ? reaction : nil)
+                            size: side, reaction: NotchMascotSupport.reacts() ? reaction : nil, facesOnly: true)
                 .frame(width: CapsuleLayout.symbolWidth, height: side)
         } else if notice.event == .agents, let agent = notice.agent, notice.symbol == agent.symbol {
             NotchAgentMark(provider: agent, size: CapsuleLayout.symbolSize).frame(width: CapsuleLayout.symbolWidth)
@@ -416,7 +416,7 @@ struct NotchCapsuleMusicStrip: View {
                         .opacity(showsControl || visualizes ? 0 : 1)
                     if dances && !showsControl {
                         let side = min(CapsuleLayout.barsWidth, CapsuleLayout.artworkSide(geometry))
-                        NotchMascotView(look: NotchMascotSupport.look(), mood: .happy, size: side, dances: true)
+                        NotchMascotView(look: NotchMascotSupport.look(), mood: .happy, size: side, dances: true, facesOnly: true)
                             .frame(width: side, height: side)
                             .transition(.opacity)
                     }

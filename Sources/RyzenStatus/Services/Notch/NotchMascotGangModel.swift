@@ -339,19 +339,41 @@ enum NotchMascotGangCasting {
 
     /// A guest of `style` in the colour picked for that figure, or one of
     /// its own when none ever was, and a shape of its own, wearing
-    /// something from the whole wardrobe, bought things and party gear
-    /// included, to show it off, where its figure wears things at all.
+    /// something of its own: what its own level unlocks, what it brought
+    /// along and what was bought for it, never the companion's things. Its
+    /// transformation, if it has grown to one, is its own too.
     static func look(for style: NotchMascotStyle, random: () -> Double) -> NotchMascotLook {
+        let store = NotchMascotBondStore.shared
+        return look(for: style, level: store.shownLevel(for: style),
+                    owns: { NotchMascotShop.owns($0, by: style) },
+                    formChoice: UserDefaults.standard.string(forKey: DefaultsKey.notchMascotForm), random: random)
+    }
+
+    /// The same, from what is known of the guest: its `level`, what it
+    /// `owns` and the companion's form choice, which it follows against
+    /// its own level. Pure, so the rule is tested.
+    static func look(for style: NotchMascotStyle, level: Int, owns: (NotchMascotAccessory) -> Bool,
+                     formChoice: String?, random: () -> Double) -> NotchMascotLook {
         func pick<T>(_ items: [T]) -> T { items[min(items.count - 1, Int(random() * Double(items.count)))] }
         var look = NotchMascotLook(style: style, shape: style.takesShape ? pick(NotchMascotShape.allCases) : .ball,
                                    palette: pick(NotchMascotPalette.allCases))
         if let paint = NotchMascotStyleColors.paint(for: style) { look = paint.paint(look) }
         if style.takesAccessory {
-            // Party gear more often than the rest, so the gang has something to play with.
-            let pool = random() < 0.45 ? NotchMascotAccessory.partyItems
-                : NotchMascotAccessory.wardrobe.filter { $0 != .none }
-            look.accessory = pick(pool)
+            let own = wardrobe(for: style, level: level, owns: owns)
+            // Its toys and party gear more often than its hats, so the gang
+            // has something to play with.
+            let playful = own.filter { $0.isPartyItem || $0.isToyItem || $0.isOddity || $0.isCraftItem }
+            let pool = random() < 0.6 && !playful.isEmpty ? playful : own
+            if !pool.isEmpty { look.accessory = pick(pool) }
         }
+        look.form = NotchMascotTransformation.friendForm(own: nil, companions: formChoice, level: level, style: style)
         return look
+    }
+
+    /// Everything a guest of `style` may wear: what its `level` unlocks and
+    /// what it `owns`.
+    static func wardrobe(for style: NotchMascotStyle, level: Int,
+                         owns: (NotchMascotAccessory) -> Bool) -> [NotchMascotAccessory] {
+        NotchMascotAccessory.wardrobe.filter { $0 != .none && ($0.isPurchasable ? owns($0) : $0.unlockLevel <= level) }
     }
 }

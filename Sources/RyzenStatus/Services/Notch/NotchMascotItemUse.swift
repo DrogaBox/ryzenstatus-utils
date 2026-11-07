@@ -397,7 +397,7 @@ struct NotchMascotItemUse: Equatable {
             return .init([(0, .react(.ready)), (0.6, .react(.flash)), (0.6, .burst(.sparkles)), (1.0, .marker("CLICK!")),
                           (1.5, .symbol("★", .gold, count: 1)), (1.8, .move(.strut))])
         default:
-            return partyUse(item, style: style) ?? oddityUse(item)
+            return partyUse(item, style: style) ?? oddityUse(item) ?? craftUse(item)
         }
     }
     // swiftlint:disable:next cyclomatic_complexity function_body_length

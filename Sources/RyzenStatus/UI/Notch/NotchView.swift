@@ -120,7 +120,7 @@ struct NotchView: View {
                 if service.mascotOn {
                     // The companion stands by the hint and watches the file come.
                     HStack(spacing: 8) {
-                        NotchMascotView(look: NotchMascotSupport.look(), size: 20, followsDrag: true)
+                        NotchMascotView(look: NotchMascotSupport.look(), size: 20, followsDrag: true, facesOnly: true)
                             .frame(width: 20, height: 20)
                             .accessibilityHidden(true)
                         Text(text.dropHint)
