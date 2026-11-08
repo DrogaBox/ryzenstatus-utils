@@ -1298,7 +1298,7 @@ private struct CommandBarMascot: View {
     }
 
     var body: some View {
-        NotchMascotView(look: NotchMascotSupport.look(), mood: mood, size: 22, cue: cue, cueID: cueID)
+        NotchMascotView(look: NotchMascotSupport.look(), mood: mood, size: 22, cue: cue, cueID: cueID, facesOnly: true)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             // Its eyes go along what is typed, and come back once typing stops.

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.81.0] — 2026-11-07 — kexts 3.40.1 (No kext changes)
+
+**Companions: each one its own.** The AMD side is untouched; this release is about the companions: their own levels and wardrobes, a rarer and stronger fusion, faces in the island, items that show the moment they are bought, and more to buy.
+
+### Added
+
+- **A wardrobe for every companion**: what the shop sells is bought for one figure, the island's companion, its friend or any other that comes by, and only that figure wears it. The shop gains a "For" picker, each figure brings a couple of things of its own along, and what was bought before stays with the companion it was bought for.
+- **Purchases show at once**: the figure a thing was bought for puts it on and shows off its trick under a shower of coins, on the desktop or resting in the island, and a notice says what was bought and for whom.
+- **Items that show all the while**: what a companion wears changes how it goes about, not only what it does now and then. Winged boots and skateboards quicken its step, spring shoes and a jetpack lift its jumps, a mushroom keeps it bigger, sunglasses keep it smug, and headphones, flowers, bubbles and snow leave their marks behind it as it walks.
+- **The workshop**: eight new things to buy, each with its own trick and combos: an electric guitar, a karate belt, a painter's beret, a matcha bowl, boxing gloves, a telescope, a shovel and a pogo stick. Some figures have their own way with them.
+- **Combos with a transformation**: a transformed companion now mixes with what the other wears, in twelve combos of their own, and the workshop brings eight more, to 360.
+- **New rare moments** on the desktop, and one of the workshop's things brings a rare sight to the daytime.
+
+### Improved
+
+- **Levels and transformations of their own**: the friend and every guest keep the level they earned themselves, and transform only once they have grown to a form. A transformation announced for one figure plays on that figure alone, and a name that unlocks everything lifts only the companion it names.
+- **Fusion**: rarer than before, half an hour apart at least and a couple of times a day of its own accord, and worth it: the fused one hits harder, shows off more often the stronger the pair, strolls with sparks at its heels and wisps of its aura about it, does a power move when pressed instead of splitting, and leaves both companions experience and gold when it goes well. A double click still sends it home.
+- **Faces in the island**: companions rest in the island as portraits, zoomed in on the head with room for a hat, instead of whole bodies shrunk to the strip. The desktop shows them whole as before.
+
 ## [1.80.0] — 2026-11-06 — kexts 3.40.1 (No kext changes)
 
 **A second round of small features and fixes.** The AMD side is untouched; this release reaches the window layout, the switcher, the Dock, the island's timer, the clipboard history, Homebrew and Settings search.

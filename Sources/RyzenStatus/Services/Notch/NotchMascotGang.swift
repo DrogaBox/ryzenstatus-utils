@@ -78,7 +78,7 @@ final class NotchMascotGang {
         let pair = NotchMascotPlayDirector(leader: lead, friend: friend)
         pair.allowed = { [weak self] in self?.allowed() ?? false }
         pair.music = { [weak self] in self?.music() ?? false }
-        pair.level = { [weak self] in self?.level() ?? 1 }
+        pair.level = { [weak lead, weak friend] in Self.level(of: lead, friend) }
         duos = [pair]
         wire(lead)
         wire(friend)
@@ -98,6 +98,19 @@ final class NotchMascotGang {
 
     /// The island's two and the guests, whether out or not.
     private var members: [NotchMascotDesktop] { [lead, friend] + guests.map(\.desktop) }
+
+    /// The one out as `style`, if any: the island's own two or a guest.
+    func member(of style: NotchMascotStyle) -> NotchMascotDesktop? {
+        members.first { $0.isOut && $0.playLook.style == style }
+    }
+
+    /// The level two play at: the higher of their own. Each figure's level
+    /// is its own, so a guest brings what it has grown to, not the
+    /// companion's.
+    static func level(of one: NotchMascotDesktop?, _ other: NotchMascotDesktop?) -> Int {
+        let store = NotchMascotBondStore.shared
+        return [one, other].compactMap { $0 }.map { store.shownLevel(for: $0.playLook.style) }.max() ?? 1
+    }
     /// Every one of them out on the desktop now.
     var out: [NotchMascotDesktop] { members.filter(\.isOut) }
 
@@ -177,11 +190,18 @@ final class NotchMascotGang {
             guard let self, let one else { return nil }
             return self.fusion.menuItem(for: one, partners: self.others(near: one))
         }
+        one.fusedTap = { [weak self, weak one] in
+            guard let self, let one else { return false }
+            return self.fusion.tapped(one)
+        }
     }
     /// The fusion watches with those about, stops what two were doing when
     /// asked for from a menu, and brings a guest closer to the one it fused with.
     private func wireFusion() {
-        fusion.level = { [weak self] in self?.level() ?? 1 }
+        fusion.level = { [weak self] in
+            guard let self else { return 1 }
+            return Self.level(of: self.fusion.body, self.fusion.partner)
+        }
         fusion.watchers = { [weak self] one in
             guard let self else { return [] }
             return self.others(near: one).filter { $0.isFree && !self.busy($0) }
@@ -270,7 +290,7 @@ final class NotchMascotGang {
         let pair = NotchMascotPlayDirector(leader: leader, friend: partner)
         pair.allowed = { [weak self] in self?.guestsMayPlay ?? false }
         pair.music = { [weak self] in self?.music() ?? false }
-        pair.level = { [weak self] in self?.level() ?? 1 }
+        pair.level = { [weak leader, weak partner] in Self.level(of: leader, partner) }
         pair.relation = { [weak leader, weak partner] in
             guard let leader, let partner else { return nil }
             return NotchMascotRapport.relation(leader.playLook.style, partner.playLook.style)

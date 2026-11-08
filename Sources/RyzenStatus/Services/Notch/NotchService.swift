@@ -5326,6 +5326,31 @@ extension NotchService {
         }
     }
 
+    /// Something was bought for the figure `style`: a reward seen at once.
+    /// Out on the desktop it puts the thing on and shows it off; resting in
+    /// the island the companion plays the thing's trick where it sits; and
+    /// a notice says what was bought and for whom.
+    func celebrateMascotPurchase(_ item: NotchMascotAccessory, for style: NotchMascotStyle) {
+        let life = FeatureStrings.notchMascotLife(L10n.shared.language)
+        let who = style == NotchMascotShop.activeStyle() && !NotchMascotBondStore.shared.displayName.isEmpty
+            ? NotchMascotBondStore.shared.displayName : NotchMascotFusionDirector.name(of: style)
+        if let one = mascotGang.member(of: style) {
+            one.showOff(item)
+        } else if style == NotchMascotShop.activeStyle(), !mascotIslandPlaying, mascotItemUseFits,
+                  let use = NotchMascotItemUse.of(item, style: style) {
+            var score = NotchMascotIslandPlay.Score(byLeader: true)
+            score.act(0, starter: .celebrate)
+            score.burst(0.1, .coins, onStarter: true)
+            score.marker(0.3, FeatureStrings.notchMascotCraft(L10n.shared.language).newThing.uppercased(), onStarter: true)
+            score.append(NotchMascotIslandPlay.Score(byLeader: true, beats: use.islandBeats(byLeader: true)), after: 1.2)
+            lastMascotItemUse = CACurrentMediaTime()
+            startMascotIslandPlay(NotchMascotIslandPlay(kind: .item(item), beats: score.beats), solo: true)
+        }
+        let shown = show(NotchNotice(event: .companion, title: life.unlockedAccessory(life.name(of: item)), detail: who,
+                                     symbol: "bag.fill", mascot: .celebrate))
+        if !shown { reactMascot(.celebrate, countsAsMoment: false) }
+    }
+
     /// Settings asks it to try what it wears: out on the desktop, it does
     /// its own thing with it there. True when it did.
     @discardableResult
@@ -5852,6 +5877,8 @@ extension NotchService {
             friendWears: friend.accessory,
             leaderStyle: leaderLook.style,
             friendStyle: friend.style,
+            leaderForm: leaderLook.form,
+            friendForm: friend.form,
             rpg: NotchMascotRPG.snapshot())
         guard let play = NotchMascotIslandPlay.next(in: context, random: { Double.random(in: 0..<1) }) else { return }
         startMascotIslandPlay(play)
@@ -5898,7 +5925,8 @@ extension NotchService {
         let leader = NotchMascotSupport.look()
         let friend = NotchMascotSupport.desktopFriend() ?? leader
         return NotchMascotSynergyCatalog.resolveSynergy(leaderWears: leader.accessory, friendWears: friend.accessory,
-                                                        leaderStyle: leader.style, friendStyle: friend.style)
+                                                        leaderStyle: leader.style, friendStyle: friend.style,
+                                                        leaderForm: leader.form, friendForm: friend.form)
     }
 
     /// What the pair's own context is, for the plays the card builds.
@@ -5909,6 +5937,7 @@ extension NotchService {
                                              hour: Calendar.current.component(.hour, from: Date()),
                                              leaderWears: leader.accessory, friendWears: friend.accessory,
                                              leaderStyle: leader.style, friendStyle: friend.style,
+                                             leaderForm: leader.form, friendForm: friend.form,
                                              rpg: NotchMascotRPG.snapshot())
     }
 
@@ -5921,6 +5950,7 @@ extension NotchService {
         let context = mascotPlayContext()
         let starter = synergy.starterIsLeader(leaderWears: context.leaderWears, friendWears: context.friendWears,
                                               leaderStyle: context.leaderStyle, friendStyle: context.friendStyle,
+                                              leaderForm: context.leaderForm, friendForm: context.friendForm,
                                               fallback: Bool.random())
         requestMascotPlay(synergy.play(starterIsLeader: starter))
         return synergy

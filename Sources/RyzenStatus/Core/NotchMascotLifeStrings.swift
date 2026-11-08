@@ -118,7 +118,8 @@ struct NotchMascotLifeStrings {
                 ?? FeatureStrings.notchMascotShop(language).name(of: accessory)
                 ?? FeatureStrings.notchMascotToys(language).name(of: accessory)
                 ?? FeatureStrings.notchMascotParty(language).name(of: accessory)
-                ?? FeatureStrings.notchMascotOddities(language).name(of: accessory) ?? ""
+                ?? FeatureStrings.notchMascotOddities(language).name(of: accessory)
+                ?? FeatureStrings.notchMascotCraft(language).name(of: accessory) ?? ""
         }
     }
 }

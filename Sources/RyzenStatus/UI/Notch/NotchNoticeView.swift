@@ -64,7 +64,7 @@ struct NotchNoticeView: View {
                     if let reaction = companionReaction {
                         let size = NotchMascotSupport.noticeSize
                         NotchMascotView(look: NotchMascotSupport.look(), mood: NotchService.shared.mascotRestingMood,
-                                        size: size, reaction: NotchMascotSupport.reacts() ? reaction : nil)
+                                        size: size, reaction: NotchMascotSupport.reacts() ? reaction : nil, facesOnly: true)
                             .frame(width: size, height: size)
                             .offset(y: 0.5)
                             .id("\(notice.event)|\(notice.title)|\(notice.detail)|\(reaction.rawValue)")

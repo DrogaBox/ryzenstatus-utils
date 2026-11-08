@@ -48,10 +48,17 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
     case rainbow
     /// A heart from someone it cannot see, flying in from the edge.
     case secretAdmirer
+    /// Gravity lets go a moment: it drifts up among little stars and
+    /// comes down with a bump.
+    case zeroGravity
+    /// A rain cloud drifts over it: with an umbrella it stays dry and
+    /// smug, without one it gets soaked and shakes itself off.
+    case rainShower
 
     /// Whether it can come now: by the hour, and by what it wears.
     func allowed(hour: Int, wearsItem: Bool) -> Bool {
         switch self {
+        case .zeroGravity, .rainShower: return true
         case .ghost: return hour == 3
         case .shootingStar: return hour >= 20 || hour < 6
         case .fireflies: return hour >= 21 || hour < 5
@@ -73,7 +80,7 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         switch self {
         case .mimic, .merchant, .cardboardBox, .trashCan, .coffee: return true
         case .dinosaur, .shootingStar, .ufo, .ghost, .magpie, .fireflies, .ducklings, .bubble, .glitch, .dockBoat,
-             .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer:
+             .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower:
             return false
         }
     }
@@ -83,7 +90,7 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .ghost: return 4
         case .shootingStar, .fireflies, .coffee: return 2
         case .dinosaur, .ufo, .ducklings, .magpie, .mimic, .merchant, .bubble, .cardboardBox, .glitch, .dockBoat,
-             .trashCan, .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer:
+             .trashCan, .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower:
             return 1
         }
     }
@@ -111,6 +118,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .lostBalloon: return 7
         case .rainbow: return 7
         case .secretAdmirer: return 6
+        case .zeroGravity: return 8
+        case .rainShower: return 9
         }
     }
 
@@ -128,6 +137,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .merchant, .dockBoat: return .wave
         case .cardboardBox, .trashCan: return .confused
         case .coffee: return .sip
+        case .zeroGravity: return .surprised
+        case .rainShower: return .sweat
         }
     }
 }
@@ -171,10 +182,13 @@ enum NotchMascotEncounters {
     }
 
     /// One of those that may come now, by weight, other than the last few;
-    /// nil when none may.
+    /// nil when none may. With a `telescope` to its eye the stars come by
+    /// day as well.
     static func pick(hour: Int, wearsItem: Bool, recent: [NotchMascotEncounter],
-                     random: Double) -> NotchMascotEncounter? {
-        let open = NotchMascotEncounter.allCases.filter { $0.allowed(hour: hour, wearsItem: wearsItem) }
+                     random: Double, telescope: Bool = false) -> NotchMascotEncounter? {
+        let open = NotchMascotEncounter.allCases.filter {
+            $0.allowed(hour: hour, wearsItem: wearsItem) || (telescope && ($0 == .shootingStar || $0 == .meteorShower))
+        }
         let fresh = open.filter { !recent.suffix(memory).contains($0) }
         let pool = fresh.isEmpty ? open : fresh
         let total = pool.reduce(0) { $0 + $1.weight }

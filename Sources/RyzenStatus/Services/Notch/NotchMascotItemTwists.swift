@@ -143,6 +143,43 @@ enum NotchMascotItemTwists {
         (Pair(style: .robot, item: .gameController),
          [(0, .react(.ready)), (0.2, .sparks), (0.6, .marker("101010")), (1.4, .marker("PERFECT")), (1.6, .burst(.coins)),
           (1.8, .face(.smug, 1.4))]),
+        // The workshop, in the hands of those who know it best.
+        // A capybara and matcha: the calmest moment on the whole desktop.
+        (Pair(style: .capybara, item: .matchaBowl),
+         [(0, .move(.bow)), (0.6, .react(.sip)), (1.4, .symbol("~", .green, count: 4)), (2.0, .face(.sleepy, 3.0)),
+          (2.2, .marker("ZEN")), (2.4, .doze(6))]),
+        // A dragon warms the tea with one breath, too much.
+        (Pair(style: .dragon, item: .matchaBowl),
+         [(0, .react(.sip)), (0.4, .react(.flash)), (0.5, .sparks), (0.8, .burst(.smoke)), (1.4, .marker("HOT!")),
+          (1.6, .face(.terrified, 1.4)), (1.8, .move(.hop))]),
+        // The cat and the guitar: a scratch, a yowl, and a bow for the applause.
+        (Pair(style: .cat, item: .electricGuitar),
+         [(0, .face(.mischievous, 1.4)), (0.3, .slash), (0.5, .symbol("♪", .gold, count: 3)), (1.2, .marker("MEOWW")),
+          (1.6, .sparks), (2.2, .move(.bow)), (2.4, .face(.smug, 1.6))]),
+        // Boxing gloves on a robot: a punch that shakes the floor, and a dent.
+        (Pair(style: .robot, item: .boxingGloves),
+         [(0, .face(.determined, 2.0)), (0.3, .move(.charge)), (1.0, .lightning), (1.1, .marker("CLANG")), (1.3, .burst(.smoke)),
+          (2.0, .face(.embarrassed, 1.4)), (2.2, .emote(.ellipsis))]),
+        // The penguin digs the way it knows: a belly slide and snow flying.
+        (Pair(style: .penguin, item: .shovel),
+         [(0, .react(.perk)), (0.3, .move(.slip)), (0.6, .symbol("❄", .white, count: 4)), (1.4, .move(.stomp)),
+          (1.9, .gold(20)), (2.1, .react(.celebrate))]),
+        // A mouse with a telescope sees the moon, and asks for cheese.
+        (Pair(style: .mouse, item: .telescope),
+         [(0, .react(.peek)), (0.8, .emote(.exclaim)), (1.0, .face(.greedy, 1.8)), (1.2, .marker("CHEESE?")),
+          (1.8, .fling(.star, back: false)), (2.2, .react(.love))]),
+        // The frog needs no pogo stick, but with one it reaches the ceiling.
+        (Pair(style: .frog, item: .pogoStick),
+         [(0, .react(.perk)), (0.2, .move(.highJump)), (1.0, .move(.highJump)), (1.6, .marker("RIBBOING")),
+          (2.2, .move(.highJump)), (2.8, .face(.starstruck, 1.4))]),
+        // The hologram paints in light, and the picture floats off.
+        (Pair(style: .hologram, item: .painterBeret),
+         [(0, .face(.thinking, 1.2)), (0.6, .sparks), (0.9, .symbol("✦", .blue, count: 4)), (1.6, .burst(.magic)),
+          (1.8, .marker("PIXELS")), (2.2, .react(.celebrate))]),
+        // A karate belt on the danseur: the kata becomes a dance.
+        (Pair(style: .danseur, item: .karateBelt),
+         [(0, .face(.determined, 2.0)), (0.2, .move(.spin)), (0.9, .slash), (1.2, .marker("HAI-YAH")), (1.4, .move(.highJump)),
+          (2.2, .move(.bow)), (2.4, .face(.smug, 1.4))]),
     ]
 
     fileprivate static let byPair: [Pair: [(TimeInterval, NotchMascotItemAction)]] =

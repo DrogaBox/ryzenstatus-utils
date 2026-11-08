@@ -139,6 +139,9 @@ final class NotchMascotDesktop: NSObject {
     private(set) var fusedAway = false
     /// The fusion's entry for its menu, which its gang keeps.
     var fusionMenu: (() -> NSMenuItem?)?
+    /// A press on it while fused: true when the fusion took it as a cue for
+    /// a move, rather than a reason to split.
+    var fusedTap: (() -> Bool)?
 
     /// The window it stands on, and where that window was when last seen.
     private var perch: (window: CGWindowID, frame: CGRect)?
@@ -175,6 +178,10 @@ final class NotchMascotDesktop: NSObject {
     private var itemWork: [DispatchWorkItem] = []
     private var itemStage: NotchMascotPlayStage?
     private var lastItemUse: CFTimeInterval = -.infinity
+    /// When the thing it wears last left a mark behind it as it walked.
+    private var lastTrail: CFTimeInterval = -.infinity
+    /// What the thing it wears does to how it goes about.
+    private var trait: NotchMascotItemTrait { NotchMascotItemTrait.of(look.accessory) }
     /// What it wears is gone a while: eaten, drunk or in its face.
     private var itemHidden = false
     private var hideWork: DispatchWorkItem?
@@ -325,7 +332,7 @@ final class NotchMascotDesktop: NSObject {
         var look = fusedLook ?? newLook
         if fusedLook == nil, let dressUpItem { look.accessory = dressUpItem }
         if fusedLook == nil, itemHidden { look.accessory = .none }
-        let size = (NotchMascotRoam.size(for: look) * growth).rounded()
+        let size = (NotchMascotRoam.size(for: look) * growth * NotchMascotItemTrait.of(look.accessory).scale).rounded()
         // A window made just now has no size yet, whatever size it was made for.
         let resized = size != self.size || self.stage == nil
         let panel = self.panel ?? makePanel()
@@ -403,8 +410,8 @@ final class NotchMascotDesktop: NSObject {
               NotchMascotDressUp.shouldStart(sinceLastDig: CACurrentMediaTime() - lastDressUp,
                                              random: Double.random(in: 0..<1)),
               let item = NotchMascotDressUp.pick(current: look.accessory,
-                                                 level: NotchMascotSupport.shownLevel(),
-                                                 owns: NotchMascotShop.owns,
+                                                 level: NotchMascotBondStore.shared.shownLevel(for: look.style),
+                                                 owns: { [style = look.style] in NotchMascotShop.owns($0, by: style) },
                                                  random: Double.random(in: 0..<1))
         else { return false }
         lastDressUp = CACurrentMediaTime()
@@ -428,6 +435,43 @@ final class NotchMascotDesktop: NSObject {
         guard dressUpItem != nil else { return }
         dressUpItem = nil
         if isOut { configure(look: baseLook, mood: mood) }
+    }
+
+    /// Something was just bought for it: it puts it on at once, shows it
+    /// off with the trick the thing plays, under a shower of coins and a
+    /// "new" marker, and keeps it on a while before going back to what its
+    /// person picked. The reward for a purchase, seen the moment it is made.
+    func showOff(_ item: NotchMascotAccessory) {
+        guard isOut, !isHoming, look.style.takesAccessory else { return }
+        if inPlay { interrupted?() }
+        cancelItemUse()
+        endDressUp()
+        hideWork?.cancel(); hideWork = nil
+        itemHidden = false
+        dressUpItem = item
+        lastDressUp = CACurrentMediaTime()
+        configure(look: baseLook, mood: mood)
+        react(.celebrate)
+        sound(.chime, pan: soundPan)
+        if let canvas = itemCanvas() {
+            NotchMascotPlayEffects.burst(.coins, in: canvas, at: onItemCanvas(head), size: size * 0.9,
+                                         energy: NotchMascotPlay.Energy(red: 1, green: 0.85, blue: 0.3))
+            NotchMascotPlayEffects.arcadeMarker(FeatureStrings.notchMascotCraft(L10n.shared.language).newThing.uppercased(),
+                                                in: canvas, at: onItemCanvas(CGPoint(x: head.x, y: head.y + size * 0.45)),
+                                                cell: max(1.6, size * 0.05))
+        }
+        if let use = NotchMascotItemUse.of(item, style: look.style) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                guard let self, self.dressUpItem == item else { return }
+                self.useItem(use)
+            }
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.dressUpItem == item else { return }
+            self.endDressUp()
+        }
+        dressUpWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 40, execute: work)
     }
 
     /// Ends any dress-up play at once when its person picks its item in Settings.
@@ -516,6 +560,39 @@ final class NotchMascotDesktop: NSObject {
         itemStage = stage
         guard let screen = playScreen else { return nil }
         return stage.layer(over: screen)
+    }
+    /// What it wears leaves its mark behind it as it walks: sparks off
+    /// winged boots, notes off headphones, petals off a flower. Every so
+    /// many steps, and the stage it draws on closes once it stands still.
+    private func leaveTrail(now: CFTimeInterval) {
+        guard let trail = trait.trail, !reduceMotion, now - lastTrail >= NotchMascotItemTrait.trailStep,
+              let canvas = itemCanvas() else { return }
+        lastTrail = now
+        let feet = onItemCanvas(CGPoint(x: body.position.x, y: body.position.y + 2))
+        let count = 1
+        switch trail {
+        case .sparks:
+            NotchMascotPlayEffects.sparks(in: canvas, at: feet, reach: size * 0.3, energy: energy, count: 3)
+        case .dust:
+            NotchMascotPlayEffects.magicSmoke(in: canvas, at: feet, radius: size * 0.14,
+                                              energy: NotchMascotPlay.Energy(red: 0.72, green: 0.68, blue: 0.62), count: 1)
+        case .notes, .bubbles, .petals, .snow, .hearts, .stars, .drops:
+            let tint: NotchMascotItemAction.Tint
+            switch trail {
+            case .notes, .stars: tint = .gold
+            case .bubbles, .drops: tint = .blue
+            case .petals, .hearts: tint = .pink
+            default: tint = .white
+            }
+            NotchMascotPlayEffects.float(trail.symbol ?? "·", in: canvas, at: feet, size: max(8, size * 0.16),
+                                         color: Self.color(tint), count: count)
+        }
+        let stage = itemStage
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, !self.usingItem, self.itemStage === stage,
+                  CACurrentMediaTime() - self.lastTrail >= 2.4 else { return }
+            stage?.close()
+        }
     }
     private func onItemCanvas(_ point: CGPoint) -> CGPoint { itemStage?.point(point) ?? point }
     private static func color(_ tint: NotchMascotItemAction.Tint) -> CGColor {
@@ -640,16 +717,16 @@ final class NotchMascotDesktop: NSObject {
         guard !reduceMotion else { return }
         let x = body.position.x
         switch move {
-        case .hop, .jumpTogether, .hopRound: hop(dx: 0, dy: 480)
-        case .highJump: hop(dx: 0, dy: 820)
-        case .float: hop(dx: 0, dy: 980)
+        case .hop, .jumpTogether, .hopRound: hop(dx: 0, dy: 480 * trait.hop)
+        case .highJump: hop(dx: 0, dy: 820 * trait.hop)
+        case .float: hop(dx: 0, dy: 980 * trait.hop)
         case .spin, .spinTogether:
             sway(amplitude: 0.55, speed: 26, duration: 0.7)
             itemStep(after: 0.7) { [weak self] in self?.hop(dx: 0, dy: 300) }
         case .charge, .chase, .bump:
             stroll(to: x + side * 90, pace: 3.2)
             itemStep(after: 0.7) { [weak self] in self?.stroll(to: x, pace: 2) }
-        case .backflip, .swap, .leapOver: hop(dx: -side * 150, dy: 640)
+        case .backflip, .swap, .leapOver: hop(dx: -side * 150, dy: 640 * trait.hop)
         case .stomp:
             for step in 0..<3 { itemStep(after: Double(step) * 0.32) { [weak self] in self?.hop(dx: 0, dy: 230) } }
         case .bow, .bowTogether: tilt(-side * 0.35, for: 0.8)
@@ -677,7 +754,8 @@ final class NotchMascotDesktop: NSObject {
                                                  random: Double.random(in: 0..<1)),
               let encounter = NotchMascotEncounters.pick(hour: Calendar.current.component(.hour, from: Date()),
                                                          wearsItem: wearsItem, recent: Self.recentEncounters,
-                                                         random: Double.random(in: 0..<1))
+                                                         random: Double.random(in: 0..<1),
+                                                         telescope: look.accessory == .telescope)
         else { return false }
         return meet(encounter)
     }
@@ -725,6 +803,8 @@ final class NotchMascotDesktop: NSObject {
         case .lostBalloon: busy = lostBalloon(on: canvas)
         case .rainbow: busy = rainbow(on: canvas)
         case .secretAdmirer: busy = secretAdmirer(on: canvas)
+        case .zeroGravity: busy = zeroGravity(on: canvas)
+        case .rainShower: busy = rainShower(on: canvas)
         }
         encounterStep(after: busy) { [weak self] in
             guard let self else { return }
@@ -1475,6 +1555,95 @@ final class NotchMascotDesktop: NSObject {
         encounterStep(after: 4.0) { [weak self] in self?.sway(amplitude: 0.08, speed: 4, duration: 2) }
         visitorsLeave = 6.5
         return 6.8
+    }
+    /// Gravity lets go: it drifts up off the floor among little stars,
+    /// tumbling slowly, and comes down with a bump when it takes hold again.
+    private func zeroGravity(on canvas: CALayer) -> TimeInterval {
+        let feet = body.position
+        let up = CGPoint(x: feet.x + roomier * size * 0.6, y: feet.y + size * 2.2)
+        NotchMascotEncounterArt.weightlessStars(in: canvas, around: onStage(CGPoint(x: feet.x, y: feet.y + size * 1.6)),
+                                                reach: size * 1.6, duration: 6)
+        sound(.warble, pan: pan(feet.x), after: 0.2)
+        encounterStep(after: 0.2) { [weak self] in
+            guard let self else { return }
+            self.react(.surprised)
+            self.emote(.exclaim)
+            self.glide(to: up, over: 2.6)
+            self.sway(amplitude: 0.35, speed: 1.6, duration: 5)
+        }
+        encounterStep(after: 3.0) { [weak self] in
+            guard let self else { return }
+            self.pullFace(.starstruck, for: 2.4)
+            NotchMascotPlayEffects.float("✦", in: canvas, at: self.onStage(self.head), size: max(9, self.size * 0.2),
+                                         color: Self.color(.gold), count: 3)
+        }
+        encounterStep(after: 5.4) { [weak self] in
+            guard let self else { return }
+            self.pullFace(.terrified, for: 1.2)
+            self.emote(.interrobang)
+            self.glide(to: feet, over: 0.45)
+            self.sound(.thud, pan: self.pan(feet.x), after: 0.45)
+        }
+        encounterStep(after: 6.0) { [weak self] in
+            guard let self else { return }
+            self.react(.confused)
+            NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onStage(CGPoint(x: feet.x, y: feet.y + 2)), radius: self.size * 0.25,
+                                              energy: NotchMascotPlay.Energy(red: 0.72, green: 0.68, blue: 0.62), count: 3)
+            NotchMascotPlayEffects.arcadeMarker("ZERO G", in: canvas,
+                                                at: self.onStage(CGPoint(x: self.head.x, y: self.head.y + self.size * 0.45)),
+                                                cell: max(1.6, self.size * 0.05))
+        }
+        visitorsLeave = 6.5
+        return 7.5
+    }
+    /// A rain cloud drifts over it, raining all the way: under an umbrella
+    /// it stays dry and pleased with itself; without one it gets soaked,
+    /// grumbles, and shakes itself off once the cloud has gone.
+    private func rainShower(on canvas: CALayer) -> TimeInterval {
+        let feet = body.position
+        let area = self.area(for: feet)
+        let side = roomier
+        let reach = min(area.width * 0.3, 420)
+        let from = CGPoint(x: feet.x - side * reach, y: feet.y + size * 2.3)
+        let to = CGPoint(x: feet.x + side * reach, y: feet.y + size * 2.3)
+        NotchMascotEncounterArt.rainCloud(in: canvas, from: onStage(from), to: onStage(to), width: max(size * 2.6, 90),
+                                          reach: size * 2.1, duration: 8)
+        sound(.whoosh, pan: pan(feet.x), after: 0.3)
+        let sheltered = look.accessory == .umbrella
+        encounterStep(after: 1.0) { [weak self] in
+            self?.react(.peek)
+            self?.face(toward: from.x)
+        }
+        encounterStep(after: 3.2) { [weak self] in
+            guard let self else { return }
+            if sheltered {
+                self.pullFace(.smug, for: 4)
+                self.react(.wave)
+            } else {
+                self.react(.sweat)
+                self.pullFace(.terrified, for: 3)
+                self.emote(.curse)
+                self.sway(amplitude: 0.18, speed: 10, duration: 3)
+            }
+            NotchMascotPlayEffects.float("•", in: canvas, at: self.onStage(CGPoint(x: feet.x, y: feet.y + 2)),
+                                         size: max(7, self.size * 0.14), color: Self.color(.blue), count: 4)
+        }
+        encounterStep(after: 6.4) { [weak self] in
+            guard let self else { return }
+            let mark = self.onStage(CGPoint(x: self.head.x, y: self.head.y + self.size * 0.45))
+            if sheltered {
+                self.react(.celebrate)
+                NotchMascotPlayEffects.arcadeMarker("DRY!", in: canvas, at: mark, cell: max(1.6, self.size * 0.05))
+            } else {
+                self.sway(amplitude: 0.4, speed: 16, duration: 0.9)
+                NotchMascotPlayEffects.float("•", in: canvas, at: self.onStage(self.head), size: max(7, self.size * 0.14),
+                                             color: Self.color(.blue), count: 5)
+                NotchMascotPlayEffects.arcadeMarker("BRR", in: canvas, at: mark, cell: max(1.6, self.size * 0.05))
+                self.pullFace(.bored, for: 2)
+            }
+        }
+        visitorsLeave = 8
+        return 8.6
     }
     /// A heart flies in from someone off the edge of the screen: it looks
     /// round for who sent it, and blushes.
@@ -3371,6 +3540,7 @@ final class NotchMascotDesktop: NSObject {
         let half = size * figureAspect / 2
         var direction = direction
         body.position.x += direction * NotchMascotRoam.walkSpeed * pace * CGFloat(min(dt, 0.05))
+        leaveTrail(now: now)
         // On a window it walks its top edge; on the floor, the screen's width.
         let walkway = perch == nil ? nil : perchLedge
         let low = walkway.map { $0.minX + half * 0.5 } ?? area.minX + half
@@ -3473,7 +3643,9 @@ final class NotchMascotDesktop: NSObject {
             planNext(after: NotchMascotReaction.lookAround.length + 3)
         case .walk(let direction, let duration):
             guard !still, walkway.map({ $0.width > size * figureAspect + 12 }) ?? true else { planNext(after: 8); return }
-            pace = gait
+            // What it wears sets its pace and the face it sets off with.
+            pace = gait * trait.gait
+            if let face = trait.face { pullFace(face, for: min(duration, NotchMascotItemTrait.faceLength)) }
             mode = .walking(direction: direction, until: CACurrentMediaTime() + duration)
             setRun(direction)
             resumeTicking()
@@ -3921,7 +4093,9 @@ final class NotchMascotDesktop: NSObject {
         cancelItemUse()
         endEncounter()
         host?.mascot.setFlight(speed: nil)
-        if inPlay { interrupted?() }
+        // Fused, a press is a cue for a power move; a double click still
+        // sends it home, which splits the two.
+        if inPlay, !(clicks < 2 && fusedLook != nil && fusedTap?() == true) { interrupted?() }
         // Played with, it is no longer on a walk of its own: it stays out.
         excursionWork?.cancel(); excursionWork = nil
         abandonTrip()

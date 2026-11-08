@@ -107,7 +107,8 @@ enum NotchMascotPlay: Equatable {
         var islandContext: NotchMascotIslandPlay.Context {
             NotchMascotIslandPlay.Context(since: .infinity, music: music, hour: hour, recent: [],
                                           leaderWears: leaderWears, friendWears: friendWears,
-                                          leaderStyle: leaderLook.style, friendStyle: friendLook.style, rpg: rpg)
+                                          leaderStyle: leaderLook.style, friendStyle: friendLook.style,
+                                          leaderForm: leaderLook.form, friendForm: friendLook.form, rpg: rpg)
         }
     }
 

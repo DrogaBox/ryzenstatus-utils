@@ -558,6 +558,8 @@ enum Defaults {
         DefaultsKey.notchMascotLuckPaid: "",
         DefaultsKey.notchMascotForm: "auto",
         DefaultsKey.notchMascotFriendForm: "",
+        DefaultsKey.notchMascotShopRecipient: "",
+        DefaultsKey.notchMascotFusionsToday: "",
         DefaultsKey.notchMascotSpeech: true,
         DefaultsKey.notchMascotHardware: true,
         DefaultsKey.notchCommandBar: true,

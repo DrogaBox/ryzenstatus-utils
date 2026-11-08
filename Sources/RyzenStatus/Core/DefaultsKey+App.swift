@@ -723,6 +723,10 @@ extension DefaultsKey {
     static let notchMascotOwned = "notchMascotOwned"                     // [String], bought accessories (raw values)
     static let notchMascotShopStock = "notchMascotShopStock"             // [String], what the shop shows now
     static let notchMascotShopMigrated = "notchMascotShopMigrated"       // Bool, level unlocks carried over once
+    static let notchMascotInventories = "notchMascotInventories"         // [String: [String]], style -> accessories bought for that figure
+    static let notchMascotInventoryMigrated = "notchMascotInventoryMigrated" // Bool, notchMascotOwned carried into the companion's own wardrobe once
+    static let notchMascotShopRecipient = "notchMascotShopRecipient"     // String, NotchMascotStyle the shop buys for; empty for the companion
+    static let notchMascotFusionsToday = "notchMascotFusionsToday"       // String "day:count", fusions of their own accord today
     static let notchMascotHardware = "notchMascotHardware"     // Bool, follows the AMD hardware
     static let notchCommandBar = "notchCommandBar"
     static let notchCommandBarStyle = "notchCommandBarStyle"
