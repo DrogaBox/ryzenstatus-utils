@@ -6,7 +6,7 @@
 
 ### Fixed
 
-- **High CPU with the companions turned off**: with the Dynamic Island on and its companion off, the app kept a core close to fully busy. Each pass over the island's settings saved the companion's hearts, hourglass and gold even when nothing had changed, and that save started the next pass. They are now saved only when they change, so the island goes quiet again.
+- **High CPU with the companions turned off**: with the Dynamic Island on and its companion off, the app kept a core close to fully busy. Each pass over the island's settings saved the companion's hearts, hourglass and gold even when nothing had changed, and that save started the next pass. They are now saved only when they change, so the island goes quiet again. The loop had been there since 1.78.2, when the companion's clock was first stopped while it is off, and we only just noticed it.
 
 ## [1.81.0] — 2026-11-07 — kexts 3.40.1 (No kext changes)
 
