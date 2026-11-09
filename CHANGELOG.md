@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.81.1] — 2026-11-09 — kexts 3.40.1 (No kext changes)
+
+**Companions off, CPU back to rest.**
+
+### Fixed
+
+- **High CPU with the companions turned off**: with the Dynamic Island on and its companion off, the app kept a core close to fully busy. Each pass over the island's settings saved the companion's hearts, hourglass and gold even when nothing had changed, and that save started the next pass. They are now saved only when they change, so the island goes quiet again.
+
 ## [1.81.0] — 2026-11-07 — kexts 3.40.1 (No kext changes)
 
 **Companions: each one its own.** The AMD side is untouched; this release is about the companions: their own levels and wardrobes, a rarer and stronger fusion, faces in the island, items that show the moment they are bought, and more to buy.

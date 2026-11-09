@@ -19,6 +19,7 @@ enum NotchMascotRuntimeTests {
         readingBondDoesNotWrite(suite)
         unchangedBondIsNotSaved(suite)
         spentGoldIsSavedAtOnce(suite)
+        unchangedFlushWritesNothing(suite)
         backgroundLifeStopsWithTheIsland(suite)
         desktopSoundsBelongToTheOuting(suite)
         reduceMotionAndLowPower(suite)
@@ -170,6 +171,31 @@ enum NotchMascotRuntimeTests {
                 suite.expect(gained == 0, "the same day counted twice brings nothing")
                 suite.expect(defaults.data(forKey: DefaultsKey.notchMascotBonds) == sentinel,
                              "a day already counted writes nothing")
+            }
+        }
+    }
+
+    /// The island flushes from its own preference sync while the companion
+    /// is off; a flush that writes unchanged values would post a preference
+    /// change and start that sync again, without end.
+    private static func unchangedFlushWritesNothing(_ suite: TestSuite) {
+        withDefaults("ryzenstatus.tests.mascot.flush", suite) { defaults in
+            MainActor.assumeIsolated {
+                let state = NotchMascotRPGState(defaults: defaults)
+                state.goldCoins = 321
+                state.flush()
+                suite.expect(defaults.integer(forKey: DefaultsKey.notchMascotGold) == 321, "a flush saves the gold")
+                var changes = 0
+                let token = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                                   object: defaults, queue: nil) { _ in changes += 1 }
+                state.flush()
+                state.flush()
+                suite.expect(changes == 0, "a flush with nothing new posts no preference change")
+                state.goldCoins = 322
+                state.flush()
+                suite.expect(changes > 0 && defaults.integer(forKey: DefaultsKey.notchMascotGold) == 322,
+                             "a flush with new gold still saves it")
+                NotificationCenter.default.removeObserver(token)
             }
         }
     }
