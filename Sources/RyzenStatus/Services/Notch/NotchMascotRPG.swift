@@ -324,13 +324,23 @@ public final class NotchMascotRPGState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveDelay, execute: work)
     }
 
-    /// Writes the hourglass and the hearts now.
+    /// Writes the hourglass, the hearts and the gold now, each only when it
+    /// differs from what is stored. Every write wakes the preference
+    /// observers, and the island calls this from its own preference sync
+    /// while the companion is off: writing unchanged values there fed the
+    /// sync back into itself and kept the main thread busy for good.
     func flush() {
         saveWork?.cancel()
         saveWork = nil
-        defaults.set(currentHearts, forKey: DefaultsKey.notchMascotCurrentHearts)
-        defaults.set(hourglassVitality, forKey: DefaultsKey.notchMascotVitality)
-        defaults.set(goldCoins, forKey: DefaultsKey.notchMascotGold)
+        if defaults.object(forKey: DefaultsKey.notchMascotCurrentHearts) as? Double != currentHearts {
+            defaults.set(currentHearts, forKey: DefaultsKey.notchMascotCurrentHearts)
+        }
+        if defaults.object(forKey: DefaultsKey.notchMascotVitality) as? Double != hourglassVitality {
+            defaults.set(hourglassVitality, forKey: DefaultsKey.notchMascotVitality)
+        }
+        if defaults.object(forKey: DefaultsKey.notchMascotGold) as? Int != goldCoins {
+            defaults.set(goldCoins, forKey: DefaultsKey.notchMascotGold)
+        }
     }
 
     private var stepBuffUntil: Date = .distantPast
