@@ -755,7 +755,7 @@ final class NotchMascotDesktop: NSObject {
               let encounter = NotchMascotEncounters.pick(hour: Calendar.current.component(.hour, from: Date()),
                                                          wearsItem: wearsItem, recent: Self.recentEncounters,
                                                          random: Double.random(in: 0..<1),
-                                                         telescope: look.accessory == .telescope)
+                                                         lure: look.accessory)
         else { return false }
         return meet(encounter)
     }
@@ -805,6 +805,8 @@ final class NotchMascotDesktop: NSObject {
         case .secretAdmirer: busy = secretAdmirer(on: canvas)
         case .zeroGravity: busy = zeroGravity(on: canvas)
         case .rainShower: busy = rainShower(on: canvas)
+        case .butterflies: busy = butterflies(on: canvas)
+        case .fishJump: busy = fishJump(on: canvas)
         }
         encounterStep(after: busy) { [weak self] in
             guard let self else { return }
@@ -1644,6 +1646,101 @@ final class NotchMascotDesktop: NSObject {
         }
         visitorsLeave = 8
         return 8.6
+    }
+    /// Butterflies flutter across past it. With a net it leaps, catches one
+    /// and lets it go again; under a crown of flowers they settle on it; with
+    /// neither it jumps after them and they get away.
+    private func butterflies(on canvas: CALayer) -> TimeInterval {
+        let feet = body.position
+        let area = self.area(for: feet)
+        let side = roomier
+        let from = CGPoint(x: feet.x - side * size * 3, y: feet.y + size * 1.4)
+        let to = CGPoint(x: feet.x + side * min(area.width * 0.35, 520), y: feet.y + size * 2.6)
+        NotchMascotEncounterArt.butterflies(in: canvas, from: onStage(from), to: onStage(to), count: 4,
+                                            size: max(10, size * 0.34), duration: 7)
+        sound(.chime, pan: pan(feet.x), after: 0.4)
+        let netted = look.accessory == .butterflyNet
+        let crowned = look.accessory == .flowerCrown
+        encounterStep(after: 0.6) { [weak self] in
+            self?.react(.perk)
+            self?.face(toward: from.x)
+        }
+        encounterStep(after: 2.2) { [weak self] in
+            guard let self else { return }
+            if crowned {
+                self.react(.love)
+                self.pullFace(.love, for: 3)
+            } else {
+                self.react(netted ? .ready : .bounce)
+                if self.perch == nil { self.hop(dx: side * (netted ? 140 : 100), dy: netted ? 760 : 620) }
+            }
+        }
+        encounterStep(after: 3.8) { [weak self] in
+            guard let self else { return }
+            let mark = self.onStage(CGPoint(x: self.head.x, y: self.head.y + self.size * 0.45))
+            NotchMascotPlayEffects.float("✿", in: canvas, at: self.onStage(self.head), size: max(8, self.size * 0.18),
+                                         color: Self.color(.pink), count: crowned ? 4 : 2)
+            if netted {
+                self.react(.celebrate)
+                NotchMascotPlayEffects.arcadeMarker("GOTCHA", in: canvas, at: mark, cell: max(1.6, self.size * 0.05))
+            } else if crowned {
+                self.sway(amplitude: 0.08, speed: 3, duration: 2)
+                NotchMascotPlayEffects.arcadeMarker("SPRING", in: canvas, at: mark, cell: max(1.6, self.size * 0.05))
+            } else {
+                self.react(.sweat)
+                self.emote(.question)
+            }
+        }
+        encounterStep(after: 5.8) { [weak self] in self?.react(.wave) }
+        visitorsLeave = 7
+        return 7.4
+    }
+    /// A fish leaps out of the floor beside it and back in. With a rod it
+    /// lands the fish, and the day's luck may pay for it; without one the
+    /// splash soaks it.
+    private func fishJump(on canvas: CALayer) -> TimeInterval {
+        let feet = body.position
+        let side = roomier
+        let from = CGPoint(x: feet.x + side * size * 0.8, y: feet.y - size * 0.1)
+        let to = CGPoint(x: feet.x + side * size * 2.8, y: feet.y - size * 0.1)
+        let rod = look.accessory == .fishingRod
+        encounterStep(after: 0.8) { [weak self] in
+            guard let self else { return }
+            self.react(.peek)
+            self.face(toward: from.x)
+            NotchMascotPlayEffects.float("~", in: canvas, at: self.onStage(CGPoint(x: from.x, y: from.y + 2)),
+                                         size: max(8, self.size * 0.18), color: Self.color(.blue), count: 2)
+        }
+        encounterStep(after: 2.0) { [weak self] in
+            guard let self else { return }
+            NotchMascotEncounterArt.leapingFish(in: canvas, from: self.onStage(from), to: self.onStage(to),
+                                                height: self.size * 2.2, size: max(12, self.size * 0.45), duration: 1.6)
+            self.sound(.whoosh, pan: self.pan(from.x))
+            self.react(.surprised)
+            self.emote(.exclaim)
+        }
+        encounterStep(after: 3.6) { [weak self] in
+            guard let self else { return }
+            let mark = self.onStage(CGPoint(x: self.head.x, y: self.head.y + self.size * 0.45))
+            if rod {
+                let paid = NotchMascotLuck.pay(20)
+                if paid > 0 { NotchMascotRPG.collect(gold: paid) }
+                self.react(.celebrate)
+                self.pullFace(.starstruck, for: 2)
+                NotchMascotPlayEffects.burst(.coins, in: canvas, at: self.onStage(self.head), size: self.size, energy: self.energy)
+                NotchMascotPlayEffects.arcadeMarker(paid > 0 ? "+\(paid)" : "BIG ONE!", in: canvas, at: mark,
+                                                    cell: max(1.6, self.size * 0.05))
+            } else {
+                self.pullFace(.terrified, for: 1.6)
+                self.sway(amplitude: 0.3, speed: 14, duration: 0.9)
+                NotchMascotPlayEffects.float("•", in: canvas, at: self.onStage(self.head), size: max(7, self.size * 0.14),
+                                             color: Self.color(.blue), count: 5)
+                NotchMascotPlayEffects.arcadeMarker("SPLASH", in: canvas, at: mark, cell: max(1.6, self.size * 0.05))
+            }
+        }
+        encounterStep(after: 5.6) { [weak self] in self?.react(rod ? .wave : .confused) }
+        visitorsLeave = 5.8
+        return 6.6
     }
     /// A heart flies in from someone off the edge of the screen: it looks
     /// round for who sent it, and blushes.

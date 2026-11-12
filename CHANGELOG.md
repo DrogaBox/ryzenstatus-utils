@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.82.0] — 2026-11-12 — kexts 3.40.1 (No kext changes)
+
+**The fair comes to the companions, and a big round of tool updates.** The AMD side is untouched; this release brings twenty-four new things for the companions, each with its own show, and new features and fixes across the rest of the app.
+
+### Added
+
+- **The fair and the field**: twenty-four new things in the companions' shop: a fishing rod, a butterfly net, a watering can, a potted cactus, a frying pan, a cupcake, a lollipop, a trumpet, a violin, a basketball, a puzzle cube, an answer ball, a pinwheel, a slingshot, a balloon dog, a sparkler, a boombox, a hard hat, an astronaut helmet, a graduation cap, a flower crown, binoculars, a super cape and stilts. Each one changes how the companion goes about while it is worn (a sugar rush, a floaty step, taller on stilts), puts on a show of its own now and then on the desktop and in the island, and some figures have their own way with it. Luck plays a part: the rod brings a fish or an old boot, the ball goes in or clanks off the rim, the answer ball gives its verdict.
+- **Fifty-seven new combos**, to 417: the fair's things together and with the rest of the wardrobe, with a transformed companion and with the figure that suits them best, plus more stage scenes for the dancers.
+- **Things that draw things in**: some of what a companion wears makes certain rare sights more likely, at any hour.
+- **Monitor speakers**: the speakers built into an external monitor can be controlled from the panel and the volume keys, with their own step size and limits.
+- **Faster scrolling with a key held**: hold a chosen modifier while turning the mouse wheel to multiply the distance. Opt-in, in Features.
+- **Scrolling screenshots on their own**: a scrolling capture can scroll the window by itself, and has a shortcut of its own.
+- **Uninstaller: cleanup after the Trash**: optionally, moving an app to the Trash in Finder offers to clean up what it left behind. Leftovers in hidden home folders are found too.
+- **Shortcuts**: one for the command bar's app menu commands, and one to toggle cleaning mode.
+- **Clipboard history**: tabs for recent and pinned entries, and image files copied in Finder can be edited from the history.
+- **Settings file**: a read-only settings file in `~/.config/ryzenstatus/settings.plist` is applied at launch when present.
+
+### Improved
+
+- **Settings search** finds the controls that are actually visible and opens the section they live in, including each part of the Dynamic Island; the command bar reaches them too.
+- **Homebrew**: the last operation's log stays reachable after its card hides, in Settings, the panel and the uninstaller.
+- **Keep Awake** resumes a manual session after the app relaunches.
+- **Dock preview** can open with no delay at all, and the screenshot editor copies the saved file when saving.
+- **Mixer**: apps that share a process owner get rows of their own, and audio from processes with no app is shown.
+
+### Fixed
+
+- Caps Lock with Super Key after a solo tap, the Claude activity timer after a local reset, a mixer tap that did not resume, notification focus in the island, display dimming writes, microphone levels across reconnects, snapped windows restoring without a drag, GIF copy cancellation, feet and inches in the command bar, a cropped camera preview, repeated middle clicks, a shelf drag that read files on the main thread, the island closing during AirDrop, focus follows mouse with windows opened on top, the switcher's search chip, the agents' hourly graph, the window maximizer on this app's own windows and rich-text copies in the clipboard history.
+
 ## [1.81.1] — 2026-11-09 — kexts 3.40.1 (No kext changes)
 
 **Companions off, CPU back to rest.**

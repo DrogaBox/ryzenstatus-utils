@@ -37,6 +37,11 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     /// The workshop: things with a craft or a sport to them, each with a
     /// habit that shows the moment it is worn.
     case electricGuitar, karateBelt, painterBeret, matchaBowl, boxingGloves, telescope, shovel, pogoStick
+    /// The fair and the field: a day out with a rod, a net, a can, sweets,
+    /// a band, a ball, puzzles, sparks, and the hats, cape and stilts to go.
+    case fishingRod, butterflyNet, wateringCan, pottedCactus, fryingPan, cupcake, lollipop, trumpet
+    case violin, basketball, puzzleCube, answerBall, pinwheel, slingshot, balloonDog, sparkler
+    case boomBox, hardHat, astronautHelmet, graduationCap, flowerCrown, binoculars, superCape, stilts
 
     var id: String { rawValue }
 
@@ -45,7 +50,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
                                                    .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
-                                                   + partyItems + oddityItems + craftItems
+                                                   + partyItems + oddityItems + craftItems + fairItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -89,9 +94,15 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     var isDanceItem: Bool { Self.danceItems.contains(self) }
     var isToyItem: Bool { Self.toyItems.contains(self) }
     var isCraftItem: Bool { Self.craftItems.contains(self) }
+    /// The twenty-four of the fair and the field, each with a show of its own.
+    static let fairItems: [NotchMascotAccessory] = [
+        .fishingRod, .butterflyNet, .wateringCan, .pottedCactus, .fryingPan, .cupcake, .lollipop, .trumpet,
+        .violin, .basketball, .puzzleCube, .answerBall, .pinwheel, .slingshot, .balloonDog, .sparkler,
+        .boomBox, .hardHat, .astronautHelmet, .graduationCap, .flowerCrown, .binoculars, .superCape, .stilts]
+    var isFairItem: Bool { Self.fairItems.contains(self) }
     /// Bought with gold rather than earned by level.
     var isPurchasable: Bool {
-        isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity || isCraftItem
+        isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity || isCraftItem || isFairItem
     }
 
     /// Whether `style`, at `level`, may wear it: earned by its own level,
@@ -144,6 +155,15 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .karateBelt: return .neck
         case .pogoStick: return .feet
         case .electricGuitar, .matchaBowl, .boxingGloves, .telescope, .shovel: return .hand
+        // The fair: hats on the head, the binoculars on the eyes, the cape
+        // on its back, the stilts under its feet and the rest in hand.
+        case .hardHat, .astronautHelmet, .graduationCap, .flowerCrown: return .head
+        case .binoculars: return .eyes
+        case .superCape: return .back
+        case .stilts: return .feet
+        case .fishingRod, .butterflyNet, .wateringCan, .pottedCactus, .fryingPan, .cupcake, .lollipop, .trumpet,
+             .violin, .basketball, .puzzleCube, .answerBall, .pinwheel, .slingshot, .balloonDog, .sparkler, .boomBox:
+            return .hand
         case .bubbleGum, .kazoo, .snorkelMask, .wizardBeard, .spiderMonocle: return .eyes
         case .featherBoa: return .neck
         case .rollerSkates: return .feet

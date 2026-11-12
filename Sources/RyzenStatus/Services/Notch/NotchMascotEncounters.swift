@@ -54,11 +54,18 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
     /// A rain cloud drifts over it: with an umbrella it stays dry and
     /// smug, without one it gets soaked and shakes itself off.
     case rainShower
+    /// A flutter of butterflies drifting across in the daytime: with a net
+    /// it catches one and lets it go, under a crown of flowers they land on it.
+    case butterflies
+    /// A fish leaping out of the floor and back in: with a rod it lands it,
+    /// without one it gets splashed.
+    case fishJump
 
     /// Whether it can come now: by the hour, and by what it wears.
     func allowed(hour: Int, wearsItem: Bool) -> Bool {
         switch self {
-        case .zeroGravity, .rainShower: return true
+        case .zeroGravity, .rainShower, .fishJump: return true
+        case .butterflies: return hour >= 8 && hour < 20
         case .ghost: return hour == 3
         case .shootingStar: return hour >= 20 || hour < 6
         case .fireflies: return hour >= 21 || hour < 5
@@ -80,7 +87,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         switch self {
         case .mimic, .merchant, .cardboardBox, .trashCan, .coffee: return true
         case .dinosaur, .shootingStar, .ufo, .ghost, .magpie, .fireflies, .ducklings, .bubble, .glitch, .dockBoat,
-             .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower:
+             .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower,
+             .butterflies, .fishJump:
             return false
         }
     }
@@ -90,7 +98,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .ghost: return 4
         case .shootingStar, .fireflies, .coffee: return 2
         case .dinosaur, .ufo, .ducklings, .magpie, .mimic, .merchant, .bubble, .cardboardBox, .glitch, .dockBoat,
-             .trashCan, .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower:
+             .trashCan, .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer, .zeroGravity, .rainShower,
+             .butterflies, .fishJump:
             return 1
         }
     }
@@ -120,6 +129,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .secretAdmirer: return 6
         case .zeroGravity: return 8
         case .rainShower: return 9
+        case .butterflies: return 8
+        case .fishJump: return 7
         }
     }
 
@@ -139,6 +150,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .coffee: return .sip
         case .zeroGravity: return .surprised
         case .rainShower: return .sweat
+        case .butterflies: return .love
+        case .fishJump: return .surprised
         }
     }
 }
@@ -181,21 +194,48 @@ enum NotchMascotEncounters {
         since >= interval && random < chance
     }
 
+    /// How many times as likely something it lures is to come.
+    static let lureWeight = 3.0
+
+    /// What a thing worn draws in, whatever the hour: a telescope the
+    /// stars, binoculars the birds, an astronaut's helmet the sky's
+    /// visitors, a net the butterflies and fireflies, a rod the fish and
+    /// the little boat, a watering can the rainbow and a crown of flowers
+    /// the butterflies.
+    static func lured(by item: NotchMascotAccessory) -> Set<NotchMascotEncounter> {
+        switch item {
+        case .telescope: return [.shootingStar, .meteorShower]
+        case .binoculars: return [.magpie, .ducklings, .satellite]
+        case .astronautHelmet: return [.zeroGravity, .ufo, .satellite, .meteorShower]
+        case .butterflyNet: return [.butterflies, .fireflies]
+        case .flowerCrown: return [.butterflies, .rainbow]
+        case .fishingRod: return [.fishJump, .dockBoat]
+        case .wateringCan: return [.rainbow, .rainShower]
+        default: return []
+        }
+    }
+
     /// One of those that may come now, by weight, other than the last few;
     /// nil when none may. With a `telescope` to its eye the stars come by
-    /// day as well.
+    /// day as well, and what its `lure` draws in comes at any hour and
+    /// more often.
     static func pick(hour: Int, wearsItem: Bool, recent: [NotchMascotEncounter],
-                     random: Double, telescope: Bool = false) -> NotchMascotEncounter? {
+                     random: Double, telescope: Bool = false,
+                     lure: NotchMascotAccessory = .none) -> NotchMascotEncounter? {
+        let lured = lured(by: telescope ? .telescope : lure)
         let open = NotchMascotEncounter.allCases.filter {
-            $0.allowed(hour: hour, wearsItem: wearsItem) || (telescope && ($0 == .shootingStar || $0 == .meteorShower))
+            ($0.allowed(hour: hour, wearsItem: wearsItem) || lured.contains($0)) && ($0 != .magpie || wearsItem)
         }
         let fresh = open.filter { !recent.suffix(memory).contains($0) }
         let pool = fresh.isEmpty ? open : fresh
-        let total = pool.reduce(0) { $0 + $1.weight }
+        func weight(_ encounter: NotchMascotEncounter) -> Double {
+            encounter.weight * (lured.contains(encounter) ? lureWeight : 1)
+        }
+        let total = pool.reduce(0) { $0 + weight($1) }
         guard total > 0 else { return nil }
         var mark = min(max(random, 0), 0.999_999) * total
         for encounter in pool {
-            mark -= encounter.weight
+            mark -= weight(encounter)
             if mark < 0 { return encounter }
         }
         return pool.last

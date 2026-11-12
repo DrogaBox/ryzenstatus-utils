@@ -208,6 +208,34 @@ struct NotchMascotItemSignature: Equatable {
         case .telescope: return .init(.sneak, .star, .magic, .peek)
         case .shovel: return .init(.stomp, .coin, .coins, .celebrate)
         case .pogoStick: return .init(.highJump, .ball, .sparkles, .bounce)
+        // The fair: a cast, a chase, a watering, a hug, a flip, a wish, a
+        // rush, a fanfare, a lament, a dunk, a puzzle, an answer, a whirl,
+        // a shot, a squeak, a spark, a beat, a tower, a spacewalk, a cap in
+        // the air, a crown of flowers, a look far off, a flight and a wobble.
+        case .fishingRod: return .init(.sneak, .coin, .sparkles, .peek)
+        case .butterflyNet: return .init(.charge, .flower, .sparkles, .perk)
+        case .wateringCan: return .init(.bow, .flower, .sparkles, .relax)
+        case .pottedCactus: return .init(.hop, .heart, .smoke, .surprised)
+        case .fryingPan: return .init(.stomp, .cookie, .smoke, .ready)
+        case .cupcake: return .init(.hop, .cookie, .hearts, .celebrate)
+        case .lollipop: return .init(.charge, .heart, .confetti, .bounce)
+        case .trumpet: return .init(.strut, .note, .confetti, .celebrate)
+        case .violin: return .init(.bow, .note, .sparkles, .relax)
+        case .basketball: return .init(.highJump, .ball, .confetti, .ready)
+        case .puzzleCube: return .init(.sneak, .key, .sparkles, .peek)
+        case .answerBall: return .init(.shiver, .star, .magic, .surprised)
+        case .pinwheel: return .init(.spin, .star, .sparkles, .perk)
+        case .slingshot: return .init(.sneak, .ball, .smoke, .ready)
+        case .balloonDog: return .init(.hop, .balloon, .confetti, .love)
+        case .sparkler: return .init(.spin, .spark, .sparkles, .celebrate)
+        case .boomBox: return .init(.backflip, .note, .confetti, .groove)
+        case .hardHat: return .init(.stomp, .key, .smoke, .ready)
+        case .astronautHelmet: return .init(.float, .star, .magic, .surprised)
+        case .graduationCap: return .init(.bow, .star, .confetti, .celebrate)
+        case .flowerCrown: return .init(.spin, .flower, .hearts, .love)
+        case .binoculars: return .init(.sneak, .star, .sparkles, .peek)
+        case .superCape: return .init(.highJump, .star, .sparkles, .ready)
+        case .stilts: return .init(.strut, .ball, .smoke, .confused)
         }
     }
 }

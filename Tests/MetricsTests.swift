@@ -11619,11 +11619,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 360 && NotchMascotSynergyCatalog.total == 360, "the catalog holds 360 combos")
-                    expect(all.map(\.number) == Array(1...360) && Set(all.map(\.id)).count == 360,
-                           "the combos are numbered 1 to 360 with an id each")
+                    expect(all.count == 417 && NotchMascotSynergyCatalog.total == 417, "the catalog holds 417 combos")
+                    expect(all.map(\.number) == Array(1...417) && Set(all.map(\.id)).count == 417,
+                           "the combos are numbered 1 to 417 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24, 20, 12, 8],
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 29, 12, 16, 22, 24, 20, 16, 8, 38],
                            "each family holds its share: \(sizes)")
                     expect(NotchMascotSynergyCatalog.synergies(in: .oddities).allSatisfy { synergy in
                         switch synergy.match {
@@ -12607,18 +12607,20 @@ struct MetricsTests {
                     expect(NotchMascotSnack.allCases.map(\.marker) == ["+100", "+200", "+200", "+500", "+500", "♥ +1"],
                            "snacks score in arcade points")
 
-                    // The wardrobe: a hundred and nine, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 137 && NotchMascotAccessory.rpgItems.count == 32
+                    // The wardrobe: drawn and named in every language.
+                    expect(NotchMascotAccessory.allCases.count == 161 && NotchMascotAccessory.rpgItems.count == 32
                            && NotchMascotAccessory.shopItems.count == 24 && NotchMascotAccessory.danceItems.count == 7
                            && NotchMascotAccessory.toyItems.count == 12 && NotchMascotAccessory.partyItems.count == 16
                            && NotchMascotAccessory.oddityItems.count == 16 && NotchMascotAccessory.craftItems.count == 8
-                           && NotchMascotAccessory.wardrobe.count == 133,
-                           "a hundred and thirty-seven accessories, a hundred and thirty-three to pick")
+                           && NotchMascotAccessory.fairItems.count == 24
+                           && NotchMascotAccessory.wardrobe.count == 157,
+                           "a hundred and sixty-one accessories, a hundred and fifty-seven to pick")
                     expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
                     for item in NotchMascotAccessory.rpgItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
-                        + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems {
+                        + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems
+                        + NotchMascotAccessory.fairItems {
                         let parts = NotchMascotWearableShapes.parts(for: item, in: sample)
                         expect(!parts.isEmpty && parts.allSatisfy { !$0.path.boundingBoxOfPath.isNull }, "\(item) is drawn")
                     }
@@ -12652,6 +12654,7 @@ struct MetricsTests {
                 expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
                 let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
                     + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems
+                    + NotchMascotAccessory.fairItems
                 expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
                        "every thing for sale costs what its rarity costs")
                 expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
@@ -12930,6 +12933,7 @@ struct MetricsTests {
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
                    && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count + NotchMascotAccessory.danceItems.count + NotchMascotAccessory.toyItems.count
                        + NotchMascotAccessory.partyItems.count + NotchMascotAccessory.oddityItems.count + NotchMascotAccessory.craftItems.count
+                       + NotchMascotAccessory.fairItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
@@ -13476,6 +13480,7 @@ struct MetricsTests {
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),
                 ("NotchMascotCompanionsTests", NotchMascotCompanionsTests.run),
+                ("NotchMascotFairTests", NotchMascotFairTests.run),
                 ("NotchMascotDisplaysTests", NotchMascotDisplaysTests.run),
                 ("NotchMascotAlarmTests", NotchMascotAlarmTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
