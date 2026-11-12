@@ -108,7 +108,7 @@ extension NotchMascotSynergyCatalog {
           "Two capes: a team-up, a joint pose and a city saved from nothing.",
           "Dos capas: un equipo, una pose a dúo y una ciudad salvada de nada.",
           .twin(.superCape), .chorus(.star, .ready, "HEROES")),
-        S(384, "circusAct", .fair, "Circus Act", "Número de circo",
+        S(384, "stiltJuggler", .fair, "Stilt Juggler", "Malabarista en zancos",
           "One on stilts juggles balls tossed up by the other. Mostly.",
           "Uno en zancos hace malabares con las bolas que le lanza el otro. Casi siempre.",
           .pair(.stilts, .jugglingBalls), .volley(.ball, 3, .confetti, "CIRCUS")),

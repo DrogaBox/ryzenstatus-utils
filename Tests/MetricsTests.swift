@@ -6856,7 +6856,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 85, "feature catalog has 85 features")
+        expect(AppFeature.allCases.count == 86, "feature catalog has 86 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -6865,7 +6865,7 @@ struct MetricsTests {
             "scrollInverter", "smoothScroll", "mouseNavigation", "middleClick", "keyboardDebounce",
             "textSnippets", "mouseButtonShortcuts", "superKey",
             "quitWindowProtection",
-            "scrollHorizontal", "scrollZoom", "focusFollowsMouse", "linearScroll", "mouseAcceleration", "mouseClickDebounce",
+            "scrollHorizontal", "scrollZoom", "focusFollowsMouse", "linearScroll", "scrollSpeed", "mouseAcceleration", "mouseClickDebounce",
             "clipboardHistory", "pastePlain", "finderCutPaste", "shelf", "urlCleaner",
             "finderRename", "diskImageInstaller",
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock", "nowPlaying",
@@ -11767,7 +11767,7 @@ struct MetricsTests {
                     expect(NotchMascotEncounter.allCases.filter(\.grounded).sorted { $0.rawValue < $1.rawValue }
                                == [.cardboardBox, .coffee, .merchant, .mimic, .trashCan],
                            "those that need the floor are known, the rest can come on a window too")
-                    expect(NotchMascotEncounter.allCases.count == 22, "every rare encounter of the bank is there")
+                    expect(NotchMascotEncounter.allCases.count == 24, "every rare encounter of the bank is there")
                     expect(NotchMascotEncounter.meteorShower.allowed(hour: 1, wearsItem: false)
                            && !NotchMascotEncounter.meteorShower.allowed(hour: 21, wearsItem: false)
                            && NotchMascotEncounter.rainbow.allowed(hour: 15, wearsItem: false)

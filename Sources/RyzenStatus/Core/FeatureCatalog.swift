@@ -424,7 +424,7 @@ extension AppFeature {
     static let featuresWithoutRuntimeBinding: Set<AppFeature> = [
         // On-demand tools: they hold no resources and their surfaces simply
         // follow availability in the UI.
-        .homebrew, .cleaningMode, .killProcess,
+        .homebrew, .killProcess,
         // Runs `lsof` only while its page or panel row is open.
         .portManager,
         // A view that reads the saved cities when it draws.

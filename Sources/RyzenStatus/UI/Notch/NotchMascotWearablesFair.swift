@@ -567,12 +567,15 @@ extension NotchMascotWearableShapes {
             let unit = f.feetUnit
             let feet = f.feet(spread: 0.18)
             let floor = f.floor
+            // A figure drawn without anatomy (the island's small sprites) has
+            // no room under it, so the poles stop just past the floor there.
+            let reach = f.anatomy == nil ? min(unit * 0.62, f.size * 0.22) : unit * 0.62
             var parts: [Part] = []
             for x in [feet.left, feet.right] {
-                let pole = bar(CGPoint(x: x, y: floor - unit * 0.14), CGPoint(x: x, y: floor + unit * 0.62), unit * 0.08)
+                let pole = bar(CGPoint(x: x, y: floor - unit * 0.14), CGPoint(x: x, y: floor + reach), unit * 0.08)
                 let rest = bar(CGPoint(x: x - unit * 0.14, y: floor + unit * 0.03), CGPoint(x: x + unit * 0.14, y: floor + unit * 0.03),
                                unit * 0.06)
-                let tip = ellipse(CGPoint(x: x, y: floor + unit * 0.64), unit * 0.06, unit * 0.04)
+                let tip = ellipse(CGPoint(x: x, y: floor + reach + unit * 0.02), unit * 0.06, unit * 0.04)
                 parts += [Part(path: pole, fill: rgb(0xC08A4E), stroke: ink, lineWidth: line * 0.3),
                           Part(path: rest, fill: rgb(0x8D5A2B), stroke: ink, lineWidth: line * 0.3),
                           Part(path: tip, fill: ink)]
