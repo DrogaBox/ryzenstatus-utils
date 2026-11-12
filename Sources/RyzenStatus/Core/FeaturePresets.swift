@@ -12,6 +12,7 @@ enum FeaturePreset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+
     /// The features the preset keeps installed.
     var features: Set<AppFeature> {
         switch self {
@@ -117,6 +118,8 @@ extension AppFeature {
             let defaults = UserDefaults.standard
             return defaults.bool(forKey: DefaultsKey.brightnessKeysEnabled)
                 || defaults.bool(forKey: DefaultsKey.brightnessOSDEnabled)
+                || (defaults.bool(forKey: DefaultsKey.displayVolumeEnabled)
+                    && defaults.bool(forKey: DefaultsKey.displayVolumeKeysEnabled))
                 || BrightnessSupport.KeyStep.sanitized(
                     defaults.string(forKey: DefaultsKey.brightnessKeyStep)) != .standard
                 ? .keyboard : .idle
@@ -129,7 +132,7 @@ extension AppFeature {
         case .quitWindowProtection:
             return .keyboard
         // Wheel, pointer and click taps.
-        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .scrollSpeed, .mouseClickDebounce:
             return .mouse
         // One system setting written when switched; nothing runs at rest.
         case .mouseAcceleration, .spacesOrder:

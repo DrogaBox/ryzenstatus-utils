@@ -1286,7 +1286,7 @@ struct UtilitiesSection: View {
 }
 
 private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
-    case mouseScroll, linearScroll, focusFollowsMouse, mouseAcceleration, mouseNavigation, switcher, cutPaste, autoQuit, shelf, windowMaximize, dockPreview, keyDebounce,
+    case mouseScroll, smoothScroll, linearScroll, focusFollowsMouse, mouseAcceleration, mouseNavigation, switcher, cutPaste, autoQuit, shelf, windowMaximize, dockPreview, keyDebounce,
          dockClick, dockClickHide, dockClickCycle, dockClickNewWindow, middleClick, textSnippets, radialMenu, mouseButtonShortcuts, superKey,
          mouseClickDebounce, notch, spacesOrder
 
@@ -1297,6 +1297,7 @@ private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
     var feature: AppFeature {
         switch self {
         case .mouseScroll: return .scrollInverter
+        case .smoothScroll: return .smoothScroll
         case .mouseNavigation: return .mouseNavigation
         case .switcher: return .switcher
         case .cutPaste: return .finderCutPaste
@@ -1333,7 +1334,7 @@ private enum ControlCategory: String, CaseIterable, Identifiable {
         case .switcher, .dockPreview, .dockClick, .dockClickHide, .dockClickCycle, .dockClickNewWindow, .windowMaximize, .autoQuit, .notch,
              .spacesOrder:
             return .windows
-        case .mouseScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick, .keyDebounce, .textSnippets, .radialMenu, .superKey:
+        case .mouseScroll, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick, .keyDebounce, .textSnippets, .radialMenu, .superKey:
             return .inputDevices
         case .cutPaste, .shelf:
             return .files
@@ -1384,8 +1385,10 @@ struct QuickControlsSection: View {
     @AppStorage(DefaultsKey.linearScrollEnabled) private var linearScrollEnabled = false
     @AppStorage(DefaultsKey.focusFollowsMouseEnabled) private var focusFollowsMouseEnabled = false
     @AppStorage(DefaultsKey.mouseAccelerationDisabled) private var mouseAccelerationDisabled = false
+    @AppStorage(DefaultsKey.smoothScrollEnabled) private var smoothScrollEnabled = false
     @AppStorage(DefaultsKey.mouseClickDebounceEnabled) private var mouseClickDebounceEnabled = false
     @AppStorage(DefaultsKey.panelControlLinearScroll) private var showLinearScroll = true
+    @AppStorage(DefaultsKey.panelControlSmoothScroll) private var showSmoothScroll = true
     @AppStorage(DefaultsKey.panelControlFocusFollowsMouse) private var showFocusFollowsMouse = true
     @AppStorage(DefaultsKey.panelControlMouseAcceleration) private var showMouseAcceleration = true
     @AppStorage(DefaultsKey.panelControlMouseClickDebounce) private var showMouseClickDebounce = true
@@ -1512,6 +1515,7 @@ struct QuickControlsSection: View {
     private func isEnabled(_ item: ControlPanelItem) -> Bool {
         switch item {
         case .mouseScroll: return scrollEnabled
+        case .smoothScroll: return smoothScrollEnabled
         case .mouseNavigation: return mouseNavigationEnabled
         case .switcher: return switcherEnabled
         case .cutPaste: return cutPasteEnabled
@@ -1593,6 +1597,7 @@ struct QuickControlsSection: View {
     private func isVisible(_ item: ControlPanelItem) -> Bool {
         switch item {
         case .mouseScroll: return showScroll
+        case .smoothScroll: return showSmoothScroll
         case .mouseNavigation: return showMouseNavigation
         case .switcher: return showSwitcher
         case .keyDebounce: return showKeyDebounce
@@ -1635,6 +1640,22 @@ struct QuickControlsSection: View {
                            permissionAction: accessibilityPermissionAction(scrollEnabled))
                 .onChange(of: scrollEnabled) { _, enabled in
                     ScrollInverter.shared.syncWithPreferences()
+                    requestAccessibilityIfNeeded(enabled)
+                }
+        case .smoothScroll:
+            PanelToggleRow(title: l10n.s.smoothScrollName,
+                           caption: caption(l10n.s.smoothScrollCaption,
+                                            needsAccessibility: smoothScrollEnabled),
+                           systemImage: AppFeature.smoothScroll.symbolName,
+                           isOn: $smoothScrollEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showSmoothScroll,
+                           needsAttention: smoothScrollEnabled && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(smoothScrollEnabled))
+                .onChange(of: smoothScrollEnabled) { _, enabled in
+                    SmoothScrollService.shared.syncWithPreferences()
                     requestAccessibilityIfNeeded(enabled)
                 }
         case .mouseNavigation:
@@ -2109,6 +2130,7 @@ struct QuickControlsSection: View {
         showRadialMenu = true
         showSuperKey = true
         showNotch = true
+        showSmoothScroll = true
         windowsExpanded = false
         inputExpanded = false
         filesExpanded = false
@@ -3204,7 +3226,7 @@ struct KeepAwakeCard: View {
     }
 
     private func durationChip(_ minutes: Int) -> some View {
-        let selected = manualSession && awake.sessionMinutes == minutes
+        let selected = showsSessionPick && awake.sessionMinutes == minutes
         return Button {
             if selected {
                 awake.toggle()
@@ -3242,15 +3264,15 @@ struct KeepAwakeCard: View {
 
     private var untilChip: some View {
         KeepAwakeEndTimePicker(selection: untilTime,
-                               activeEnd: manualSession && awake.sessionMinutes == nil ? awake.endDate : nil,
+                               activeEnd: showsSessionPick && awake.sessionMinutes == nil ? awake.endDate : nil,
                                onStop: { awake.toggle() }) {
             awake.activate(until: KeepAwakeAutomationSupport.resolvedUntilDate(picked: untilTime.wrappedValue, now: Date()))
             untilDraft = nil
         }
     }
 
-    private var manualSession: Bool {
-        awake.isActive && awake.sessionTrigger == .manual
+    private var showsSessionPick: Bool {
+        awake.isActive && awake.sessionTrigger != .automation
     }
 
     /// "58:12" or "1:05:12" for the highlighted chip.

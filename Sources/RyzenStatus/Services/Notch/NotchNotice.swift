@@ -21,6 +21,17 @@ struct NotchNotice: Equatable {
     /// so a burst of messages does not resize the island with each one.
     var minimumWings = NotchNoticeWings.zero
 
+    enum ClickTarget: Hashable {
+        case event(NotchEvent, title: String, detail: String?)
+        case notification(UUID)
+    }
+
+    /// A new reading can keep the same action. Each mirrored message has its own.
+    var clickTarget: ClickTarget {
+        if let notificationID { return .notification(notificationID) }
+        return .event(event, title: title, detail: level == nil ? detail : nil)
+    }
+
     /// Each side as wide as what it shows, so neither ends in a band of
     /// empty black: the island reaches further toward its wider side.
     var preferredWings: NotchNoticeWings { preferredWings(wrapsMessage: false) }

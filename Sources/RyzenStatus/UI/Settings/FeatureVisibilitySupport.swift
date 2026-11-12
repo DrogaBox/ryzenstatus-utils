@@ -39,6 +39,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case focusFollowsMouse
     case smoothScroll
     case linearScroll
+    case scrollSpeed
     case mouseAcceleration
     case mouseNavigation
     case mouseButtonShortcuts
@@ -56,6 +57,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case quickToggles
     case quitApps
     case screenshot
+    case screenshotScrolling
     case screenRecorder
     case colorPicker
     case screenOCR
@@ -67,6 +69,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case cleaningMode
     case soundOutputSwitcher
     case keyboardBrightnessShortcuts
+    case monitorAlerts
     case windowMaximizer
 
     var page: SettingsPage {
@@ -75,8 +78,8 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
              .soundOutputSwitcher:
             return .general
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
-        case .scrollDirection, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation,
-             .mouseButtonShortcuts, .middleClick, .mouseClickDebounce:
+        case .scrollDirection, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
+             .middleClick, .mouseClickDebounce:
             return .mouse
         case .switcher: return .switcher
         case .dock, .dockClick, .spacesOrder: return .dock
@@ -87,8 +90,43 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
              .cleaningMode:
             return .quickTools
         // Every tool that starts from the screen shares one page, as upstream.
-        case .screenshot, .screenRecorder, .colorPicker, .screenOCR: return .screenshot
+        case .screenshot, .screenshotScrolling, .screenRecorder, .colorPicker, .screenOCR:
+            return .screenshot
         case .keyboardBrightnessShortcuts: return .shortcuts
+        case .monitorAlerts: return .monitor
+        }
+    }
+}
+
+enum NotchSettingsLocation: Hashable {
+    case layout, activity, behavior
+    case module(NotchModule)
+
+    var tab: NotchSettingsTab {
+        switch self {
+        case .layout: return .layout
+        case .activity: return .activity
+        case .behavior: return .behavior
+        case .module: return .content
+        }
+    }
+
+    var id: String {
+        switch self {
+        case .layout: return "layout"
+        case .activity: return "activity"
+        case .behavior: return "behavior"
+        case .module(let module): return "content." + module.rawValue
+        }
+    }
+
+    func title(_ language: AppLanguage) -> String {
+        let editor = FeatureStrings.notchEditor(language)
+        switch self {
+        case .layout: return editor.layout
+        case .activity: return editor.activity
+        case .behavior: return editor.behavior
+        case .module(let module): return module.title(language)
         }
     }
 }
@@ -98,10 +136,18 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
 struct FeatureSettingsDestination: Hashable {
     let page: SettingsPage
     let sectionAnchor: SettingsSectionAnchor?
+    let notchLocation: NotchSettingsLocation?
 
     init(_ page: SettingsPage, sectionAnchor: SettingsSectionAnchor? = nil) {
         self.page = page
         self.sectionAnchor = sectionAnchor
+        self.notchLocation = nil
+    }
+
+    init(notch location: NotchSettingsLocation) {
+        page = .notch
+        sectionAnchor = nil
+        notchLocation = location
     }
 
     var hasValidSectionAnchor: Bool {
@@ -168,6 +214,8 @@ extension AppFeature {
             return FeatureSettingsDestination(.mouse, sectionAnchor: .smoothScroll)
         case .linearScroll:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .linearScroll)
+        case .scrollSpeed:
+            return FeatureSettingsDestination(.mouse, sectionAnchor: .scrollSpeed)
         case .mouseAcceleration:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .mouseAcceleration)
         case .mouseNavigation:
@@ -242,10 +290,19 @@ extension AppFeature {
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .wallpaper)
         case .worldClock:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .worldClock)
-        case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
-             .notchLyrics, .notchQueue, .notchLiveEqualizer, .notchDownloads, .notchAgents, .notchWatch,
-             .notchMascot:
-            return FeatureSettingsDestination(.notch)
+        case .notch: return FeatureSettingsDestination(.notch)
+        case .notchCalendar: return FeatureSettingsDestination(notch: .module(.calendar))
+        case .notchNotifications: return FeatureSettingsDestination(notch: .module(.notifications))
+        case .notchGestures: return FeatureSettingsDestination(notch: .behavior)
+        case .notchTimer: return FeatureSettingsDestination(notch: .module(.timer))
+        case .notchAccessories: return FeatureSettingsDestination(notch: .activity)
+        case .notchLyrics, .notchQueue, .notchLiveEqualizer:
+            return FeatureSettingsDestination(notch: .module(.music))
+        case .notchDownloads: return FeatureSettingsDestination(notch: .module(.downloads))
+        case .notchAgents: return FeatureSettingsDestination(notch: .module(.agents))
+        case .notchWatch: return FeatureSettingsDestination(notch: .module(.watch))
+        // The companion's settings are a tab of the island's page.
+        case .notchMascot: return FeatureSettingsDestination(.notch)
         case .radialMenu: return FeatureSettingsDestination(.radialMenu)
         case .scratchpad:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .scratchpad)
@@ -276,9 +333,8 @@ enum FeatureVisibilitySupport {
         // (with the output switcher inside it) and the Connected Devices row,
         // so those keep the page alive even with every metric switched off.
         case .monitor: return monitorFeatures + [.mixer, .soundOutputSwitcher, .connectedDevices]
-        case .mouse: return [.scrollInverter, .smoothScroll, .mouseNavigation, .middleClick,
-                             .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseAcceleration,
-                             .mouseButtonShortcuts, .mouseClickDebounce]
+        case .mouse: return [.scrollInverter, .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
+                             .middleClick, .mouseClickDebounce]
         case .switcher: return [.switcher]
         case .dock: return [.dockPreview, .dockClick, .spacesOrder]
         case .windowLayout: return [.windowLayout, .windowMaximizer]
@@ -342,7 +398,7 @@ extension AppFeature {
         case .autoQuit: return .autoQuit
         case .quitWindowProtection: return .quitProtection
         case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .scrollHorizontal, .scrollZoom,
-             .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce,
+             .focusFollowsMouse, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseClickDebounce,
              .mouseButtonShortcuts:
             return .mouse
         case .superKey: return .superKey

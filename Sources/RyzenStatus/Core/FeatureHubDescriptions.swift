@@ -74,6 +74,7 @@ extension AppFeature {
         case .scrollZoom: return s.pinchZoom
         case .focusFollowsMouse: return s.focusFollowsMouseCaption
         case .linearScroll: return s.linearScrollCaption
+        case .scrollSpeed: return s.scrollSpeedCaption
         case .mouseAcceleration: return s.mouseAccelerationCaption
         case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(language).caption
         case .spacesOrder: return s.spacesOrderCaption
