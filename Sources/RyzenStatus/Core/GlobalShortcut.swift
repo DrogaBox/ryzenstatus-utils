@@ -242,6 +242,10 @@ struct GlobalShortcut: Equatable, Hashable {
     // I for island, on the same free control-option-command layer.
     static let notchDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_I),
                                              modifiers: [.control, .option, .command])
+    // B for bubbles, after the cleaning mode's icon, on the same free
+    // control-option-command layer.
+    static let cleaningModeDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_B),
+                                                    modifiers: [.control, .option, .command])
     // L for library (S already belongs to the sound output switcher), on the
     // same free control-option-command layer.
     static let snippetLibraryDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_L),
@@ -252,6 +256,8 @@ struct GlobalShortcut: Equatable, Hashable {
     // narrow space some layouts put on that combination.
     static let commandBarDefault = GlobalShortcut(keyCode: Int64(kVK_Space),
                                                   modifiers: [.option])
+    static let commandBarMenusDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_Slash),
+                                                       modifiers: [.control, .option, .shift, .command])
     // Next to the screenshot's 4, on the same free control-option-command
     // layer, matching how the system numbers its own capture keys.
     static let screenRecorderDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_5),
@@ -748,6 +754,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case scratchpad
     case snippetLibrary
     case commandBar
+    case commandBarMenus
     case screenRecorder
     // RyzenStatus: the Now Playing popup surfaces keep their own shortcuts.
     case displayBrightnessDecrease
@@ -758,6 +765,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case nowPlayingPopup
     case nowPlayingDetached
     case notch
+    case cleaningMode
 
     var id: String { storageKey }
 
@@ -790,6 +798,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .scratchpad: return DefaultsKey.scratchpadShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
         case .commandBar: return DefaultsKey.commandBarShortcut
+        case .commandBarMenus: return DefaultsKey.commandBarMenusShortcut
         case .screenRecorder: return DefaultsKey.recorderShortcut
         case .displayBrightnessDecrease: return DefaultsKey.displayBrightnessDecreaseShortcut
         case .displayBrightnessIncrease: return DefaultsKey.displayBrightnessIncreaseShortcut
@@ -799,6 +808,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingPopup: return DefaultsKey.nowPlayingPopupShortcut
         case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
         case .notch: return DefaultsKey.notchShortcut
+        case .cleaningMode: return DefaultsKey.cleaningModeShortcut
         }
     }
 
@@ -831,6 +841,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .scratchpad: return .scratchpadDefault
         case .snippetLibrary: return .snippetLibraryDefault
         case .commandBar: return .commandBarDefault
+        case .commandBarMenus: return .commandBarMenusDefault
         case .screenRecorder: return .screenRecorderDefault
         case .displayBrightnessDecrease: return .displayBrightnessDecreaseDefault
         case .displayBrightnessIncrease: return .displayBrightnessIncreaseDefault
@@ -840,6 +851,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingPopup: return .nowPlayingPopupDefault
         case .nowPlayingDetached: return .nowPlayingDetachedDefault
         case .notch: return .notchDefault
+        case .cleaningMode: return .cleaningModeDefault
         }
     }
 
@@ -911,6 +923,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
         case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
         case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).libraryTitle
+        case .commandBarMenus: return FeatureStrings.commandBar(L10n.shared.language).kindMenu
         case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).pageTitle
         case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
         case .displayBrightnessDecrease:
@@ -925,6 +938,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingPopup: return FeatureStrings.nowPlaying(L10n.shared.language).popupShortcutLabel
         case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
         case .notch: return FeatureStrings.notch(L10n.shared.language).title
+        case .cleaningMode: return strings.cleaningMenuItem
         }
     }
 
@@ -988,6 +1002,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .scratchpad: return [DefaultsKey.scratchpadShortcutEnabled]
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
+        case .commandBarMenus: return [DefaultsKey.commandBarMenusShortcutEnabled]
         case .commandBar: return [DefaultsKey.commandBarShortcutEnabled]
         case .screenRecorder: return [DefaultsKey.recorderShortcutEnabled]
         case .displayBrightnessDecrease, .displayBrightnessIncrease:
@@ -1000,6 +1015,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingDetached: return [DefaultsKey.nowPlayingEnabled,
                                           DefaultsKey.nowPlayingDetachedShortcutEnabled]
         case .notch: return [DefaultsKey.notchEnabled, DefaultsKey.notchShortcutEnabled]
+        case .cleaningMode: return [DefaultsKey.cleaningModeShortcutEnabled]
         }
     }
 
@@ -1027,13 +1043,14 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return .radialMenu
         case .scratchpad: return .scratchpad
         case .snippetLibrary: return .textSnippets
-        case .commandBar: return .commandBar
+        case .commandBar, .commandBarMenus: return .commandBar
         case .screenRecorder: return .screenRecorder
         case .displayBrightnessDecrease, .displayBrightnessIncrease,
              .keyboardBrightnessDecrease, .keyboardBrightnessIncrease: return .brightness
         case .pointerNextDisplay: return .windowLayout
         case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
         case .notch: return .notch
+        case .cleaningMode: return .cleaningMode
         }
     }
 

@@ -128,16 +128,7 @@ enum AgentUsageSummary {
             calendar.date(byAdding: .day, value: -$0, to: today)
         }
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86_400)
-        // Every hour that starts before the next midnight. A fixed 24 elapsed
-        // hours runs into the next day when the clocks spring forward, and
-        // stops an hour early when they fall back.
-        var hourStarts: [Date] = []
-        var hour = today
-        while hour < tomorrow {
-            hourStarts.append(hour)
-            guard let next = calendar.date(byAdding: .hour, value: 1, to: hour), next > hour else { break }
-            hour = next
-        }
+        let hourStarts = AgentUsageSummary.hourStarts(of: today, calendar: calendar)
         var days = starts.map { AgentBucket(start: $0) }
         var hours = hourStarts.map { AgentBucket(start: $0) }
         var periods: [AgentPeriod: AgentPeriodUsage] = [:]
@@ -210,6 +201,21 @@ enum AgentUsageSummary {
         snapshot.hours = hours
         snapshot.claudeBlock = currentBlock(claude, now: now)
         return snapshot
+    }
+
+    /// Every hour start of the local day that begins at `day`, up to the next
+    /// midnight: 23, 24 or 25 on daylight-saving change days, so each bar
+    /// holds exactly one hour of the clock.
+    static func hourStarts(of day: Date, calendar: Calendar) -> [Date] {
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
+        var starts: [Date] = []
+        var hour = day
+        while hour < tomorrow {
+            starts.append(hour)
+            guard let next = calendar.date(byAdding: .hour, value: 1, to: hour), next > hour else { break }
+            hour = next
+        }
+        return starts
     }
 
     /// Whether a snapshot reads differently at `now` with nothing new read:

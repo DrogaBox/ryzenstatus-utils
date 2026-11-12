@@ -759,6 +759,12 @@ extension DefaultsKey {
     static let commandBarEnabled = "commandBarEnabled"
     static let commandBarShortcutEnabled = "commandBarShortcutEnabled"
     static let commandBarShortcut = "commandBarShortcut"
+    // The app menu commands, straight from a shortcut of their own.
+    static let commandBarMenusShortcutEnabled = "commandBarMenusShortcutEnabled"
+    static let commandBarMenusShortcut = "commandBarMenusShortcut"
+    // Cleaning mode on and off from anywhere.
+    static let cleaningModeShortcutEnabled = "cleaningModeShortcutEnabled"
+    static let cleaningModeShortcut = "cleaningModeShortcut"
     /// Compact mode: an empty field shows nothing but itself. Off by default.
     static let commandBarCompactMode = "commandBarCompactMode"
     /// The ASCII layout borrowed while the bar is open, restored on close. Off by default.

@@ -65,6 +65,14 @@ final class ClipboardHistoryService: ObservableObject {
             }
         }
     }
+    @Published var quickPinnedTab = false {
+        didSet {
+            if quickPinnedTab != oldValue {
+                resetQuickSelection()
+                clearQuickBatchSelection()
+            }
+        }
+    }
     /// The highlighted entry itself, not its row: a copy arriving while the
     /// window is open inserts above it, and a position would then point at
     /// a different entry than the one Return is about to paste.
@@ -425,7 +433,9 @@ final class ClipboardHistoryService: ObservableObject {
     }
 
     var filteredQuickEntries: [ClipboardHistoryEntry] {
-        filteredEntries(matching: quickQuery)
+        let matches = filteredEntries(matching: quickQuery)
+        guard quickLayout == .list else { return matches }
+        return matches.filter { $0.isPinned == quickPinnedTab }
     }
 
     var selectedQuickEntryID: UUID? {
@@ -620,6 +630,14 @@ final class ClipboardHistoryService: ObservableObject {
     }
 
     func editImage(_ entry: ClipboardHistoryEntry) {
+        if let url = ClipboardHistoryImageSupport.copiedImageFileURL(entry) {
+            guard AppFeature.screenshot.isAvailable else { return }
+            hideHistoryWindow()
+            // Called from the history views, on the main thread.
+            MainActor.assumeIsolated { (NSApp.delegate as? AppDelegate)?.closePopover() }
+            ScreenshotService.shared.editImage(at: url)
+            return
+        }
         guard entry.kind == .image, AppFeature.screenshot.isAvailable,
               let directory = ClipboardImageStore.directory else { return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -847,6 +865,7 @@ final class ClipboardHistoryService: ObservableObject {
         // Files first: a Finder copy also carries name strings, and a browser
         // image copy also carries URL text, so richer content wins over its
         // own textual fallbacks.
+        let plainText = pasteboard.string(forType: .string)
         if includeImagesFiles {
             if let paths = copiedFilePaths(from: pasteboard) {
                 if ClipboardHistoryCapturePolicy.isCopiedScreenshot(
@@ -856,11 +875,20 @@ final class ClipboardHistoryService: ObservableObject {
                 }
                 return .files(paths)
             }
+            // A spreadsheet or rich-text copy carries the text next to a
+            // picture of it, while a screenshot or image copy has no text
+            // siblings at all: with RTF or HTML on the board the text is
+            // the content and the picture only its look. Refs #3818.
+            if ClipboardHistoryPasteboardText.prefersPlainText(types: types, plainText: plainText),
+               let text = ClipboardHistoryPasteboardText.preferredText(
+                   webURLString: webURLString(from: pasteboard), plainText: plainText) {
+                return .text(text)
+            }
             if let image = copiedPNGImage(from: pasteboard) { return .image(image) }
         }
         guard let text = ClipboardHistoryPasteboardText.preferredText(
             webURLString: webURLString(from: pasteboard),
-            plainText: pasteboard.string(forType: .string)
+            plainText: plainText
         ) else { return nil }
         return .text(text)
     }
