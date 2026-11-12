@@ -13,6 +13,7 @@ if let command = SettingsBackupSupport.command(in: CommandLine.arguments) {
 // dies without quitting, then exits.
 SuperKeyMappingGuard.runIfRequestedAndExit()
 Defaults.register()
+let configuredFeatureKeys = SettingsBackup.applyConfigFileAtLaunch()
 // The island's keyboard-light control appears only on a Mac whose built-in
 // keyboard backlight the system client can actually drive.
 NotchControlItem.keyboardLightIsSupported = { BrightnessService.keyboardLightIsSupported }
@@ -50,6 +51,7 @@ if NotchPresentationProbe.isRequested(by: CommandLine.arguments) {
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
+    delegate.configuredFeatureKeys = configuredFeatureKeys
     app.delegate = delegate
     app.run()
 }

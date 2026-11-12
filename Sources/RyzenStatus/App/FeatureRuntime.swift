@@ -246,6 +246,7 @@ final class FeatureRuntime: ObservableObject {
             ScrollInverter.shared.syncWithPreferences()
             SmoothScrollService.shared.syncWithPreferences()
         },
+        .scrollSpeed: { ScrollInverter.shared.syncWithPreferences() },
         .focusFollowsMouse: { FocusFollowsMouseService.shared.syncWithPreferences() },
         .mouseAcceleration: { MouseAccelerationService.shared.syncWithPreferences() },
         .mouseClickDebounce: { MouseClickDebounceService.shared.syncWithPreferences() },
@@ -298,6 +299,7 @@ final class FeatureRuntime: ObservableObject {
             AudioPriorityService.shared.syncWithPreferences()
         },
         .micMute: { MicMuteService.shared.syncWithPreferences() },
+        .cleaningMode: { CleaningModeManager.shared.syncWithPreferences() },
         .quickToggles: { QuickTogglesService.shared.syncWithPreferences() },
         .quitApps: { QuickTogglesService.shared.syncWithPreferences() },
         .musicBlock: { MusicLaunchBlocker.shared.syncWithPreferences() },
@@ -396,6 +398,8 @@ final class FeatureRuntime: ObservableObject {
         .notchMascot: {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
         },
+        // Watching the Trash for moved apps follows the uninstaller's switch.
+        .uninstaller: { TrashAppWatcher.shared.syncWithPreferences() },
         .monitorCPU: { FeatureRuntime.syncMonitor() },
         .monitorGPU: { FeatureRuntime.syncMonitor() },
         .monitorMemory: { FeatureRuntime.syncMonitor() },

@@ -15,7 +15,7 @@ enum NotchMascotItemTwists {
     }
 
     /// Every figure and thing with a twist of its own.
-    static var pairs: [Pair] { table.map(\.pair) }
+    static var pairs: [Pair] { (table + fairTable).map(\.pair) }
 
     // swiftlint:disable:next function_body_length
     fileprivate static let table: [(pair: Pair, steps: [(TimeInterval, NotchMascotItemAction)])] = [
@@ -183,7 +183,7 @@ enum NotchMascotItemTwists {
     ]
 
     fileprivate static let byPair: [Pair: [(TimeInterval, NotchMascotItemAction)]] =
-        Dictionary(table.map { ($0.pair, $0.steps) }, uniquingKeysWith: { first, _ in first })
+        Dictionary((table + fairTable).map { ($0.pair, $0.steps) }, uniquingKeysWith: { first, _ in first })
 
     static func steps(_ item: NotchMascotAccessory, style: NotchMascotStyle) -> [(TimeInterval, NotchMascotItemAction)]? {
         byPair[Pair(style: style, item: item)]

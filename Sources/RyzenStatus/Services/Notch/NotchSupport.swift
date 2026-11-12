@@ -23,7 +23,9 @@ enum NotchModule: String, CaseIterable, Identifiable {
         case .notifications: return "bell"
         case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard"
-        case .captures: return "camera.viewfinder"
+        // History, as everywhere else Recent Captures shows; the viewfinder
+        // belongs to the Screenshot tile beside it.
+        case .captures: return "clock.arrow.circlepath"
         case .files: return "tray.full"
         case .system: return "gauge.with.dots.needle.50percent"
         // The quick panel's own mark; the grid belongs to the sections button.
@@ -293,8 +295,9 @@ enum NotchLayout {
         return min(30, max(16, (room / 6).rounded(.down)))
     }
 
-    /// The preview fills the page. A wide strip crops the camera to 16:9 and a
-    /// narrow, tall island to 4:3, so a face stays in frame on either.
+    /// The preview fills the page. A wide strip gets a 16:9 surface and a
+    /// narrow, tall island a 4:3 one, so the black bars around a camera of
+    /// either shape stay small.
     static func cameraPreviewSize(in size: CGSize) -> CGSize {
         let width = max(0, size.width), height = max(0, size.height)
         return CGSize(width: min(width, height * 16 / 9), height: min(height, width * 3 / 4))

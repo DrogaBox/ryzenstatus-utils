@@ -13,6 +13,7 @@ import SwiftUI
 // of the 2037 strict-concurrency diagnostics on its own; see the commit message.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
+    var configuredFeatureKeys: Set<String> = []
     private var statusController: StatusItemController!
     private let popover = NSPopover()
     private let nowPlayingPopover = NSPopover()
@@ -90,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         DispatchQueue.global(qos: .utility).async {
             RecorderGIFWorkspace.sweep()
         }
+
 
         // Redo a launch at login registration the system lost. The stored
         // choice is the last thing the user expressed in the app; startup
@@ -208,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             .receive(on: DispatchQueue.main)
             .sink { _ in
                 FeatureRuntime.shared.sync([
-                    .scrollInverter, .scrollZoom, .smoothScroll, .mouseNavigation, .switcher,
+                    .scrollInverter, .scrollZoom, .scrollSpeed, .smoothScroll, .mouseNavigation, .switcher,
                     .dockPreview, .finderCutPaste, .finderRename, .autoQuit, .dockClick,
                     .middleClick, .windowMaximizer, .keyboardDebounce, .windowLayout,
                     .textSnippets, .superKey, .brightness, .radialMenu,
@@ -219,6 +221,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     .notch,
                 ])
             }
+            .store(in: &cancellables)
+
+        // The Trash can only be watched once Full Disk Access is granted.
+        Permissions.shared.$fullDiskAccess
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { _ in FeatureRuntime.shared.sync([.uninstaller]) }
             .store(in: &cancellables)
 
         Permissions.shared.$screenRecording
@@ -1518,6 +1527,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     @MainActor
     @objc private func menuOpenUninstaller() {
+        SettingsRouter.shared.page = .uninstaller
+        openSettingsWindow()
+    }
+
+    /// Opens the Uninstaller already reviewing `appURL`. When `select` says
+    /// no, a removal already running is still worth showing; anything else
+    /// the Uninstaller refused stays closed rather than opening on nothing.
+    func openUninstaller(for appURL: URL, trashMove: UninstallerSupport.TrashMove? = nil) {
+        let uninstaller = AppUninstaller.shared
+        guard AppFeature.uninstaller.isAvailable,
+              uninstaller.select(appURL: appURL, trashMove: trashMove) || (trashMove == nil && uninstaller.isRemoving)
+        else { return }
         SettingsRouter.shared.page = .uninstaller
         openSettingsWindow()
     }

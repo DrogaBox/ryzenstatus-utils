@@ -100,7 +100,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
                                  .windowLayout, .uninstaller, .urlCleaner, .cleaningMode, .screenOCR,
                                  .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad,
                                  .commandBar, .portManager]
-        case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,
+        case .controls: return [.scrollInverter, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .switcher,
                                 .finderCutPaste, .autoQuit,
                                 .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick, .spacesOrder,
                                 .middleClick, .textSnippets, .superKey, .radialMenu, .mouseClickDebounce, .notch]

@@ -759,6 +759,12 @@ extension DefaultsKey {
     static let commandBarEnabled = "commandBarEnabled"
     static let commandBarShortcutEnabled = "commandBarShortcutEnabled"
     static let commandBarShortcut = "commandBarShortcut"
+    // The app menu commands, straight from a shortcut of their own.
+    static let commandBarMenusShortcutEnabled = "commandBarMenusShortcutEnabled"
+    static let commandBarMenusShortcut = "commandBarMenusShortcut"
+    // Cleaning mode on and off from anywhere.
+    static let cleaningModeShortcutEnabled = "cleaningModeShortcutEnabled"
+    static let cleaningModeShortcut = "cleaningModeShortcut"
     /// Compact mode: an empty field shows nothing but itself. Off by default.
     static let commandBarCompactMode = "commandBarCompactMode"
     /// The ASCII layout borrowed while the bar is open, restored on close. Off by default.
@@ -1043,4 +1049,28 @@ extension DefaultsKey {
     static let notchCalendarCountdownLead = "notchCalendarCountdownLead" // minutes before a start, chosen events included
     static let notchAgentsClaudeProfile = "notchAgentsClaudeProfile"
     static let notchHoverInFullscreen = "notchHoverInFullscreen"
+    // The running manual Keep Awake session's end (0 = indefinite) and selected
+    // preset, if any. Absent when there is no session to resume. Live state,
+    // never backed up.
+    static let keepAwakeSessionEnd = "keepAwakeSessionEnd"
+    // Hold a modifier to multiply the mouse wheel's distance.
+    static let scrollSpeedEnabled = "scrollSpeedEnabled"
+    static let scrollSpeedModifier = "scrollSpeedModifier"
+    static let scrollSpeedMultiplier = "scrollSpeedMultiplier"
+    static let scrollSpeedExceptions = "scrollSpeedExceptions"
+    // Speakers built into external monitors, and how the volume keys step them.
+    static let displayVolumeEnabled = "displayVolumeEnabled"
+    static let displayVolumeKeysEnabled = "displayVolumeKeysEnabled"
+    static let ddcVolumeStep = "ddcVolumeStep"       // Double percent of the monitor's range per key press
+    static let ddcVolumeMinimum = "ddcVolumeMinimum" // Int percent the volume keys stop at
+    static let ddcVolumeMaximum = "ddcVolumeMaximum" // Int percent the volume keys stop at
+    // Per-monitor connection paths whose display answered the audio controls
+    // with no speakers behind them, remembered like the write-only paths.
+    static let displayAudioSilentPaths = "displayAudioSilentPaths"
+    static let uninstallerWatchesTrash = "uninstallerWatchesTrash"
+    static let panelControlSmoothScroll = "panelControlSmoothScroll"
+    static let screenshotScrollingAutoScroll = "screenshotScrollingAutoScroll"
+    static let screenshotScrollingShortcutEnabled = "screenshotScrollingShortcutEnabled"
+    static let screenshotScrollingShortcut = "screenshotScrollingShortcut"
+    static let screenshotScrollingShowCaptureMenuOnShortcut = "screenshotScrollingShowCaptureMenuOnShortcut"
 }

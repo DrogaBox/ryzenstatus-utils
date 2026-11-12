@@ -171,6 +171,9 @@ enum MixerRoutingSupport {
 
     static let systemDefaultSelectionID = "__system_default__"
     static let finderBundleIdentifier = "com.apple.finder"
+    static let otherAudioName = "Other / System audio"
+    static let otherAudioRowIdentity = MixerRowIdentity(rowID: otherAudioName,
+                                                        persistenceID: otherAudioName)
 
     private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
 
@@ -773,6 +776,28 @@ enum MixerRoutingSupport {
             if isRegularApp(current) { return current }
         }
         return nil
+    }
+
+    /// The pid of the regular app an audio process is billed to: the process
+    /// itself when it is a regular app, otherwise the app responsible for it,
+    /// then the app that spawned it. Always the real pid that was checked,
+    /// never the running-application entry's own pid, which the workspace
+    /// reports as -1 for some apps (Steam, Device Hub) and which merged them
+    /// into one "pid -1" row (issue #3929). A game Steam launches is a regular
+    /// app with its own bundle even though Steam stays responsible for it, so
+    /// it gets its own row instead of being folded into Steam's.
+    static func regularAppOwnerPid(of pid: pid_t,
+                                   responsiblePid: pid_t,
+                                   isRegularApp: (pid_t) -> Bool,
+                                   parentPid: (pid_t) -> pid_t) -> pid_t? {
+        guard pid > 0 else { return nil }
+        if isRegularApp(pid) { return pid }
+        return owningRegularAppPid(responsiblePid: responsiblePid,
+                                   isRegularApp: isRegularApp,
+                                   parentPid: parentPid)
+            ?? (responsiblePid != pid ? owningRegularAppPid(responsiblePid: pid,
+                                                            isRegularApp: isRegularApp,
+                                                            parentPid: parentPid) : nil)
     }
 
     static func needsPersistentFinderRow(showFinder: Bool, hasFinderRow: Bool) -> Bool {

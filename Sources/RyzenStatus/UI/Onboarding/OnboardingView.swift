@@ -40,6 +40,7 @@ struct OnboardingView: View {
     /// app when Screen Recording is granted mid-onboarding.
     @AppStorage(DefaultsKey.onboardingStep) private var index = 0
 
+
     private var steps: [OnboardingStep] { mode.steps }
     private var current: OnboardingStep { steps[min(max(0, index), steps.count - 1)] }
 

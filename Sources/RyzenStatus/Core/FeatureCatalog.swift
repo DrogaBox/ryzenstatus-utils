@@ -20,7 +20,7 @@ enum AppFeature: String, CaseIterable {
     case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets,
          mouseButtonShortcuts, superKey
     case quitWindowProtection
-    case scrollHorizontal, scrollZoom, focusFollowsMouse, linearScroll, mouseAcceleration, mouseClickDebounce
+    case scrollHorizontal, scrollZoom, focusFollowsMouse, linearScroll, scrollSpeed, mouseAcceleration, mouseClickDebounce
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
     case finderRename
@@ -68,7 +68,7 @@ extension AppFeature {
             return .mouseKeyboard
         case .quitWindowProtection:
             return .mouseKeyboard
-        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseClickDebounce:
             return .mouseKeyboard
         case .spacesOrder:
             return .windowsDock
@@ -128,6 +128,7 @@ extension AppFeature {
         case .scrollZoom: return "plus.magnifyingglass"
         case .focusFollowsMouse: return "cursorarrow.and.square.on.square.dashed"
         case .linearScroll: return "arrow.up.and.down.text.horizontal"
+        case .scrollSpeed: return "gauge.with.dots.needle.67percent"
         case .mouseAcceleration: return "cursorarrow.rays"
         case .mouseClickDebounce: return "cursorarrow.click"
         case .spacesOrder: return "rectangle.split.3x1"
@@ -228,6 +229,7 @@ extension AppFeature {
         case .scrollInverter: return [DefaultsKey.scrollInverterEnabled,
                                       DefaultsKey.scrollInverterHorizontalEnabled]
         case .smoothScroll: return [DefaultsKey.smoothScrollEnabled]
+        case .scrollSpeed: return [DefaultsKey.scrollSpeedEnabled]
         case .mouseNavigation: return [DefaultsKey.mouseNavigationEnabled]
         case .middleClick: return [DefaultsKey.middleClickEnabled]
         case .keyboardDebounce: return [DefaultsKey.keyboardDebounceEnabled]
@@ -312,7 +314,7 @@ extension AppFeature {
         case .quitWindowProtection: return [.accessibility]
         // Wheel and click taps, and the window under the pointer, all go
         // through Accessibility.
-        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .scrollSpeed, .mouseClickDebounce:
             return [.accessibility]
         // Pointer acceleration is an IOKit HID property and the Spaces order
         // a Dock preference; neither needs a grant.
@@ -406,7 +408,7 @@ extension AppFeature {
         .worldClock,
         // Upstream ships these opt-in: they change how every window, wheel or
         // Space behaves, so an update must not install them on its own.
-        .focusFollowsMouse, .scrollHorizontal, .scrollZoom, .linearScroll, .spacesOrder,
+        .focusFollowsMouse, .scrollHorizontal, .scrollZoom, .linearScroll, .scrollSpeed, .spacesOrder,
         // Quitting apps from a window is asked for, never installed by an update.
         .quitApps,
         // Without the mixer it would add its own panel section.
@@ -422,7 +424,7 @@ extension AppFeature {
     static let featuresWithoutRuntimeBinding: Set<AppFeature> = [
         // On-demand tools: they hold no resources and their surfaces simply
         // follow availability in the UI.
-        .uninstaller, .homebrew, .cleaningMode, .killProcess,
+        .homebrew, .killProcess,
         // Runs `lsof` only while its page or panel row is open.
         .portManager,
         // A view that reads the saved cities when it draws.
@@ -460,6 +462,7 @@ extension AppFeature {
                 // A finer key step answers the keys from the same tap.
                 return boolFor(DefaultsKey.brightnessKeysEnabled)
                     || boolFor(DefaultsKey.brightnessOSDEnabled)
+                    || (boolFor(DefaultsKey.displayVolumeEnabled) && boolFor(DefaultsKey.displayVolumeKeysEnabled))
                     || BrightnessSupport.KeyStep.sanitized(stringFor(DefaultsKey.brightnessKeyStep)) != .standard
             case (.monitorCPU, .notifications):
                 return boolFor(DefaultsKey.monitorAlertCPU) || boolFor(DefaultsKey.monitorAlertCPUTemperature)
@@ -566,6 +569,7 @@ extension AppFeature {
         case .scrollZoom: return s.zoomSection
         case .focusFollowsMouse: return s.focusFollowsMouseName
         case .linearScroll: return s.linearScrollName
+        case .scrollSpeed: return s.scrollSpeedName
         case .mouseAcceleration: return s.mouseAccelerationName
         case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(language).title
         case .spacesOrder: return s.spacesOrderName

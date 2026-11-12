@@ -1090,6 +1090,16 @@ enum ClipboardHistoryCapturePolicy {
 }
 
 enum ClipboardHistoryPasteboardText {
+    /// Whether the board's picture is only a rendering of text it also
+    /// carries. Spreadsheet and rich-text copies put plain text next to a
+    /// picture of it, with RTF or HTML siblings saying so; a screenshot or
+    /// image copy has no such siblings, so it keeps its picture. Refs #3818.
+    static func prefersPlainText(types: [String], plainText: String?) -> Bool {
+        guard trimmed(plainText) != nil else { return false }
+        let rich = [NSPasteboard.PasteboardType.rtf, .rtfd, .html].map(\.rawValue)
+        return types.contains(where: rich.contains)
+    }
+
     static func preferredText(webURLString: String?, plainText: String?) -> String? {
         let plain = trimmed(plainText)
         if let plain,
@@ -1267,6 +1277,18 @@ enum ClipboardHistorySensitiveText {
 }
 
 enum ClipboardHistoryImageSupport {
+    /// An image copied in Finder lands as a one-file entry, so it gets the
+    /// same Edit action as an image copied from a browser.
+    static func canEdit(_ entry: ClipboardHistoryEntry) -> Bool {
+        entry.kind == .image || copiedImageFileURL(entry) != nil
+    }
+
+    static func copiedImageFileURL(_ entry: ClipboardHistoryEntry) -> URL? {
+        guard entry.kind == .files, entry.filePaths.count == 1,
+              isImageFileName(entry.filePaths[0]) else { return nil }
+        return URL(fileURLWithPath: entry.filePaths[0])
+    }
+
     static func editorImage(for entry: ClipboardHistoryEntry, directory: URL) -> NSImage? {
         guard entry.kind == .image, let name = entry.imageFile,
               !name.isEmpty, (name as NSString).lastPathComponent == name

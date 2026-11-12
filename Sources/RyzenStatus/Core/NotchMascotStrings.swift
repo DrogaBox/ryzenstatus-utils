@@ -63,6 +63,7 @@ struct NotchMascotRPGStrings {
         abilities[NotchMascotAbility.allCases.firstIndex(of: ability) ?? 0]
     }
 
+
     /// The counts every language must keep.
     static let accessoryCount = 32
     static let familyCount = 5

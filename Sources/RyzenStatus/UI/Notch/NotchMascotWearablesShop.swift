@@ -328,6 +328,7 @@ extension NotchMascotWearableShapes {
             if accessory.isPartyItem { return partyParts(for: accessory, in: f) }
             if accessory.isOddity { return oddityParts(for: accessory, in: f) }
             if accessory.isCraftItem { return craftParts(for: accessory, in: f) }
+            if accessory.isFairItem { return fairParts(for: accessory, in: f) }
             return accessory.isToyItem ? toyParts(for: accessory, in: f) : danceParts(for: accessory, in: f)
         }
     }

@@ -46,6 +46,15 @@ extension NotchMascotAccessory {
             return .uncommon
         case .electricGuitar, .telescope:
             return .rare
+        case .cupcake, .lollipop, .pinwheel, .wateringCan, .pottedCactus, .fryingPan, .flowerCrown, .balloonDog:
+            return .common
+        case .fishingRod, .butterflyNet, .basketball, .puzzleCube, .slingshot, .sparkler, .trumpet, .hardHat,
+             .graduationCap, .binoculars:
+            return .uncommon
+        case .violin, .answerBall, .boomBox, .stilts, .superCape:
+            return .rare
+        case .astronautHelmet:
+            return .legendary
         case .legendShield, .knightHelm, .vikingHelm, .wingBoots, .rangerBow, .boomerang, .heartPotion, .bardLute,
              .dumbbells, .detectiveLens, .gameController, .goldenKey,
              .creamPie, .fakeMustache, .stormCloud, .lonelyBalloon, .teddyBear, .tinfoilHat, .dynamiteStick,
@@ -202,7 +211,7 @@ enum NotchMascotShop {
     static var forSale: [NotchMascotAccessory] {
         NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
             + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems
-            + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems
+            + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems + NotchMascotAccessory.fairItems
     }
     /// Everything the island's companion can still be bought.
     static var unowned: [NotchMascotAccessory] { unowned(for: activeStyle()) }

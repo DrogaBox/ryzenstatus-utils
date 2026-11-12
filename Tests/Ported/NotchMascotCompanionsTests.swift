@@ -212,7 +212,7 @@ enum NotchMascotCompanionsTests {
     private static func formCombos(_ suite: TestSuite) {
         typealias Catalog = NotchMascotSynergyCatalog
         let forms = Catalog.synergies(in: .forms)
-        suite.expect(forms.count == 12 && Catalog.synergies(in: .workshop).count == 8, "the new families hold their share")
+        suite.expect(forms.count == 16 && Catalog.synergies(in: .workshop).count == 8, "the new families hold their share")
         suite.expect(forms.allSatisfy { synergy in
             switch synergy.match {
             case .formWears, .bothFormed: return true
