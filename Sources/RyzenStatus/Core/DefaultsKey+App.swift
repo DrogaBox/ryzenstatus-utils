@@ -499,6 +499,11 @@ extension DefaultsKey {
     // Settings page preferences that used raw key literals. The values stay
     // the same strings, so stored preferences survive.
     static let panelViewStyle = "panelViewStyle"                 // String, "cards" or the list style of the monitor panel
+    static let panelWidgetShowCPU = "istats_show_cpu"            // Bool, CPU card of the widget style
+    static let panelWidgetShowGPU = "istats_show_gpu"            // Bool, GPU card of the widget style
+    static let panelWidgetShowMemory = "istats_show_memory"      // Bool, memory card of the widget style
+    static let panelWidgetShowCores = "istats_show_cores"        // Bool, core grid of the widget style
+    static let panelWidgetOrder = "istatsCardOrder"              // String, the widget cards' order, comma separated
     static let menuBarMetricAppearanceCPU = "menuBarMetricAppearance_cpu"
     static let menuBarMetricAppearanceGPU = "menuBarMetricAppearance_gpu"
     static let menuBarMetricAppearanceMemory = "menuBarMetricAppearance_memory"

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.82.2] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The widget style holds its place.**
+
+### Fixed
+
+- **Widgets vanishing from the System panel**: choosing the widget style with the classic CPU and GPU cards hidden left the panel with no widgets at all, because the widgets asked the classic cards' switches whether to show. They now answer to their own.
+- **Process lists that stood still**: the top processes in the CPU, memory and GPU widgets were read when the panel opened and almost never again, so they kept showing what was busy at that moment. They now follow the refresh interval set in Settings.
+- **Temperatures ignored the unit**: the widgets always showed Celsius. They follow the unit chosen in Settings.
+- **Readings that were not there**: a missing CPU or GPU frequency showed as 0.0 GHz or repeated the card's title. It now shows nothing.
+- **Switches that did nothing**: in the widget style the edit mode listed the classic Temperatures and Memory blocks, which that style never shows. They are gone from it, since the widgets carry both.
+
+### Improved
+
+- **Lighter widgets**: only the lists on screen are read, so a hidden card costs nothing and a closed panel reads none. Rows redraw only when they change, and app icons come from the shared cache instead of being looked up on every redraw.
+- **Widget details**: cards of a metric family turned off in the hub leave the widget style, as the classic cards do. The core grid dims with its CPU card while arranging, Reset in the System panel also restores the widget cards and their order, and process rows show the full name on hover.
+
+## [1.82.1] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The leak warning tells the truth.**
+
+### Fixed
+
+- **False memory-leak warnings**: the process monitor judged leaks by resident size, which also counts memory an app has already freed and the system has not taken back yet. An app that allocates and frees a lot, this one included, could be marked as leaking after twenty minutes while the memory it really held stayed flat. Leaks are now judged by physical footprint, the figure Activity Monitor shows as Memory. Processes of other users, which do not report it, keep the old measure.
+
+### Improved
+
+- **Lighter process monitor**: the memory history behind the leak warning takes one reading every ten seconds instead of one a second, and no longer rebuilds every app's history on each refresh. With the monitor open that was several megabytes of memory churned every second.
+
 ## [1.82.0] — 2026-11-12 — kexts 3.40.1 (No kext changes)
 
 **The fair comes to the companions, and a big round of tool updates.** The AMD side is untouched; this release brings twenty-four new things for the companions, each with its own show, and new features and fixes across the rest of the app.

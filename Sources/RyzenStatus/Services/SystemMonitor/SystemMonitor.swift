@@ -465,6 +465,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether the open panel is on the System section. Views that read on
+    /// their own beat (the widgets' process lists) ask before reading, so a
+    /// closed panel reads nothing. Main thread only, like the needs it reads.
+    var menuPanelShowsSystem: Bool { menuPanelNeeds.system }
+
     /// The menu popover reports exactly which monitor sections are on screen.
     /// This avoids paying for GPU, network or power reads while the panel is open
     /// on another section.
