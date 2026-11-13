@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.82.1] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The leak warning tells the truth.**
+
+### Fixed
+
+- **False memory-leak warnings**: the process monitor judged leaks by resident size, which also counts memory an app has already freed and the system has not taken back yet. An app that allocates and frees a lot, this one included, could be marked as leaking after twenty minutes while the memory it really held stayed flat. Leaks are now judged by physical footprint, the figure Activity Monitor shows as Memory. Processes of other users, which do not report it, keep the old measure.
+
+### Improved
+
+- **Lighter process monitor**: the memory history behind the leak warning takes one reading every ten seconds instead of one a second, and no longer rebuilds every app's history on each refresh. With the monitor open that was several megabytes of memory churned every second.
+
 ## [1.82.0] — 2026-11-12 — kexts 3.40.1 (No kext changes)
 
 **The fair comes to the companions, and a big round of tool updates.** The AMD side is untouched; this release brings twenty-four new things for the companions, each with its own show, and new features and fixes across the rest of the app.
