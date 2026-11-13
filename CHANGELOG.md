@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.82.2] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The widget style holds its place.**
+
+### Fixed
+
+- **Widgets vanishing from the System panel**: choosing the widget style with the classic CPU and GPU cards hidden left the panel with no widgets at all, because the widgets asked the classic cards' switches whether to show. They now answer to their own.
+- **Process lists that stood still**: the top processes in the CPU, memory and GPU widgets were read when the panel opened and almost never again, so they kept showing what was busy at that moment. They now follow the refresh interval set in Settings.
+- **Temperatures ignored the unit**: the widgets always showed Celsius. They follow the unit chosen in Settings.
+- **Readings that were not there**: a missing CPU or GPU frequency showed as 0.0 GHz or repeated the card's title. It now shows nothing.
+- **Switches that did nothing**: in the widget style the edit mode listed the classic Temperatures and Memory blocks, which that style never shows. They are gone from it, since the widgets carry both.
+
+### Improved
+
+- **Lighter widgets**: only the lists on screen are read, so a hidden card costs nothing and a closed panel reads none. Rows redraw only when they change, and app icons come from the shared cache instead of being looked up on every redraw.
+- **Widget details**: cards of a metric family turned off in the hub leave the widget style, as the classic cards do. The core grid dims with its CPU card while arranging, Reset in the System panel also restores the widget cards and their order, and process rows show the full name on hover.
+
 ## [1.82.1] — 2026-11-13 — kexts 3.40.1 (No kext changes)
 
 **The leak warning tells the truth.**
