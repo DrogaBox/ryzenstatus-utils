@@ -550,6 +550,8 @@ struct AmdPowerSettingsView: View {
                 }
                 AmdAdvancedEnergySection()
             }
+            // Independent of the power controls: AMDCCDScheduler.kext only needs Lilu.
+            AmdCCDSchedulerSection()
         }
         .formStyle(.grouped)
         .task {
