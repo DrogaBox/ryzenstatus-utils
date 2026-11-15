@@ -1,5 +1,5 @@
-// Exercises the real AMDCCDScheduler.cpp hook logic against fake kernel objects laid out at the
-// 25G342 offsets. Run: tests/run.sh
+// Exercises the real AMDCCDScheduler.cpp hook logic against fake kernel objects, once per kernel
+// layout the kext knows (offsets from its kLayouts table). Run: tests/run.sh
 #include <vector>
 #include <thread>
 #include <atomic>
@@ -32,12 +32,12 @@ static int fakeCpuNumber() { return fakeCpu; }
 
 static void makeThread(Obj &th, Obj &task, int16_t pri = 31, void *aset = nullptr, void *lastProc = nullptr) {
     memset(th.b, 0, sizeof th.b);
-    put<void *>(th, 0x570, aset);
-    put<void *>(th, 0x4b8, lastProc);
+    put<void *>(th, gL.threadAffinitySet, aset);
+    put<void *>(th, gL.threadLastProc, lastProc);
     put<int16_t>(th, 0x434, pri);
     put<void *>(th, 0x630, task.b);
 }
-static void makeTask(Obj &task, void *hint) { memset(task.b, 0, sizeof task.b); put<void *>(task, 0x68, hint); }
+static void makeTask(Obj &task, void *hint) { memset(task.b, 0, sizeof task.b); put<void *>(task, gL.taskPsetHint, hint); }
 static uint64_t stat(const char *name) {
     struct sysctl_req r = { nullptr };
     ccdStatSysctl(nullptr, nullptr, 0, &r);
@@ -46,12 +46,15 @@ static uint64_t stat(const char *name) {
 }
 static void resetCounters() { memset(gCount, 0, sizeof gCount); }
 
-int main() {
-    put<uint64_t>(node, 0x18, 0x3);
+static void runSuite() {
+    for (Obj *o : {&node, &pset0, &pset1, &procOnP0}) memset(o->b, 0, sizeof o->b);
+    memset(gHome, 0, sizeof gHome); memset(gUsed, 0, sizeof gUsed); memset(gSeenPset, 0, sizeof gSeenPset);
+    resetCounters();
+    put<uint64_t>(node, gL.nodePsetMap, 0x3);
     // Both psets: CPUs 0-7, primaries 0-3 (4-7 are their SMT siblings), all recommended, all idle.
-    for (Obj *ps : {&pset0, &pset1}) { put<uint64_t>(*ps, 0x30, 0xff); put<uint64_t>(*ps, 0x58, 0xff); put<uint64_t>(*ps, 0x70, 0x0f); }
-    put<uint32_t>(pset0, 0, 0); put<int32_t>(pset0, 8, 12);
-    put<uint32_t>(pset1, 0, 1); put<int32_t>(pset1, 8, 12);
+    for (Obj *ps : {&pset0, &pset1}) { put<uint64_t>(*ps, gL.psetRecommended, 0xff); put<uint64_t>(*ps, gL.psetIdleCpus, 0xff); put<uint64_t>(*ps, gL.psetPrimaryMap, 0x0f); }
+    put<uint32_t>(pset0, 0, 0); put<int32_t>(pset0, gL.psetOnlineCount, 12);
+    put<uint32_t>(pset1, 0, 1); put<int32_t>(pset1, gL.psetOnlineCount, 12);
     put<void *>(procOnP0, 0x28, pset0.b);
     gOrg = fakeOrg; gGetThreadTask = fakeGetThreadTask; gCpuNumber = fakeCpuNumber;
     gKernelTask = kernelTaskObj.b; gState = 1; gPsets = 2; gMode = 1;
@@ -69,7 +72,7 @@ int main() {
 
     // 2. pset_hint drifts to pset0 (thread_setrun rewrote it); a thread that last ran on pset0 comes
     //    back: the home stays pset1 and the stale hint processor (on pset0) is dropped.
-    put<void *>(taskA, 0x68, pset0.b);
+    put<void *>(taskA, gL.taskPsetHint, pset0.b);
     makeThread(th2, taskA, 31, nullptr, procOnP0.b);
     orgReturn = pset0.b; orgHint = procOnP0.b; hint = nullptr;
     CHECK(ccdChooseStartingPset(node.b, th2.b, &hint) == pset1.b);
@@ -85,19 +88,19 @@ int main() {
     // 3b. Home pset (pset1) has only idle SMT siblings (CPUs 4-7), no idle primary core: the kernel's
     //     choice and its hint stand and the placement counts as full. An idle primary that is not
     //     recommended does not count either. Once a recommended primary is idle, the thread goes home.
-    put<uint64_t>(pset1, 0x58, 0xf0);
+    put<uint64_t>(pset1, gL.psetIdleCpus, 0xf0);
     orgReturn = pset0.b; orgHint = procOnP0.b; hint = nullptr;
     CHECK(ccdChooseStartingPset(node.b, th2.b, &hint) == pset0.b);
     CHECK(hint == procOnP0.b);
     CHECK(stat("full") == 1 && stat("kept") == 2);
-    put<uint64_t>(pset1, 0x58, 0xf4); put<uint64_t>(pset1, 0x30, 0xfb);  // CPU 2 idle but not recommended
+    put<uint64_t>(pset1, gL.psetIdleCpus, 0xf4); put<uint64_t>(pset1, gL.psetRecommended, 0xfb);  // CPU 2 idle but not recommended
     CHECK(ccdChooseStartingPset(node.b, th2.b, &hint) == pset0.b);
     CHECK(stat("full") == 2);
-    put<uint64_t>(pset1, 0x30, 0xff);
+    put<uint64_t>(pset1, gL.psetRecommended, 0xff);
     hint = nullptr;
     CHECK(ccdChooseStartingPset(node.b, th2.b, &hint) == pset1.b);
     CHECK(hint == nullptr && stat("kept") == 3);
-    put<uint64_t>(pset1, 0x58, 0xff);
+    put<uint64_t>(pset1, gL.psetIdleCpus, 0xff);
     orgHint = nullptr;
 
     // 4. Realtime, affinity-set and kernel_task threads go to the original untouched and uncounted.
@@ -112,13 +115,13 @@ int main() {
     CHECK(stat("new") == placed);
 
     // 5. Home pset offline or outside the node: the kernel's choice stands.
-    put<int32_t>(pset1, 8, 0);
+    put<int32_t>(pset1, gL.psetOnlineCount, 0);
     orgReturn = pset0.b; hint = nullptr;
     CHECK(ccdChooseStartingPset(node.b, th1.b, &hint) == pset0.b);
-    put<int32_t>(pset1, 8, 12);
-    put<uint64_t>(node, 0x18, 0x1);
+    put<int32_t>(pset1, gL.psetOnlineCount, 12);
+    put<uint64_t>(node, gL.nodePsetMap, 0x1);
     CHECK(ccdChooseStartingPset(node.b, th1.b, &hint) == pset0.b);
-    put<uint64_t>(node, 0x18, 0x3);
+    put<uint64_t>(node, gL.nodePsetMap, 0x3);
 
     // 6. Mode 0: original only, nothing counted.
     resetCounters(); gMode = 0;
@@ -149,7 +152,7 @@ int main() {
     for (size_t i = 0; i < live->size(); i++) {
         makeTask((*live)[i], (i & 1) ? pset1.b : pset0.b);
         makeThread(t, (*live)[i]); orgReturn = pset0.b; ccdChooseStartingPset(node.b, t.b, &hint);
-        put<void *>((*live)[i], 0x68, pset0.b);  // pset_hint drifts afterwards
+        put<void *>((*live)[i], gL.taskPsetHint, pset0.b);  // pset_hint drifts afterwards
     }
     for (int k = 0; k < 40000; k++) {
         Obj &d = (*dead)[k % dead->size()];  // addresses get reused, as zone memory does
@@ -192,6 +195,7 @@ int main() {
     static Obj ctasks[64];
     for (int i = 0; i < 64; i++) makeTask(ctasks[i], (i & 1) ? pset1.b : pset0.b);
     static std::atomic<void *> seen[64];
+    for (auto &x : seen) x.store(nullptr);
     std::atomic<int> mismatch{0};
     std::vector<std::thread> ts;
     for (int w = 0; w < 16; w++) ts.emplace_back([w, &mismatch] {
@@ -208,6 +212,49 @@ int main() {
     for (auto &x : ts) x.join();
     CHECK(mismatch.load() == 0);
     printf("concurrent placements with a different home for the same process: %d\n", mismatch.load());
+}
+
+// Each layout's byte checks, run on a buffer built from that layout's own tables: it must match its
+// own bytes, reject the other layouts', reject a changed byte and reject a call that is not to
+// get_threadtask. Catches overlapping or out-of-order entries in the tables.
+static void layoutTables() {
+    for (size_t i = 0; i < arrsize(kLayouts); i++) {
+        const Layout &L = kLayouts[i];
+        static uint8_t fn[0x400], picker[0x800];
+        memset(fn, 0xcc, sizeof fn); memset(picker, 0xcc, sizeof picker);
+        for (size_t k = 0; k < L.headLen; k++) if (L.head[k] <= 0xff) fn[k] = static_cast<uint8_t>(L.head[k]);
+        for (size_t k = 0; k < L.moreLen; k++) {
+            CHECK(L.more[k].off >= L.headLen && L.more[k].off + L.more[k].len <= sizeof fn);
+            memcpy(fn + L.more[k].off, L.more[k].bytes, L.more[k].len);
+        }
+        memcpy(picker + L.pickerOff, L.pick, L.pickLen);
+        const mach_vm_address_t f = reinterpret_cast<mach_vm_address_t>(fn), gtt = f + 0x3f0;
+        int32_t rel = static_cast<int32_t>(gtt - (f + L.callOff + 5));
+        CHECK(fn[L.callOff] == 0xe8);
+        memcpy(fn + L.callOff + 1, &rel, sizeof rel);
+        const mach_vm_address_t pk = reinterpret_cast<mach_vm_address_t>(picker);
+        char why[96];
+        CHECK(layoutMatches(L, f, gtt, pk, why, sizeof why));
+        for (size_t j = 0; j < arrsize(kLayouts); j++)
+            if (j != i) CHECK(!layoutMatches(kLayouts[j], f, gtt, pk, why, sizeof why));
+        CHECK(!layoutMatches(L, f, gtt + 1, pk, why, sizeof why) && strstr(why, "get_threadtask"));
+        CHECK(!layoutMatches(L, f, gtt, 0, why, sizeof why));
+        uint8_t &last = fn[L.more[L.moreLen - 1].off + L.more[L.moreLen - 1].len - 1];
+        last ^= 1;
+        CHECK(!layoutMatches(L, f, gtt, pk, why, sizeof why));
+        last ^= 1;
+        picker[L.pickerOff] ^= 1;
+        CHECK(!layoutMatches(L, f, gtt, pk, why, sizeof why));
+    }
+}
+
+int main() {
+    layoutTables();
+    for (size_t i = 0; i < arrsize(kLayouts); i++) {
+        gL = kLayouts[i];
+        printf("-- %s\n", gL.name);
+        runSuite();
+    }
     printf("%s (%d checks, %d failed)\n", failures ? "TESTS FAILED" : "TESTS OK", checks, failures);
     return failures != 0;
 }

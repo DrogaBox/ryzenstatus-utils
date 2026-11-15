@@ -7,7 +7,7 @@ The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen process
 
 The RyzenStatus app is the user interface for both; this folder holds their source.
 
-A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.2.2, in `AMDCCDScheduler/`). It is a small Lilu plugin for CPUs with two or more CCDs: stock macOS keeps scattering each app's threads across both CCDs, and the kext gives each app a home CCD where its threads start while that CCD has a free physical core, so threads that talk to each other share one L3 cache (a Node worker pool ran about 12% faster on a 5900XT; an all-core zstd job did not change). It hooks one scheduler function only after checking its bytes, and those of the CPU picker it reads from, against the macOS build it was written for, and stays off elsewhere. Its hook logic has user-space tests in `AMDCCDScheduler/tests`. See [docs/CCD_SCHEDULER.md](../docs/CCD_SCHEDULER.md).
+A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.3.0, in `AMDCCDScheduler/`). It is a small Lilu plugin for CPUs with two or more CCDs: stock macOS keeps scattering each app's threads across both CCDs, and the kext gives each app a home CCD where its threads start while that CCD has a free physical core, so threads that talk to each other share one L3 cache (a Node worker pool ran about 12% faster on a 5900XT; an all-core zstd job did not change). It hooks one scheduler function only after checking its bytes, and those of the CPU picker it reads from, against the macOS kernels it was written for (14.8.9, 15.8.2/15.8.3, 26.7.2/26.7.3), and stays off elsewhere. Its hook logic has user-space tests in `AMDCCDScheduler/tests`. See [docs/CCD_SCHEDULER.md](../docs/CCD_SCHEDULER.md).
 
 ---
 

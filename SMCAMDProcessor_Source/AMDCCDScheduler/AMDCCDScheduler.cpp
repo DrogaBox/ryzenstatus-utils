@@ -21,9 +21,9 @@
 //  Mode 2 is the 0.1.0 behaviour (only a thread's first placement, towards task->pset_hint), kept
 //  for comparisons. Mode 0 calls the original only.
 //
-//  The hook is installed only if the function's bytes match the layout it was written against
-//  (macOS 26.7.3, 25G342, xnu-12377.161.15). On any other kernel it stays off and says why in
-//  sysctl debug.ccd_log.
+//  The hook is installed only if the function's bytes match one of the layouts it was written
+//  against: macOS 14.8.9 (23J631), 15.8.2/15.8.3 (24H232/24H241, one kernel) and 26.7.2/26.7.3
+//  (25G332/25G342, one kernel). On any other kernel it stays off and says why in sysctl debug.ccd_log.
 //
 //  Boot-args: -ccdoff (do not load), -ccddbg (Lilu debug log), ccdmode=0|1|2 (start mode, default 1).
 //  sysctls:   debug.ccd_mode (rw, root), debug.ccd_state, debug.ccd_stat, debug.ccd_log (read).
@@ -33,23 +33,36 @@
 #include <Headers/kern_api.hpp>
 #include <sys/sysctl.h>
 
-// ---- Layout, from the 25G342 kernel (IDA/Hex-Rays of _choose_starting_pset) ----------------------
-static constexpr size_t kThreadAffinitySet  = 0x570;  // thread->affinity_set
-static constexpr size_t kThreadLastProc     = 0x4b8;  // thread->last_processor
+// ---- Layouts (IDA/Hex-Rays of each kernel's _choose_starting_pset and CPU picker) ---------------
+// Same in every build: thread->sched_pri (int16) and pset->pset_id (uint32 at +0).
 static constexpr size_t kThreadSchedPri     = 0x434;  // thread->sched_pri (int16)
-static constexpr size_t kTaskPsetHint       = 0x68;   // task->pset_hint
 static constexpr size_t kPsetId             = 0x0;    // pset->pset_id (read as uint32 by the kernel)
-static constexpr size_t kPsetOnlineCount    = 0x8;    // pset->online_processor_count (int)
-static constexpr size_t kNodePsetMap        = 0x18;   // pset_node->pset_map (uint64)
-// Per-pset CPU maps (bit = cpu_id), as choose_processor_smt() reads them to find an idle primary core:
-static constexpr size_t kPsetRecommended    = 0x30;   // pset->recommended_bitmask
-static constexpr size_t kPsetIdleCpus       = 0x58;   // pset->cpu_state_map[PROCESSOR_IDLE] (pset_update_processor_state)
-static constexpr size_t kPsetPrimaryMap     = 0x70;   // pset->primary_map (processor_set_primary clears SMT siblings)
 static constexpr int16_t kBasePriRtQueues   = 97;     // BASEPRI_RTQUEUES
 
-// Bytes of _choose_starting_pset that must match; 0x100 = "any byte" (relative displacements).
-// Offset 0x00: prologue and the affinity_set / last_processor / get_threadtask / pset_hint loads.
-static const uint16_t kSigHead[] = {
+// A byte check at an offset of _choose_starting_pset.
+struct SigAt { size_t off; uint8_t bytes[13]; size_t len; };
+
+struct Layout {
+    const char *name;
+    size_t threadAffinitySet;  // thread->affinity_set
+    size_t threadLastProc;     // thread->last_processor
+    size_t taskPsetHint;       // task->pset_hint
+    size_t psetOnlineCount;    // pset->online_processor_count (int)
+    size_t nodePsetMap;        // pset_node->pset_map (uint64)
+    // Per-pset CPU maps (bit = cpu_id), as the kernel's CPU picker reads them to find an idle primary core:
+    size_t psetRecommended;    // pset->recommended_bitmask
+    size_t psetIdleCpus;       // pset->cpu_state_map[PROCESSOR_IDLE]
+    size_t psetPrimaryMap;     // pset->primary_map (processor_set_primary clears SMT siblings)
+    // Bytes of _choose_starting_pset from offset 0; 0x100 = "any byte" (relative displacements).
+    const uint16_t *head; size_t headLen;
+    size_t callOff;            // e8 rel32 of the get_threadtask call, checked against the symbol
+    const SigAt *more; size_t moreLen;
+    // The CPU picker's load of the three pset maps above.
+    const char *picker; size_t pickerOff; const uint8_t *pick; size_t pickLen;
+};
+
+// macOS 26.7.2 / 26.7.3 (25G332 / 25G342: the same kernel). Booted and measured on a 5900XT.
+static const uint16_t kHead25[] = {
     0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x53, 0x50,         // push rbp; mov rbp,rsp; push r15,r14,rbx,rax
     0x48, 0x8b, 0x86, 0x70, 0x05, 0x00, 0x00,                           // mov rax,[rsi+0x570]
     0x48, 0x85, 0xc0, 0x74, 0x0c,                                       // test rax,rax; jz
@@ -61,25 +74,84 @@ static const uint16_t kSigHead[] = {
     0x49, 0x8b, 0x40, 0x28,                                             // mov rax,[r8+0x28]  processor_set
     0xe9, 0x100, 0x100, 0x100, 0x100,                                   // jmp out
     0x48, 0x89, 0xfb, 0x49, 0x89, 0xd6, 0x49, 0x89, 0xf7, 0x48, 0x89, 0xf7,  // save args; rdi = thread
-    0xe8, 0x100, 0x100, 0x100, 0x100,                                   // call _get_threadtask (checked below)
+    0xe8, 0x100, 0x100, 0x100, 0x100,                                   // call _get_threadtask
     0x4c, 0x8b, 0x48, 0x68,                                             // mov r9,[rax+0x68]  pset_hint
 };
-static constexpr size_t kCallOff = 0x43;  // e8 rel32 of the get_threadtask call
-
-struct SigAt { size_t off; uint8_t bytes[11]; size_t len; };
-static const SigAt kSigMore[] = {
+static const SigAt kMore25[] = {
     { 0x90,  {0x48, 0x8b, 0x88, 0x90, 0x08, 0x00, 0x00, 0x48, 0x8b, 0x59, 0x18}, 11 },  // pset->node, node->pset_map
     { 0xd1,  {0x42, 0x83, 0x7c, 0x19, 0x08, 0x00}, 6 },                                // cmp online_processor_count,0
     { 0xde,  {0x48, 0x8b, 0x4f, 0x18, 0x44, 0x8b, 0x08}, 7 },                          // node->pset_map; pset_id
     { 0x11b, {0x66, 0x83, 0xbe, 0x34, 0x04, 0x00, 0x00, 0x61}, 8 },                    // cmp sched_pri,97
     { 0x20e, {0x49, 0x39, 0x40, 0x28, 0x75, 0x03, 0x4c, 0x89, 0x02}, 9 },              // out: hint only if its pset is the result
 };
-
 // _choose_processor_smt + 0x201: mov rbx,[r13+0x30]; mov r8,[r13+0x58]; mov r9,[r13+0x70]; mov rax,r9; and rax,r8
-// (idle primary cores of the starting pset). The hook reads the same three fields.
-static constexpr size_t kSmtSigOff = 0x201;
-static const uint8_t kSmtSig[] = {0x49, 0x8b, 0x5d, 0x30, 0x4d, 0x8b, 0x45, 0x58, 0x4d, 0x8b, 0x4d, 0x70,
+static const uint8_t kPick25[] = {0x49, 0x8b, 0x5d, 0x30, 0x4d, 0x8b, 0x45, 0x58, 0x4d, 0x8b, 0x4d, 0x70,
                                   0x4c, 0x89, 0xc8, 0x4c, 0x21, 0xc0};
+
+// macOS 15.8.2 / 15.8.3 (24H232 / 24H241: the same kernel). Not booted by us.
+static const uint16_t kHead24[] = {
+    0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x50,  // prologue, push r15-r12,rbx,rax
+    0x48, 0x89, 0xfb,                                                   // mov rbx,rdi
+    0x48, 0x8b, 0x86, 0x68, 0x05, 0x00, 0x00,                           // mov rax,[rsi+0x568]  affinity_set
+    0x48, 0x85, 0xc0, 0x74, 0x0f,                                       // test rax,rax; jz
+    0x48, 0x83, 0xc0, 0x38, 0x45, 0x31, 0xf6, 0x48, 0x8b, 0x00,         // aset_pset
+    0xe9, 0x100, 0x100, 0x100, 0x100,                                   // jmp out
+    0x4c, 0x8b, 0xb6, 0xb0, 0x04, 0x00, 0x00,                           // mov r14,[rsi+0x4b0]  last_processor
+    0x4d, 0x85, 0xf6, 0x74, 0x0c,                                       // test r14,r14; jz
+    0x49, 0x8d, 0x46, 0x28, 0x48, 0x8b, 0x00,                           // processor_set
+    0xe9, 0x100, 0x100, 0x100, 0x100,                                   // jmp out
+    0x49, 0x89, 0xd7, 0x49, 0x89, 0xf4, 0x48, 0x89, 0xf7,               // save args; rdi = thread
+    0xe8, 0x100, 0x100, 0x100, 0x100,                                   // call _get_threadtask
+    0x48, 0x8b, 0x78, 0x68,                                             // mov rdi,[rax+0x68]  pset_hint
+};
+static const SigAt kMore24[] = {
+    { 0x90,  {0x48, 0x8b, 0x88, 0x90, 0x08, 0x00, 0x00, 0x4c, 0x8b, 0x51, 0x20}, 11 },  // pset->node, node->pset_map
+    { 0xd6,  {0x83, 0x78, 0x04, 0x00}, 4 },                                            // cmp online_processor_count,0
+    { 0xe1,  {0x48, 0x8b, 0x4b, 0x20, 0x8b, 0x38}, 6 },                                // node->pset_map; pset_id
+    { 0x179, {0x66, 0x83, 0xbe, 0x34, 0x04, 0x00, 0x00, 0x61}, 8 },                    // cmp sched_pri,97
+    { 0x269, {0x49, 0x39, 0x46, 0x28, 0x75, 0x03, 0x4c, 0x89, 0x32}, 9 },              // out: hint only if its pset is the result
+};
+// _choose_processor_smt + 0x1ac: mov rcx,[rdx+0x70]; and rcx,[rdx+0x58]; and rcx,[rdx+0x30]
+static const uint8_t kPick24[] = {0x48, 0x8b, 0x4a, 0x70, 0x48, 0x23, 0x4a, 0x58, 0x48, 0x23, 0x4a, 0x30};
+
+// macOS 14.8.9 (23J631). Not booted by us. No choose_processor_smt in this kernel: choose_processor
+// makes the same idle-primary test.
+static const uint16_t kHead23[] = {
+    0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x50,  // prologue, push r15-r12,rbx,rax
+    0x48, 0x89, 0xd3, 0x49, 0x89, 0xf4, 0x49, 0x89, 0xff,               // save args
+    0x48, 0x8b, 0x86, 0x70, 0x05, 0x00, 0x00,                           // mov rax,[rsi+0x570]  affinity_set
+    0x48, 0x85, 0xc0, 0x74, 0x0f,                                       // test rax,rax; jz
+    0x48, 0x83, 0xc0, 0x38, 0x45, 0x31, 0xed, 0x4c, 0x8b, 0x30,         // aset_pset
+    0xe9, 0x100, 0x100, 0x100, 0x100,                                   // jmp out
+    0x4d, 0x8b, 0xac, 0x24, 0xb8, 0x04, 0x00, 0x00,                     // mov r13,[r12+0x4b8]  last_processor
+    0x4d, 0x85, 0xed, 0x74, 0x0c,                                       // test r13,r13; jz
+    0x49, 0x8d, 0x45, 0x28, 0x4c, 0x8b, 0x30,                           // processor_set
+    0xe9, 0x100, 0x100, 0x100, 0x100,                                   // jmp out
+    0x4c, 0x89, 0xe7,                                                   // rdi = thread
+    0xe8, 0x100, 0x100, 0x100, 0x100,                                   // call _get_threadtask
+    0x48, 0x8b, 0x40, 0x70,                                             // mov rax,[rax+0x70]  pset_hint
+};
+static const SigAt kMore23[] = {
+    { 0x90,  {0x49, 0x8b, 0x8e, 0x98, 0x08, 0x00, 0x00, 0x48, 0x8b, 0x79, 0x28}, 11 },  // pset->node, node->pset_map
+    { 0xd4,  {0x41, 0x83, 0x7e, 0x04, 0x00}, 5 },                                      // cmp online_processor_count,0
+    { 0xe5,  {0x49, 0x8b, 0x47, 0x28, 0x41, 0x8b, 0x0e}, 7 },                          // node->pset_map; pset_id
+    { 0x176, {0x41, 0x0f, 0xb7, 0x8c, 0x24, 0x34, 0x04, 0x00, 0x00, 0x66, 0x83, 0xf9, 0x61}, 13 },  // sched_pri vs 97
+    { 0x296, {0x4d, 0x39, 0x75, 0x28, 0x75, 0x03, 0x4c, 0x89, 0x2b}, 9 },              // out: hint only if its pset is the result
+};
+// _choose_processor + 0x60e: mov rcx,[rbx+0x58]; mov r8,[rbx+0x80]; mov rdi,[rbx+0x98]
+static const uint8_t kPick23[] = {0x48, 0x8b, 0x4b, 0x58, 0x4c, 0x8b, 0x83, 0x80, 0x00, 0x00, 0x00,
+                                  0x48, 0x8b, 0xbb, 0x98, 0x00, 0x00, 0x00};
+
+static const Layout kLayouts[] = {
+    { "macOS 26.7.2-26.7.3 (25G332/25G342)", 0x570, 0x4b8, 0x68, 0x8, 0x18, 0x30, 0x58, 0x70,
+      kHead25, arrsize(kHead25), 0x43, kMore25, arrsize(kMore25), "_choose_processor_smt", 0x201, kPick25, arrsize(kPick25) },
+    { "macOS 15.8.2-15.8.3 (24H232/24H241)", 0x568, 0x4b0, 0x68, 0x4, 0x20, 0x30, 0x58, 0x70,
+      kHead24, arrsize(kHead24), 0x4d, kMore24, arrsize(kMore24), "_choose_processor_smt", 0x1ac, kPick24, arrsize(kPick24) },
+    { "macOS 14.8.9 (23J631)", 0x570, 0x4b8, 0x70, 0x4, 0x28, 0x58, 0x80, 0x98,
+      kHead23, arrsize(kHead23), 0x4e, kMore23, arrsize(kMore23), "_choose_processor", 0x60e, kPick23, arrsize(kPick23) },
+};
+// The layout in use: the one whose bytes matched at install (the user-space tests set it directly).
+static Layout gL = kLayouts[0];
 
 // ---- State ---------------------------------------------------------------------------------------
 using choose_starting_pset_t = void *(*)(void *node, void *thread, void **processor_hint);
@@ -155,7 +227,7 @@ static inline CpuCounters &counters() {
 static inline bool psetUsable(void *node, void *pset, uint32_t *idOut) {
     if (pset == nullptr) return false;
     uint32_t id = fld<uint32_t>(pset, kPsetId);
-    if (id >= 64 || !(fld<uint64_t>(node, kNodePsetMap) & (1ULL << id)) || fld<int32_t>(pset, kPsetOnlineCount) <= 0)
+    if (id >= 64 || !(fld<uint64_t>(node, gL.nodePsetMap) & (1ULL << id)) || fld<int32_t>(pset, gL.psetOnlineCount) <= 0)
         return false;
     if (__atomic_load_n(&gSeenPset[id], __ATOMIC_RELAXED) != pset) __atomic_store_n(&gSeenPset[id], pset, __ATOMIC_RELAXED);
     *idOut = id;
@@ -167,7 +239,7 @@ static inline bool idlePrimary(void *pset) {
     auto rd = [pset](size_t off) {
         return __atomic_load_n(reinterpret_cast<uint64_t *>(reinterpret_cast<uint8_t *>(pset) + off), __ATOMIC_RELAXED);
     };
-    return (rd(kPsetRecommended) & rd(kPsetIdleCpus) & rd(kPsetPrimaryMap)) != 0;
+    return (rd(gL.psetRecommended) & rd(gL.psetIdleCpus) & rd(gL.psetPrimaryMap)) != 0;
 }
 
 // Returns the task's home pset id, assigning `proposed` the first time. -1 if none can be kept.
@@ -210,7 +282,7 @@ static void *ccdLegacyFirstPlacement(void *node, void *thread, void **processor_
 
 static void *ccdChooseStartingPset(void *node, void *thread, void **processor_hint) {
     const int mode = gMode;
-    if (mode == 0 || thread == nullptr || fld<void *>(thread, kThreadAffinitySet) != nullptr ||
+    if (mode == 0 || thread == nullptr || fld<void *>(thread, gL.threadAffinitySet) != nullptr ||
         fld<int16_t>(thread, kThreadSchedPri) >= kBasePriRtQueues) {
         return gOrg(node, thread, processor_hint);
     }
@@ -226,7 +298,7 @@ static void *ccdChooseStartingPset(void *node, void *thread, void **processor_hi
     uint32_t origId = 0;
     if (!psetUsable(node, orig, &origId)) return orig;
     uint32_t hintId = 0;
-    int proposed = psetUsable(node, fld<void *>(task, kTaskPsetHint), &hintId) ? static_cast<int>(hintId)
+    int proposed = psetUsable(node, fld<void *>(task, gL.taskPsetHint), &hintId) ? static_cast<int>(hintId)
                                                                                 : static_cast<int>(origId);
     bool assigned = false;
     int home = homeFor(task, proposed, &assigned);
@@ -253,12 +325,12 @@ static void *ccdChooseStartingPset(void *node, void *thread, void **processor_hi
 
 // 0.1.0: only a thread's first placement, towards the task's current pset_hint.
 static void *ccdLegacyFirstPlacement(void *node, void *thread, void **processor_hint) {
-    if (fld<void *>(thread, kThreadLastProc) != nullptr) return gOrg(node, thread, processor_hint);
+    if (fld<void *>(thread, gL.threadLastProc) != nullptr) return gOrg(node, thread, processor_hint);
     void *orig = gOrg(node, thread, processor_hint);
     CpuCounters &c = counters();
     c.placed++;
     void *task = gGetThreadTask(thread);
-    void *home = task ? fld<void *>(task, kTaskPsetHint) : nullptr;
+    void *home = task ? fld<void *>(task, gL.taskPsetHint) : nullptr;
     uint32_t id = 0;
     if (home == nullptr || home == orig || !psetUsable(node, home, &id)) {
         c.same++;
@@ -304,29 +376,35 @@ SYSCTL_PROC(_debug, OID_AUTO, ccd_log, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_ANY
             "A", "AMDCCDScheduler log");
 
 // ---- Install ---------------------------------------------------------------------------------------
-static bool layoutMatches(mach_vm_address_t fn, mach_vm_address_t getThreadTask, mach_vm_address_t smt) {
+// True if the kernel's bytes match `L`; otherwise `why` says where they differ.
+static bool layoutMatches(const Layout &L, mach_vm_address_t fn, mach_vm_address_t getThreadTask, mach_vm_address_t picker,
+                          char *why, size_t whyLen) {
+    if (!picker) {
+        snprintf(why, whyLen, "no %s", L.picker + 1);
+        return false;
+    }
     const uint8_t *p = reinterpret_cast<const uint8_t *>(fn);
-    for (size_t i = 0; i < arrsize(kSigHead); i++) {
-        if (kSigHead[i] <= 0xff && p[i] != kSigHead[i]) {
-            ccdLog("layout: byte 0x%zx is %02x, expected %02x", i, p[i], kSigHead[i]);
+    for (size_t i = 0; i < L.headLen; i++) {
+        if (L.head[i] <= 0xff && p[i] != L.head[i]) {
+            snprintf(why, whyLen, "byte 0x%zx is %02x, expected %02x", i, p[i], L.head[i]);
             return false;
         }
     }
     int32_t rel;
-    memcpy(&rel, p + kCallOff + 1, sizeof(rel));
-    mach_vm_address_t target = fn + kCallOff + 5 + static_cast<mach_vm_address_t>(static_cast<int64_t>(rel));
+    memcpy(&rel, p + L.callOff + 1, sizeof(rel));
+    mach_vm_address_t target = fn + L.callOff + 5 + static_cast<mach_vm_address_t>(static_cast<int64_t>(rel));
     if (target != getThreadTask) {
-        ccdLog("layout: call at 0x%zx goes to 0x%llx, not get_threadtask", kCallOff, static_cast<unsigned long long>(target));
+        snprintf(why, whyLen, "call at 0x%zx is not get_threadtask", L.callOff);
         return false;
     }
-    for (const auto &s : kSigMore) {
-        if (memcmp(p + s.off, s.bytes, s.len) != 0) {
-            ccdLog("layout: bytes at 0x%zx differ", s.off);
+    for (size_t i = 0; i < L.moreLen; i++) {
+        if (memcmp(p + L.more[i].off, L.more[i].bytes, L.more[i].len) != 0) {
+            snprintf(why, whyLen, "bytes at 0x%zx differ", L.more[i].off);
             return false;
         }
     }
-    if (memcmp(reinterpret_cast<const uint8_t *>(smt) + kSmtSigOff, kSmtSig, sizeof(kSmtSig)) != 0) {
-        ccdLog("layout: choose_processor_smt bytes at 0x%zx differ", kSmtSigOff);
+    if (memcmp(reinterpret_cast<const uint8_t *>(picker) + L.pickerOff, L.pick, L.pickLen) != 0) {
+        snprintf(why, whyLen, "%s bytes at 0x%zx differ", L.picker + 1, L.pickerOff);
         return false;
     }
     return true;
@@ -340,31 +418,41 @@ static void ccdInstall(KernelPatcher &patcher) {
     sysctl_register_oid(&sysctl__debug_ccd_stat);
     sysctl_register_oid(&sysctl__debug_ccd_log);
 
-    const auto K = KernelPatcher::KernelID;
-    mach_vm_address_t fn = patcher.solveSymbol(K, "_choose_starting_pset");
-    patcher.clearError();
-    mach_vm_address_t gtt = patcher.solveSymbol(K, "_get_threadtask");
-    patcher.clearError();
-    auto numPsets = reinterpret_cast<uint32_t *>(patcher.solveSymbol(K, "_sched_num_psets"));
-    patcher.clearError();
-    auto psetArray = reinterpret_cast<void **>(patcher.solveSymbol(K, "_pset_array"));
-    patcher.clearError();
-    auto kernelTask = reinterpret_cast<void **>(patcher.solveSymbol(K, "_kernel_task"));
-    patcher.clearError();
-    mach_vm_address_t cpuNum = patcher.solveSymbol(K, "_cpu_number");
-    patcher.clearError();
-    mach_vm_address_t smt = patcher.solveSymbol(K, "_choose_processor_smt");
-    patcher.clearError();
-    if (!fn || !gtt || !numPsets || !kernelTask || !cpuNum || !smt) {
+    auto solve = [&patcher](const char *name) {
+        mach_vm_address_t a = patcher.solveSymbol(KernelPatcher::KernelID, name);
+        patcher.clearError();
+        return a;
+    };
+    mach_vm_address_t fn = solve("_choose_starting_pset");
+    mach_vm_address_t gtt = solve("_get_threadtask");
+    auto kernelTask = reinterpret_cast<void **>(solve("_kernel_task"));
+    mach_vm_address_t cpuNum = solve("_cpu_number");
+    // Pset count: sched_num_psets on macOS 26; older kernels have no such variable, so the psets in the
+    // boot node are counted (pset_node0's pset_map, filled when the CPU topology is built at boot).
+    auto numPsets = reinterpret_cast<uint32_t *>(solve("_sched_num_psets"));
+    void *node0 = reinterpret_cast<void *>(solve("_pset_node0"));
+    if (!fn || !gtt || !kernelTask || !cpuNum || (!numPsets && !node0)) {
         gState = 2;
-        ccdLog("symbols: choose_starting_pset %s, get_threadtask %s, sched_num_psets %s, kernel_task %s, cpu_number %s, "
-               "choose_processor_smt %s",
-               fn ? "ok" : "missing", gtt ? "ok" : "missing", numPsets ? "ok" : "missing",
-               kernelTask ? "ok" : "missing", cpuNum ? "ok" : "missing", smt ? "ok" : "missing");
+        ccdLog("symbols: choose_starting_pset %s, get_threadtask %s, kernel_task %s, cpu_number %s, pset count %s",
+               fn ? "ok" : "missing", gtt ? "ok" : "missing", kernelTask ? "ok" : "missing", cpuNum ? "ok" : "missing",
+               (numPsets || node0) ? "ok" : "missing");
         return;
     }
 
-    gPsets = static_cast<int>(*numPsets);
+    char why[arrsize(kLayouts)][96] = {};
+    const Layout *found = nullptr;
+    for (size_t i = 0; i < arrsize(kLayouts) && !found; i++) {
+        if (layoutMatches(kLayouts[i], fn, gtt, solve(kLayouts[i].picker), why[i], sizeof(why[i]))) found = &kLayouts[i];
+    }
+    if (!found) {
+        gState = 3;
+        for (size_t i = 0; i < arrsize(kLayouts); i++) ccdLog("%s: %s", kLayouts[i].name, why[i]);
+        ccdLog("choose_starting_pset matches no known layout: hook not installed");
+        return;
+    }
+    gL = *found;
+
+    gPsets = numPsets ? static_cast<int>(*numPsets) : __builtin_popcountll(fld<uint64_t>(node0, gL.nodePsetMap));
     if (gPsets < 2) {
         gState = 5;
         ccdLog("%d processor set: one L3, nothing to keep together", gPsets);
@@ -375,21 +463,9 @@ static void ccdInstall(KernelPatcher &patcher) {
         ccdLog("%d processor sets: more than the 64 this build handles", gPsets);
         return;
     }
-    // Diagnostic only: what pset_array holds at install time (the hook does not use it).
-    if (psetArray != nullptr) {
-        for (int i = 0; i < gPsets && i < 4; i++) {
-            void *p = psetArray[i];
-            ccdLog("pset_array[%d] = %s, id %d", i, p ? "set" : "null", p ? static_cast<int>(fld<uint32_t>(p, kPsetId)) : -1);
-        }
-    }
     if (*kernelTask == nullptr) {
         gState = 2;
         ccdLog("kernel_task not set yet: hook not installed");
-        return;
-    }
-    if (!layoutMatches(fn, gtt, smt)) {
-        gState = 3;
-        ccdLog("choose_starting_pset does not match the 25G342 layout: hook not installed");
         return;
     }
 
@@ -405,7 +481,7 @@ static void ccdInstall(KernelPatcher &patcher) {
     }
     gOrg = reinterpret_cast<choose_starting_pset_t>(org);
     gState = 1;
-    ccdLog("installed: %d processor sets, mode %d", gPsets, gMode);
+    ccdLog("installed: %s layout, %d processor sets, mode %d", gL.name, gPsets, gMode);
 }
 
 static const char *bootargOff[] {"-ccdoff"};
