@@ -228,8 +228,8 @@ fi
 # that has the pair but lost this kext is refused, unless ALLOW_NO_CCD_KEXT=1.
 KEXT_CCD_LOCAL="SMCAMDProcessor_Source/build/AMDCCDScheduler/AMDCCDScheduler.kext"
 KEXT_CCD_ZIP="ReleaseAssets/AMDCCDScheduler-Kext.zip"
-KEXT_PIN_CCD_MACHO="9cb771e511f5964443a2a1871fbb4328d4b44adf9c828b1082886dc9d040a219"
-KEXT_PIN_CCD_PLIST="1f4e18598038be598f237ea1519bea2d4f55af6f4324b0d8b36a93b5bbeb0706"
+KEXT_PIN_CCD_MACHO="71fe52cd2b62fd0abed4b624f830aa509126b7f7c612277442c41858a9610ae4"
+KEXT_PIN_CCD_PLIST="01989ec1c26638c7a5af48b5c42a137b204502a7a5755e69a6d0a89c8fc42af8"
 if [[ -d "$STAGING/Kexts" ]]; then
     CCD_SOURCE=""
     if [[ "${ALLOW_LOCAL_KEXTS:-0}" == "1" && -d "$KEXT_CCD_LOCAL" ]]; then

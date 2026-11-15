@@ -14,10 +14,10 @@ nothing, and no user-space setting reaches the threads macOS creates for apps.
 
 | | |
 |---|---|
-| Version | 0.2.2 |
-| Status | booted and measured on a Ryzen 9 5900XT, macOS 26.7.3 (25G342), 2026-11-15 |
+| Version | 0.3.0 |
+| Status | booted and measured on a Ryzen 9 5900XT, macOS 26.7.3 (25G342), 2026-11-15; Sonoma and Sequoia checked against Apple's installer kernels, not booted by us |
 | CPUs | Ryzen with two or more CCDs: 5900X, 5950X, 5900XT, 7900X, 7950X, 9900X, 9950X and similar (only the 5900XT was tested) |
-| macOS | 26.7.3 (25G342) only; on any other kernel it stays off by itself and says why |
+| macOS | 14.8.9 (23J631), 15.8.2 / 15.8.3 (24H232 / 24H241), 26.7.2 / 26.7.3 (25G332 / 25G342); on any other kernel it stays off by itself and says why |
 | Needs | Lilu |
 | Source | [`SMCAMDProcessor_Source/AMDCCDScheduler`](../SMCAMDProcessor_Source/AMDCCDScheduler) |
 
@@ -42,6 +42,9 @@ medians of 7 runs (Node) and 5 runs (zstd), [`Tools/ccd/modes.zsh`](../Tools/ccd
 - The stock times move from boot to boot (806–876 ms for 4 workers over three boots); with the kext on, the
   Node medians stayed at 739–754 ms on all three. On the boot with the slowest stock times the gain was 14%.
 - zstd fills most of the CPU from one process. That is the case where an app must use both CCDs, and it does.
+- 0.3.0, booted later the same day with the same script: Node 4 workers 899 → 733 ms (−18.5%), 8 workers
+  918 → 756 ms (−17.6%), zstd 7257 → 7285 ms (ranges overlap). The times with the kext match 0.2.2; stock macOS
+  was slower on that boot. Read the gain as 12 to 18% depending on the boot.
 
 ### How it got here
 
@@ -51,6 +54,7 @@ medians of 7 runs (Node) and 5 runs (zstd), [`Tools/ccd/modes.zsh`](../Tools/ccd
 | 0.2.0 | gives each process a home CCD, every placement starts there | −14.1% | **+1.8% (slower)** |
 | 0.2.1 | same, only while the kernel's idle map shows a free CPU on the home CCD | −14.0% | **+2.8% (slower)** |
 | 0.2.2 | same, only while the home CCD has a free **physical** core | −11.8% | +0.1% (no change) |
+| 0.3.0 | 0.2.2 with one table per kernel: Sonoma, Sequoia and Tahoe | −17.6% | +0.4% (no change) |
 
 Each line is a separate boot with its own stock baseline. 0.2.1 failed because the kernel's idle map counts an
 idle SMT sibling as free: the home CCD almost always looked free, so an all-core job kept queueing on it. The
@@ -144,29 +148,57 @@ From IDA/Hex-Rays of `/System/Library/Kernels/kernel`, UUID `28267FD5-3E1E-3686-
   kernel's own answers instead of reading that array. The first 0.2.0 build relied on it; at boot it found the
   mismatch, stayed off and logged why.
 
+### The same facts on Sonoma and Sequoia (0.3.0)
+
+The kernels inside Apple's installers, read in IDA the same way (`Tools/ccd/ida_port.py` on each boot kernel
+collection). 15.8.2 and 15.8.3 ship one kernel (UUID `747934E9-FD01-36AB-8E97-06A578AB22F9`), and so do 26.7.2
+and 26.7.3 (`28267FD5-…`). `choose_starting_pset` has the same logic in all three and one caller,
+`thread_setrun`; only the offsets moved:
+
+| | 14.8.9 (23J631) | 15.8.2 / 15.8.3 | 26.7.2 / 26.7.3 |
+|---|---|---|---|
+| thread affinity_set / last_processor | `+0x570` / `+0x4b8` | `+0x568` / `+0x4b0` | `+0x570` / `+0x4b8` |
+| task pset_hint | `+0x70` | `+0x68` | `+0x68` |
+| pset online_processor_count | `+0x4` | `+0x4` | `+0x8` |
+| node pset_map | `+0x28` | `+0x20` | `+0x18` |
+| pset recommended / idle / primary maps | `+0x58` / `+0x80` / `+0x98` | `+0x30` / `+0x58` / `+0x70` | `+0x30` / `+0x58` / `+0x70` |
+| where the CPU picker reads those maps | `choose_processor+0x60e` | `choose_processor_smt+0x1ac` | `choose_processor_smt+0x201` |
+| pset count | bits of `pset_node0`'s pset_map | bits of `pset_node0`'s pset_map | `sched_num_psets` |
+
+`sched_pri` (`+0x434`, int16), `pset_id` (`+0x0`) and the realtime threshold (97) are the same everywhere.
+Sonoma has no `choose_processor_smt`; its `choose_processor` makes the same test (recommended & idle &
+primary), and `processor_set_primary` clears the SMT sibling's bit at `+0x98` there. Not verified at runtime on
+Sonoma or Sequoia: that `pset_node0`'s map already holds both psets when Lilu plugins install. If it does not,
+the kext reports one processor set and stays off.
+
 ### Safety
 
-- The hook is installed only if the first 76 bytes of `_choose_starting_pset` match (relative displacements
-  masked), its call goes to `_get_threadtask`, five more spots that encode the offsets above match, and 18 bytes
-  of `_choose_processor_smt` (`+0x201`, the reads of `+0x30`, `+0x58`, `+0x70`) match too. On another kernel it
-  stays off and `sysctl debug.ccd_log` says which bytes differed.
+- The hook is installed only if one kernel table matches completely: the first 76 to 87 bytes of
+  `_choose_starting_pset` (relative displacements masked), its call to `_get_threadtask`, five more spots that
+  encode the offsets above, and the CPU picker's reads of the three pset maps. On another kernel it stays off and
+  `sysctl debug.ccd_log` says, for each table, which bytes differed.
 - With a single pset (single-CCD CPU) it installs nothing.
-- The instructions Lilu moves into its trampoline (`push rbp; mov rbp,rsp; push r15; push r14; push rbx;
-  push rax; mov rax,[rsi+0x570]`) are not relative, so they relocate safely.
+- The instructions Lilu moves into its trampoline are not relative in any of the three kernels (Tahoe:
+  `push rbp; mov rbp,rsp; push r15; push r14; push rbx; push rax; mov rax,[rsi+0x570]`; Sequoia and Sonoma: the
+  same frame with `push r13; push r12` and register moves), so they relocate safely.
 - `-ccdoff` keeps it from loading; `sysctl -w debug.ccd_mode=0` turns it off live.
-- The hook logic is tested in user space against fake kernel objects at the 25G342 offsets
-  (`AMDCCDScheduler/tests/run.sh`, 34 checks, built once with AddressSanitizer + UndefinedBehaviorSanitizer and
-  once with ThreadSanitizer): first placement, drift of `pset_hint`, busy home CCD (only SMT siblings idle, idle
+- The hook logic is tested in user space against fake kernel objects, once with each kernel table's offsets
+  (`AMDCCDScheduler/tests/run.sh`, 141 checks, built once with AddressSanitizer + UndefinedBehaviorSanitizer and
+  once with ThreadSanitizer). The tables themselves are checked too: each matches bytes built from itself and
+  rejects the other tables', a changed byte and a wrong call target. Per table: first placement, drift of `pset_hint`, busy home CCD (only SMT siblings idle, idle
   but not recommended), realtime / affinity / kernel_task untouched, offline home, modes 0 and 2, per-CPU
   counters, 40000 and 50000 short-lived processes next to 1000 live ones (no live process lost its home), and
   16 threads placing the same 64 new processes at once (one home each).
 
-`check_layout.py` runs the same byte test against any kernel file without booting it:
+`check_layout.py` runs the same byte test against a kernel without booting it, for every table. It takes a
+kernel file or the `BootKernelExtensions.kc` from a macOS installer:
 
 ```bash
 python3 -I SMCAMDProcessor_Source/AMDCCDScheduler/check_layout.py            # running kernel
-python3 -I SMCAMDProcessor_Source/AMDCCDScheduler/check_layout.py /path/to/kernel
+python3 -I SMCAMDProcessor_Source/AMDCCDScheduler/check_layout.py /path/to/BootKernelExtensions.kc
 ```
+
+On the installer kernels of 14.8.9, 15.8.2, 15.8.3, 26.7.2 and 26.7.3 each matches exactly one table.
 
 ---
 
@@ -224,7 +256,7 @@ After booting:
 sysctl debug.ccd_state debug.ccd_stat debug.ccd_log
 ```
 
-`state 1` and `installed: 2 processor sets, mode 1` mean it is active. To measure the three modes on your
+`state 1` and `installed: macOS … layout, 2 processor sets, mode 1` mean it is active. To measure the three modes on your
 machine (asks for your password; about 3 minutes with a 1 GB file):
 
 ```bash
@@ -233,12 +265,13 @@ sudo zsh Tools/ccd/modes.zsh ~/ccd-modes.txt /path/to/a-1GB-file
 
 ## Porting to another macOS build
 
-1. `python3 -I check_layout.py /System/Library/Kernels/kernel`. A match means nothing to do.
-2. Otherwise open the kernel in IDA (`Tools/ccd/ida_sched.py`, `Tools/ccd/ida_csp_dis.py` dump the function and
-   its bytes), check that every offset in the list above is still read the same way, in
-   `choose_starting_pset`, `choose_processor_smt`, `pset_update_processor_state` and `thread_setrun`, and
-   update `kSigHead`, `kSigMore`, `kSmtSig` and the `k...` offsets in `AMDCCDScheduler.cpp` together. Never relax
-   a signature to make it fit.
+1. `python3 -I check_layout.py /System/Library/Kernels/kernel` (or the installer's `BootKernelExtensions.kc`).
+   A match means nothing to do.
+2. Otherwise open the kernel in IDA (`Tools/ccd/ida_port.py` dumps `choose_starting_pset` with its bytes and
+   decompiles the CPU picker, `processor_set_primary` and `thread_setrun`), check that every field in the table
+   above is still read the same way, and add a table to `kLayouts` in `AMDCCDScheduler.cpp` (`kHead…`, `kMore…`,
+   `kPick…` and the offsets). `check_layout.py` and the tests pick it up by themselves. Never relax a signature
+   to make it fit.
 
 ---
 
@@ -248,13 +281,16 @@ Verified (2026-11-15, 5900XT, 25G342):
 
 - The cause, from source and Hex-Rays of the running kernel, including the `pset_hint` rewrite and the maps
   `choose_processor_smt` uses.
-- Boots with 0.2.0, 0.2.1 and 0.2.2: the hook installs (`state 1`), no panic; the counters move.
+- Boots with 0.2.0, 0.2.1, 0.2.2 and 0.3.0: the hook installs (`state 1`; 0.3.0 logs the 26.7.2-26.7.3
+  table), no panic; the counters move.
 - The results above, measured with the kext itself (not the shim).
-- The signature matches the running kernel (`check_layout.py`); the hook tests pass under ASan/UBSan and TSan.
+- The signatures match the running kernel and the installer kernels of 14.8.9, 15.8.2, 15.8.3, 26.7.2 and
+  26.7.3 (`check_layout.py`); the hook tests pass under ASan/UBSan and TSan for every table.
 
 Not verified yet:
 
 - Apps other than the Node pool and zstd: browsers, Electron apps, games and audio were not measured.
-- Any CPU other than the 5900XT, and any kernel other than 25G342.
+- Any CPU other than the 5900XT.
+- A boot on Sonoma or Sequoia: those tables come from the installer kernels and the tests only.
 - Long-term use: so far, one day of boots.
 - The switch in the app end to end with this version.

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.83.1] — 2026-11-15 — kexts 3.40.1 + AMDCCDScheduler 0.3.0
+
+**One CCD per app now on macOS Sonoma, Sequoia and Tahoe.**
+
+### AMDCCDScheduler 0.3.0
+
+- **Three kernels instead of one.** 0.2.2 only hooked macOS 26.7.3. 0.3.0 recognizes the kernels of macOS 14.8.9 (23J631), 15.8.2 and 15.8.3 (24H232 and 24H241 ship the same kernel) and 26.7.2 and 26.7.3 (25G332 and 25G342, also one kernel). The scheduler function it hooks does the same thing in all three; what moved between versions are the offsets of the fields it reads. Each kernel gets its own table, taken from that kernel in IDA: the offsets, the bytes of the function, and the spot where the kernel's CPU picker tests for an idle physical core (on Sonoma that test lives in `choose_processor`, since `choose_processor_smt` does not exist yet). At boot the kext uses the table whose bytes match; on any other kernel it stays off, and `sysctl debug.ccd_log` says where each table differed.
+- **CCD count before macOS 26.** Older kernels have no variable that counts the CPU's L3 domains, so there the kext counts them in the boot node's map of processor sets.
+- **Tahoe: booted and measured again** on the 5900XT (macOS 26.7.3), same method as 1.83.0, medians:
+
+  | Load | Stock macOS | With the kext | Change |
+  |---|---|---|---|
+  | Node worker pool, 4 workers passing messages | 899 ms | **733 ms** | **−18.5%** |
+  | Node worker pool, 8 workers | 918 ms | **756 ms** | **−17.6%** |
+  | zstd, 24 threads, 1.15 GB | 7257 ms | 7285 ms | no change (ranges overlap) |
+
+  With the kext the times are the same as with 0.2.2 (733 and 756 ms against 751 and 754 ms); stock macOS was slower on this boot, so the gain came out larger. Read it as 12 to 18%, depending on the boot.
+- **Sonoma and Sequoia: not booted by us.** Each table was checked against the kernel inside Apple's own installer for that version (`check_layout.py` now reads an installer's `BootKernelExtensions.kc` directly, and every kernel matches exactly one table), and the hook tests now run against each table's offsets (141 checks, AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer). Keep a fallback EFI for the first boot, and if you can, run `sudo zsh Tools/ccd/modes.zsh` and tell us what you get.
+
+### Packaging
+
+- The DMG and `ReleaseAssets/AMDCCDScheduler-Kext.zip` carry AMDCCDScheduler 0.3.0, pinned by SHA-256; the pinned build is the one booted and measured above. The app itself only changes its version.
+
 ## [1.83.0] — 2026-11-15 — kexts 3.40.1 + AMDCCDScheduler 0.2.2 (new)
 
 **macOS now keeps each app on one CCD. Threads that work together run about 12% faster, and nothing else gets slower.**
