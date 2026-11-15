@@ -7,6 +7,8 @@ The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen process
 
 The RyzenStatus app is the user interface for both; this folder holds their source.
 
+A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.2.2, in `AMDCCDScheduler/`). It is a small Lilu plugin for CPUs with two or more CCDs: stock macOS keeps scattering each app's threads across both CCDs, and the kext gives each app a home CCD where its threads start while that CCD has a free physical core, so threads that talk to each other share one L3 cache (a Node worker pool ran about 12% faster on a 5900XT; an all-core zstd job did not change). It hooks one scheduler function only after checking its bytes, and those of the CPU picker it reads from, against the macOS build it was written for, and stays off elsewhere. Its hook logic has user-space tests in `AMDCCDScheduler/tests`. See [docs/CCD_SCHEDULER.md](../docs/CCD_SCHEDULER.md).
+
 ---
 
 ## What the driver does
@@ -54,8 +56,9 @@ Telemetry, fans, boost and deep idle work on every family the AMD Vanilla patche
 2. `VirtualSMC.kext`
 3. `AMDRyzenCPUPowerManagement.kext` (core driver, required)
 4. `SMCAMDProcessor.kext` (VirtualSMC sensor plugin)
+5. `AMDCCDScheduler.kext` (optional, experimental, multi-CCD CPUs; only needs Lilu)
 
-The prebuilt pair ships inside every RyzenStatus release, in the disk image and as `AMDRyzenCPUPowerManagement-Kexts.zip`. Install both from the same release as the app.
+The prebuilt pair ships inside every RyzenStatus release, in the disk image and as `AMDRyzenCPUPowerManagement-Kexts.zip`. Install both from the same release as the app. `AMDCCDScheduler.kext` ships in the same disk image (and as `AMDCCDScheduler-Kext.zip`); boot it the first time with a fallback EFI at hand. Its boot arguments: `-ccdoff` (do not load), `ccdmode=0` (start switched off), `ccdmode=2` (the 0.1.0 behaviour, for comparisons), `-ccddbg` (debug log).
 
 ### OpenCore requirements
 - OpenCore 0.7.1 or newer with the AMD Vanilla kernel patches.

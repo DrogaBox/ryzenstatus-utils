@@ -94,7 +94,7 @@ final class ProcessUsageService {
         return _leakingPIDs
     }
 
-    private var footprintHistory: [pid_t: [(Date, UInt64)]] = [:]
+    private var leakHistory = LeakHistory()
     private var lastLeakAnalysisTime: TimeInterval = 0
 
     private init() {}
@@ -457,8 +457,28 @@ final class ProcessUsageService {
             let memoryRows = self.groupedByApp(table.filter { $0.rssBytes > 0 }.map {
                 ProcessUsage(pid: $0.pid, name: $0.shortName, value: $0.rssBytes)
             })
-            self.finishTable(cpu: cpuRows, memory: memoryRows)
+            let leakSample = self.leakSampleIsDue() ? self.memoryByApp(table) : nil
+            self.finishTable(cpu: cpuRows, memory: memoryRows, leakSample: leakSample)
         }
+    }
+
+    private func leakSampleIsDue() -> Bool {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return leakHistory.isDue(at: Date())
+    }
+
+    /// What each app really holds, for the leak detector: the physical
+    /// footprint of its processes. Resident size only stands in for a
+    /// process that will not say (another user's), as it did before.
+    private func memoryByApp(_ table: [PSProcessRow]) -> [pid_t: UInt64] {
+        var totals: [pid_t: UInt64] = [:]
+        for row in table {
+            let bytes = ProcessFootprint.bytes(of: row.pid) ?? UInt64(max(0, row.rssBytes))
+            guard bytes > 0 else { continue }
+            totals[appOwner(of: row.pid), default: 0] += bytes
+        }
+        return totals
     }
 
     // MARK: - Consolidation
@@ -628,7 +648,7 @@ final class ProcessUsageService {
 
     /// Stores both rankings from one `ps` run; nil keeps the old caches (a
     /// failed run serves the stale rows until the next one).
-    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?) {
+    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?, leakSample: [pid_t: UInt64]? = nil) {
         cacheLock.lock()
         tableLoading = false
         guard let cpu, let memory else {
@@ -637,7 +657,7 @@ final class ProcessUsageService {
         }
         cpuCache = cachedRows(from: cpu)
         memoryCache = cachedRows(from: memory)
-        let historyToAnalyze = updateFootprintHistory(rows: memory)
+        let historyToAnalyze = recordLeakSample(leakSample)
         cacheLock.unlock()
         if let historyToAnalyze { updateLeakingPIDs(from: historyToAnalyze) }
         DispatchQueue.main.async {
@@ -647,26 +667,17 @@ final class ProcessUsageService {
 
     /// Called with cacheLock held (from finishTable). Returns a snapshot of the
     /// history when a leak analysis is due; the caller runs it after unlocking.
-    private func updateFootprintHistory(rows: [ProcessUsage]) -> [pid_t: [(Date, UInt64)]]? {
-        let now = Date()
-        let activePIDs = Set(rows.map(\.pid))
-        let cutoff = now.addingTimeInterval(-1800)
-
-        for row in rows {
-            var series = footprintHistory[row.pid] ?? []
-            series.append((now, UInt64(max(0, row.value))))
-            series = series.filter { $0.0 >= cutoff }
-            footprintHistory[row.pid] = series
-        }
-        footprintHistory = footprintHistory.filter { activePIDs.contains($0.key) }
+    private func recordLeakSample(_ sample: [pid_t: UInt64]?) -> [pid_t: [(Date, UInt64)]]? {
+        guard let sample else { return nil }
+        leakHistory.record(sample, at: Date())
 
         let uptime = ProcessInfo.processInfo.systemUptime
         guard uptime - lastLeakAnalysisTime >= 30 else { return nil }
         lastLeakAnalysisTime = uptime
-        return footprintHistory
+        return leakHistory.series
     }
 
-    /// LeakDetector.analyze runs a linear regression over thousands of points, so
+    /// LeakDetector.analyze runs a linear regression over every app's series, so
     /// it runs outside cacheLock or it would block topCPU/topGPU/topMemory callers.
     private func updateLeakingPIDs(from history: [pid_t: [(Date, UInt64)]]) {
         var newLeaking = Set<pid_t>()

@@ -221,6 +221,63 @@ else
         exit 1
     fi
 fi
+# AMDCCDScheduler.kext: the experimental third kext (docs/CCD_SCHEDULER.md). It ships
+# next to the pair above but is checked on its own, with the same two provenance
+# paths: a local build only with ALLOW_LOCAL_KEXTS=1 (hashes printed, not enforced),
+# otherwise ReleaseAssets/AMDCCDScheduler-Kext.zip with its content pinned. A DMG
+# that has the pair but lost this kext is refused, unless ALLOW_NO_CCD_KEXT=1.
+KEXT_CCD_LOCAL="SMCAMDProcessor_Source/build/AMDCCDScheduler/AMDCCDScheduler.kext"
+KEXT_CCD_ZIP="ReleaseAssets/AMDCCDScheduler-Kext.zip"
+KEXT_PIN_CCD_MACHO="9cb771e511f5964443a2a1871fbb4328d4b44adf9c828b1082886dc9d040a219"
+KEXT_PIN_CCD_PLIST="1f4e18598038be598f237ea1519bea2d4f55af6f4324b0d8b36a93b5bbeb0706"
+if [[ -d "$STAGING/Kexts" ]]; then
+    CCD_SOURCE=""
+    if [[ "${ALLOW_LOCAL_KEXTS:-0}" == "1" && -d "$KEXT_CCD_LOCAL" ]]; then
+        ditto "$KEXT_CCD_LOCAL" "$STAGING/Kexts/AMDCCDScheduler.kext"
+        CCD_SOURCE="local"
+    elif [[ -f "$KEXT_CCD_ZIP" ]]; then
+        CCD_ROOTS="$(zipinfo -1 "$KEXT_CCD_ZIP" | awk -F/ '{print $1}' | sort -u)"
+        if [[ "$CCD_ROOTS" != "AMDCCDScheduler.kext" ]]; then
+            echo "✗ Error: $KEXT_CCD_ZIP must contain exactly AMDCCDScheduler.kext at its root." >&2
+            exit 1
+        fi
+        ditto -x -k "$KEXT_CCD_ZIP" "$STAGING/Kexts"
+        CCD_SOURCE="zip"
+    fi
+    if [[ -n "$CCD_SOURCE" ]]; then
+        CCD_K="$STAGING/Kexts/AMDCCDScheduler.kext"
+        if [[ ! -f "$CCD_K/Contents/Info.plist" || ! -f "$CCD_K/Contents/MacOS/AMDCCDScheduler" ]]; then
+            echo "✗ Error: AMDCCDScheduler.kext is incomplete in the staged DMG." >&2
+            exit 1
+        fi
+        CCD_OK="1"
+        CCD_MACHO_SHA="$(shasum -a 256 "$CCD_K/Contents/MacOS/AMDCCDScheduler" | awk '{print $1}')"
+        CCD_PLIST_SHA="$(shasum -a 256 "$CCD_K/Contents/Info.plist" | awk '{print $1}')"
+        [[ "$CCD_MACHO_SHA" == "$KEXT_PIN_CCD_MACHO" ]] || { CCD_OK=""; echo "    ccd Mach-O: $CCD_MACHO_SHA" >&2; }
+        [[ "$CCD_PLIST_SHA" == "$KEXT_PIN_CCD_PLIST" ]] || { CCD_OK=""; echo "    ccd Info.plist: $CCD_PLIST_SHA" >&2; }
+        if ! codesign --verify --deep --strict "$CCD_K" 2>/dev/null; then
+            CCD_OK=""
+            echo "    AMDCCDScheduler.kext: code signature does not verify" >&2
+        fi
+        CCD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CCD_K/Contents/Info.plist" 2>/dev/null || echo unknown)"
+        if [[ "$CCD_SOURCE" == "local" ]]; then
+            echo "  ⚠ AMDCCDScheduler.kext $CCD_VERSION from a LOCAL BUILD — content pins NOT enforced."
+        elif [[ -z "$CCD_OK" ]]; then
+            echo "✗ Error: AMDCCDScheduler.kext in $KEXT_CCD_ZIP does not match its pins." >&2
+            echo "  For an intentional update, refresh KEXT_PIN_CCD_* in the same commit as the zip." >&2
+            exit 1
+        else
+            echo "  ✓ AMDCCDScheduler.kext $CCD_VERSION added to DMG (zip, pins + code signature verified)"
+        fi
+    elif [[ -n "${ALLOW_NO_CCD_KEXT:-}" ]]; then
+        echo "  ⚠ AMDCCDScheduler.kext not staged — continuing because ALLOW_NO_CCD_KEXT is set." >&2
+    else
+        echo "✗ Error: AMDCCDScheduler.kext is missing ($KEXT_CCD_ZIP not found)." >&2
+        echo "  Build it with SMCAMDProcessor_Source/AMDCCDScheduler/build.sh and pack it there," >&2
+        echo "  or set ALLOW_NO_CCD_KEXT=1 for an image without it." >&2
+        exit 1
+    fi
+fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
 # Seed the window layout from a checked-in .DS_Store.

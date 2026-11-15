@@ -20,6 +20,7 @@ enum HardwareLayerTests {
         pmTableAgeAtReadTime(suite)
         cachesClear(suite)
         wiring(suite)
+        ccdSchedulerStatus(suite)
     }
 
     // MARK: - Fan write plan
@@ -402,5 +403,38 @@ enum HardwareLayerTests {
         let sensors = source("Sources/RyzenStatus/UI/Settings/SensorsView.swift", suite)
         suite.expect(sensors.contains("smcDump.rediscoverKeys()"),
                      "SMC keys are listed when the Sensors page opens")
+    }
+
+    // MARK: - AMDCCDScheduler.kext
+    private static func ccdSchedulerStatus(_ suite: TestSuite) {
+        let s = CCDSchedulerStatus.parse("state 1 mode 1 psets 2 new 10 kept 5 same 3 nohint 2")
+        suite.expect(s == CCDSchedulerStatus(rawState: 1, mode: 1, psets: 2, newThreads: 10, keptHome: 5,
+                                             sameAnyway: 3, noHint: 2),
+                     "debug.ccd_stat is parsed key by key")
+        suite.expect(s?.isActive == true, "state 1 with mode 1 is active")
+        suite.expect(s?.busyHome == nil, "a kext without the full counter leaves it out")
+        let full = CCDSchedulerStatus.parse("state 1 mode 1 psets 2 new 10 kept 5 same 3 nohint 2 full 4")
+        suite.expect(full?.busyHome == 4 && full?.keptHome == 5, "0.2.1 and later: full is read")
+        suite.expect(CCDSchedulerStatus.parse("state 1 mode 1 psets 2 new 10 kept 5 same 3 nohint 2 full x")?.busyHome == nil,
+                     "a malformed full counter is left out, the rest still parses")
+        let legacy = CCDSchedulerStatus.parse("state 1 mode 2 psets 2 new 0 kept 0 same 0 nohint 0 full 0")
+        suite.expect(legacy?.isLegacyMode == true && legacy?.isActive == false,
+                     "mode 2 is the 0.1.0 comparison mode, not the active mode")
+        suite.expect(CCDSchedulerStatus.parse("state 1 mode 0 psets 2 new 0 kept 0 same 0 nohint 0")?.isActive == false,
+                     "mode 0 is hooked but not active")
+        suite.expect(CCDSchedulerStatus.parse("state 3 mode 1 psets 2 new 0 kept 0 same 0 nohint 0")?.state == .layoutMismatch,
+                     "state 3 is a kernel the kext does not know")
+        suite.expect(CCDSchedulerStatus.parse("state 1 mode 1 psets 2 new 10") == nil,
+                     "a string missing counters is rejected, not filled with zeros")
+        suite.expect(CCDSchedulerStatus.parse("state x mode 1 psets 2 new 0 kept 0 same 0 nohint 0") == nil,
+                     "a malformed number is rejected")
+        suite.expect(CCDSchedulerStatus.parse("state 9 mode 1 psets 2 new 0 kept 0 same 0 nohint 0 extra 4")?.state == nil,
+                     "an unknown state stays unknown and extra keys are ignored")
+        suite.expect(CCDSchedulerStatus.l3Domains(cacheConfig: [32, 2, 2, 16, 0], logicalCPUs: 32) == 2,
+                     "5900XT: 16 logical CPUs per L3 -> 2 CCDs")
+        suite.expect(CCDSchedulerStatus.l3Domains(cacheConfig: [16, 2, 2, 16, 0], logicalCPUs: 16) == 1,
+                     "single-CCD part -> 1")
+        suite.expect(CCDSchedulerStatus.l3Domains(cacheConfig: [32, 2, 2, 0], logicalCPUs: 32) == 1,
+                     "no L3 sharing data -> 1, never a division by zero")
     }
 }

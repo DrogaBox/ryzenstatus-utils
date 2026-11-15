@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.83.0] — 2026-11-15 — kexts 3.40.1 + AMDCCDScheduler 0.2.2 (new)
+
+**macOS now keeps each app on one CCD. Threads that work together run about 12% faster, and nothing else gets slower.**
+
+### New: AMDCCDScheduler.kext
+
+On a Ryzen with two CCDs (5900X, 5950X, 5900XT, 7900X, 7950X, 9900X, 9950X and similar) every CCD has its own L3 cache. When two threads of one app sit on different CCDs, every piece of data they pass crosses the Infinity Fabric: on a 5900XT a round trip takes about **155 ns instead of 65 ns**. Stock macOS puts them there all the time. It knows where the CCDs are, but it uses them to spread work: each new thread goes to the *other* CCD, and after every placement the kernel moves the app's "last CCD" marker to wherever that thread landed, so an app's threads keep flipping between both.
+
+AMDCCDScheduler fixes that inside the kernel scheduler. As far as we could find, nothing else does this on macOS.
+
+- **Each app gets a home CCD** the first time it runs, chosen the way macOS would choose it, so apps still alternate and the load stays balanced across CCDs. Every time one of its threads wakes up, the search for a CPU starts on that CCD.
+- **Only while the home CCD has a free physical core.** When an app fills its CCD, its threads spread to the other one exactly as before. An idle SMT sibling of a busy core does not count; this is the detail that made the difference (see the version history in the docs).
+- **Untouched:** realtime threads (audio, video), threads an app pinned itself, kernel threads.
+- **Measured on a Ryzen 9 5900XT, macOS 26.7.3**, the kext switched off and on in the same session, order rotated, medians:
+
+  | Load | Stock macOS | With the kext | Change |
+  |---|---|---|---|
+  | Node worker pool, 4 workers passing messages | 850 ms | **751 ms** | **−11.6%** |
+  | Node worker pool, 8 workers | 855 ms | **754 ms** | **−11.8%** |
+  | zstd, 24 threads, 1.15 GB | 7286 ms | 7293 ms | no change |
+
+  The Node ranges do not overlap (8 workers: 744–766 ms with the kext, 785–1118 ms without), so the gain is real and times are much steadier. On another boot the same pool gained 14%. Work that needs every core, like zstd here, still uses both CCDs and loses nothing. Other apps (browsers, Electron, games, audio) were not measured.
+- **Safe by design.** It is a Lilu plugin that hooks one scheduler function, and only after checking it byte for byte, plus the 18 bytes of the CPU picker whose fields it reads, against the macOS build it was written for (26.7.3, 25G342). On any other build it stays off and `sysctl debug.ccd_log` says why. `-ccdoff` keeps it from loading, `ccdmode=0` starts it off, and `sysctl -w debug.ccd_mode=0` turns it off live. The hook logic has its own tests (34 checks, built with AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer).
+- Booted and measured on one machine so far: keep a fallback EFI for the first boot. Full write-up, every measurement, the kernel details and how to port it: [docs/CCD_SCHEDULER.md](docs/CCD_SCHEDULER.md). Repeat the measurement on your machine with `sudo zsh Tools/ccd/modes.zsh`.
+
+### New in the app
+
+- **Settings › AMD Ryzen Power › CCD scheduler**: whether the kext is active, how many CCDs the CPU has, and what it did since boot: placements checked, threads moved to their app's CCD, threads already there, apps given a CCD, and placements left to macOS because the CCD was busy. A switch turns it off and on until the next restart (asks for your password), and the kext's own log explains why it did not install on an unsupported macOS. On a multi-CCD CPU without the kext, the section says what it would do; on single-CCD CPUs it does not appear. All 15 languages.
+
+### Packaging
+
+- The DMG's `Kexts` folder now has three kexts. `AMDCCDScheduler.kext` 0.2.2 comes from `ReleaseAssets/AMDCCDScheduler-Kext.zip`, with its binary and Info.plist pinned by SHA-256 like the other two; `make-dmg.sh` refuses an image where it is missing or does not match. The pinned build is the one booted and measured above.
+
+## [1.82.2] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The widget style holds its place.**
+
+### Fixed
+
+- **Widgets vanishing from the System panel**: choosing the widget style with the classic CPU and GPU cards hidden left the panel with no widgets at all, because the widgets asked the classic cards' switches whether to show. They now answer to their own.
+- **Process lists that stood still**: the top processes in the CPU, memory and GPU widgets were read when the panel opened and almost never again, so they kept showing what was busy at that moment. They now follow the refresh interval set in Settings.
+- **Temperatures ignored the unit**: the widgets always showed Celsius. They follow the unit chosen in Settings.
+- **Readings that were not there**: a missing CPU or GPU frequency showed as 0.0 GHz or repeated the card's title. It now shows nothing.
+- **Switches that did nothing**: in the widget style the edit mode listed the classic Temperatures and Memory blocks, which that style never shows. They are gone from it, since the widgets carry both.
+
+### Improved
+
+- **Lighter widgets**: only the lists on screen are read, so a hidden card costs nothing and a closed panel reads none. Rows redraw only when they change, and app icons come from the shared cache instead of being looked up on every redraw.
+- **Widget details**: cards of a metric family turned off in the hub leave the widget style, as the classic cards do. The core grid dims with its CPU card while arranging, Reset in the System panel also restores the widget cards and their order, and process rows show the full name on hover.
+
+## [1.82.1] — 2026-11-13 — kexts 3.40.1 (No kext changes)
+
+**The leak warning tells the truth.**
+
+### Fixed
+
+- **False memory-leak warnings**: the process monitor judged leaks by resident size, which also counts memory an app has already freed and the system has not taken back yet. An app that allocates and frees a lot, this one included, could be marked as leaking after twenty minutes while the memory it really held stayed flat. Leaks are now judged by physical footprint, the figure Activity Monitor shows as Memory. Processes of other users, which do not report it, keep the old measure.
+
+### Improved
+
+- **Lighter process monitor**: the memory history behind the leak warning takes one reading every ten seconds instead of one a second, and no longer rebuilds every app's history on each refresh. With the monitor open that was several megabytes of memory churned every second.
+
 ## [1.82.0] — 2026-11-12 — kexts 3.40.1 (No kext changes)
 
 **The fair comes to the companions, and a big round of tool updates.** The AMD side is untouched; this release brings twenty-four new things for the companions, each with its own show, and new features and fixes across the rest of the app.

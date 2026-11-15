@@ -39,7 +39,11 @@ struct SystemSection: View {
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
     @AppStorage(DefaultsKey.monitorGraphMemory) private var graphMemory = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
-    @AppStorage("panelViewStyle") private var panelViewStyle = "cards"
+    @AppStorage(DefaultsKey.panelViewStyle) private var panelViewStyle = "cards"
+    @AppStorage(DefaultsKey.panelWidgetShowCPU) private var widgetCPU = true
+    @AppStorage(DefaultsKey.panelWidgetShowGPU) private var widgetGPU = true
+    @AppStorage(DefaultsKey.panelWidgetShowMemory) private var widgetMemory = true
+    @AppStorage(DefaultsKey.panelWidgetShowCores) private var widgetCores = true
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.menuBarCPU) private var menuBarCPU = true
     @AppStorage(DefaultsKey.menuBarGPU) private var menuBarGPU = true
@@ -165,30 +169,40 @@ struct SystemSection: View {
     }
 
     private var usageVisible: Bool {
-        (sysCPU && cpuAvailable) || (sysGPU && gpuAvailable)
+        // The widgets have switches of their own. The classic cards' ones say
+        // nothing about them: with those off, the widgets used to vanish whole.
+        if panelViewStyle == "istats" {
+            return IStatsCardKind.anyVisible(.init(cpu: widgetCPU, cores: widgetCores,
+                                                   memory: widgetMemory, gpu: widgetGPU),
+                                             families: .current)
+        }
+        return (sysCPU && cpuAvailable) || (sysGPU && gpuAvailable)
             || (sysBattery && batteryAvailable && monitor.snapshot.power?.chargePercent != nil)
     }
 
+    /// The widgets carry the temperatures and the memory in their own
+    /// cards, so those two blocks have no place in that style: not on the
+    /// panel and not as rows of the edit mode, where their switches did
+    /// nothing.
+    private func belongsToStyle(_ block: Block) -> Bool {
+        panelViewStyle != "istats" || (block != .temps && block != .memory)
+    }
+
     private var visibleBlocks: [Block] {
-        if panelViewStyle == "istats" {
-            return orderedBlocks.filter { block in
-                guard isBlockAvailable(block) && isVisible(block) else { return false }
-                return block != .temps && block != .memory
-            }
-        }
-        return orderedBlocks.filter { isBlockAvailable($0) && isVisible($0) }
+        orderedBlocks.filter { isBlockAvailable($0) && belongsToStyle($0) && isVisible($0) }
     }
 
     private func blocks(editing: Bool) -> [Block] {
-        if panelViewStyle == "istats" && !editing {
-            return visibleBlocks
-        }
-        return editing ? orderedBlocks.filter(isBlockAvailable) : visibleBlocks
+        editing ? orderedBlocks.filter { isBlockAvailable($0) && belongsToStyle($0) } : visibleBlocks
     }
 
     private func isBlockAvailable(_ block: Block) -> Bool {
         switch block {
-        case .temps, .usage: return cpuAvailable || gpuAvailable || batteryAvailable
+        case .temps: return cpuAvailable || gpuAvailable || batteryAvailable
+        // The widget style keeps the memory card in this block too.
+        case .usage:
+            return cpuAvailable || gpuAvailable || batteryAvailable
+                || (panelViewStyle == "istats" && memoryAvailable)
         case .memory: return memoryAvailable
         case .alerts, .uptime: return true
         case .connectedDevices: return AppFeature.connectedDevices.isAvailable
@@ -232,6 +246,11 @@ struct SystemSection: View {
         sysAlerts = true
         sysUptime = true
         sysConnectedDevices = true
+        widgetCPU = true
+        widgetGPU = true
+        widgetMemory = true
+        widgetCores = true
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.panelWidgetOrder)
     }
 
     @ViewBuilder
