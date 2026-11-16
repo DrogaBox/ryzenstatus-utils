@@ -3345,6 +3345,8 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
         lastPWMAssertMs[i] = 0;
     }
     fanTelemetryLastMs = 0;
+    firmwareTempLastMs = 0;
+    firmwareTempTrustedMs = 0;
     // Reset per-curve hysteresis state on re-probe
     for (int i = 0; i < MAX_FAN_CURVES; i++) {
         lastAppliedTemp[i] = 0.0f;
@@ -3396,6 +3398,7 @@ void AMDRyzenCPUPowerManagement::resumeSuperIO() {
     if (superIO) {
         superIO->resume();
         fanTelemetryLastMs = 0;
+        firmwareTempLastMs = 0;
         for (size_t i = 0; i < kMAX_FANS; i++) {
             lastPWMAssertMs[i] = 0;
         }
@@ -3410,8 +3413,10 @@ void AMDRyzenCPUPowerManagement::refreshFanTelemetryIfStale() {
     fanTelemetryLastMs = now;
     // RPMs first: under firmware control the duty register reads 0 and
     // updateFanControl() estimates the duty from the tachometer just read.
+    superIO->beginAccess();
     superIO->updateFanRPMS();
     superIO->updateFanControl();
+    superIO->endAccess();
 
     int fans = superIO->getNumberOfFans();
     for (int i = 0; i < (int)kMAX_FANS; i++) {
@@ -3434,6 +3439,29 @@ uint32_t AMDRyzenCPUPowerManagement::fanRPM(int fan) {
     return fanRPMCache[fan];
 }
 
+void AMDRyzenCPUPowerManagement::feedFirmwareCPUTemp(float cpuTemp, uint64_t nowMs) {
+    if (nowMs == 0) nowMs = 1;
+    uint8_t value;
+    if (isTempValid(cpuTemp)) {
+        firmwareTempTrustedMs = nowMs;
+        const float rounded = cpuTemp + 0.5f;
+        value = rounded <= 0.0f ? 0 : (uint8_t)rounded;
+    } else {
+        if (firmwareTempTrustedMs == 0) firmwareTempTrustedMs = nowMs;
+        if (nowMs - firmwareTempTrustedMs < kFIRMWARE_TEMP_STALE_MS) return;
+        value = kFIRMWARE_TEMP_FAILSAFE_C;
+    }
+
+    if (firmwareTempLastMs != 0) {
+        const uint64_t age = nowMs - firmwareTempLastMs;
+        if (age < kFIRMWARE_TEMP_MIN_MS) return;
+        if (value == firmwareTempLast && age < kFAN_REASSERT_MS) return;
+    }
+    if (!superIO->feedCPUTemperature(value)) return;
+    firmwareTempLast = value;
+    firmwareTempLastMs = nowMs;
+}
+
 void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     if (!superIOLock) return;
     IOLockLock(superIOLock);
@@ -3447,6 +3475,8 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     float gpuTemp = gpuTempC;
 
     uint64_t now = getCurrentTimeNs();
+
+    feedFirmwareCPUTemp(cpuTemp, now / 1000000);
 
     // 2. Smooth temperature per curve once before evaluating fan loop
     //
@@ -3491,6 +3521,10 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     }
 
     const int fanCount = superIO->getNumberOfFans();
+    // The chip is taken once for every fan written this tick (see
+    // ISSuperIOSMCFamily::beginAccess) and not at all on a tick that writes
+    // nothing.
+    bool chipTaken = false;
     for (int fanIdx = 0; fanIdx < fanCount && fanIdx < (int)kMAX_FANS; fanIdx++) {
         int8_t curveIdx = fanToCurveMap[fanIdx];
         if (curveIdx < 0 || curveIdx >= MAX_FAN_CURVES) {
@@ -3504,6 +3538,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         // produced a reading inside the valid Zen window this tick, so the
         // fan gets the audible failsafe duty instead of lut[0].
         if (!curveSmoothedValid[curveIdx]) {
+            if (!chipTaken) { superIO->beginAccess(); chipTaken = true; }
             superIO->overrideFanControl(fanIdx, kFAILSAFE_PWM);
             lastAppliedPWM[fanIdx] = kFAILSAFE_PWM;
             lastPWMAssertMs[fanIdx] = 0;
@@ -3594,6 +3629,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             || nowMs - lastPWMAssertMs[fanIdx] >= kFAN_REASSERT_MS;
         if (targetPWM == 0) {
             if (mustWrite) {
+                if (!chipTaken) { superIO->beginAccess(); chipTaken = true; }
                 superIO->setDefaultFanControl(fanIdx);
                 lastPWMAssertMs[fanIdx] = nowMs ? nowMs : 1;
             }
@@ -3601,6 +3637,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             lastAppliedTempSeeded[curveIdx] = false;
         } else {
             if (mustWrite) {
+                if (!chipTaken) { superIO->beginAccess(); chipTaken = true; }
                 superIO->overrideFanControl(fanIdx, targetPWM);
                 lastPWMAssertMs[fanIdx] = nowMs ? nowMs : 1;
             }
@@ -3612,6 +3649,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         }
         lastPWMUpdateTime[fanIdx] = now;
     }
+    if (chipTaken) superIO->endAccess();
     IOLockUnlock(superIOLock);
 }
 

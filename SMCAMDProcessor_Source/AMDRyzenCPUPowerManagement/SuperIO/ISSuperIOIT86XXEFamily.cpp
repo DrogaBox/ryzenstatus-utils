@@ -7,11 +7,24 @@
 
 #include "ISSuperIOIT86XXEFamily.hpp"
 
-ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock)
+namespace {
+// One hand-over of the chip for the lifetime of the object; nests.
+struct ChipAccess {
+    ISSuperIOIT86XXEFamily &chip;
+    explicit ChipAccess(ISSuperIOIT86XXEFamily &c) : chip(c) { chip.beginAccess(); }
+    ~ChipAccess() { chip.endAccess(); }
+};
+}
+
+ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock,
+                                               uint8_t ecConfig, uint8_t smbusBits)
 {
     lpcPortSel = psel;
     chipAddr = addr;
     this->gpioAddr = gpioAddr;
+    ecSpecialConfig = ecConfig;
+    smbusBitmap = smbusBits;
+    ChipAccess access(*this);
 
     switch (chipIntel)
     {
@@ -47,6 +60,21 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
         fanDefaultControlMode[i] = readByte(regPwmCtrl[i]);
         fanDefaultExtControlMode[i] = readByte(kFAN_PWM_CTRL_EXT_REGS[i]);
     }
+
+    if (allowUnlock && chipIntel == CHIP_IT8665E) {
+        const uint8_t source = static_cast<uint8_t>(readReg(kTEMP_SRC1_REG) & 0x0f);
+        temp1Written = source == kTEMP_SRC_WRITTEN;
+        IOLog("IT8665E temperature input 1 source 0x%x%s\n", source, temp1Written ? ", written by this driver" : "");
+    }
+}
+
+bool ISSuperIOIT86XXEFamily::feedCPUTemperature(uint8_t celsius)
+{
+    if (!temp1Written)
+        return false;
+    ChipAccess access(*this);
+    writeByte(kTEMP1_REG, celsius > kTEMP1_MAX ? kTEMP1_MAX : celsius);
+    return true;
 }
 
 // ITE MB PnP configuration mode, as Linux it87 / LibreHardwareMonitor IT87:
@@ -121,11 +149,100 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel, b
             return nullptr;
         }
 
+        // SMBus access to the hardware monitor, as firmware set it up (see
+        // the header). Left alone on port 0x4E, where this driver never
+        // leaves configuration mode, and for unprivileged probes, which
+        // must not write configuration registers.
+        uint8_t ecConfig = 0;
+        uint8_t smbusBits = 0;
+        if (allowUnlock && ISLPCPort::kREGISTER_PORTS[portSel] == 0x2E)
+        {
+            ISLPCPort::select(portSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
+            ecConfig = ISLPCPort::readByte(portSel, kSPECIAL_CFG_REG);
+            const uint8_t chipBits = (chipID == CHIP_IT8665E) ? 0x04 : 0x06;
+            smbusBits = static_cast<uint8_t>(ecConfig & chipBits);
+            IOLog("IT%04XE EC config 0x%02x, SMBus access bits 0x%02x\n", chipID, ecConfig, smbusBits);
+        }
+
         exitConfig(portSel);
-        return new ISSuperIOIT86XXEFamily(portSel, devAddr, chipID, gpioAddress, allowUnlock);
+        return new ISSuperIOIT86XXEFamily(portSel, devAddr, chipID, gpioAddress, allowUnlock, ecConfig, smbusBits);
     }
 
     return nullptr;
+}
+
+// Takes the chip from the embedded controller: SMBus access off, then the
+// bank register saved and set to bank 0, where every register this driver
+// uses lives. Linux it87 smbus_disable().
+void ISSuperIOIT86XXEFamily::beginAccess()
+{
+    if (accessDepth++ > 0 || !smbusBitmap)
+        return;
+    enterConfig(ISLPCPort::kREGISTER_PORTS[lpcPortSel]);
+    ISLPCPort::select(lpcPortSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
+    ISLPCPort::writeByte(lpcPortSel, kSPECIAL_CFG_REG, static_cast<uint8_t>(ecSpecialConfig & ~smbusBitmap));
+    exitConfig(lpcPortSel);
+    savedBank = readByte(kBANK_REG);
+    if (savedBank & 0x60)
+        writeByte(kBANK_REG, static_cast<uint8_t>(savedBank & 0x1f));
+}
+
+// Gives it back: the bank register as found, then SMBus access on again.
+// Linux it87 smbus_enable().
+void ISSuperIOIT86XXEFamily::endAccess()
+{
+    if (accessDepth <= 0)
+        return;
+    if (--accessDepth > 0 || !smbusBitmap)
+        return;
+    if (savedBank & 0x60)
+        writeByte(kBANK_REG, savedBank);
+    enterConfig(ISLPCPort::kREGISTER_PORTS[lpcPortSel]);
+    ISLPCPort::select(lpcPortSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
+    ISLPCPort::writeByte(lpcPortSel, kSPECIAL_CFG_REG, ecSpecialConfig);
+    exitConfig(lpcPortSel);
+}
+
+uint8_t ISSuperIOIT86XXEFamily::readConfig(uint8_t index)
+{
+    if (ISLPCPort::kREGISTER_PORTS[lpcPortSel] != 0x2E)
+        return 0;
+    enterConfig(ISLPCPort::kREGISTER_PORTS[lpcPortSel]);
+    ISLPCPort::select(lpcPortSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
+    const uint8_t value = ISLPCPort::readByte(lpcPortSel, index);
+    exitConfig(lpcPortSel);
+    return value;
+}
+
+uint8_t ISSuperIOIT86XXEFamily::readReg(uint16_t reg)
+{
+    if (reg & 0x1000)
+        return readConfig(static_cast<uint8_t>(reg & 0xff));
+    ChipAccess access(*this);
+    const uint8_t bank = static_cast<uint8_t>((reg >> 8) & 0x03);
+    if (!bank)
+        return readByte(reg);
+    const uint8_t bankReg = readByte(kBANK_REG);
+    writeByte(kBANK_REG, static_cast<uint8_t>((bankReg & 0x1f) | (bank << 5)));
+    const uint8_t value = readByte(reg);
+    writeByte(kBANK_REG, bankReg);
+    return value;
+}
+
+void ISSuperIOIT86XXEFamily::writeReg(uint16_t reg, uint8_t val)
+{
+    if (reg & 0xfc00)
+        return;
+    ChipAccess access(*this);
+    const uint8_t bank = static_cast<uint8_t>((reg >> 8) & 0x03);
+    if (!bank) {
+        writeByte(reg, val);
+        return;
+    }
+    const uint8_t bankReg = readByte(kBANK_REG);
+    writeByte(kBANK_REG, static_cast<uint8_t>((bankReg & 0x1f) | (bank << 5)));
+    writeByte(reg, val);
+    writeByte(kBANK_REG, bankReg);
 }
 
 uint8_t ISSuperIOIT86XXEFamily::readByte(uint16_t addr)
@@ -185,6 +302,7 @@ uint8_t ISSuperIOIT86XXEFamily::getFanThrottle(int fan)
 
 void ISSuperIOIT86XXEFamily::updateFanRPMS()
 {
+    ChipAccess access(*this);
     // Same validation as ISSuperIONCT67XXFamily::updateFanRPMS. The low and
     // extended count bytes are two separate reads, so they can tear across a
     // tach update, and a count of 0x40 alone gives ~10,500 RPM. One such sample
@@ -232,6 +350,7 @@ void ISSuperIOIT86XXEFamily::updateFanRPMS()
 
 void ISSuperIOIT86XXEFamily::updateFanControl()
 {
+    ChipAccess access(*this);
     for (int i = 0; i < activeFansOnSystem; i++)
     {
         // kFAN_PWM_CTRL_REGS: contains the PWM control mode byte (bit 7 = SmartGuardian/auto)
@@ -257,10 +376,14 @@ void ISSuperIOIT86XXEFamily::overrideFanControl(int fan, uint8_t thr)
 {
     if (fan < 0 || fan >= activeFansOnSystem)
         return;
+    ChipAccess access(*this);
+    // Channels 0-2 only, as LibreHardwareMonitor does. Channels 3-5 have no
+    // such bit: the old code set bits 0-2 of register 0x14 for them, which
+    // belong to channels 0-2 on the chips that use that register at all and
+    // which neither Linux it87 nor LibreHardwareMonitor writes. Measured on an
+    // IT8665E: a manual duty on channel 4 works without it.
     if (fan < 3) {
         writeByte(kFAN_MAIN_CTRL_REG, static_cast<uint8_t>(readByte(kFAN_MAIN_CTRL_REG) | (1 << fan)));
-    } else {
-        writeByte(0x14, static_cast<uint8_t>(readByte(0x14) | (1 << (fan - 3))));
     }
     writeByte(regPwmCtrl[fan], static_cast<uint8_t>(fanDefaultControlMode[fan] & 0x7F));
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], thr);
@@ -273,6 +396,7 @@ void ISSuperIOIT86XXEFamily::resume()
 {
     if (!tach16BitRequested)
         return;
+    ChipAccess access(*this);
     const uint8_t mode = readByte(0x0c);
     if ((mode & 0x3f) != 0x3f) {
         writeByte(0x0c, static_cast<uint8_t>(mode | 0x3f));
@@ -283,11 +407,11 @@ void ISSuperIOIT86XXEFamily::setDefaultFanControl(int fan)
 {
     if (fan < 0 || fan >= activeFansOnSystem)
         return;
-    // Clear override bit (restore BIOS automatic control)
+    ChipAccess access(*this);
+    // Clear override bit (restore BIOS automatic control). Channels 0-2
+    // only; see overrideFanControl().
     if (fan < 3) {
         writeByte(kFAN_MAIN_CTRL_REG, static_cast<uint8_t>(readByte(kFAN_MAIN_CTRL_REG) & ~(1 << fan)));
-    } else {
-        writeByte(0x14, static_cast<uint8_t>(readByte(0x14) & ~(1 << (fan - 3))));
     }
     writeByte(regPwmCtrl[fan], fanDefaultControlMode[fan]);
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], fanDefaultExtControlMode[fan]);
