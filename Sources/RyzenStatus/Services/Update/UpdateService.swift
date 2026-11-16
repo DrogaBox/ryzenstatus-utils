@@ -31,6 +31,10 @@ final class UpdateService: ObservableObject {
     private var downloadURL: URL?
     /// Size the release advertises for the asset, used to bound the download.
     private var downloadExpectedBytes: Int64?
+    /// SHA-256 GitHub computed for the asset when it was uploaded. Releases
+    /// are ad-hoc signed, so this is what ties the downloaded DMG to the
+    /// published release before the installer accepts an ad-hoc bundle.
+    private var downloadSHA256: String?
     private var refreshTimer: Timer?
     private var notifiedVersion: String?   // last release we posted a notification for
     private var downloadSession: URLSession?
@@ -170,10 +174,10 @@ final class UpdateService: ObservableObject {
         }
         let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
         let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
-        if let url = asset?.browserDownloadURL, Self.isTrustedDownloadURL(url) {
-            downloadURL = url
+        if let asset, Self.isTrustedDownloadURL(asset.browserDownloadURL) {
+            offerAsset(asset)
         } else {
-            downloadURL = nil
+            offerAsset(nil)
         }
         applyRelease(version: latest, notes: release.body, manual: false)
     }
@@ -191,16 +195,18 @@ final class UpdateService: ObservableObject {
             guard let asset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else { continue }
             guard Self.isNewer(tag, than: AppInfo.version) else { continue }
             let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
-            if Self.isTrustedDownloadURL(asset.browserDownloadURL) {
-                downloadURL = asset.browserDownloadURL
-            } else {
-                downloadURL = nil
-            }
+            offerAsset(Self.isTrustedDownloadURL(asset.browserDownloadURL) ? asset : nil)
             applyRelease(version: latest, notes: release.body, manual: false)
             return
         }
         availableNotes = nil
         state = .upToDate
+    }
+
+    private func offerAsset(_ asset: GitHubRelease.Asset?) {
+        downloadURL = asset?.browserDownloadURL
+        downloadExpectedBytes = asset?.size
+        downloadSHA256 = UpdateServiceSupport.sha256Hex(fromAssetDigest: asset?.digest)
     }
 
     private func applyRelease(version: String, notes: String?, manual: Bool) {
@@ -260,6 +266,7 @@ final class UpdateService: ObservableObject {
         state = .downloading(progress: nil)
 
         let expectedBytes = downloadExpectedBytes
+        let expectedSHA256 = downloadSHA256
         let byteLimit = UpdateInstallerSupport.downloadByteLimit(expectedBytes: expectedBytes)
         let delegate: BoundedUpdateDownloadDelegate
         do {
@@ -306,6 +313,22 @@ final class UpdateService: ObservableObject {
                         }
                         return
                     }
+                    // A DMG whose hash differs from the one GitHub published is
+                    // refused outright. Only a matching one may carry an ad-hoc
+                    // signed app; without a published hash the installer keeps
+                    // its Developer ID requirement.
+                    var digestVerified = false
+                    if let expectedSHA256 {
+                        guard UpdateServiceSupport.fileSHA256Matches(at: tempURL, expectedHex: expectedSHA256) else {
+                            try? FileManager.default.removeItem(at: tempURL)
+                            DispatchQueue.main.async {
+                                self.state = offered.map { State.available(version: $0) }
+                                    ?? .failed("SHA-256 mismatch")
+                            }
+                            return
+                        }
+                        digestVerified = true
+                    }
                     // Move out of the session's scratch space before handing off.
                     let dmgURL = FileManager.default.temporaryDirectory
                         .appendingPathComponent("RyzenStatus-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).dmg")
@@ -321,7 +344,8 @@ final class UpdateService: ObservableObject {
                     }
                     DispatchQueue.main.async {
                         self.state = .installing
-                        self.launchInstaller(dmgPath: dmgURL.path, offered: offered)
+                        self.launchInstaller(dmgPath: dmgURL.path, offered: offered,
+                                             digestVerified: digestVerified)
                     }
                 })
         } catch {
@@ -343,7 +367,9 @@ final class UpdateService: ObservableObject {
     /// safely while we exit. When the app's folder is not writable by this
     /// user (standard account with the app in /Applications), the script runs
     /// through an admin prompt instead of failing silently.
-    private func launchInstaller(dmgPath: String, offered: String?) {
+    private func launchInstaller(dmgPath: String, offered: String?, digestVerified: Bool) {
+        let allowAdhoc = UpdateInstallerSupport.allowsAdhocInstall(isDeveloperBuild: AppInfo.isDeveloperBuild,
+                                                                   digestVerified: digestVerified)
         let appPath = Bundle.main.bundlePath
         let pid = ProcessInfo.processInfo.processIdentifier
         let fm = FileManager.default
@@ -362,22 +388,22 @@ final class UpdateService: ObservableObject {
         let lastFailure = UserDefaults.standard.string(forKey: DefaultsKey.updateLastInstallFailure)
         if isWritable && !UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: lastFailure) {
             launchUserInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
-                                resultPath: resultURL.path, offered: offered)
+                                resultPath: resultURL.path, offered: offered, allowAdhoc: allowAdhoc)
         } else {
             // Either the folder is not writable, or the last attempt died at
             // the copy/swap step: retry with admin rights instead of failing
             // the same way twice.
             launchAdminInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
-                                 resultPath: resultURL.path, offered: offered)
+                                 resultPath: resultURL.path, offered: offered, allowAdhoc: allowAdhoc)
         }
     }
 
     private func launchUserInstaller(appPath: String, dmgPath: String, pid: Int32,
-                                     resultPath: String, offered: String?) {
+                                     resultPath: String, offered: String?, allowAdhoc: Bool) {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ryzenstatus-update-\(pid)-\(UUID().uuidString).sh")
         do {
-            try UpdateInstallerSupport.installerScript(allowAdhoc: AppInfo.isDeveloperBuild)
+            try UpdateInstallerSupport.installerScript(allowAdhoc: allowAdhoc)
                 .write(to: scriptURL, atomically: true, encoding: .utf8)
         } catch {
             failInstall(dmgPath: dmgPath, message: error.localizedDescription)
@@ -408,14 +434,14 @@ final class UpdateService: ObservableObject {
     /// with nohup so the prompt returns while the installer waits for our
     /// exit.
     private func launchAdminInstaller(appPath: String, dmgPath: String, pid: Int32,
-                                      resultPath: String, offered: String?) {
+                                      resultPath: String, offered: String?, allowAdhoc: Bool) {
         let command = UpdateInstallerSupport.elevatedInstallCommand(appPath: appPath,
                                                                     dmgPath: dmgPath,
                                                                     pid: pid,
                                                                     resultPath: resultPath,
                                                                     uid: getuid(),
                                                                     expectedVersion: offered ?? "",
-                                                                    allowAdhoc: AppInfo.isDeveloperBuild)
+                                                                    allowAdhoc: allowAdhoc)
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptUpdate) { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -661,11 +687,13 @@ private struct GitHubRelease: Decodable {
         let name: String
         let browserDownloadURL: URL
         let size: Int64?
+        let digest: String?
 
         enum CodingKeys: String, CodingKey {
             case name
             case browserDownloadURL = "browser_download_url"
             case size
+            case digest
         }
     }
 }
