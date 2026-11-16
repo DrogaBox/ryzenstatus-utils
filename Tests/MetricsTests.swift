@@ -13641,6 +13641,24 @@ struct MetricsTests {
                        && it86Resume.contains("if (!tach16BitRequested)"),
                        "IT86xxE resume re-enables 16-bit tachometers only when the probe did")
             }
+            if let it86Feed = try? String(contentsOf: it86URL, encoding: .utf8),
+               let providerFeed = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8) {
+                expect(it86Feed.contains("if (allowUnlock && chipIntel == CHIP_IT8665E) {")
+                       && it86Feed.contains("temp1Written = source == kTEMP_SRC_WRITTEN;")
+                       && it86Feed.contains("if (!temp1Written)\n        return false;"),
+                       "IT8665E temperature input 1 is written only for a privileged probe and the measured source setting")
+                expect(providerFeed.contains("feedFirmwareCPUTemp(cpuTemp, now / 1000000);")
+                       && providerFeed.contains("value = kFIRMWARE_TEMP_FAILSAFE_C;")
+                       && providerFeed.contains("if (!superIO->feedCPUTemperature(value)) return;"),
+                       "the firmware curves' CPU input is fed on every sensor tick, with a high value when no reading is trusted")
+                expect(it86Feed.contains("ISLPCPort::writeByte(lpcPortSel, kSPECIAL_CFG_REG, static_cast<uint8_t>(ecSpecialConfig & ~smbusBitmap));")
+                       && it86Feed.contains("ISLPCPort::writeByte(lpcPortSel, kSPECIAL_CFG_REG, ecSpecialConfig);"),
+                       "IT86xxE switches the controller's SMBus access off around its register accesses and back on")
+                expect(!it86Feed.contains("writeByte(0x14"),
+                       "IT86xxE leaves register 0x14 alone")
+            } else {
+                expect(false, "the ITE driver and the provider are readable from repo root")
+            }
 
             if let securityDoc = try? String(contentsOf: securityURL, encoding: .utf8) {
                 expect(!securityDoc.contains("signed and notarized with an Apple Developer ID"),

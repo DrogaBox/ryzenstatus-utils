@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.83.2] — 2026-11-16 — kexts 3.40.3
+
+**BIOS fan curves follow the CPU again, after sleep too (ITE IT8665E).** Install the new kexts from the DMG to get the fix.
+
+### Fixed (kexts 3.40.3)
+
+- **BIOS fan curves stuck on one temperature**: on a ROG Crosshair VII Hero (X470, BIOS 5901) with the fans left to the BIOS, the CPU fan stayed near 880 RPM after a wake with the CPU at 85 °C. The BIOS curves read temperature input 1 of the IT8665E, and on this board that input only holds the last value written to it. Firmware writes it at boot and on wake, and nothing wrote it under macOS: it read 68 °C after a boot and 36 °C after a wake, whatever the CPU did. The driver now writes the CPU temperature into that input, when the whole-degree value changes and at most once per second. It does so from its own sensor timer, so the BIOS curves work with the app closed. Without a trusted temperature for 10 s it writes 90 °C, so the fans run high instead of following a stale value.
+
+  Measured on that board with the fans on the BIOS curves:
+
+  | Moment | BIOS input | CPU sensor | CPU fan |
+  |---|---|---|---|
+  | Idle, app closed | 50 °C | 50 °C | 1201 RPM |
+  | End of a 30 s all-thread load | 62 °C | 61 °C | 1445 RPM |
+  | 14 s after the load | 52 °C | 51 °C | 1252 RPM |
+  | 17 s after a wake from sleep | 73 °C | 72 °C | 1748 RPM |
+
+  The driver only does this on an IT8665E whose input 1 uses the source setting found on this board (source 0xA in bank 2, register 0x1D). Other chips and other settings are left alone. Only this one board was measured.
+- **The ITE chip is shared with the board's controller**: an embedded controller can reach the same hardware monitor over SMBus at any time. The driver now switches that access off around each batch of its own register accesses and back on afterwards, and saves and restores the bank register, as Linux `it87` and the board's own ACPI code do. Before, its accesses and the controller's could interleave. On the board above this change alone did not change any reading.
+- **Register 0x14 is no longer written (ITE)**: taking over fans 4 to 6 set bits 0 to 2 of register 0x14 and handing them back cleared them. Linux `it87` and LibreHardwareMonitor never write those bits, and a manual duty works without them (measured on the IT8665E).
+
+### Changed
+
+- **Diagnostic register read**: the raw read (selector 98) also reaches the banked registers of ITE chips and the configuration register that holds the SMBus switch. Read only.
+- The app only changes its version and the kext version it expects. Kexts 3.40.2 was an internal build and was never published.
+
+### Packaging
+
+- The DMG and `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` carry kexts 3.40.3, pinned by SHA-256.
+
 ## [1.83.1] — 2026-11-15 — kexts 3.40.1 + AMDCCDScheduler 0.3.0
 
 **One CCD per app now on macOS Sonoma, Sequoia and Tahoe.**

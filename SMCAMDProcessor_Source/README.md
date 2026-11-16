@@ -13,7 +13,7 @@ A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.3.0, in `AM
 
 ## What the driver does
 
-### Power management (3.40.1)
+### Power management (3.40.3)
 - **SMU per family.** Each family has its own SMU command set and mailbox registers: Zen and Zen+, Zen 2, Zen 3, Threadripper 5000 (Chagall), AM5 and Threadripper 7000, and the Raven Ridge/Picasso, Renoir/Cezanne and Rembrandt/Phoenix APUs. Power limits (PPT/TDC/EDC, or STAPM/fast/slow on APUs), the cHTC temperature limit, the PBO scalar, OC mode with all-core and per-CCD frequency and voltage, Curve Optimizer (per core and all-core), a boost ceiling and the PM table go through the commands of the running family. A family without a command reports it unsupported instead of receiving another chip's command. The driver publishes what the CPU accepts as a capability report, and the app builds its controls from it.
 - **Energy preference (EPP) through MSRs or ACPI.** Where the CPPC MSRs exist (probed, not trusted from CPUID), EPP is written there. Where the firmware publishes CPPC only through ACPI, as on Ryzen 5000 desktop parts, the driver reads each processor's `_CPC`, finds the PCC channel in the PCCT (or the system memory registers) and writes EPP, the request range and autonomous selection through it, the way Linux `amd-pstate` does in shared memory mode. A diagnostic report and a firmware read-back show what it found.
 - **Deep idle (CC6).** The driver owns the idle loop on every family and sends idle cores to CC6 through the firmware's C-state I/O address (read from MSR `0xC0010073`, never overwritten). It is switched live from the app; `amdcstate=1` forbids it and `-amdnoidle` leaves idle to macOS.
@@ -27,6 +27,7 @@ A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.3.0, in `AM
 ### Fans
 - Native RPM read-back and PWM control for Nuvoton NCT668X/NCT67XX (NCT610XD, NCT6771F, NCT6776F, NCT6779D, NCT6791D–NCT6799D, NCT6701D) and ITE IT86XXE (IT8665E, IT8686E, IT8688E, IT8689E) Super I/O chips.
 - Fan curves evaluated inside the driver every 500 ms from a 256-point table, with smoothing, hysteresis, ramp limits and an emergency guard at 85 °C, so the fans keep following temperature with the app closed.
+- BIOS fan curves on ASUS boards with an IT8665E: the curves read a temperature input that firmware only writes at boot and on wake, so under macOS they followed the temperature of that moment. The driver writes the CPU temperature into that input (measured on a ROG Crosshair VII Hero), so fans left to the BIOS follow the CPU, after sleep too.
 
 ---
 

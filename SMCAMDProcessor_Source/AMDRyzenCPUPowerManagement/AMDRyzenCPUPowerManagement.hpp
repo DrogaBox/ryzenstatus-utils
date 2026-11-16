@@ -762,6 +762,23 @@ public:
     static constexpr uint64_t kFAN_REASSERT_MS = 5000;
     void resumeSuperIO();
 
+    // The CPU input of the firmware's own fan curves, on a chip that needs it
+    // written (ISSuperIOSMCFamily::feedCPUTemperature). Written when the
+    // whole-degree value changes, at most once per kFIRMWARE_TEMP_MIN_MS, and
+    // again every kFAN_REASSERT_MS because firmware rewrites it on wake.
+    // After kFIRMWARE_TEMP_STALE_MS without a trusted reading the input gets
+    // kFIRMWARE_TEMP_FAILSAFE_C, so the curves run high instead of on the
+    // last value. Runs on every sensor tick whether or not a curve is mapped,
+    // so the firmware curves work with the app closed. Caller holds
+    // superIOLock.
+    static constexpr uint64_t kFIRMWARE_TEMP_MIN_MS = 1000;
+    static constexpr uint64_t kFIRMWARE_TEMP_STALE_MS = 10000;
+    static constexpr uint8_t kFIRMWARE_TEMP_FAILSAFE_C = 90;
+    uint64_t firmwareTempLastMs {0};      // 0 = write on the next tick
+    uint64_t firmwareTempTrustedMs {0};   // last trusted reading (or first tick)
+    uint8_t firmwareTempLast {0};
+    void feedFirmwareCPUTemp(float cpuTemp, uint64_t nowMs);
+
     static_assert(sizeof(fanToCurveMap) / sizeof(fanToCurveMap[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");

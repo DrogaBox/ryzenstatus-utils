@@ -39,6 +39,22 @@ public:
     // probe set up. The default has nothing to redo.
     virtual void resume() {}
 
+    // Brackets a batch of register accesses. A family whose chip is shared
+    // with another master (ITE: the board's embedded controller, over SMBus)
+    // takes the chip here and gives it back in endAccess(). Calls nest; every
+    // I/O method of such a family brackets itself, so a caller only needs
+    // these to turn several calls into one hand-over.
+    virtual void beginAccess() {}
+    virtual void endAccess() {}
+
+    // The CPU temperature for the firmware's own fan curves. On some boards
+    // those curves run on a chip input that only holds the last value written
+    // to it, and nothing writes it under macOS: the curves then follow the
+    // temperature of the moment the board booted or woke. A family whose chip
+    // has such an input writes it here and returns true; the default has no
+    // such input. Caller holds superIOLock.
+    virtual bool feedCPUTemperature(uint8_t celsius) { return false; }
+
     virtual uint8_t readReg(uint16_t reg) { return 0; }
     virtual void writeReg(uint16_t reg, uint8_t val) {}
 };

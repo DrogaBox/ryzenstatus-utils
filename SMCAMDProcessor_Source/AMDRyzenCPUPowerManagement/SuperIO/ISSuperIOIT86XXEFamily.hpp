@@ -43,7 +43,8 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
 
     static ISSuperIOIT86XXEFamily* getDevice(uint16_t* chipIntel, bool allowUnlock = true);
 
-    ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock = true);
+    ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock = true,
+                           uint8_t ecConfig = 0, uint8_t smbusBits = 0);
 
     int fanRPMs[IT86XXE_MAX_NUMFAN]{};
     int fanControlMode[IT86XXE_MAX_NUMFAN]{};
@@ -70,10 +71,65 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
     void setDefaultFanControl(int fan) override;
     void resume() override;
 
-    uint8_t readReg(uint16_t reg) override { return readByte(reg); }
-    void writeReg(uint16_t reg, uint8_t val) override { writeByte(reg, val); }
+    void beginAccess() override;
+    void endAccess() override;
+
+    bool feedCPUTemperature(uint8_t celsius) override;
+
+    // Raw access for diagnostics (selectors 98/99). reg 0x000-0x3ff is a
+    // hardware-monitor register, bits 9:8 its bank (as Linux it87 numbers
+    // them: 0x21d = bank 2, register 0x1d). A read of 0x1000 | index returns
+    // configuration register `index` of the environment-controller logical
+    // device (0x10f3 = the SMBus enable bits); there is no such write.
+    uint8_t readReg(uint16_t reg) override;
+    void writeReg(uint16_t reg, uint8_t val) override;
 
   private:
+    //
+    // The hardware monitor has a second master. On boards whose firmware
+    // enables it, an embedded controller reads and writes the same registers
+    // over SMBus at any time, and it moves the bank register and expects to
+    // find it where it left it. Linux it87 (smbus_disable/smbus_enable, bank
+    // save/restore) and the ASUS firmware's own ACPI code (AMW0.RHWM/WHWM:
+    // ECLK = 0 ... ECLK = 1) both switch that SMBus access off around their
+    // register accesses and back on afterwards. This driver did not, so its
+    // index/data writes and the controller's could interleave.
+    //
+    // The switch is configuration register 0xF3 of logical device 4; which
+    // bits are SMBus enables is per chip (Linux it87_devices[].smbus_bitmap):
+    // bit 2 on IT8665E, bits 1 and 2 on IT8686E/IT8688E/IT8689E. Only the
+    // bits firmware had set at probe are toggled, so a board that never
+    // enabled SMBus access sees no change.
+    //
+    static constexpr uint8_t kSPECIAL_CFG_REG = 0xf3;
+    static constexpr uint16_t kBANK_REG = 0x06;
+    uint8_t ecSpecialConfig = 0;   // 0xF3 as firmware left it
+    uint8_t smbusBitmap = 0;       // the SMBus enable bits set in it; 0 = nothing to do
+    uint8_t savedBank = 0;         // bank register found when the access began
+    int accessDepth = 0;           // beginAccess() nesting; callers hold superIOLock
+
+    uint8_t readConfig(uint8_t index);
+
+    //
+    // Temperature input 1 (register 0x29) is what the firmware fan curves of
+    // the ASUS X470 boards with an IT8665E follow (control registers 0x15-0x17
+    // and 0x1e select input 0). Its source, the low nibble of bank 2 register
+    // 0x1d (Linux it87 IT87_REG_TEMP_SRC1), is 0xA there, a value Linux does
+    // not decode. Measured on a ROG Crosshair VII Hero (BIOS 5901): with that
+    // source the register holds whatever was last written to it. Firmware
+    // writes it at boot and on wake, nothing writes it under macOS afterwards
+    // (68 C after a boot, 36 C after a wake, unchanged for as long as it was
+    // watched while register 0x9f followed the CPU), and the curves' output
+    // duty follows a value written into it at once. The driver therefore writes the CPU temperature there
+    // itself (feedCPUTemperature). Only with that source value, only on this
+    // chip, and only for the privileged probe.
+    //
+    static constexpr uint16_t kTEMP1_REG = 0x29;
+    static constexpr uint16_t kTEMP_SRC1_REG = 0x21d;
+    static constexpr uint8_t kTEMP_SRC_WRITTEN = 0x0a;
+    static constexpr uint8_t kTEMP1_MAX = 125;
+    bool temp1Written = false;
+
     static constexpr uint16_t kFAN_MAIN_CTRL_REG = 0x13;
     //
     // This family needs TWO register maps, not one. IT8686E/IT8688E/IT8689E and
