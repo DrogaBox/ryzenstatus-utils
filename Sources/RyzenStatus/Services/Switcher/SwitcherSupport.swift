@@ -592,6 +592,10 @@ struct SwitcherIconRowLayout: Equatable {
     let columns: Int
     let rows: Int
     let visibleRows: Int
+    /// How far the window preview cards scale. The icon row stays at `scale`,
+    /// but the cards follow the switcher's preview size as far as the screen
+    /// can hold the cards this layout reserves room for.
+    let previewScale: CGFloat
 
     var isWrapped: Bool { rows > 1 }
 
@@ -618,10 +622,17 @@ struct SwitcherIconRowLayout: Equatable {
     static var appTileWidth: CGFloat { iconLabelWidth + 12 }
     static var windowLabelWidth: CGFloat { 120 * scale }
     static var windowTileWidth: CGFloat { windowLabelWidth + 12 }
-    static var previewCardWidth: CGFloat { 220 * scale }
-    static var previewCardHeight: CGFloat { 164 * scale }
+    static let basePreviewCardWidth: CGFloat = 220
+    static let basePreviewCardHeight: CGFloat = 164
+    var previewCardWidth: CGFloat { Self.basePreviewCardWidth * previewScale }
+    var previewCardHeight: CGFloat { Self.basePreviewCardHeight * previewScale }
     static var appEntryIconSize: CGFloat { 66 * scale }
-    static var previewHeight: CGFloat { previewCardHeight + 76 * scale }
+    var previewHeight: CGFloat { Self.previewHeight(previewScale: previewScale) }
+    static func previewHeight(previewScale: CGFloat) -> CGFloat {
+        basePreviewCardHeight * previewScale + previewChromeHeight
+    }
+    /// The app header and padding around the preview cards.
+    static var previewChromeHeight: CGFloat { 76 * scale }
     static var hintHeight: CGFloat { 28 * scale }
     static var hintGap: CGFloat { 8 * scale }
     static var hintBarWidth: CGFloat { 300 * scale }
@@ -641,15 +652,32 @@ struct SwitcherIconRowLayout: Equatable {
     /// the row puts between them. The preview viewport is sized from this and
     /// decides whether it has anything to scroll from it, so the two can never
     /// disagree about what fits.
-    static func naturalPreviewWidth(cardCount: Int) -> CGFloat {
+    func naturalPreviewWidth(cardCount: Int) -> CGFloat {
+        Self.naturalPreviewWidth(cardCount: cardCount, previewScale: previewScale)
+    }
+
+    static func naturalPreviewWidth(cardCount: Int, previewScale: CGFloat) -> CGFloat {
         let count = max(0, cardCount)
-        return CGFloat(count) * previewCardWidth + CGFloat(max(0, count - 1)) * spacing
+        return CGFloat(count) * basePreviewCardWidth * previewScale + CGFloat(max(0, count - 1)) * spacing
+    }
+
+    /// The preview scale the user picked, reduced only as far as needed for
+    /// `cardCount` cards to sit side by side and for the panel to keep one icon
+    /// row inside the screen budget. Never below the icon row's own scale, so
+    /// no size gets smaller than the icon row has always drawn it.
+    static func fittedPreviewScale(cardCount: Int,
+                                   maxPreviewContentWidth: CGFloat,
+                                   heightBudget: CGFloat) -> CGFloat {
+        let count = CGFloat(max(1, cardCount))
+        let widthFit = (maxPreviewContentWidth - (count - 1) * spacing) / (count * basePreviewCardWidth)
+        let heightFit = (heightBudget - previewChromeHeight) / basePreviewCardHeight
+        return max(scale, min(PreviewSizing.switcherScale, widthFit, heightFit))
     }
 
     /// Whether every preview card is on screen at once, so the scroll view has
     /// nothing to scroll to.
     func previewFitsWithoutScrolling(cardCount: Int) -> Bool {
-        Self.naturalPreviewWidth(cardCount: cardCount) <= previewContentWidth
+        naturalPreviewWidth(cardCount: cardCount) <= previewContentWidth
     }
 
     /// The widest row the panel has to hold. Panel sizing and the rows
@@ -695,7 +723,8 @@ struct SwitcherIconRowLayout: Equatable {
                                              showsShortcutHints: true,
                                              columns: 1,
                                              rows: 1,
-                                             visibleRows: 1)
+                                             visibleRows: 1,
+                                             previewScale: scale)
 
     static func compute(appCount rawAppCount: Int,
                         selectedWindowCount rawWindowCount: Int,
@@ -719,8 +748,7 @@ struct SwitcherIconRowLayout: Equatable {
         let rows = wraps ? (appCount + columns - 1) / columns : 1
         let rowIcons = wraps ? columns : appCount
         let naturalAppRowWidth = CGFloat(rowIcons) * tileWidth + CGFloat(max(0, rowIcons - 1)) * spacing
-        let naturalPreviewWidth = Self.naturalPreviewWidth(cardCount: windowCount)
-        let maxPreviewContentWidth = max(previewCardWidth, maxContentWidth - previewPanelPadding * 2)
+        let maxPreviewContentWidth = maxContentWidth - previewPanelPadding * 2
         let appRowWidth = min(naturalAppRowWidth, maxAppContentWidth)
         let appRowSurfaceWidth = min(appRowWidth + rowHorizontalPadding * 2, maxContentWidth)
         // Reserve room for a pair whenever any app has multiple windows. Use
@@ -730,8 +758,19 @@ struct SwitcherIconRowLayout: Equatable {
         let reservedCardCount = sessionScope == .frontmostApp
             ? max(windowCount, maximumWindowCount)
             : min(2, max(windowCount, maximumWindowCount))
-        let previewCeiling = min(maxPreviewContentWidth,
-                                 max(Self.naturalPreviewWidth(cardCount: reservedCardCount),
+        let shortcutHintHeight = showsShortcutHints ? hintGap + hintHeight : 0
+        // Fit the cards for a pair even when no app has one yet, so the size
+        // does not change with the windows that happen to be open.
+        let previewScale = fittedPreviewScale(
+            cardCount: max(2, reservedCardCount),
+            maxPreviewContentWidth: maxPreviewContentWidth,
+            heightBudget: screenVisibleFrame.height * 0.85 - previewGap - rowHeight
+                - shortcutHintHeight - padding * 2 - searchTopInset)
+        let previewCardWidth = basePreviewCardWidth * previewScale
+        let naturalPreviewWidth = Self.naturalPreviewWidth(cardCount: windowCount, previewScale: previewScale)
+        let previewCeiling = min(max(previewCardWidth, maxPreviewContentWidth),
+                                 max(Self.naturalPreviewWidth(cardCount: reservedCardCount,
+                                                              previewScale: previewScale),
                                      appRowSurfaceWidth - previewPanelPadding * 2))
         let previewWidth = min(naturalPreviewWidth, previewCeiling)
         let previewSurfaceWidth = min(previewWidth + previewPanelPadding * 2, maxContentWidth)
@@ -748,7 +787,7 @@ struct SwitcherIconRowLayout: Equatable {
         // counts as visible: that keeps the edge-hover paging switched off.
         let visibleIconCount = wraps ? appCount : min(appCount, fitByWidth)
         let width = contentWidth + padding * 2
-        let shortcutHintHeight = showsShortcutHints ? hintGap + hintHeight : 0
+        let previewHeight = Self.previewHeight(previewScale: previewScale)
         // Rows beyond what the screen holds scroll. Budget for the taller of
         // the two things above the icons, so either mode fits.
         let aboveIcons = max(previewHeight + previewGap, simpleTitleHeight + simpleTitleGap)
@@ -767,7 +806,8 @@ struct SwitcherIconRowLayout: Equatable {
                                      showsShortcutHints: showsShortcutHints,
                                      columns: wraps ? columns : visibleIconCount,
                                      rows: rows,
-                                     visibleRows: visibleRows)
+                                     visibleRows: visibleRows,
+                                     previewScale: previewScale)
     }
 
     static func compute(count rawCount: Int, screenVisibleFrame: CGRect) -> SwitcherIconRowLayout {
@@ -2151,13 +2191,18 @@ enum SwitcherSupport {
     /// pass true only when no Carbon stand-in is registered, and asking for
     /// nothing then keeps ⌘Tab working instead of leaving it dead until the
     /// app holding it lets go.
+    ///
+    /// A game's own exclusive full screen hands the keys back the same way
+    /// (`frontmostAppRaisesFullscreen`): the switcher's panel would open
+    /// beneath the game, and macOS's switcher still leaves such a game.
     static func nativeHotkeyIDs(takeOverSystemShortcuts: Bool,
                                 secureInputEnabled: Bool,
+                                exclusiveFullscreen: Bool = false,
                                 appsShortcut: GlobalShortcut,
                                 windowShortcut: GlobalShortcut,
                                 allWindowsShortcut: GlobalShortcut? = nil,
                                 liveEntries: [LiveSystemShortcut]) -> Set<Int32> {
-        guard !secureInputEnabled else { return [] }
+        guard !secureInputEnabled, !exclusiveFullscreen else { return [] }
         let nativeShortcuts = Dictionary(
             liveEntries.compactMap { entry -> (SwitcherNativeSymbolicHotKey, GlobalShortcut)? in
                 SwitcherNativeSymbolicHotKey(rawValue: entry.id).map { ($0, entry.shortcut) }
@@ -2168,6 +2213,29 @@ enum SwitcherSupport {
                                            windowShortcut: windowShortcut,
                                            allWindowsShortcut: allWindowsShortcut,
                                            nativeShortcuts: nativeShortcuts).map(\.rawValue))
+    }
+
+    /// A game in its own exclusive full screen raises one window above normal
+    /// windows over the whole display; SDL and GLFW use the shielding level.
+    /// The switcher's panel sits at the status bar level, beneath such a
+    /// window, while macOS's own switcher is switched off for as long as the
+    /// switcher holds its keys, so ⌘Tab did nothing visible in League of
+    /// Legends (issue #2636). True when the frontmost app covers a display
+    /// that way, so the keys go back to macOS while it does. A window in a
+    /// macOS full-screen Space or a borderless game window stays at level 0
+    /// and never qualifies, nor does a raised window that covers only part of
+    /// a display, such as a tooltip, or one raised by another app, such as
+    /// the Dock. Any raised level counts, as GLFW stays just above the menu
+    /// bar, so a Keynote slideshow or a kiosk app also gets the macOS
+    /// switcher while it is in front: degraded to native, never a dead key.
+    static func frontmostAppRaisesFullscreen(windows: [NotchAppFullscreen.WindowInfo],
+                                             frontmostPID: pid_t?, ownPID: pid_t,
+                                             displays: [CGRect]) -> Bool {
+        guard let frontmostPID, frontmostPID != ownPID else { return false }
+        return windows.contains { window in
+            window.ownerPID == frontmostPID && window.layer > 0 && window.alpha > 0
+                && displays.contains { NotchAppFullscreen.covers(window.bounds, $0) }
+        }
     }
 
     static func secureInputHotKeysWanted(canStartSession: Bool, capturingShortcut: Bool,

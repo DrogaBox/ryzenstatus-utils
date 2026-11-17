@@ -1267,6 +1267,7 @@ struct Strings {
     let audioPriorityMoveUp: String
     let audioPriorityMoveDown: String
     let audioPriorityUnavailable: String
+    let audioPriorityRemove: String
     let audioPriorityCurrent: String
     let audioPriorityCaption: String
     let includeBetaUpdatesToggle: String
@@ -2478,6 +2479,7 @@ extension Strings {
         audioPriorityMoveUp: "Mover para cima",
         audioPriorityMoveDown: "Mover para baixo",
         audioPriorityUnavailable: "Indisponível",
+        audioPriorityRemove: "Remover",
         audioPriorityCurrent: "Em uso",
         audioPriorityCaption: "Os dispositivos são selecionados por ordem de prioridade. Quando um dispositivo de maior prioridade é conectado, ele passa a ser usado. Quando o dispositivo ativo é desconectado, o próximo disponível é selecionado.",
         includeBetaUpdatesToggle: "Receber atualizações beta",
@@ -3686,6 +3688,7 @@ extension Strings {
         audioPriorityMoveUp: "Move up",
         audioPriorityMoveDown: "Move down",
         audioPriorityUnavailable: "Unavailable",
+        audioPriorityRemove: "Remove",
         audioPriorityCurrent: "Current",
         audioPriorityCaption: "Devices are selected in priority order. When a higher-priority device connects, it becomes active. When the active one disconnects, the next available takes over.",
         includeBetaUpdatesToggle: "Receive beta updates",

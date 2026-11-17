@@ -1072,6 +1072,7 @@ extension Strings {
         audioPriorityMoveUp: "Yukarı taşı",
         audioPriorityMoveDown: "Aşağı taşı",
         audioPriorityUnavailable: "Kullanılamıyor",
+        audioPriorityRemove: "Kaldır",
         audioPriorityCurrent: "Etkin",
         audioPriorityCaption: "Cihazlar öncelik sırasına göre seçilir. Daha yüksek öncelikli bir cihaz bağlandığında o cihaza geçilir. Etkin cihazın bağlantısı kesildiğinde sıradaki kullanılabilir cihaza geçilir.",
         includeBetaUpdatesToggle: "Beta güncellemelerini al",
