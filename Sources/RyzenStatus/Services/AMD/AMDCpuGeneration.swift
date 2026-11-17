@@ -442,8 +442,8 @@ enum AMDSmuPMTable {
     /// One decoded L3 (GameCache) cache row. Fields mirror the L3 block of
     /// `pm_tables.c`: 16 elements per cache, field arrays of `l3Count`
     /// consecutive elements — element(field j, cache i) = base + j·l3Count + i.
-    /// Validated upstream (0x380805/0x380804) and against two live 5900XT
-    /// captures; 0x380904/0x380905 inherit their head's guess caveat.
+    /// Tested in ryzen_monitor (0x380805/0x380804) and against two live
+    /// 5900XT captures; 0x380904/0x380905 inherit their head's guess caveat.
     struct L3Row: Equatable {
         /// Cache index within the package (0 for single-CCD parts, 0…1 for
         /// Vermeer dual-CCD).
@@ -531,15 +531,15 @@ enum AMDSmuPMTable {
         let l3Count: Int
     }
 
-    /// Supported layouts. Provenance per pm_tables.c:
-    /// - 0x380805: tested upstream on a 5900X AND hardware-validated by us
-    ///   against two live 5900XT captures (Tests/Fixtures/PMTable).
-    /// - 0x380905: upstream "pure guess" derived from 0x380805/0x380904 for
-    ///   the 5600X; our synthetic tests exercise the mapping, silicon
+    /// Supported layouts. Status of each map, per pm_tables.c:
+    /// - 0x380805: tested there on a 5900X and hardware-validated against
+    ///   two live 5900XT captures (Tests/Fixtures/PMTable).
+    /// - 0x380905: marked "pure guess" there, derived from 0x380805/0x380904
+    ///   for the 5600X; synthetic tests exercise the mapping, silicon
     ///   confirmation still pending a real capture.
-    /// - 0x380904: upstream loosely tested on a 5600X (older head: telemetry
+    /// - 0x380904: loosely tested there on a 5600X (older head: telemetry
     ///   voltage at 41, PC6 at 152, core blocks from 169).
-    /// - 0x380804: tested upstream on a 5900X across several AGESA versions
+    /// - 0x380804: tested there on a 5900X across several AGESA versions
     ///   (older head like 0x380904; 16-core blocks from 169).
     /// 0x380705 has NO public authoritative element map (verified: neither
     /// hattedsquirrel pm_tables.c nor leogx9r monitor_cpu.c defines it),
