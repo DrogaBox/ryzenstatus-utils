@@ -4126,6 +4126,37 @@ struct MetricsTests {
         let adhocInstallerScript = UpdateInstallerSupport.installerScript(allowAdhoc: true)
         expect(adhocInstallerScript.contains("ALLOW_ADHOC=1") && adhocInstallerScript.contains("-R='identifier \"com.ryzenstatus.utils\"'"),
                "ad-hoc mode is supported for developer builds when explicitly enabled")
+        expect(UpdateInstallerSupport.allowsAdhocInstall(isDeveloperBuild: false, digestVerified: true),
+               "a release DMG whose SHA-256 matches GitHub's digest may carry an ad-hoc signed app")
+        expect(!UpdateInstallerSupport.allowsAdhocInstall(isDeveloperBuild: false, digestVerified: false),
+               "without a matching digest the installer keeps the Developer ID requirement")
+        expect(UpdateInstallerSupport.allowsAdhocInstall(isDeveloperBuild: true, digestVerified: false),
+               "the developer build keeps its ad-hoc mode")
+        let digestHex = "4fc226c3ee9a9879a33308984b321dbb1c1b746f289da9efa68ab0f643b5f3bd"
+        expect(UpdateServiceSupport.sha256Hex(fromAssetDigest: "sha256:" + digestHex) == digestHex,
+               "GitHub's asset digest parses to its hex SHA-256")
+        expect(UpdateServiceSupport.sha256Hex(fromAssetDigest: "SHA256:" + digestHex.uppercased()) == digestHex,
+               "the digest parses case-insensitively to lowercase hex")
+        expect(UpdateServiceSupport.sha256Hex(fromAssetDigest: nil) == nil
+                && UpdateServiceSupport.sha256Hex(fromAssetDigest: "sha512:" + digestHex) == nil
+                && UpdateServiceSupport.sha256Hex(fromAssetDigest: "sha256:" + digestHex.dropLast()) == nil
+                && UpdateServiceSupport.sha256Hex(fromAssetDigest: "sha256:" + digestHex.dropLast() + "g") == nil,
+               "an absent, non-SHA-256 or malformed digest is not trusted")
+        let digestProbe = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ryzenstatus-digest-\(UUID().uuidString)")
+        try? Data("abc".utf8).write(to: digestProbe)
+        expect(UpdateServiceSupport.fileSHA256Matches(
+                   at: digestProbe,
+                   expectedHex: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+                && !UpdateServiceSupport.fileSHA256Matches(at: digestProbe, expectedHex: digestHex),
+               "a downloaded file is checked against the expected SHA-256")
+        try? FileManager.default.removeItem(at: digestProbe)
+        let updateServiceSource = (try? String(contentsOfFile: "Sources/RyzenStatus/Services/Update/UpdateService.swift",
+                                               encoding: .utf8)) ?? ""
+        expect(updateServiceSource.contains("case digest")
+                && updateServiceSource.contains("fileSHA256Matches(at: tempURL")
+                && !updateServiceSource.contains("allowAdhoc: AppInfo.isDeveloperBuild"),
+               "the updater checks the release asset's digest and only then allows an ad-hoc install")
         expect(installerScript.contains("EXPECTED_VERSION=\"$6\"")
                 && installerScript.contains("CFBundleShortVersionString")
                 && installerScript.contains("note fail-version"),

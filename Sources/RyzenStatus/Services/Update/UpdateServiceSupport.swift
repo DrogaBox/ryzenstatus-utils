@@ -16,6 +16,24 @@ enum UpdateServiceSupport {
         return actual == expectedHex.lowercased()
     }
 
+    /// The lowercase hex SHA-256 from a GitHub release asset's `digest`
+    /// ("sha256:<64 hex>"). GitHub computes it when the asset is uploaded;
+    /// anything else (absent, another algorithm, malformed) is nil.
+    static func sha256Hex(fromAssetDigest digest: String?) -> String? {
+        let prefix = "sha256:"
+        guard let digest, digest.lowercased().hasPrefix(prefix) else { return nil }
+        let hex = digest.dropFirst(prefix.count).lowercased()
+        guard hex.utf8.count == SHA256.byteCount * 2,
+              hex.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
+        else { return nil }
+        return hex
+    }
+
+    static func fileSHA256Matches(at url: URL, expectedHex: String) -> Bool {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+        return sha256Matches(data, expectedHex: expectedHex)
+    }
+
     // MARK: - Pre-release Identifier
 
     enum PrereleaseIdentifier: Comparable, Equatable, CustomStringConvertible {
