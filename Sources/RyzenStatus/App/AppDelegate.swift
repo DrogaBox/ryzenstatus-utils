@@ -98,6 +98,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // never turns the item off.
         LaunchAtLogin.repairAtStartup()
 
+        // Switch back on any display a previous run left off. A run that ends
+        // without putting one back leaves a screen dark with no app around to
+        // offer it back, so the repair happens before anything else can care
+        // about which displays are attached. Asked from the saved list, so a
+        // launch with nothing to restore (or with the feature uninstalled)
+        // never builds the service.
+        if BrightnessService.hasDisplaysToRestore {
+            BrightnessService.shared.restoreDisplaysLeftOff()
+        }
+
         // An accessory (LSUIElement) app gets no default main menu, so the standard
         // keyboard shortcuts (Cmd+H/M/W/Q and the Edit shortcuts Cmd+C/V/X/A) have
         // no menu items to fire and do nothing in the Settings window. Install one.
@@ -128,8 +138,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         statusController.onClipboardPreviewClick = {
             ClipboardHistoryService.shared.toggleHistoryWindow()
         }
-        // The shelf drop zone chip anchors itself under the menu bar icon.
-        ShelfService.shared.statusItemFrameProvider = { [weak self] in
+        // The shelf drop zone chip anchors itself under the menu bar icon. The
+        // provider is registered on the type, so a launch with no shelf
+        // installed never builds the service (and its saved items) for it.
+        ShelfService.statusItemFrameProvider = { [weak self] in
             guard let item = self?.statusController.statusItem, item.isVisible,
                   let window = self?.statusController.button?.window else { return nil }
             // A hidden menu bar parks the item's window at a fallback spot;
