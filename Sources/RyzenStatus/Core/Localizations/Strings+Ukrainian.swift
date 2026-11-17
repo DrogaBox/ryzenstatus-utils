@@ -1040,6 +1040,7 @@ extension Strings {
         audioPriorityMoveUp: "Вгору",
         audioPriorityMoveDown: "Вниз",
         audioPriorityUnavailable: "Недоступний",
+        audioPriorityRemove: "Видалити",
         audioPriorityCurrent: "Поточний",
         audioPriorityCaption: "Пристрої вибираються в порядку пріоритету. Коли підключається пристрій із вищим пріоритетом, він стає активним. Коли активний пристрій від’єднується, його замінює наступний доступний.",
         includeBetaUpdatesToggle: "Отримувати бета-версії",

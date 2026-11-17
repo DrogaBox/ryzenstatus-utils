@@ -1074,10 +1074,26 @@ extension DefaultsKey {
     // Per-monitor connection paths whose display answered the audio controls
     // with no speakers behind them, remembered like the write-only paths.
     static let displayAudioSilentPaths = "displayAudioSilentPaths"
+    // The level last written to each monitor whose speakers take volume
+    // writes but never answer a reading, by connection path: there is
+    // nothing to read it back from.
+    static let displayAudioBlindLevels = "displayAudioBlindLevels"
     static let uninstallerWatchesTrash = "uninstallerWatchesTrash"
     static let panelControlSmoothScroll = "panelControlSmoothScroll"
     static let screenshotScrollingAutoScroll = "screenshotScrollingAutoScroll"
     static let screenshotScrollingShortcutEnabled = "screenshotScrollingShortcutEnabled"
     static let screenshotScrollingShortcut = "screenshotScrollingShortcut"
     static let screenshotScrollingShowCaptureMenuOnShortcut = "screenshotScrollingShowCaptureMenuOnShortcut"
+
+    // Island calendar: title keywords kept out of the countdown, and whether
+    // they hide the event from the agenda too.
+    static let notchCalendarIgnoredTitles = "notchCalendarIgnoredTitles"
+    static let notchCalendarIgnoreEverywhere = "notchCalendarIgnoreEverywhere"
+    // Watch: which sound the alert plays, and whether it repeats.
+    static let notchWatchSoundName = "notchWatchSoundName"
+    static let notchWatchSoundRepeat = "notchWatchSoundRepeat"
+    // The closed island's hover emphasis in Click to open and Preview on hover.
+    static let notchHoverGrows = "notchHoverGrows"
+    // Whether an agent's finish notice carries the API-equivalent cost.
+    static let notchAgentsFinishCost = "notchAgentsFinishCost"
 }

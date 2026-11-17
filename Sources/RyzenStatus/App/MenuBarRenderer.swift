@@ -728,7 +728,8 @@ enum MenuBarRenderer {
                 // in the AMD monitor's snapshot; nothing shows until it has
                 // been read once.
                 let devices = ConnectedDevicesMonitor.shared
-                if devices.hasLoadedOnce {
+                // With nothing connected the item leaves the menu bar.
+                if devices.hasLoadedOnce, devices.count > 0 {
                     groups.append([.metricBlock(label: FeatureStrings.connectedDevices(L10n.shared.language).menuBarLabel,
                                                 value: "\(devices.count)",
                                                 minimumValue: "99",

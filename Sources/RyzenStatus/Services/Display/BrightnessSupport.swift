@@ -9,6 +9,15 @@ import Foundation
 /// reply parsing, value scaling and the display-to-service match score. No
 /// IOKit here so the unit tests cover every byte.
 enum BrightnessSupport {
+    /// Whether a previous run left a display off. Checked from the list alone,
+    /// before the launch path builds the brightness service, so a launch with
+    /// nothing to restore never pays for its key taps and session binding.
+    /// The list is plain numbers on disk and can arrive edited or imported, so
+    /// anything that is not a display number is skipped rather than counted.
+    static func hasDisplaysToRestore(stored: [Int]?) -> Bool {
+        (stored ?? []).contains { CGDirectDisplayID(exactly: $0) != nil }
+    }
+
     struct DisplayTopology: Equatable {
         let online: Set<UInt32>
         let active: Set<UInt32>
@@ -244,6 +253,17 @@ enum BrightnessSupport {
         return ddcRetryDelays[attempt - 1]
     }
 
+    /// How long to wait before asking the system about a display again, after
+    /// it answered for that display earlier and has just stopped. Right after
+    /// a wake the system pipeline can lag behind the monitor; settling for the
+    /// monitor's own control then strands a display whose control the monitor
+    /// locks (some do while showing HDR) until the next wake. `attempt` counts
+    /// from 1.
+    static func systemRouteRecheckDelay(attempt: Int) -> TimeInterval? {
+        guard attempt >= 1, attempt <= ddcRetryDelays.count else { return nil }
+        return ddcRetryDelays[attempt - 1]
+    }
+
     static let volumeKeyRescanInterval: TimeInterval = 10
 
     /// Whether a volume key that no monitor claimed rescans the displays: only
@@ -340,6 +360,30 @@ enum BrightnessSupport {
                                    activeDisplayIDs: Set<UInt32>,
                                    virtualDisplayIDs: Set<UInt32>) -> Set<UInt32> {
         onlineDisplayIDs.intersection(activeDisplayIDs).subtracting(virtualDisplayIDs)
+    }
+
+    enum RouteSearch: Equatable {
+        case unlisted
+        case systemThenDDC
+        case systemThenSoftware
+    }
+
+    /// Where a display's brightness route is looked for. A virtual display
+    /// (a DisplayLink monitor, a dummy screen) has no I2C channel, and scoring
+    /// it against the IORegistry could hand it a real monitor's DDC service,
+    /// so it falls back to its gamma curve. It is listed only while active:
+    /// an inactive row offers a power button, which virtual displays never get.
+    static func routeSearch(isVirtual: Bool, isAirPlay: Bool, isActive: Bool) -> RouteSearch {
+        if isAirPlay { return .unlisted }
+        if isVirtual { return isActive ? .systemThenSoftware : .unlisted }
+        return .systemThenDDC
+    }
+
+    /// An active display without a brightness route keeps its row only for a
+    /// control it still offers: a monitor speaker or a power button. A virtual
+    /// display never gets either.
+    static func keepsRowWithoutBrightness(isVirtual: Bool, hasSpeaker: Bool, canSwitchPower: Bool) -> Bool {
+        !isVirtual && (hasSpeaker || canSwitchPower)
     }
 
     /// If a cable removal leaves the Mac with no drawable display, bring back
@@ -850,6 +894,19 @@ enum BrightnessSupport {
 
     typealias VCPReading = (current: UInt16, maximum: UInt16)
 
+    /// A monitor that never answers a reading has no level to start from. The
+    /// first change begins low, never loud, and the range is the 0...100 the
+    /// MCCS volume control uses.
+    static let blindSpeakerStart: UInt16 = 10
+    static let blindSpeakerMaximum: UInt16 = 100
+
+    /// The reading standing in for a monitor that cannot be read: the level
+    /// last written to it, or the low start before anything was written.
+    static func blindSpeakerReading(remembered: Int?) -> VCPReading {
+        let level = remembered.map { UInt16(clamping: $0) } ?? blindSpeakerStart
+        return (min(level, blindSpeakerMaximum), blindSpeakerMaximum)
+    }
+
     struct SpeakerLevel: Equatable {
         let raw: UInt16
         let maximum: UInt16
@@ -1111,5 +1168,25 @@ enum BrightnessSupport {
                       && $0.score >= best.score
               }) else { return nil }
         return best.serviceOrdinal
+    }
+
+    /// Each display's speaker service, by display index. A virtual display
+    /// (a DisplayLink monitor, a dummy screen) has no I2C channel, and its
+    /// copy of a real monitor's EDID would tie with that monitor and block
+    /// its speaker, so it takes no part.
+    static func speakerServices(displays: [(index: Int, identity: DisplayIdentity, isVirtual: Bool)],
+                                services: [ServiceIdentity]) -> [Int: Int] {
+        let displays = displays.filter { !$0.isVirtual }
+        let scores = displays.flatMap { display in
+            services.map { service in
+                (displayIndex: display.index, serviceOrdinal: service.ordinal,
+                 score: matchScore(service: service, display: display.identity, requireIdentity: true))
+            }
+        }
+        var assignment: [Int: Int] = [:]
+        for display in displays {
+            assignment[display.index] = speakerService(for: display.index, scores: scores)
+        }
+        return assignment
     }
 }

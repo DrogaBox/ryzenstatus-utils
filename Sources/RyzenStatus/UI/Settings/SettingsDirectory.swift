@@ -276,6 +276,7 @@ enum SettingsDirectory {
         }
 #endif
         let activities = FeatureStrings.notchActivities(language)
+        let notchWatch = FeatureStrings.notchWatch(language)
         let lockScreen = FeatureStrings.notchLockScreen(language)
         let hover = state.on(DefaultsKey.notchOpenOnHover)
         let hideFullscreen = state.on(DefaultsKey.notchHideInFullscreen)
@@ -299,6 +300,8 @@ enum SettingsDirectory {
                   feature: .notchCalendar, notch: .module(.calendar)),
             .init([FeatureStrings.notchNotifications(language).hideSystemBanner], feature: .notchNotifications, notch: .module(.notifications)),
             .init([activities.soundEnabled, activities.hideTimerCountdown], feature: .notchTimer, notch: .module(.timer)),
+            .init([notchWatch.title, notchWatch.sound, notchWatch.soundPicker, notchWatch.soundRepeat, "alert"],
+                  feature: .notchWatch, notch: .module(.watch)),
             .init([notch.dragReveal], feature: .shelf, notch: .module(.files), when: state.on(DefaultsKey.notchShelf)),
             .init([notch.clipboardActivity, "clipboard"], feature: .clipboardHistory, notch: .module(.clipboard)),
             .init([FeatureStrings.notchClipboardSize(language).entrySize], feature: .clipboardHistory,
@@ -308,7 +311,7 @@ enum SettingsDirectory {
                    notchAgents.limitsAs, notchAgents.limitFocus, notchAgents.liveActivity, notchAgents.finishAlert,
                    notchAgents.limitAlert, notchAgents.budget, notchAgents.priceUpdates], feature: .notchAgents, notch: .module(.agents)),
             .init([notchAgents.readout], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsLiveActivity)),
-            .init([notchAgents.finishAfter], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsFinishAlert)),
+            .init([notchAgents.finishAfter, notchAgents.finishCost], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsFinishAlert)),
             .init([notchAgents.limitAt], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsLimitAlert)),
             .init([FeatureStrings.claudeAccount(language).title], feature: .notchAgents,
                   notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsClaude)),
@@ -322,9 +325,11 @@ enum SettingsDirectory {
             .init([notchEditor.behavior, notchEditor.opening, s.quickToolShortcutToggle,
                    FeatureStrings.notchGestures(language).title, notch.hapticFeedback, notchEditor.reopening,
                    notchEditor.openActivity, notch.display, notch.hideInFullscreen, notchEditor.destinations,
-                   notch.panel, notch.tools, notch.files, notch.captures, notchEditor.privacy, notch.showInCaptures,
+                   notch.panel, s.launcherName, s.shelfName, notch.captures, notchEditor.privacy, notch.showInCaptures,
                    notchEditor.hideMenuBarIcon], notch: .behavior),
             .init([notchEditor.hiddenShowsActivity], notch: .behavior, when: hover && state.on(DefaultsKey.notchHideUntilHover)),
+            .init([notchEditor.growOnHover], notch: .behavior,
+                  when: !hover || (!state.on(DefaultsKey.notchHoverExpands) && !state.on(DefaultsKey.notchHideUntilHover))),
             .init([notchEditor.activationTime], notch: .behavior, when: hoverDelay),
             .init([notchEditor.closeTime], notch: .behavior, when: hoverDelay && state.on(DefaultsKey.notchHoverExpands)),
             .init([notch.hoverInFullscreen], notch: .behavior, when: hideFullscreen),

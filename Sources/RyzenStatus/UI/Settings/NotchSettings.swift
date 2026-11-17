@@ -133,6 +133,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessControlEnabled = false
     @AppStorage(DefaultsKey.clipboardHistoryEnabled) private var clipboardHistoryEnabled = false
     @AppStorage(DefaultsKey.notchHoverExpands) private var hoverExpand = true
+    @AppStorage(DefaultsKey.notchHoverGrows) private var growsOnHover = true
     @AppStorage(DefaultsKey.notchQuickAccessLayout) private var accessData = Data()
     @State private var tab = NotchSettingsTab.layout
     @State private var selectedModule = NotchModule.controls
@@ -156,7 +157,7 @@ struct NotchSettings: View {
          String(customWidth), String(customHeight), String(cameraFitWidth), String(cameraFitHeight),
          String(capsuleFitWidth), String(capsuleFitHeight), String(capsuleFitDrop), String(hapticFeedback),
          String(shelfWindow), String(dragReveal), String(captureControls), String(quickPanel), String(appPanel),
-         String(hoverExpand), String(hideUntilHover), String(hiddenShowsActivity), String(hideInFullscreen),
+         String(hoverExpand), String(growsOnHover), String(hideUntilHover), String(hiddenShowsActivity), String(hideInFullscreen),
          String(hoverInFullscreen), String(coversMenus),
          display, silhouette, capsuleCenter, capsuleMetric, String(hover), String(closeOnPointerExit), hidden, order, String(volume), String(inputSource),
          String(brightness), String(keyboardLight),
@@ -626,7 +627,7 @@ struct NotchSettings: View {
                 Button(l10n.s.permissionOpenSettings, action: permissions.openCameraSettings)
             }
         case .files:
-            destination(text.files, symbol: "tray.full", value: $shelfWindow, available: AppFeature.shelf.isAvailable)
+            destination(l10n.s.shelfName, symbol: "tray.full", value: $shelfWindow, available: AppFeature.shelf.isAvailable)
             if shelfWindow { switchRow("hand.draw", text.dragReveal, isOn: $dragReveal) }
             if AppFeature.mediaTools.isAvailable {
                 Text(FeatureStrings.notchFiles(l10n.language).optimizeDropHint)
@@ -785,6 +786,10 @@ struct NotchSettings: View {
                     choice(editor.hoverExpand, symbol: "arrow.up.left.and.arrow.down.right", selected: hover && hoverExpand && !hideUntilHover) { hideUntilHover = false; hover = true; hoverExpand = true }
                     choice(editor.hiddenUntilHover, symbol: "eye.slash", selected: hover && hideUntilHover) { hover = true; hoverExpand = true; hideUntilHover = true }
                 }
+                // Only Click to open and Preview on hover grow the closed island under the pointer.
+                if !hover || (!hoverExpand && !hideUntilHover) {
+                    switchRow("arrow.up.and.down.and.arrow.left.and.right", editor.growOnHover, isOn: $growsOnHover)
+                }
                 if hover && hideUntilHover {
                     switchRow("sparkles", editor.hiddenShowsActivity,
                               caption: hiddenShowsActivity ? editor.hiddenShowsActivityHint : nil, isOn: $hiddenShowsActivity)
@@ -866,9 +871,9 @@ struct NotchSettings: View {
                 switchRow("rectangle.badge.minus", l10n.language == .es ? "Modo Solo Dynamic Island" : "Island-Only Mode",
                           caption: l10n.language == .es ? "Oculta todos los elementos de la barra de menús y usa únicamente la Dynamic Island." : "Hides all menu bar items and operates exclusively through the Dynamic Island.",
                           isOn: $hideMenuBarItem)
-                destination(text.tools, symbol: NotchModule.tools.symbol, value: $quickPanel, available: AppFeature.quickLauncher.isAvailable)
+                destination(l10n.s.launcherName, symbol: NotchModule.tools.symbol, value: $quickPanel, available: AppFeature.quickLauncher.isAvailable)
                 destination(FeatureStrings.clipboard(l10n.language).title, symbol: "doc.on.clipboard", value: $clipboardWindow, available: AppFeature.clipboardHistory.isAvailable)
-                destination(text.files, symbol: "tray.full", value: $shelfWindow, available: AppFeature.shelf.isAvailable)
+                destination(l10n.s.shelfName, symbol: "tray.full", value: $shelfWindow, available: AppFeature.shelf.isAvailable)
                 destination(text.captures, symbol: "camera.viewfinder", value: $captureControls)
                 destination(FeatureStrings.scratchpad(l10n.language).pageTitle, symbol: "note.text", value: $scratchpad, available: AppFeature.scratchpad.isAvailable)
             }

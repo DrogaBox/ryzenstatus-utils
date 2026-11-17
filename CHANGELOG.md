@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.85.0] — 2026-11-17 — kexts 3.40.3 (No kext changes)
+
+**A lighter start, and a round of fixes and small features across the tools.** The AMD side is untouched; this release makes startup and a few tools lighter, fixes the microphone mute and the monitor speakers, and adds options to the Dynamic Island, the displays and the tools.
+
+### Added
+
+- **Calendar in the island**: events can be ignored by words in their title. They get no countdown or time left and, optionally, leave the agenda too.
+- **Watch**: the alert can use a sound of your choice and repeat.
+- **Island hover**: a switch for the closed island growing under the pointer, and one to leave the cost out of an agent's finish notice.
+- **Virtual displays**: a DisplayLink monitor or a dummy screen can be dimmed from Displays.
+- **Monitor speakers that never answer**: a monitor that takes volume changes but never reports its level is controlled from the last level set here.
+- **Radial menu**: saved text snippets can be inserted from the wheel.
+- **Screenshots**: tiled watermarks in the editor.
+- **Backup**: a button in Advanced saves the current settings to the settings file in `~/.config/ryzenstatus`.
+- **Audio priority**: entries can be removed from the list.
+
+### Improved
+
+- **Lighter start**: launching no longer builds the brightness, Shelf and Command Bar services for features that are off.
+- **Lighter tools**: window layout watches the pointer, gestures and screen edges through a single event tap, the screenshot editor lets go of pixels it no longer shows, searching the clipboard history no longer folds every long entry, and cached icons and thumbnails are held under a memory limit.
+- **Monitor volume keys**: the notice shows the new level as the key is pressed, and is corrected if the monitor lands somewhere else.
+- **Disk image installer**: the progress bar follows the bytes actually copied.
+- **Switcher**: icon-row previews grow with the larger preview sizes.
+- **Media**: image resize takes any pixel size, and the island's media workspace accepts dropped files.
+- **Track notice**: a new song keeps the island centred, and a long title scrolls once.
+- **Scratchpad**: finished tasks are set aside under a closed Completed line.
+- **Settings export**: exporting unchanged settings twice gives the same file, byte for byte.
+- The agents' price list is up to date, the Super Key prints as one glyph in the panel, and the quick panel and the Shelf go by their own names in the island's settings.
+
+### Fixed
+
+- **Microphone mute**: an unmute that stayed muted, a call app that opened the microphone being closed again, and inputs that never stay silent being asked over and over.
+- **Panel**: the first click on the open panel could close it instead of reaching the control.
+- **Displays**: monitors are asked about their speakers again after a wake, the extra-brightness overlay hides during a native screen capture, and a display left switched off when the app quit is switched back on at the next launch.
+- **Island**: hovering the closed island no longer plays haptic feedback, choosing the camera page starts the mirror at once, and mouse actions during an edit of a level slider stay in that edit.
+- **Switcher**: ⌘Tab goes back to macOS while a game owns the display in exclusive full screen.
+- **Menu bar**: the connected devices reading leaves the bar when nothing is connected, and the Homebrew actions for installed packages fit the panel.
+- **Capture menu**: only the capture tools that are available are numbered.
+- **Audio priority**: an AirPlay device that reconnects keeps a single entry.
+
 ## [1.84.0] — 2026-11-16 — kexts 3.40.3 (No kext changes)
 
 **Chain reactions: what one companion wears sets off the next.** The AMD side is untouched; this release brings forty-eight new things for the companions, chain reactions between them, sixteen rare sights and a new wardrobe to find it all.

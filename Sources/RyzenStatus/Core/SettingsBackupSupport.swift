@@ -226,6 +226,7 @@ enum SettingsBackupSupport {
             DefaultsKey.brightnessDDCWriteOnlyPaths,
             // Speaker probe verdicts: the same stated reason as the write-only paths.
             DefaultsKey.displayAudioSilentPaths,
+            DefaultsKey.displayAudioBlindLevels,
             // Restoring it would skip the one-time recheck of the cache above on
             // a Mac that still holds its own stale verdicts.
             DefaultsKey.brightnessDDCWriteOnlyPathsRechecked,
@@ -518,7 +519,9 @@ enum SettingsBackupSupport {
             for index in presets.indices where presets[index].images?.isEmpty == false {
                 presets[index].images = nil
             }
-            settings[DefaultsKey.recorderEditorPresets] = try? JSONEncoder().encode(presets)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            settings[DefaultsKey.recorderEditorPresets] = try? encoder.encode(presets)
         }
         if let rawProfiles = settings[DefaultsKey.mediaImageProfiles] as? String {
             if let portableProfiles = MediaSupport.portableImageProfiles(rawProfiles) {

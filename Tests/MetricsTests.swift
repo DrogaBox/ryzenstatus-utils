@@ -4331,7 +4331,7 @@ struct MetricsTests {
         expect(iconRowLayout.panelSize.width <= screen.width * 0.96 + SwitcherIconRowLayout.padding * 2,
                "App Switcher icon-row mode stays within the visible screen")
         expect(iconRowLayout.panelSize.height
-               == SwitcherIconRowLayout.previewHeight
+               == iconRowLayout.previewHeight
                + SwitcherIconRowLayout.previewGap
                + SwitcherIconRowLayout.rowHeight
                + SwitcherIconRowLayout.hintGap
@@ -4376,21 +4376,25 @@ struct MetricsTests {
                                                                  selectedWindowCount: 1,
                                                                  screenVisibleFrame: screen)
         expect(SwitcherIconRowLayout.scale <= 1.15,
-               "App Switcher icon-row mode caps Extra High preview scaling")
-        expect(xlargeIconRowLayout.panelSize.height < 540,
-               "App Switcher icon-row mode stays compact with Extra High previews")
+               "App Switcher icon-row mode caps Extra High icon scaling")
+        expect(xlargeIconRowLayout.previewCardWidth > SwitcherIconRowLayout.basePreviewCardWidth * 1.15,
+               "App Switcher icon-row previews still grow past the icon cap when the screen has room")
+        expect(xlargeIconRowLayout.panelSize.height <= screen.height * 0.85,
+               "App Switcher icon-row mode keeps Extra High previews inside the screen budget")
         expect(xlargeIconRowLayout.panelSize.width < 950,
                "App Switcher icon-row mode avoids a giant empty backdrop with six apps")
         let xlargeSingleWindowLayout = SwitcherIconRowLayout.compute(appCount: 1,
                                                                      selectedWindowCount: 1,
                                                                      screenVisibleFrame: screen)
         expectClose(Double(xlargeSingleWindowLayout.previewContentWidth),
-                    Double(SwitcherIconRowLayout.previewCardWidth),
+                    Double(xlargeSingleWindowLayout.previewCardWidth),
                     "App Switcher icon-row mode keeps a one-window preview card compact")
         expectClose(Double(xlargeSingleWindowLayout.previewSurfaceWidth),
-                    Double(SwitcherIconRowLayout.previewCardWidth + SwitcherIconRowLayout.previewPanelPadding * 2),
+                    Double(xlargeSingleWindowLayout.previewCardWidth + SwitcherIconRowLayout.previewPanelPadding * 2),
                     "App Switcher icon-row mode keeps padding around a one-window preview card")
-        expect(xlargeSingleWindowLayout.panelSize.width < 430,
+        expect(xlargeSingleWindowLayout.panelSize.width
+               <= max(xlargeSingleWindowLayout.previewSurfaceWidth, SwitcherIconRowLayout.hintBarWidth)
+                   + SwitcherIconRowLayout.padding * 2 + 0.5,
                "App Switcher icon-row mode avoids a giant horizontal panel for one app with one window")
         if let previousPreviewSize {
             UserDefaults.standard.set(previousPreviewSize, forKey: DefaultsKey.previewSize)
@@ -4916,7 +4920,7 @@ struct MetricsTests {
                >= CGFloat(appGroups.count) * SwitcherIconRowLayout.appTileWidth,
                "App Switcher icon-row layout uses full app tile width")
         expect(groupedIconLayout.previewContentWidth
-               >= CGFloat(appGroups[0].windowCount) * SwitcherIconRowLayout.previewCardWidth,
+               >= CGFloat(appGroups[0].windowCount) * groupedIconLayout.previewCardWidth,
                "App Switcher icon-row layout reserves room for selected app previews")
         expectClose(Double(groupedIconLayout.appRowSurfaceWidth),
                     Double(groupedIconLayout.appRowContentWidth + SwitcherIconRowLayout.rowHorizontalPadding * 2),
@@ -5025,7 +5029,7 @@ struct MetricsTests {
         let singleWindowAppLayout = SwitcherIconRowLayout.compute(appCount: appGroups.count,
                                                                   selectedWindowCount: appGroups[1].windowCount,
                                                                   screenVisibleFrame: screen)
-        expect(singleWindowAppLayout.previewContentWidth == SwitcherIconRowLayout.previewCardWidth,
+        expect(singleWindowAppLayout.previewContentWidth == singleWindowAppLayout.previewCardWidth,
                "App Switcher icon-row layout does not reserve empty preview slots for a one-window app")
         expect(DockPreviewSupport.adjacentWindowID(selectedWindowID: 22,
                                                    windowIDs: [11, 22, 33],
@@ -7110,7 +7114,7 @@ struct MetricsTests {
                    "no em-dash in visible radial menu strings (\(language.rawValue))")
             let scratchpadValues = Mirror(reflecting: FeatureStrings.scratchpad(language)).children
                 .compactMap { $0.value as? String }
-            expect(scratchpadValues.count == 46 && scratchpadValues.allSatisfy { !$0.isEmpty },
+            expect(scratchpadValues.count == 47 && scratchpadValues.allSatisfy { !$0.isEmpty },
                    "every scratchpad string is set for \(language.rawValue)")
             expect(scratchpadValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible scratchpad strings (\(language.rawValue))")
@@ -13525,6 +13529,7 @@ struct MetricsTests {
                 ("ClipboardTextCaseTransformTests", ClipboardTextCaseTransformTests.run),
                 ("HomebrewOperationLogRetentionTests", HomebrewOperationLogRetentionTests.run),
                 ("PortedBatch180Tests", PortedBatch180Tests.run),
+                ("PortedBatch185Tests", PortedBatch185Tests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

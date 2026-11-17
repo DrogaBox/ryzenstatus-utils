@@ -18,6 +18,10 @@ struct BackupFeatureStrings {
     let importMissingIslandBody: String
     let importAction: String
     let invalidFile: String
+    let configFileButton: String
+    let configFileConfirmTitle: String
+    let configFileConfirmFormat: String
+    let configFileAction: String
 }
 
 extension FeatureStrings {
@@ -54,7 +58,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "현재 설정이 파일의 설정으로 바뀌고 앱이 다시 시작됩니다. 이 Mac의 다른 항목은 변경되지 않습니다.",
         importMissingIslandBody: "이 백업에는 Dynamic Island 설정이 없습니다. 이 Mac의 해당 설정은 유지됩니다. 다른 Mac의 설정을 복사하려면 RyzenStatus 1.37 이상에서 다시 내보내세요. 나머지 설정을 가져온 뒤 앱이 다시 시작됩니다.",
         importAction: "가져오고 다시 시작",
-        invalidFile: "이 파일은 유효한 RyzenStatus 백업이 아닙니다."
+        invalidFile: "이 파일은 유효한 RyzenStatus 백업이 아닙니다.",
+        configFileButton: "설정 파일에 저장…",
+        configFileConfirmTitle: "설정 파일에 저장할까요?",
+        configFileConfirmFormat: "현재 설정 전체가 %@에 기록되며, 파일이 이미 있으면 대체됩니다. RyzenStatus는 실행할 때마다 이 파일을 적용하므로 여기에서 설정을 변경한 후에는 다시 저장하세요.",
+        configFileAction: "저장"
     )
     static let uk = BackupFeatureStrings(
         title: "Резервна копія",
@@ -67,7 +75,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Ваші поточні налаштування замінюються файлом, і програма перезапускається. Нічого іншого на цьому Mac не зачіпається.",
         importMissingIslandBody: "У цій резервній копії немає налаштувань Dynamic Island. Налаштування на цьому Mac залишаться без змін. Щоб перенести їх з іншого Mac, експортуйте копію з RyzenStatus 1.37 або новішої версії. Решту налаштувань буде імпортовано, а програму перезапущено.",
         importAction: "Імпортувати та перезапустити",
-        invalidFile: "Цей файл не є коректною резервною копією RyzenStatus."
+        invalidFile: "Цей файл не є коректною резервною копією RyzenStatus.",
+        configFileButton: "Зберегти у файл налаштувань…",
+        configFileConfirmTitle: "Зберегти у файл налаштувань?",
+        configFileConfirmFormat: "Усі поточні налаштування буде записано в %@; якщо файл уже є, його буде замінено. RyzenStatus застосовує його під час кожного запуску, тож після зміни налаштувань тут збережіть знову.",
+        configFileAction: "Зберегти"
     )
 }
 
@@ -83,7 +95,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Your current settings are replaced by the file’s and the app restarts. Nothing else on this Mac is touched.",
         importMissingIslandBody: "This backup has no Dynamic Island settings. This Mac’s island settings will be kept. Re-export with RyzenStatus 1.37 or newer on the other Mac to copy them. Other settings will be imported and the app will restart.",
         importAction: "Import and restart",
-        invalidFile: "This file is not a valid RyzenStatus backup."
+        invalidFile: "This file is not a valid RyzenStatus backup.",
+        configFileButton: "Save to settings file…",
+        configFileConfirmTitle: "Save to the settings file?",
+        configFileConfirmFormat: "Your current settings are written to %@ as a complete snapshot, replacing that file if it exists. RyzenStatus applies it at each launch, so save again after changing settings here.",
+        configFileAction: "Save"
     )
 
     static let ptBR = BackupFeatureStrings(
@@ -97,7 +113,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "As configurações atuais são substituídas pelas do arquivo e o app reinicia. Nada mais neste Mac é alterado.",
         importMissingIslandBody: "Este backup não contém configurações da Dynamic Island. As configurações dela neste Mac serão mantidas. Para copiá-las do outro Mac, exporte novamente com o RyzenStatus 1.37 ou mais recente. As demais configurações serão importadas e o app reiniciará.",
         importAction: "Importar e reiniciar",
-        invalidFile: "Este arquivo não é um backup válido do RyzenStatus."
+        invalidFile: "Este arquivo não é um backup válido do RyzenStatus.",
+        configFileButton: "Salvar no arquivo de configurações…",
+        configFileConfirmTitle: "Salvar no arquivo de configurações?",
+        configFileConfirmFormat: "Suas configurações atuais são gravadas por completo em %@, substituindo esse arquivo se ele existir. O RyzenStatus aplica esse arquivo sempre que é aberto, então salve de novo depois de alterar as configurações aqui.",
+        configFileAction: "Salvar"
     )
 
     static let tr = BackupFeatureStrings(
@@ -111,7 +131,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Mevcut ayarlar dosyadakilerle değiştirilir ve uygulama yeniden başlar. Bu Mac’te başka hiçbir şeye dokunulmaz.",
         importMissingIslandBody: "Bu yedekte Dynamic Island ayarları yok. Bu Mac’teki ada ayarları korunacak. Diğer Mac’ten kopyalamak için RyzenStatus 1.37 veya daha yeni bir sürümle yeniden dışa aktarın. Diğer ayarlar içe aktarılacak ve uygulama yeniden başlayacak.",
         importAction: "İçe aktar ve yeniden başlat",
-        invalidFile: "Bu dosya geçerli bir RyzenStatus yedeği değil."
+        invalidFile: "Bu dosya geçerli bir RyzenStatus yedeği değil.",
+        configFileButton: "Ayar dosyasına kaydet…",
+        configFileConfirmTitle: "Ayar dosyasına kaydedilsin mi?",
+        configFileConfirmFormat: "Geçerli ayarlarınızın tamamı %@ dosyasına yazılır; dosya varsa değiştirilir. RyzenStatus bu dosyayı her açılışta uygular; burada ayar değiştirdikten sonra yeniden kaydedin.",
+        configFileAction: "Kaydet"
     )
 
     static let ru = BackupFeatureStrings(
@@ -125,7 +149,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Текущие настройки заменяются настройками из файла, и приложение перезапускается. Больше ничего на этом Mac не меняется.",
         importMissingIslandBody: "В этой копии нет настроек Dynamic Island. Настройки на этом Mac сохранятся. Чтобы перенести их с другого Mac, экспортируйте копию из RyzenStatus 1.37 или новее. Остальные настройки будут импортированы, затем приложение перезапустится.",
         importAction: "Импортировать и перезапустить",
-        invalidFile: "Этот файл не является корректной резервной копией RyzenStatus."
+        invalidFile: "Этот файл не является корректной резервной копией RyzenStatus.",
+        configFileButton: "Сохранить в файл настроек…",
+        configFileConfirmTitle: "Сохранить в файл настроек?",
+        configFileConfirmFormat: "Все текущие настройки будут записаны в %@; если файл уже есть, он будет заменён. RyzenStatus применяет его при каждом запуске, поэтому после изменения настроек здесь сохраните снова.",
+        configFileAction: "Сохранить"
     )
 
     static let es = BackupFeatureStrings(
@@ -139,7 +167,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Los ajustes actuales se sustituyen por los del archivo y la app se reinicia. Nada más cambia en este Mac.",
         importMissingIslandBody: "Esta copia no contiene ajustes de Dynamic Island. Se conservarán los ajustes de esta Mac. Para copiarlos desde la otra Mac, exporta de nuevo con RyzenStatus 1.37 o posterior. Se importarán los demás ajustes y la app se reiniciará.",
         importAction: "Importar y reiniciar",
-        invalidFile: "Este archivo no es una copia de seguridad válida de RyzenStatus."
+        invalidFile: "Este archivo no es una copia de seguridad válida de RyzenStatus.",
+        configFileButton: "Guardar en el archivo de ajustes…",
+        configFileConfirmTitle: "¿Guardar en el archivo de ajustes?",
+        configFileConfirmFormat: "Todos tus ajustes actuales se escriben en %@ y reemplazan ese archivo si ya existe. RyzenStatus lo aplica cada vez que se abre, así que vuelve a guardar después de cambiar los ajustes aquí.",
+        configFileAction: "Guardar"
     )
 
     static let sk = BackupFeatureStrings(
@@ -153,7 +185,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Vaše aktuálne nastavenia sa nahradia nastaveniami zo súboru a aplikácia sa reštartuje. Nič iné na tomto Macu sa nezmení.",
         importMissingIslandBody: "Táto záloha neobsahuje nastavenia Dynamic Island. Nastavenia na tomto Macu zostanú zachované. Ak ich chcete preniesť z druhého Macu, exportujte zálohu znova vo RyzenStatus 1.37 alebo novšom. Ostatné nastavenia sa importujú a aplikácia sa reštartuje.",
         importAction: "Importovať a reštartovať",
-        invalidFile: "Tento súbor nie je platná záloha RyzenStatus."
+        invalidFile: "Tento súbor nie je platná záloha RyzenStatus.",
+        configFileButton: "Uložiť do súboru nastavení…",
+        configFileConfirmTitle: "Uložiť do súboru nastavení?",
+        configFileConfirmFormat: "Všetky aktuálne nastavenia sa zapíšu do %@ a nahradia tento súbor, ak už existuje. RyzenStatus ho použije pri každom spustení, preto po zmene nastavení tu uložte znova.",
+        configFileAction: "Uložiť"
     )
 
     static let de = BackupFeatureStrings(
@@ -167,7 +203,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Die aktuellen Einstellungen werden durch die der Datei ersetzt und die App startet neu. Sonst ändert sich auf diesem Mac nichts.",
         importMissingIslandBody: "Dieses Backup enthält keine Dynamic-Island-Einstellungen. Die Einstellungen auf diesem Mac bleiben erhalten. Um sie vom anderen Mac zu übernehmen, exportiere erneut mit RyzenStatus 1.37 oder neuer. Die übrigen Einstellungen werden importiert und die App startet neu.",
         importAction: "Importieren und neu starten",
-        invalidFile: "Diese Datei ist kein gültiges RyzenStatus-Backup."
+        invalidFile: "Diese Datei ist kein gültiges RyzenStatus-Backup.",
+        configFileButton: "In Einstellungsdatei sichern…",
+        configFileConfirmTitle: "In der Einstellungsdatei sichern?",
+        configFileConfirmFormat: "Alle aktuellen Einstellungen werden in %@ geschrieben und ersetzen diese Datei, falls sie existiert. RyzenStatus wendet sie bei jedem Start an, sichere daher erneut, nachdem du hier Einstellungen änderst.",
+        configFileAction: "Sichern"
     )
 
     static let fr = BackupFeatureStrings(
@@ -181,7 +221,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Les réglages actuels sont remplacés par ceux du fichier et l’app redémarre. Rien d’autre ne change sur ce Mac.",
         importMissingIslandBody: "Cette sauvegarde ne contient aucun réglage de Dynamic Island. Les réglages de ce Mac seront conservés. Pour les copier depuis l’autre Mac, exportez à nouveau avec RyzenStatus 1.37 ou une version ultérieure. Les autres réglages seront importés, puis l’app redémarrera.",
         importAction: "Importer et redémarrer",
-        invalidFile: "Ce fichier n’est pas une sauvegarde RyzenStatus valide."
+        invalidFile: "Ce fichier n’est pas une sauvegarde RyzenStatus valide.",
+        configFileButton: "Enregistrer dans le fichier de réglages…",
+        configFileConfirmTitle: "Enregistrer dans le fichier de réglages\u{00A0}?",
+        configFileConfirmFormat: "Tous vos réglages actuels sont écrits dans %@ et remplacent ce fichier s’il existe. RyzenStatus l’applique à chaque ouverture\u{00A0}: enregistrez de nouveau après avoir modifié les réglages ici.",
+        configFileAction: "Enregistrer"
     )
 
     static let it = BackupFeatureStrings(
@@ -195,7 +239,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "Le impostazioni attuali vengono sostituite da quelle del file e l’app si riavvia. Nient’altro cambia su questo Mac.",
         importMissingIslandBody: "Questo backup non contiene le impostazioni di Dynamic Island. Quelle su questo Mac verranno mantenute. Per copiarle dall’altro Mac, esporta di nuovo con RyzenStatus 1.37 o successivo. Le altre impostazioni verranno importate e l’app si riavvierà.",
         importAction: "Importa e riavvia",
-        invalidFile: "Questo file non è un backup RyzenStatus valido."
+        invalidFile: "Questo file non è un backup RyzenStatus valido.",
+        configFileButton: "Salva nel file delle impostazioni…",
+        configFileConfirmTitle: "Salvare nel file delle impostazioni?",
+        configFileConfirmFormat: "Tutte le impostazioni attuali vengono scritte in %@, sostituendo il file se esiste già. RyzenStatus lo applica a ogni avvio, quindi salva di nuovo dopo aver modificato le impostazioni qui.",
+        configFileAction: "Salva"
     )
 
     static let ja = BackupFeatureStrings(
@@ -209,7 +257,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "現在の設定はファイルの内容に置き換えられ、アプリが再起動します。このMacのほかの部分は変わりません。",
         importMissingIslandBody: "このバックアップにはDynamic Islandの設定がありません。このMacの設定は維持されます。別のMacからコピーするには、RyzenStatus 1.37以降で再度書き出してください。その他の設定を読み込んだ後、アプリが再起動します。",
         importAction: "読み込んで再起動",
-        invalidFile: "このファイルは有効なRyzenStatusのバックアップではありません。"
+        invalidFile: "このファイルは有効なRyzenStatusのバックアップではありません。",
+        configFileButton: "設定ファイルに保存…",
+        configFileConfirmTitle: "設定ファイルに保存しますか?",
+        configFileConfirmFormat: "現在のすべての設定が%@に書き込まれます。ファイルがすでにある場合は置き換えられます。RyzenStatusは起動するたびにこのファイルを適用するため、ここで設定を変更したら再度保存してください。",
+        configFileAction: "保存"
     )
 
     static let zhHans = BackupFeatureStrings(
@@ -223,7 +275,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "当前设置将被文件中的设置替换，App 会重启。这台 Mac 上的其他内容不受影响。",
         importMissingIslandBody: "此备份不包含 Dynamic Island 设置。这台 Mac 上的相关设置将保留。要从另一台 Mac 复制这些设置，请使用 RyzenStatus 1.37 或更新版本重新导出。其他设置将被导入，然后 App 会重启。",
         importAction: "导入并重启",
-        invalidFile: "该文件不是有效的 RyzenStatus 备份。"
+        invalidFile: "该文件不是有效的 RyzenStatus 备份。",
+        configFileButton: "存储到设置文件…",
+        configFileConfirmTitle: "要存储到设置文件吗？",
+        configFileConfirmFormat: "当前的全部设置将写入 %@，如果该文件已存在则会被替换。RyzenStatus 每次启动时都会应用该文件，因此在这里更改设置后请重新存储。",
+        configFileAction: "存储"
     )
 
     static let zhTW = BackupFeatureStrings(
@@ -237,7 +293,11 @@ extension BackupFeatureStrings {
         importConfirmBody: "目前設定將被檔案中的設定取代,App 會重新啟動。這台 Mac 上的其他內容不受影響。",
         importMissingIslandBody: "此備份不包含 Dynamic Island 設定。這台 Mac 上的相關設定會保留。若要從另一台 Mac 複製這些設定,請使用 RyzenStatus 1.37 或較新版本重新匯出。其他設定會匯入,然後 App 會重新啟動。",
         importAction: "匯入並重新啟動",
-        invalidFile: "此檔案不是有效的 RyzenStatus 備份。"
+        invalidFile: "此檔案不是有效的 RyzenStatus 備份。",
+        configFileButton: "儲存到設定檔…",
+        configFileConfirmTitle: "要儲存到設定檔嗎?",
+        configFileConfirmFormat: "目前的所有設定會寫入 %@,若該檔案已存在則會被取代。RyzenStatus 每次啟動時都會套用此檔案,因此在這裡更改設定後請再次儲存。",
+        configFileAction: "儲存"
     )
 
     static let zhHK = BackupFeatureStrings(
@@ -251,6 +311,10 @@ extension BackupFeatureStrings {
         importConfirmBody: "目前設定將被檔案中的設定取代,App 會重新啟動。這台 Mac 上的其他內容不受影響。",
         importMissingIslandBody: "呢份備份冇 Dynamic Island 設定。呢部 Mac 上嘅相關設定會保留。想從另一部 Mac 複製呢啲設定,請用 RyzenStatus 1.37 或更新版本重新匯出。其他設定會匯入,之後 App 會重新啟動。",
         importAction: "匯入並重新啟動",
-        invalidFile: "此檔案不是有效嘅 RyzenStatus 備份。"
+        invalidFile: "此檔案不是有效嘅 RyzenStatus 備份。",
+        configFileButton: "儲存到設定檔…",
+        configFileConfirmTitle: "要儲存到設定檔嗎?",
+        configFileConfirmFormat: "而家所有設定會寫入 %@,如果檔案已經存在就會被取代。RyzenStatus 每次啟動都會套用呢個檔案,所以喺呢度改完設定之後要再儲存一次。",
+        configFileAction: "儲存"
     )
 }

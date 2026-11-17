@@ -319,6 +319,7 @@ struct ScratchpadView: View {
                 MarkdownPreview(blocks: ScratchpadSupport.markdownPreview(service.text),
                                 baseSize: textSize,
                                 taskStates: (done: text.taskDone, notDone: text.taskNotDone),
+                                completedLabel: text.completedTasks,
                                 onToggleTask: { service.toggleTask(box: $0) })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -569,4 +570,3 @@ private struct ScratchpadResizeOverlay: NSViewRepresentable {
         }
     }
 }
-

@@ -22,19 +22,14 @@ enum ScreenCaptureTool: String, CaseIterable {
             : feature.settingsDestination
     }
 
-    var shortcutKey: String {
-        switch self {
-        case .screenshot: return "1"
-        case .recording: return "2"
-        case .text: return "3"
-        case .color: return "4"
-        case .scrolling: return "5"
-        }
+    func shortcutKey(in availableTools: [ScreenCaptureTool]) -> String? {
+        availableTools.firstIndex(of: self).map { String($0 + 1) }
     }
 
-    static func matchingShortcut(_ characters: String?) -> ScreenCaptureTool? {
-        guard let characters else { return nil }
-        return allCases.first { $0.shortcutKey == characters }
+    static func matchingShortcut(_ characters: String?, in availableTools: [ScreenCaptureTool]) -> ScreenCaptureTool? {
+        guard let characters, let number = Int(characters),
+              (1...availableTools.count).contains(number) else { return nil }
+        return availableTools[number - 1]
     }
 
     var feature: AppFeature {
@@ -2215,6 +2210,30 @@ enum ScreenshotSupport {
                      to: bounds)
     }
 
+    /// A picture's own pixels rather than a window into another picture.
+    /// `cropping(to:)` keeps the parent frame alive, so an 800×600 crop of a
+    /// 5K capture would hold the whole display in memory. Size, colour space
+    /// and byte order stay as they were; only ownership changes. Nil when the
+    /// pixels cannot be copied, and the caller keeps what it had.
+    static func independentImage(_ image: CGImage) -> CGImage? {
+        let space = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let alpha: CGImageAlphaInfo
+        switch image.alphaInfo {
+        case .none, .noneSkipLast, .noneSkipFirst, .premultipliedLast, .premultipliedFirst:
+            alpha = image.alphaInfo
+        default:
+            alpha = .premultipliedLast
+        }
+        guard let context = CGContext(data: nil, width: image.width, height: image.height,
+                                      bitsPerComponent: image.bitsPerComponent, bytesPerRow: 0,
+                                      space: space, bitmapInfo: alpha.rawValue)
+        else { return nil }
+        // Straight pixels: a resize or a smoothing pass here would move them.
+        context.interpolationQuality = .none
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
+    }
+
     /// A stable square of source pixels for the crop loupe. Near an image
     /// edge the sample slides inward instead of shrinking, and the loupe's
     /// reticle still marks the exact adjusted pixel.
@@ -3060,11 +3079,15 @@ enum ScreenshotSupport {
 
     /// A mark of your own on every capture that leaves the editor: a line of
     /// text or a picture from disk, faded, tilted if you like and set on one
-    /// of nine places. Persisted as JSON like the backdrop, so the next
-    /// capture opens with it already on.
+    /// of nine places or tiled across the image. Persisted as JSON like the
+    /// backdrop, so the next capture opens with it already on.
     struct WatermarkStyle: Codable, Equatable {
         enum Kind: String, Codable {
             case none, text, image
+        }
+
+        enum Layout: String, Codable {
+            case single, tiled
         }
 
         /// The same nine places the recorder's captions and pictures take:
@@ -3078,6 +3101,7 @@ enum ScreenshotSupport {
         /// ColorID raw value the text is drawn in.
         var color: String
         var anchor: Anchor
+        var layout: Layout
         /// Sliders 0…1; `watermarkFontSize` and `watermarkImageWidth` turn
         /// them into pixels for a given capture.
         var size: Double
@@ -3093,15 +3117,35 @@ enum ScreenshotSupport {
              anchor: Anchor = .bottomTrailing,
              size: Double = 0.3,
              opacity: Double = 0.4,
-             rotation: Double = 0) {
+             rotation: Double = 0,
+             layout: Layout = .single) {
             self.kind = kind
             self.text = text
             self.imagePath = imagePath
             self.color = color
             self.anchor = anchor
+            self.layout = layout
             self.size = size
             self.opacity = opacity
             self.rotation = rotation
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, text, imagePath, color, anchor, size, opacity, rotation, layout
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(kind: try values.decode(Kind.self, forKey: .kind),
+                      text: try values.decode(String.self, forKey: .text),
+                      imagePath: try values.decodeIfPresent(String.self, forKey: .imagePath),
+                      color: try values.decode(String.self, forKey: .color),
+                      anchor: try values.decode(Anchor.self, forKey: .anchor),
+                      size: try values.decode(Double.self, forKey: .size),
+                      opacity: try values.decode(Double.self, forKey: .opacity),
+                      rotation: try values.decode(Double.self, forKey: .rotation),
+                      layout: (try? values.decode(String.self, forKey: .layout))
+                        .flatMap(Layout.init(rawValue:)) ?? .single)
         }
 
         static let opacityRange: ClosedRange<Double> = 0.05...1
@@ -3212,6 +3256,7 @@ enum ScreenshotSupport {
                                    cornerRadius: CGFloat = 0) -> WatermarkPlacement? {
         guard contentSize.width.isFinite, contentSize.height.isFinite,
               contentSize.width > 0, contentSize.height > 0,
+              imageSize.width.isFinite, imageSize.height.isFinite,
               imageSize.width > 0, imageSize.height > 0, rotation.isFinite
         else { return nil }
         let radians = rotation * .pi / 180

@@ -164,8 +164,13 @@ enum NotchAgentTests {
         suite.expect(AgentPricing.displayName("gpt-7") == "GPT-7" && AgentPricing.displayName("claude-opus-6") == "Opus 6"
                         && AgentPricing.displayName("gpt-7-codex") == "GPT-7 Codex",
                      "a model no list knows yet still reads well")
+        // Max 20x subscribers moved to Ultra: https://support.claude.com/en/articles/17728952-what-is-the-ultra-plan
         suite.expect(AgentPlans.claude(organizationType: "claude_max", rateLimitTier: "default_claude_max_20x")
-                        == AgentPlan(name: "Max 20×", monthlyPrice: 200)
+                        == AgentPlan(name: "Ultra", monthlyPrice: 200)
+                        && AgentPlans.claude(organizationType: "claude_ultra", rateLimitTier: "default_claude_ultra")
+                        == AgentPlan(name: "Ultra", monthlyPrice: 200)
+                        && AgentPlans.claude(organizationType: "claude_max", rateLimitTier: "default_claude_max_5x")
+                        == AgentPlan(name: "Max", monthlyPrice: 100)
                         && AgentPlans.claude(organizationType: "claude_pro", rateLimitTier: nil)?.monthlyPrice == 20
                         && AgentPlans.claude(organizationType: nil, rateLimitTier: nil) == nil
                         // Pro has multiple monthly prices: https://learn.chatgpt.com/docs/pricing
@@ -174,8 +179,8 @@ enum NotchAgentTests {
                         // Free and Go monthly prices: https://learn.chatgpt.com/docs/pricing
                         && AgentPlans.codex(planType: "free") == AgentPlan(name: "Free", monthlyPrice: 0)
                         && AgentPlans.codex(planType: "go") == AgentPlan(name: "Go", monthlyPrice: 8)
-                        && AgentPlans.claude(organizationType: "claude_ultra", rateLimitTier: "default_claude_ultra")
-                        == AgentPlan(name: "Ultra", monthlyPrice: nil),
+                        && AgentPlans.claude(organizationType: "claude_example", rateLimitTier: nil)
+                        == AgentPlan(name: "Example", monthlyPrice: nil),
                      "plans are recognized, and an unknown one keeps its name without a price")
     }
 
@@ -2622,13 +2627,24 @@ enum NotchAgentTests {
         suite.expect(NotchAgentSupport.finishMinimum(in: defaults) == nil && NotchAgentSupport.limitThreshold(in: defaults) == 95
                         && NotchAgentSupport.dailyBudget(in: defaults) == nil,
                      "alerts follow their switches and a budget must be positive")
+        let english = Locale(identifier: "en_US")
+        let took = AgentFormat.duration(6, locale: english)
+        suite.expect(NotchAgentSupport.showsFinishCost(in: defaults)
+                        && NotchAgentSupport.finishedDetail(duration: 6, cost: 0.11, showsCost: true, locale: english)
+                            == took + " · " + AgentFormat.cost(0.11),
+                     "a finished task names its API value unless that is turned off")
+        defaults.set(false, forKey: DefaultsKey.notchAgentsFinishCost)
+        suite.expect(!NotchAgentSupport.showsFinishCost(in: defaults)
+                        && NotchAgentSupport.finishedDetail(duration: 6, cost: 0.11, showsCost: false, locale: english) == took
+                        && NotchAgentSupport.finishedDetail(duration: 6, cost: 0, showsCost: true, locale: english) == took,
+                     "without its API value, or with none, a finished task shows only how long it took")
 
         let keys = [DefaultsKey.notchAgentsEnabled, DefaultsKey.notchAgentsClaude, DefaultsKey.notchAgentsCodex,
                     DefaultsKey.notchAgentsOpenCode, DefaultsKey.notchAgentsCopilot,
                     DefaultsKey.notchAgentsCardOrder, DefaultsKey.notchAgentsHiddenCards, DefaultsKey.notchAgentsPeriod,
                     DefaultsKey.notchAgentsLimitDisplay, DefaultsKey.notchAgentsLimitFocus, DefaultsKey.notchAgentsLiveActivity, DefaultsKey.notchAgentsReadout,
-                    DefaultsKey.notchAgentsFinishAlert, DefaultsKey.notchAgentsFinishMinimum, DefaultsKey.notchAgentsLimitAlert,
-                    DefaultsKey.notchAgentsLimitThreshold, DefaultsKey.notchAgentsDailyBudget, DefaultsKey.notchAgentsPriceUpdates]
+                    DefaultsKey.notchAgentsFinishAlert, DefaultsKey.notchAgentsFinishMinimum, DefaultsKey.notchAgentsFinishCost,
+                    DefaultsKey.notchAgentsLimitAlert, DefaultsKey.notchAgentsLimitThreshold, DefaultsKey.notchAgentsDailyBudget, DefaultsKey.notchAgentsPriceUpdates]
         suite.expect(keys.allSatisfy { Defaults.registeredDefaults[$0] != nil } && SettingsBackupSupport.exportKeys().isSuperset(of: keys)
                         && Defaults.registeredDefaults[DefaultsKey.notchAgentsEnabled] as? Bool == false
                         && Defaults.registeredDefaults[DefaultsKey.notchAgentsPriceUpdates] as? Bool == true,
