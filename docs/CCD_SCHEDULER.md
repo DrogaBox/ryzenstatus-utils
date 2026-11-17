@@ -15,7 +15,7 @@ nothing, and no user-space setting reaches the threads macOS creates for apps.
 | | |
 |---|---|
 | Version | 0.3.0 |
-| Status | booted and measured on a Ryzen 9 5900XT, macOS 26.7.3 (25G342), 2026-11-15; Sonoma and Sequoia checked against Apple's installer kernels, not booted by us |
+| Status | booted and measured on a Ryzen 9 5900XT, macOS 26.7.3 (25G342); Sonoma and Sequoia checked against Apple's installer kernels, not booted yet |
 | CPUs | Ryzen with two or more CCDs: 5900X, 5950X, 5900XT, 7900X, 7950X, 9900X, 9950X and similar (only the 5900XT was tested) |
 | macOS | 14.8.9 (23J631), 15.8.2 / 15.8.3 (24H232 / 24H241), 26.7.2 / 26.7.3 (25G332 / 25G342); on any other kernel it stays off by itself and says why |
 | Needs | Lilu |
@@ -42,11 +42,11 @@ medians of 7 runs (Node) and 5 runs (zstd), [`Tools/ccd/modes.zsh`](../Tools/ccd
 - The stock times move from boot to boot (806–876 ms for 4 workers over three boots); with the kext on, the
   Node medians stayed at 739–754 ms on all three. On the boot with the slowest stock times the gain was 14%.
 - zstd fills most of the CPU from one process. That is the case where an app must use both CCDs, and it does.
-- 0.3.0, booted later the same day with the same script: Node 4 workers 899 → 733 ms (−18.5%), 8 workers
+- 0.3.0, on a later boot with the same script: Node 4 workers 899 → 733 ms (−18.5%), 8 workers
   918 → 756 ms (−17.6%), zstd 7257 → 7285 ms (ranges overlap). The times with the kext match 0.2.2; stock macOS
   was slower on that boot. Read the gain as 12 to 18% depending on the boot.
 
-### How it got here
+### Version history
 
 | Version | What it did | Node, 8 workers | zstd -T24 |
 |---|---|---|---|
@@ -275,9 +275,9 @@ sudo zsh Tools/ccd/modes.zsh ~/ccd-modes.txt /path/to/a-1GB-file
 
 ---
 
-## What is verified and what is not
+## Test coverage and limits
 
-Verified (2026-11-15, 5900XT, 25G342):
+Tested (Ryzen 9 5900XT, macOS 26.7.3, 25G342):
 
 - The cause, from source and Hex-Rays of the running kernel, including the `pset_hint` rewrite and the maps
   `choose_processor_smt` uses.
@@ -287,10 +287,10 @@ Verified (2026-11-15, 5900XT, 25G342):
 - The signatures match the running kernel and the installer kernels of 14.8.9, 15.8.2, 15.8.3, 26.7.2 and
   26.7.3 (`check_layout.py`); the hook tests pass under ASan/UBSan and TSan for every table.
 
-Not verified yet:
+Not covered yet:
 
 - Apps other than the Node pool and zstd: browsers, Electron apps, games and audio were not measured.
 - Any CPU other than the 5900XT.
 - A boot on Sonoma or Sequoia: those tables come from the installer kernels and the tests only.
-- Long-term use: so far, one day of boots.
+- Long-term use.
 - The switch in the app end to end with this version.

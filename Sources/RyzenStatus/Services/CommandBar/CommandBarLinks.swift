@@ -163,8 +163,8 @@ enum CommandBarLinks {
     ///
     /// A name that ends in something other than a letter or a digit, such as
     /// "go/" or "jira:", already marks where it stops, so what follows may be
-    /// typed straight after it: "go/mr" opens the "go/" search with "mr"
-    /// (issue #4012). A name ending in a letter or digit still needs the
+    /// typed straight after it: "go/mr" opens the "go/" search with "mr".
+    /// A name ending in a letter or digit still needs the
     /// space, or "g" would swallow "github".
     static func trailingArgument(query: String, name: String) -> String? {
         let normalizedName = CommandBarSearch.normalized(name)
@@ -291,7 +291,7 @@ enum CommandBarLinks {
 
     /// Whether the text in the field will grow an answer row for this run of
     /// this script. A row reached by part of its name never does: the answer
-    /// row needs the query to name the script itself (issue #3094).
+    /// row needs the query to name the script itself.
     static func queryShowsAnswer(for link: CommandBarLink, argument: String,
                                  query: String, in links: [CommandBarLink]) -> Bool {
         guard let match = matchingScriptLink(in: links, query: query) else { return false }

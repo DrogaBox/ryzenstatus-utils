@@ -56,7 +56,7 @@ struct FeatureHubSettings: View {
     private var content: some View {
         // These few cards contain many variable-height rows. Measure them
         // eagerly so scrolling cannot re-estimate distant cards and re-anchor
-        // the viewport in the lazy layout loop reported in #2311 and #2642.
+        // the viewport in a lazy layout loop.
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // Keep the header's identity stable when the notice changes.

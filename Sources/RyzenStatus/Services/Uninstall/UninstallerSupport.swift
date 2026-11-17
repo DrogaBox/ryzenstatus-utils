@@ -34,7 +34,7 @@ enum UninstallerSupport {
     }
 
     /// Why the uninstaller turned an app down. A refused drop springs back,
-    /// so the empty state names the rule instead of staying silent (#1582).
+    /// so the empty state names the rule instead of staying silent.
     enum Refusal: Error, Equatable {
         /// A web link, a document or a folder rather than an app.
         case notAnApp

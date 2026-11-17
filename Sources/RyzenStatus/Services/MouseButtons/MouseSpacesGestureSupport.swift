@@ -4,7 +4,7 @@
 import CoreGraphics
 import Foundation
 
-/// The pure half of the Spaces and Mission Control drag (issue #1012): how far
+/// The pure half of the Spaces and Mission Control drag: how far
 /// a held button has to travel before the gesture means something, which
 /// direction that something is, and when a continued drag may say it again.
 ///

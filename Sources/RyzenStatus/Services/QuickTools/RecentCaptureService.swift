@@ -163,7 +163,7 @@ final class RecentCaptureService: ObservableObject {
             matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak panel] event in
                 // The Clear history confirmation is a sheet, a window of its own
                 // attached to the palette. Hiding on a click there closed the
-                // palette before the button could act (issue #3380).
+                // palette before the button could act.
                 if event.window !== panel, event.window?.sheetParent !== panel {
                     self?.hideHistoryWindow()
                 }

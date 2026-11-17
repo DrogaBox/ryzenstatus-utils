@@ -32,7 +32,7 @@ enum DiskImageInstallerSupport {
 
     /// Build, signing and notarization scripts mount their own images with
     /// `hdiutil`, and installing from one of those would copy an unfinished
-    /// app and trash the image the script is about to ship (#3592). The mount
+    /// app and trash the image the script is about to ship. The mount
     /// itself does not say who asked for it, so the image has to: a download
     /// carries the quarantine attribute, and a file in Downloads is one the
     /// user fetched even when the tool that did it set none. A `-nobrowse`

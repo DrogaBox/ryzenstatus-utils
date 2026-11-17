@@ -10,9 +10,9 @@ struct PortManagerEntry: Identifiable, Equatable {
     let pid: Int32
     let processName: String
     let startedAt: UInt64?
-    /// Local guard (stricter than upstream): set when the listener belongs to
-    /// this app, to a process `KillProcessSupport` protects, or to an Apple
-    /// daemon or agent. Rows marked here never offer Kill or Force Kill.
+    /// Guard: set when the listener belongs to this app, to a process
+    /// `KillProcessSupport` protects, or to an Apple daemon or agent. Rows
+    /// marked here never offer Kill or Force Kill.
     var isProtected = false
     var id: String { "\(protocolName)-\(port)-\(pid)-\(address)" }
 }

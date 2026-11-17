@@ -349,7 +349,7 @@ enum StatusItemPlacementSupport {
     /// Undoes a remembered hidden state while leaving the arranged position
     /// alone. An item that starts over with no saved position is born at the
     /// left end of the status area, against the notch, which is the first
-    /// zone macOS drops from a crowded bar (issue #167) — so the spot the
+    /// zone macOS drops from a crowded bar — so the spot the
     /// person already arranged is worth far more than a fresh identity, and
     /// is only given up when keeping it demonstrably fails.
     static func clearRememberedVisibility(in defaults: UserDefaults) {
@@ -360,7 +360,7 @@ enum StatusItemPlacementSupport {
         let previousGeneration = placementGeneration(in: defaults)
         // Sweep every identity this install may have minted. Leaving Visible /
         // Preferred keys behind for older generations is how recovery quietly
-        // accumulates junk without helping the next attempt (#1394).
+        // accumulates junk without helping the next attempt.
         for generation in 0...previousGeneration {
             clearAllRememberedState(of: autosaveName(forGeneration: generation), in: defaults)
         }
@@ -375,7 +375,7 @@ enum StatusItemPlacementSupport {
     /// to place at all (macOS 26 with the app switched off under System
     /// Settings > Menu Bar > "Allow in the Menu Bar") keeps its window at the
     /// bottom-left origin of the main display, sized like a real item, which
-    /// intersects that screen and used to pass for "appeared" (#1394). Only a
+    /// intersects that screen and used to pass for "appeared". Only a
     /// frame sitting in the menu bar band of an attached screen counts.
     static func isPlacedStatusFrame(_ frame: CGRect, screenFrames: [CGRect]) -> Bool {
         StatusItemAnchorSupport.isTrustworthyStatusFrame(frame, screenFrames: screenFrames)
@@ -383,7 +383,7 @@ enum StatusItemPlacementSupport {
 
     /// While macOS is still settling a newborn status window, recovery must
     /// keep waiting instead of escalating to an identity reset or the
-    /// "still hidden" alert (#1394).
+    /// "still hidden" alert.
     static func shouldKeepWaitingForSettlement(isOnScreen: Bool,
                                                isSettling: Bool,
                                                settlingGraceLeft: Int) -> Bool {

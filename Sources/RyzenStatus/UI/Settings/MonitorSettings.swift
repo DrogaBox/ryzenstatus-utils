@@ -581,8 +581,8 @@ private struct MenuBarMetricOrderEditor: View {
     }
 }
 
-// Contributed in PR #179: the memory pressure-dot option lives under the
-// Memory row, matching the Network row's inline option.
+// The memory pressure-dot option lives under the Memory row, matching the
+// Network row's inline option.
 /// Inline per-metric option row: caption on the left, a switch on the right,
 /// indented under its metric. The switch is a hand-rolled capsule Button on
 /// purpose: a native Toggle inside the reorderable metric list never receives

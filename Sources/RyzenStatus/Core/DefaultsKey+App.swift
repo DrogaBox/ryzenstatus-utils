@@ -86,7 +86,7 @@ extension DefaultsKey {
     static let dockClickCycleWindows = "dockClickCycleWindows" // click the active app's Dock icon to cycle through its windows
     static let dockClickNewWindow = "dockClickNewWindow"  // middle-click an app's Dock icon to open a new window
     static let middleClickEnabled = "middleClickEnabled"  // three-finger PHYSICAL click on the trackpad acts as a middle click
-    static let middleClickTapFingers = "middleClickTapFingers"  // 0 = off (default); 3 or 4 = a light tap with that many fingers also middle-clicks (issue #161)
+    static let middleClickTapFingers = "middleClickTapFingers"  // 0 = off (default); 3 or 4 = a light tap with that many fingers also middle-clicks
     static let previewSize = "previewSize"                // app switcher + dock preview thumbnail size
     static let autoCheckUpdates = "autoCheckUpdates"
     static let checkPrereleases = "checkPrereleases"       // include pre-releases when checking
@@ -424,7 +424,7 @@ extension DefaultsKey {
     static let linearScrollExceptions = "linearScrollExceptions"
     static let focusFollowsMouseExceptions = "focusFollowsMouseExceptions"
 
-    // Mouse extras ported from upstream (all off by default).
+    // Mouse extras (all off by default).
     static let scrollHorizontalEnabled = "scrollHorizontalEnabled"
     static let scrollHorizontalModifier = "scrollHorizontalModifier" // ScrollHorizontalModifier.rawValue
     static let focusFollowsMouseEnabled = "focusFollowsMouseEnabled"
@@ -533,7 +533,6 @@ extension DefaultsKey {
     static let simulateUpdate = "simulateUpdate"
 #endif
 
-    // Upstream-sync keys (3.3.1+): keep these aligned with the upstream base.
     static let keepAwakeRightClickToggle = "keepAwakeRightClickToggle"
     static let keepAwakeAllowDisplaySleep = "keepAwakeAllowDisplaySleep"
     static let scrollInverterHorizontalEnabled = "scrollInverterHorizontalEnabled"
@@ -551,7 +550,6 @@ extension DefaultsKey {
     static let recorderShowCaptureMenuOnShortcut = "recorderShowCaptureMenuOnShortcut"
     static let screenOCRShowCaptureMenuOnShortcut = "screenOCRShowCaptureMenuOnShortcut"
     static let colorPickerShowCaptureMenuOnShortcut = "colorPickerShowCaptureMenuOnShortcut"
-    // Renamed from the upstream screenshotHide…Windows key for the fork.
     static let screenshotHideRyzenStatusWindows = "screenshotHideRyzenStatusWindows"
     static let screenshotPreviewPosition = "screenshotPreviewPosition"
     static let screenshotSharingEnabled = "screenshotSharingEnabled"
@@ -800,12 +798,12 @@ extension DefaultsKey {
     static let scratchpadTextSize = "scratchpadTextSize"
     static let networkSpeedUnit = "networkSpeedUnit"
 
-    // MARK: Ported from upstream fe24c17 (block A, shared foundations)
-    // Keys for areas that are still being ported live here already, so each
-    // area compiles against them. Upstream keeps them in Core/Defaults.swift;
-    // here they sit in this extension because the command bar harness
-    // compiles this file and not Defaults.swift. Upstream fan control keys are
-    // left out on purpose: fan control belongs to the AMD layer.
+    // MARK: Shared foundations
+    // Keys shared by several areas live here, so each area compiles against
+    // them. They sit in this extension rather than in Core/Defaults.swift
+    // because the command bar harness compiles this file and not
+    // Defaults.swift. Fan control keys are left out on purpose: fan control
+    // belongs to the AMD layer.
     static let dimScreenOnLidClose = "dimScreenOnLidClose" // dim the built-in display to zero while the lid is closed
     static let featureHubKeptFeatures = "featureHubKeptFeatures" // comma-joined AppFeature raw values
     static let brightnessUpdatePromptState = "brightnessUpdatePromptState"
@@ -813,7 +811,7 @@ extension DefaultsKey {
     static let keepAwakeRunningAppBundleIDs = "keepAwakeRunningAppBundleIDs"
     // Match mode over the automation conditions: false is Any (one matching
     // condition starts a session), true is All (every enabled condition has
-    // to match, and losing one ends the session). Issue #1587.
+    // to match, and losing one ends the session).
     static let keepAwakeAutomationRequireAll = "keepAwakeAutomationRequireAll"
     static let keepAwakePauseWhenLocked = "keepAwakePauseWhenLocked"
     static let keepAwakeSwitchUsesUntil = "keepAwakeSwitchUsesUntil" // panel switch restarts the Until chip
@@ -839,7 +837,7 @@ extension DefaultsKey {
     static let switcherInstantSelection = "switcherInstantSelection" // skip selection and reveal animations while browsing
     static let switcherIgnoreHoverSelection = "switcherIgnoreHoverSelection" // pointer movement does not change the highlight; click still commits
     static let switcherScreenPlacement = "switcherScreenPlacement" // SwitcherScreenPlacement raw value: which display the panel opens on
-    static let switcherCurrentDisplayOnly = "switcherCurrentDisplayOnly" // list only windows on the display under the pointer (issue #1391)
+    static let switcherCurrentDisplayOnly = "switcherCurrentDisplayOnly" // list only windows on the display under the pointer
     static let switcherMaxColumns = "switcherMaxColumns" // 0 = Auto, else the most items per row (SwitcherSupport.maxColumnsRange)
     static let minimalWindowPreviews = "minimalWindowPreviews"
     static let dockPreviewKeepDockVisible = "dockPreviewKeepDockVisible"
@@ -872,7 +870,7 @@ extension DefaultsKey {
     static let brightnessDDCReadChecksumRechecked = "brightnessDDCReadChecksumRechecked"
     // Per-monitor connection paths a person has told this app to dim in
     // software: the only way to know a write-only channel swallows its writes
-    // is to watch the panel, which no probe can do. Issue #1589.
+    // is to watch the panel, which no probe can do.
     static let brightnessForcedSoftwarePaths = "brightnessForcedSoftwarePaths"
     // Per-monitor connections where the lower end of the brightness slider
     // also dims the picture below the panel's hardware minimum.

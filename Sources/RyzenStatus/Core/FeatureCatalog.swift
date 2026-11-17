@@ -319,9 +319,9 @@ extension AppFeature {
         // Pointer acceleration is an IOKit HID property and the Spaces order
         // a Dock preference; neither needs a grant.
         case .mouseAcceleration, .spacesOrder: return []
-        // Copying into Applications needs no grant this fork tracks (upstream
-        // lists App Management, which this catalog does not model); the
-        // gallery reads Apple's stills and pictures the user picked.
+        // Copying into Applications needs no grant this catalog tracks (App
+        // Management is not modeled here); the gallery reads Apple's stills
+        // and pictures the user picked.
         case .diskImageInstaller, .wallpaper: return []
         // Time zones are part of Foundation; nothing is asked of macOS.
         case .worldClock: return []
@@ -406,8 +406,8 @@ extension AppFeature {
         .diskImageInstaller, .wallpaper,
         // A new panel tab arrives only when asked for.
         .worldClock,
-        // Upstream ships these opt-in: they change how every window, wheel or
-        // Space behaves, so an update must not install them on its own.
+        // These are opt-in: they change how every window, wheel or Space
+        // behaves, so an update must not install them on its own.
         .focusFollowsMouse, .scrollHorizontal, .scrollZoom, .linearScroll, .scrollSpeed, .spacesOrder,
         // Quitting apps from a window is asked for, never installed by an update.
         .quitApps,
@@ -419,7 +419,7 @@ extension AppFeature {
     /// feature must have one, or flipping it in the hub (or a preset, or a
     /// backup import) would leave its service running or never start it after
     /// a relaunch. The unit harness reads FeatureRuntime's binding table and
-    /// checks the two lists add up to every case, so a newly ported feature
+    /// checks the two lists add up to every case, so a newly added feature
     /// cannot ship unwired.
     static let featuresWithoutRuntimeBinding: Set<AppFeature> = [
         // On-demand tools: they hold no resources and their surfaces simply
@@ -429,7 +429,7 @@ extension AppFeature {
         .portManager,
         // A view that reads the saved cities when it draws.
         .worldClock,
-        // This fork's queue keeps no state; a running island re-reads the switch.
+        // The queue keeps no state; a running island re-reads the switch.
         .notchQueue,
         // Performance dashboard tabs: views that read availability on render,
         // with no sampler of their own.

@@ -6,11 +6,11 @@ import Foundation
 
 /// The combinations the person tied to single rows of the bar.
 ///
-/// Expectations lifted from upstream's `CommandBarFeatureTests` (the row
-/// shortcut, pending-launch and app-cleanup sections). Upstream's take-over
-/// cases are left out on purpose: this fork has no system-shortcut take-over
-/// engine, so `conflictsWithMacOS` is the only macOS question a row asks and it
-/// needs the live system shortcut list, which this harness does not touch.
+/// Expectations for the row shortcut, pending-launch and app-cleanup
+/// sections. There are no take-over cases on purpose: the app has no
+/// system-shortcut take-over engine, so `conflictsWithMacOS` is the only
+/// macOS question a row asks and it needs the live system shortcut list,
+/// which this harness does not touch.
 enum CommandBarRowShortcutCases {
     static func run(_ expect: CommandBarExpect) {
         let optionB = GlobalShortcut(keyCode: 11, modifiers: [.option, .command])

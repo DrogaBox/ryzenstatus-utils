@@ -21,10 +21,9 @@ enum SettingsPage: Hashable, CaseIterable {
 /// pages. Raw values may be persisted or used by UI identifiers, so cases can
 /// be added but never renamed.
 ///
-/// RyzenStatus: upstream's page mapping is kept where the page exists here.
-/// Dock tools have their own page as upstream, the recorder keeps a page of its own,
-/// and the window maximizer has no section outside the Features hub yet.
-/// Upstream's `fanControl` anchor is left out: fan control is the AMD layer's.
+/// Dock tools have their own page, the recorder keeps a page of its own, and
+/// the window maximizer has no section outside the Features hub yet. There
+/// is no `fanControl` anchor: fan control is the AMD layer's.
 enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case panelConfiguration
     case mixer
@@ -89,7 +88,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
         case .quickLauncher, .quickToggles, .quitApps, .micMute, .cameraPreview, .wallpaper, .worldClock, .scratchpad,
              .cleaningMode:
             return .quickTools
-        // Every tool that starts from the screen shares one page, as upstream.
+        // Every tool that starts from the screen shares one page.
         case .screenshot, .screenshotScrolling, .screenRecorder, .colorPicker, .screenOCR:
             return .screenshot
         case .keyboardBrightnessShortcuts: return .shortcuts
@@ -442,8 +441,8 @@ extension AppFeature {
         case .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .dashboard
         // Allow-list, nothing to configure: the installer's preferences have
-        // no Settings surface (upstream also points it at the hub), and
-        // Cleaning Mode is a one-shot action from the panel and the launcher.
+        // no Settings surface, and Cleaning Mode is a one-shot action from
+        // the panel and the launcher.
         case .diskImageInstaller, .cleaningMode:
             return .features
         }

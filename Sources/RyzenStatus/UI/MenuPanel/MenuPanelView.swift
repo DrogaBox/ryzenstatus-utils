@@ -1865,8 +1865,8 @@ struct QuickControlsSection: View {
                 }
         case .mouseButtonShortcuts:
             let buttonStrings = FeatureStrings.mouseButtons(l10n.language)
-            // Either switch drives the same tap and needs the same grant
-            // (issue #1012), so every surface on this row reads them together.
+            // Either switch drives the same tap and needs the same grant,
+            // so every surface on this row reads them together.
             let buttonsEngaged = mouseButtonShortcutsEnabled || spacesEnabled
             PanelToggleRow(title: buttonStrings.pageTitle,
                            caption: caption(buttonStrings.panelCaption,
@@ -1968,13 +1968,13 @@ struct QuickControlsSection: View {
                 superKeyStrings.sourceLabel(superKeySource),
                 keyCaps
             )
-            // Issue #2896: while the key is on with Accessibility, the
-            // Settings link names the mapping. Only the key and its key caps,
-            // because the sentence gets cut in a mini button at the panel
-            // width in several languages (in Italian the cut hides the key
-            // caps). Without Accessibility nothing is mapped yet, so the link
-            // keeps Set up… beside the warning, and a switched-off row shows
-            // no link, like Text Snippets, Radial Menu and Mouse buttons.
+            // While the key is on with Accessibility, the Settings link names
+            // the mapping. Only the key and its key caps, because the sentence
+            // gets cut in a mini button at the panel width in several
+            // languages (in Italian the cut hides the key caps). Without
+            // Accessibility nothing is mapped yet, so the link keeps Set up…
+            // beside the warning, and a switched-off row shows no link, like
+            // Text Snippets, Radial Menu and Mouse buttons.
             let mappingLabel = "\(superKeyStrings.sourceLabel(superKeySource)) \(keyCaps)"
             PanelToggleRow(title: superKeyStrings.pageTitle,
                            caption: caption(modifierCaption,

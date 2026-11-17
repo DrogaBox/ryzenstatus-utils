@@ -37,7 +37,7 @@ struct MixerApp: Identifiable, Equatable {
     /// as long as they hold an audio connection.
     let isPlaying: Bool
     /// The app's audio is left untouched: no slider or routing, unity volume.
-    /// Keep its row visible so its absence doesn't read as a bug (issue #177).
+    /// Keep its row visible so its absence doesn't read as a bug.
     var isBypassed: Bool = false
     /// Discord and Teams can opt back into volume control when not sharing audio.
     var supportsVolumeOverride: Bool = false
@@ -55,7 +55,7 @@ struct MixerApp: Identifiable, Equatable {
 }
 
 /// An app the user took out of the mixer list, remembered by name so it can
-/// be brought back even while it is not running (issue #300).
+/// be brought back even while it is not running.
 struct MixerHiddenApp: Identifiable, Equatable {
     let id: String
     let name: String
@@ -101,7 +101,7 @@ final class AppVolumeMixer: ObservableObject {
     /// Set when tap creation fails with a permission error, so the panel can
     /// point at the System Audio Recording consent.
     @Published private(set) var needsPermission = false
-    /// Apps kept out of the list (issue #300), including the Finder when its
+    /// Apps kept out of the list, including the Finder when its
     /// own toggle hides it, so the panel can offer to bring any of them back.
     @Published private(set) var hiddenApps: [MixerHiddenApp] = []
 
@@ -119,7 +119,7 @@ final class AppVolumeMixer: ObservableObject {
     private var objectsLostAt: [String: Double] = [:]
     /// The last render count seen for each row's engine, so reconciliation
     /// can tell an engine that is rendering from one the HAL quietly stopped
-    /// driving after sleep or a device reconfiguration (issue #341).
+    /// driving after sleep or a device reconfiguration.
     private var engineRenderProgress: [String: MixerRoutingSupport.EngineRenderObservation] = [:]
     /// A dead audio path gets one replacement. If that exact replacement also
     /// never renders, the row stays untapped so system audio fails open.
@@ -1480,7 +1480,7 @@ final class AppVolumeMixer: ObservableObject {
         previous?.stop()
         // A tap mutes immediately. Arm the render check here instead of
         // waiting for another HAL event, or a dead first aggregate can leave
-        // the app silent until the mixer quits (issue #601).
+        // the app silent until the mixer quits.
         reconcileEngines(with: apps)
     }
 
@@ -1582,7 +1582,7 @@ final class AppVolumeMixer: ObservableObject {
         let previouslyRoutedObjects: [String: [AudioObjectID]]
         let showFinder: Bool
         /// Persistence ids the list must leave out: the apps the user hid,
-        /// plus the Finder while its toggle is off (issue #300).
+        /// plus the Finder while its toggle is off.
         let hiddenRowIDs: Set<String>
         let ownPid: pid_t
     }
@@ -1813,7 +1813,7 @@ final class AppVolumeMixer: ObservableObject {
             }
             let name = ResponsibleProcess.displayName(pid: owner, fallback: app.localizedName ?? "pid \(owner)")
             // Bypassed apps still get a row — hiding them read
-            // as a bug (issue #177) — but they are never tapped: volume
+            // as a bug — but they are never tapped: volume
             // pinned at unity, no saved routing, so appNeedsEngine is always
             // false for them.
             if MixerRoutingSupport.bypassesProcessTap(bundleIdentifier: app.bundleIdentifier,
@@ -1846,7 +1846,7 @@ final class AppVolumeMixer: ObservableObject {
                                                            displayName: name == fallbackName ? nil : name)
             // Hidden means no row, and with no row the engine reconciliation
             // below tears its tap down too: an app taken off the list always
-            // plays untouched, never silently attenuated (issue #300).
+            // plays untouched, never silently attenuated.
             if MixerRoutingSupport.isHiddenFromMixer(persistenceID: identity.persistenceID,
                                                      hiddenIDs: request.hiddenRowIDs) { continue }
             let isBypassed = bypassed.contains(owner)
@@ -2173,7 +2173,7 @@ final class AppVolumeMixer: ObservableObject {
             // leave the aggregate wedged: its IO proc never runs again while
             // the tap keeps muting the app, and nothing else about the engine
             // looks wrong, so it used to be kept forever and the app stayed
-            // silent until quit (issue #341). A render count that stops
+            // silent until quit. A render count that stops
             // moving while the app is playing is conclusive: the engine goes
             // away at once, which unmutes the app even if the rebuild below
             // cannot land yet, and a fresh tap takes its place.
@@ -2345,7 +2345,7 @@ final class AppVolumeMixer: ObservableObject {
         refreshApps()
     }
 
-    // MARK: - List visibility (issue #300)
+    // MARK: - List visibility
 
     /// Takes a row out of the list. Its saved volume and route are kept for
     /// the day it comes back; while hidden the app is never tapped, so it
@@ -2923,7 +2923,7 @@ private protocol GainEngine: AnyObject {
     var clockDeviceUID: String? { get }
     /// How many IO callbacks the engine has completed. A count that stops
     /// moving while the tapped app is playing means the aggregate is no
-    /// longer rendering, so the tap can only mute (issue #341).
+    /// longer rendering, so the tap can only mute.
     var renderCycles: UInt64 { get }
     var requiresRebuild: Bool { get }
     /// Reads again the output the app plays to, in case a move went
@@ -3531,7 +3531,7 @@ private final class TapGainEngine: GainEngine {
         let ramp = TapLevelRamp()
         let appliedGain = MixerRender.AppliedGain()
         // A boost pushes loud samples past full scale, and clamping the
-        // overshoot flattens every peak into audible crackle (issue #326).
+        // overshoot flattens every peak into audible crackle.
         // The limiter turns the whole signal down for just the moment a peak
         // would not fit, so a boosted app gets louder without distorting.
         let limiterBox = LimiterBox(
@@ -3558,7 +3558,7 @@ private final class TapGainEngine: GainEngine {
             guard let tapIndex = MixerRender.tapBufferIndex(in: inputBuffers,
                                                             tapChannels: tapChannels) else {
                 // No samples to put in the buffer is not a reason to leave it:
-                // whatever the HAL left there plays otherwise (issue #326).
+                // whatever the HAL left there plays otherwise.
                 MixerRender.silence(outputBuffers)
                 appliedGain.reset()
                 return
@@ -3606,8 +3606,7 @@ private final class TapGainEngine: GainEngine {
                                                  qos: .userInitiated)
     /// How many teardowns may sit in the HAL at once. Operations past the
     /// bound wait in the queue holding no thread, so however often a wedged
-    /// HAL parks a destroy, the shared pool loses at most this many workers
-    /// (issue #971).
+    /// HAL parks a destroy, the shared pool loses at most this many workers.
     private static let maximumConcurrentTeardowns = 4
     /// A broken HAL path can park inside teardown — `AudioHardwareDestroyProcessTap`
     /// on a wedged tap is the one that does it. Serialized, that one call left
@@ -3913,7 +3912,7 @@ private final class AirPlayGainEngine: GainEngine {
         }
 
         // The same bounded queue as the device engines: a teardown parked in a
-        // wedged HAL must not take the shared thread pool with it (issue #971).
+        // wedged HAL must not take the shared thread pool with it.
         TapGainEngine.teardownQueue.addOperation {
             if let listenerClient {
                 var mayRelease = aggregate == 0

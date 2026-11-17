@@ -78,7 +78,7 @@ final class RadialMenuService: ObservableObject {
     private init() {
         // A filter tap owned by a switched-away login session keeps its place
         // in the chain, so the account on screen waits out this tap's timeout
-        // on every extra-button click it makes (issue #1075). Hand the tap
+        // on every extra-button click it makes. Hand the tap
         // back on resign and build it again from preferences on the way in.
         // The open wheel goes with it: this tap is the only thing that sees a
         // held summoner released, so a wheel still up when the tap is handed
@@ -230,7 +230,7 @@ final class RadialMenuService: ObservableObject {
             // This tap's callback runs on the main run loop, so the session
             // flag is read where it is written. A tap put straight back is a
             // tap put back into whatever session is on screen now, which is
-            // the stall the gate exists to end (issue #1075). Accessibility is
+            // the stall the gate exists to end. Accessibility is
             // asked for the same reason as the sync: this tap swallows the
             // click, so a revoked grant has to end it rather than put it back.
             if SessionActivitySupport.tapShouldRun(
@@ -872,7 +872,7 @@ final class RadialMenuService: ObservableObject {
                                   virtualKey: CGKeyCode(shortcut.keyCode), keyDown: false)
         else { return }
         // The flags a real press carries, so a shortcut on an arrow or an F
-        // key is recognised beyond the app in front as well (issue #401).
+        // key is recognised beyond the app in front as well.
         keyDown.flags = shortcut.syntheticEventFlags
         keyUp.flags = shortcut.syntheticEventFlags
         keyDown.post(tap: .cghidEventTap)

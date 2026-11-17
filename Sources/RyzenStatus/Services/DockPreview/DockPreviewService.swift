@@ -1234,7 +1234,7 @@ final class DockPreviewService: ObservableObject {
         // the system-wide element can tell whose it is. Its answer is reused
         // when it turns out to be the Dock's. No cap on the system-wide element
         // itself: a timeout there becomes the default for every question this
-        // process asks, whoever asks it (#938). The element it returns is
+        // process asks, whoever asks it. The element it returns is
         // capped instead.
         var overlayHit: AXUIElement?
         func systemWideHitProcessID() -> pid_t? {
@@ -1286,7 +1286,7 @@ final class DockPreviewService: ObservableObject {
     /// system-wide element would ask whichever app owns the window there, and
     /// the Dock strip's ownership margin reaches over the windows beside it,
     /// so a hung app next to the Dock stalled the main thread on every move
-    /// until Accessibility gave up on it (issue #3208).
+    /// until Accessibility gave up on it.
     private func dockElement(at axPoint: CGPoint, dockPID: pid_t) -> AXUIElement? {
         let dock = AXUIElementCreateApplication(dockPID)
         AXUIElementSetMessagingTimeout(dock, DockPreviewSupport.dockHitTimeout)

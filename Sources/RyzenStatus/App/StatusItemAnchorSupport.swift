@@ -64,7 +64,7 @@ enum StatusItemAnchorSupport {
     }
 
     /// A freshly created status item is born with a zero-height window and
-    /// only settles into the menu bar a moment later (issue #1394). Treating
+    /// only settles into the menu bar a moment later. Treating
     /// that birth frame as "hidden" makes recovery race macOS placement.
     static func isSettlingStatusFrame(_ frame: CGRect?) -> Bool {
         guard let frame else { return true }
@@ -99,8 +99,8 @@ enum StatusItemAnchorSupport {
     /// the global monitor, stamped with the panel's own window number; the
     /// live mouse location can also already sit inside the panel by the time
     /// the handler runs. Either signal means the click is the panel's own
-    /// business and never an outside dismissal (#1513, #3245, #3687: the
-    /// first interaction closed the panel instead of reaching the control).
+    /// business and never an outside dismissal (the first interaction closed
+    /// the panel instead of reaching the control).
     static func isPanelSelfClick(eventWindowNumber: Int,
                                  panelWindowNumber: Int?,
                                  panelFrame: CGRect?,

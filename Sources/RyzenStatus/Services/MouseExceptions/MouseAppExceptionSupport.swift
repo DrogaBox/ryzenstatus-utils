@@ -4,8 +4,7 @@
 import CoreGraphics
 import Foundation
 
-/// The mouse and keyboard features that can be told to leave an app alone
-/// (issues #358, #741).
+/// The mouse and keyboard features that can be told to leave an app alone.
 /// Each one keeps its OWN list, right under its switch in Settings: excepting
 /// an app from the wheel's glide must not also silence the side buttons there.
 enum MouseExceptionScope: String, CaseIterable {
@@ -127,7 +126,7 @@ enum MouseAppExceptionSupport {
     /// Launchpad. It answers instead of the app window it covers, which gets
     /// nothing. Launchpad is the case people meet: the Dock draws it over
     /// every app window, and the layer rule in `pointerWindow` named the app
-    /// hidden behind it (issue #3135). The window server's own hit test
+    /// hidden behind it. The window server's own hit test
     /// decides which window that is, not a rectangle, since the Dock's window
     /// spans the whole screen and lets everything outside the Dock through. A
     /// window of this app is never a surface, as above.
@@ -186,7 +185,7 @@ enum MouseAppExceptionSupport {
 
     /// A program that is not packaged as an app can have no bundle identifier
     /// at all — the Java process a game launcher starts is the one people ask
-    /// about (issue #1009) — so the path of the file being run stands in as
+    /// about — so the path of the file being run stands in as
     /// its identity. A stored path is told apart from a bundle identifier by
     /// its leading slash, which a bundle identifier never has, so one list
     /// carries both kinds and everything already saved keeps its meaning.
@@ -223,7 +222,7 @@ enum MouseAppExceptionSupport {
     /// net.java.openjdk.java for an AWT program on Temurin 25). A JVM started
     /// with -XstartOnFirstThread, as Minecraft 1.13 and later is on macOS,
     /// skips that registration and reports none. A runtime picked by its path
-    /// (issue #1009) is told apart by that path alone. The path is not even
+    /// is told apart by that path alone. The path is not even
     /// looked at while no list names one: this runs under the event taps.
     static func identities(bundleID: String?,
                            executablePath: @autoclosure () -> String?,
@@ -243,8 +242,8 @@ enum MouseAppExceptionSupport {
     /// Only the bundle's OWN executable counts, which is the same rule the
     /// system applies: measured on this Mac, a bundle's main executable run
     /// straight from disk is reported as com.example.withid, while a runtime
-    /// shipped deeper in that same bundle — the Java a game launcher starts
-    /// (issue #1009) — is reported with no identifier at all and stays a path.
+    /// shipped deeper in that same bundle — the Java a game launcher starts —
+    /// is reported with no identifier at all and stays a path.
     /// Walking up to any enclosing .app when storing would file that Java
     /// under the launcher and break the case this all exists for — a rule
     /// about the picked identity only: the source scope walks up on purpose

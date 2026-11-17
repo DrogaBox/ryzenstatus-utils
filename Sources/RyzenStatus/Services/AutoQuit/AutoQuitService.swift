@@ -194,7 +194,7 @@ final class AutoQuitService: ObservableObject {
         // A launching app that is busy (say, blocked on a Keychain prompt)
         // would hold every synchronous AX call below for the default
         // timeout apiece, freezing the main thread and every event tap with
-        // it: typing dies system wide (issue #189). Give up fast and retry
+        // it: typing dies system wide. Give up fast and retry
         // with growing spacing until the app services its run loop again.
         AXUIElementSetMessagingTimeout(appElement, 0.35)
         // The probe asks for windows rather than the application's role. A
@@ -203,7 +203,7 @@ final class AutoQuitService: ObservableObject {
         // accessibility mode, and from then on it rebuilds and ships an
         // accessibility tree on every DOM change for the life of the process —
         // a few percent of a core, forever, in an app this feature only ever
-        // needed a window count from (issue #953). Windows are the same
+        // needed a window count from. Windows are the same
         // liveness signal, are what the refresh below reads anyway, and leave
         // that mode alone; WindowEnumerator probes the same way.
         var windows: CFTypeRef?
@@ -327,7 +327,7 @@ final class AutoQuitService: ObservableObject {
     /// describe a window parked on a Space that is not visible at all. Either
     /// way the app is marked eligible with nothing to watch, so the close that
     /// should quit it destroys a window nobody registered for and no check is
-    /// ever scheduled (issue #1008). Look again a few times: Accessibility
+    /// ever scheduled. Look again a few times: Accessibility
     /// usually catches up within the first, and when it never does the retries
     /// stop rather than polling for the life of the app. These are offsets from
     /// the start of one retry round, not delays chained from each retry.
@@ -836,7 +836,7 @@ final class AutoQuitService: ObservableObject {
         let element = elementAt(point: point)
         // When Accessibility cannot confirm the close button, only the click's
         // place can, and the area that sent it here also covers the minimize
-        // button (issue #3249). An element Accessibility does name as another
+        // button. An element Accessibility does name as another
         // window button settles it the other way.
         func unconfirmedClose() -> pid_t? {
             guard WindowServerSupport.contains(point, inCloseButtonOf: candidate.frame) else { return nil }
@@ -872,8 +872,8 @@ final class AutoQuitService: ObservableObject {
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
         // No cap on the system-wide element: a timeout there becomes the
-        // default for every question this process asks, whoever asks it
-        // (#938). The process default is bounded once at launch; the element
+        // default for every question this process asks, whoever asks it.
+        // The process default is bounded once at launch; the element
         // returned below gets this path's own cap.
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success
@@ -885,8 +885,8 @@ final class AutoQuitService: ObservableObject {
     }
 
     /// An application element answers a role query by switching a Chromium app's
-    /// renderers into full accessibility mode for the rest of the process's life
-    /// (issue #953), so it must never be asked for one. Its own pid names it:
+    /// renderers into full accessibility mode for the rest of the process's life,
+    /// so it must never be asked for one. Its own pid names it:
     /// the element built from that pid is the same element, since Accessibility
     /// compares by value rather than by identity. Asking each element for its
     /// own pid also keeps this right where a parent chain crosses processes,
@@ -914,7 +914,7 @@ final class AutoQuitService: ObservableObject {
         // element that never yields a window — a menu bar item, a detached
         // palette — walks onto it. Asking that element for a role is what puts
         // a Chromium app's renderers into full accessibility mode for the rest
-        // of the process's life (issue #953), so stop there instead: the walk
+        // of the process's life, so stop there instead: the walk
         // already ends with no window in that case.
         var current = element
         for _ in 0..<8 {

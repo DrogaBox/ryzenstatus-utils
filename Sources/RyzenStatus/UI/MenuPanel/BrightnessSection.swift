@@ -252,12 +252,12 @@ private struct ExtraBrightnessPanelToggle: View {
 ///
 /// On readable DDC displays, the choice extends the slider below the panel's
 /// hardware minimum and is offered in Settings. On write-only DDC paths, it
-/// keeps the existing fallback to software control on both surfaces (issue
-/// #1589). Either choice stays visible until cleared.
+/// keeps the existing fallback to software control on both surfaces. Either
+/// choice stays visible until cleared.
 ///
 /// A readable DDC display can also be moved to software control by hand in
 /// Settings. Some monitors answer reads but black out on brightness writes,
-/// and the only way to stop sending them is to leave DDC (issue #3621).
+/// and the only way to stop sending them is to leave DDC.
 struct SoftwareDimmingButton: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = BrightnessService.shared

@@ -37,10 +37,10 @@ enum MiddleClickSupport {
     /// and while the system's own three-finger drag gesture is enabled it
     /// owns three-finger touches: it synthesizes clicks from unpressed
     /// contact that are indistinguishable from real presses here, so the
-    /// press moves to four fingers, as the tap does (issue #2061).
+    /// press moves to four fingers, as the tap does.
     /// `tapEnabled` says whether the tap-to-middle-click option is on: it is
     /// the only place a press is followed by a synthesized click, so with
-    /// taps off a quick repeat is the user clicking again (issue #3987).
+    /// taps off a quick repeat is the user clicking again.
     static func actionForClick(fingerCount: Int,
                                frameAge: TimeInterval,
                                settledFor: TimeInterval,
@@ -59,7 +59,7 @@ enum MiddleClickSupport {
         return .transform
     }
 
-    // MARK: - Tap to middle click (issue #161, opt-in)
+    // MARK: - Tap to middle click (opt-in)
 
     /// A touch that lasts longer than this is a rest or a press, not a tap.
     static let tapMaxDuration: TimeInterval = 0.35

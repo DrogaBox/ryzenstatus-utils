@@ -194,7 +194,7 @@ enum ShelfInteractionSupport {
     /// stacks can publish the contents before the mouse-down is seen, so a
     /// gesture in the Dock counts from the end of the previous gesture
     /// instead. It still needs a bump, so holding or dragging a Dock icon over
-    /// content an earlier drag left behind is not a content drag (#2212).
+    /// content an earlier drag left behind is not a content drag.
     /// Either way the pasteboard must hold something the Shelf can keep; the
     /// check stays lazy because most dragged events resolve on the cheap
     /// change count alone.
@@ -251,7 +251,7 @@ enum ShelfInteractionSupport {
     /// Whether a drag must be offered copy-only outside the app because one of
     /// its files may belong to a package. A file whose package answer has not
     /// been read yet counts as package content: copying it out cannot damage
-    /// the package that owns it, while a move could take it away (#4014).
+    /// the package that owns it, while a move could take it away.
     static func dragProtectsPackageContent(knownStates: [Bool?]) -> Bool {
         knownStates.contains { $0 != false }
     }

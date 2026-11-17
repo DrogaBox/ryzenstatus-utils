@@ -104,7 +104,7 @@ if (( TEST )); then
     # stale when a helper gains a dependency. A hand-kept list drifted here.
     swiftc -Onone -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
-        Tests/Ported/*.swift \
+        Tests/Suites/*.swift \
         Tests/HardwareLayerTests.swift \
         Tests/IslandPanelTests.swift \
         Tests/DashboardMetricsTests.swift \

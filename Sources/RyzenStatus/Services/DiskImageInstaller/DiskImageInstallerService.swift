@@ -202,7 +202,7 @@ final class DiskImageInstallerService {
         // Not runModal: this runs inside a main-queue block (the hop after the
         // mount check), and a modal loop started there holds back later
         // main-queue work, such as shortcut actions, until the alert closes.
-        // Its modal panel mode also stops default-mode timers (issue #1665).
+        // Its modal panel mode also stops default-mode timers.
         NSApp.activate(ignoringOtherApps: true)
         installPrompt = NonModalAlert.present(alert, retaining: [destinationPrompt]) { [weak self] response in
             guard let self else { return }

@@ -4,7 +4,7 @@
 import SwiftUI
 
 /// The "apps to leave alone" block that lives INSIDE a mouse feature's own
-/// section in Settings (issue #358), right under the switch it holds back, so
+/// section in Settings, right under the switch it holds back, so
 /// the list is where the user is already looking. One list per feature: the
 /// same view with a different scope.
 struct MouseExceptionsList: View {

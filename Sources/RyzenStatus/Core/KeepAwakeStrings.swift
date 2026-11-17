@@ -26,7 +26,7 @@ struct KeepAwakeAutomationStrings {
 
     /// The caption under the condition tiles. The Any wording predates the
     /// match mode and would lie about an All setup, so it is chosen here
-    /// rather than read straight out of the struct (issue #1587).
+    /// rather than read straight out of the struct.
     func caption(requireAll: Bool) -> String {
         requireAll ? automationCaptionAll : automationCaption
     }

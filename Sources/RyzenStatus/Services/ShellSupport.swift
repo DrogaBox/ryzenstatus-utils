@@ -7,8 +7,8 @@ import Darwin
 
 enum Shell {
     /// A command that stops answering must not keep a thread forever. Ten
-    /// seconds, not upstream's five: callers here (`ps`, `nettop`, `pmset`)
-    /// were tuned against that bound and pass no timeout of their own.
+    /// seconds: callers here (`ps`, `nettop`, `pmset`) were tuned against
+    /// that bound and pass no timeout of their own.
     static let defaultTimeout: TimeInterval = 10
 
     @discardableResult
@@ -156,7 +156,7 @@ enum Sudoers {
     /// SleepDisabled state through `sudo -n` changes nothing on the system and
     /// exercises the exact call the feature makes. Listing checks (`sudo -l`)
     /// reported the rule as ready on Macs where the real call still asked for
-    /// a password, which put every toggle behind a prompt (issue #269).
+    /// a password, which put every toggle behind a prompt.
     static func isConfigured() -> Bool {
         sleepStateQueue.sync {
             guard sleepStateProbeSuspensions == 0 else { return false }
@@ -175,8 +175,8 @@ enum Sudoers {
 
     static func install(completion: @escaping (Bool) -> Void) {
         // Granted by uid, not username: a short name is free-form text on
-        // SSO-enrolled Macs (name@company.com, #915) and the old validation
-        // rejected it before the password prompt could even appear.
+        // SSO-enrolled Macs (name@company.com) and the old validation rejected
+        // it before the password prompt could even appear.
         let rule = SudoersSupport.clamshellRule(uid: getuid())
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.

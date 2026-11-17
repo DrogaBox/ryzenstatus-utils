@@ -6,7 +6,7 @@ import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
-/// The Quit apps window (issue #855): every open app with its own Quit button,
+/// The Quit apps window: every open app with its own Quit button,
 /// plus Quit all and Quit all except the front app. Every entry point opens
 /// it, so nothing quits in bulk without the list in front of the user first.
 final class QuitAppsPanelController {

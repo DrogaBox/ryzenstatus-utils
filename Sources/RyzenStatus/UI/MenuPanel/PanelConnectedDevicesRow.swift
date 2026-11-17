@@ -6,10 +6,10 @@ import SwiftUI
 /// The Connected Devices row of the panel's System card: the count of
 /// external USB devices, expanding in place into the list.
 ///
-/// Upstream opens a metric detail page fed by `SystemMonitor`'s snapshot.
-/// This fork keeps the AMD-adapted monitor out of it, so the row reads the
-/// standalone `ConnectedDevicesMonitor` and expands inline instead. While
-/// editing it is only a row to reorder or hide, so a drag cannot expand it.
+/// The AMD-adapted `SystemMonitor` is kept out of it, so the row reads the
+/// standalone `ConnectedDevicesMonitor` and expands inline instead of
+/// opening a metric detail page. While editing it is only a row to reorder
+/// or hide, so a drag cannot expand it.
 struct PanelConnectedDevicesRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = ConnectedDevicesMonitor.shared

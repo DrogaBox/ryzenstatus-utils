@@ -53,8 +53,8 @@ enum CommandBarStringsCases {
                    "\(language.rawValue).rowShortcutsLimitFormat fills a count")
         }
 
-        // 166 fields is the whole bar as upstream ships it: the guard catches a
-        // language that was pasted in with half of its struct, not a new field.
+        // 166 fields is the whole bar: the guard catches a language that was
+        // pasted in with half of its struct, not a new field.
         expect(catalogFields >= 150, "the catalog carries the whole bar, not a subset (\(catalogFields) fields)")
     }
 

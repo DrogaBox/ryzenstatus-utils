@@ -95,7 +95,7 @@ struct CutFeedbackView: View {
         }
     }
 
-    // MARK: Moving (cross-volume, issue #168)
+    // MARK: Moving (cross-volume)
 
     private func movingBody(_ progress: FinderCutPaste.MoveProgress) -> some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -5,7 +5,6 @@ import AppKit
 import CoreServices
 
 /// Offers to review an app moved from an Applications folder to the local Trash.
-/// Builds on the approach first proposed by ilim-cell in #3755.
 final class TrashAppWatcher {
     static let shared = TrashAppWatcher()
 

@@ -184,7 +184,7 @@ final class SnippetLibraryService: ObservableObject {
         guard TextSnippetSupport.needsClipboard(snippet.replacement) else { return type(nil) }
         // Through the shared lane, like TextSnippetService: a direct read on
         // the main thread hangs the app on a promised flavour nobody renders
-        // any more (issue #887).
+        // any more.
         GeneralPasteboardAccess.shared.async({
             NSPasteboard.general.string(forType: .string)
         }, then: type)

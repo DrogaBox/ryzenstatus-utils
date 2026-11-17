@@ -14,8 +14,7 @@ final class TextSnippetService {
     static let shared = TextSnippetService()
 
     /// Marks our own synthetic events so the tap never re-processes them.
-    /// Same value upstream keeps in `OwnKeyEvent.textSnippetMarker`; that
-    /// enum is not ported here (its other users are not in this fork).
+    /// Same value as `OwnKeyEvent.textSnippetMarker`.
     private static let syntheticMarker: Int64 = 0x52595253
 
     // The tap callback and its mutable text state live off the main thread so
@@ -416,12 +415,12 @@ final class TextSnippetService {
                                       failureFlags: failureFlags,
                                       didExpand: didExpand)
         }
-        // Local guard (issues #887/#189), kept over upstream's synchronous
-        // read: the {{clipboard}} substitution never reads the pasteboard
-        // where anything waits on it. A pasteboard owner wedged behind a
-        // password prompt would otherwise hold the main thread, and with it
-        // this callback and every key behind it. needsClipboard() gates the
-        // read (no {{clipboard}} means no cost) and the read rides the shared
+        // Guard, in place of a synchronous read: the
+        // {{clipboard}} substitution never reads the pasteboard where
+        // anything waits on it. A pasteboard owner wedged behind a password
+        // prompt would otherwise hold the main thread, and with it this
+        // callback and every key behind it. needsClipboard() gates the read
+        // (no {{clipboard}} means no cost) and the read rides the shared
         // pasteboard lane; the expansion posts from the completion instead of
         // waiting.
         guard TextSnippetSupport.needsClipboard(snippet.replacement) else {
@@ -540,10 +539,10 @@ final class TextSnippetService {
 
         // Typed injection instead of pasting: the clipboard stays untouched.
         // Keystroke events carry at most ~20 UTF-16 units reliably.
-        // Local guard, kept over upstream's surrogate-only check: chunk on
-        // Character boundaries. A fixed 20-unit split that only protects
-        // surrogate pairs still cuts a combining sequence (or a ZWJ emoji)
-        // in half and types a replacement character (\u{FFFD}) for it.
+        // Guard, stricter than a surrogate-only check: chunk on Character
+        // boundaries. A fixed 20-unit split that only protects surrogate
+        // pairs still cuts a combining sequence (or a ZWJ emoji) in half
+        // and types a replacement character (\u{FFFD}) for it.
         var index = text.startIndex
         while index < text.endIndex {
             var chunkEnd = index

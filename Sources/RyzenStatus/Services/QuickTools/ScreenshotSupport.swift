@@ -49,7 +49,7 @@ enum ScreenCaptureTool: String, CaseIterable {
     /// Every case must have a hotkey registered for it. `ScreenCaptureService`
     /// builds exactly one per case from this list, so a tool cannot gain a
     /// settings row whose key nothing registers, which is what left three of
-    /// them doing nothing (issue #708).
+    /// them doing nothing.
     struct DedicatedShortcut {
         let role: GlobalShortcutRole
         let enabledKey: String

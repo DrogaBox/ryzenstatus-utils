@@ -25,7 +25,7 @@ import CoreGraphics
 /// answer; an app with a hung main thread was measured holding a bare observer
 /// install for 1.5 seconds. All of them run on this object's own thread, never
 /// on the main run loop, and carry a messaging timeout on top — a stalled main
-/// thread here would freeze typing system wide (issues #189 and #275).
+/// thread here would freeze typing system wide.
 final class WindowUseTracker {
     static let shared = WindowUseTracker()
 

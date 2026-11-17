@@ -3,7 +3,7 @@
 
 import Foundation
 
-// Українська. Shared text is translated from upstream; entries marked as English fallback are not yet translated.
+// Українська. Entries marked as English fallback are not yet translated.
 extension Strings {
     static let uk = Strings(
         statusIdleTooltip: "RyzenStatus: Mac може засинати",

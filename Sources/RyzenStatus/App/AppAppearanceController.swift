@@ -46,7 +46,7 @@ final class AppAppearanceController: ObservableObject {
     }
 
     /// RyzenStatus keeps two panels (the main one and Now Playing's), so it
-    /// tracks every registered popover where upstream keeps a single one.
+    /// tracks every registered popover rather than a single one.
     /// The panels are popovers anchored to menu bar items, so they take their
     /// appearance from that status bar window instead of from the app and have
     /// to be told separately. Measured on macOS 27.

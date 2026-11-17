@@ -8,7 +8,7 @@ import AppKit
 enum QuickToggleAction: String, PanelOrderItem, Identifiable {
     // Case order is the default panel order: the appearance switch leads
     // because it is the tab's headline action (issue request). Quit all sits
-    // next to Empty the Trash (issue #855).
+    // next to Empty the Trash.
     case darkMode, keyboardLight, micMute, emptyTrash, quitAllApps, ejectDisks, hiddenFiles,
          desktopIcons, lockScreen, displayOff, screenSaver
 
@@ -104,7 +104,7 @@ final class QuickTogglesService: ObservableObject {
         Self.ejectableVolumeURLs().count
     }
 
-    // MARK: - Appearance (issue #205)
+    // MARK: - Appearance
 
     /// Flips the system between light and dark mode through the WindowServer,
     /// the same switch System Settings flips: instant, system wide and with
@@ -155,7 +155,7 @@ final class QuickTogglesService: ObservableObject {
                        source: QuickTogglesSupport.emptyTrashSource)
     }
 
-    // MARK: - Quit apps (issue #855)
+    // MARK: - Quit apps
 
     /// Opens the Quit apps window. `scope` only decides which batch button
     /// Return presses; the list and both buttons are always there.

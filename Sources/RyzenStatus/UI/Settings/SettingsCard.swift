@@ -250,9 +250,8 @@ extension AppFeature {
     }
 }
 
-/// The idle menu bar glyph, tinted white for dark surfaces. The custom
-/// symbol upstream lets people pick is not ported yet, so this is always the
-/// app's own mark.
+/// The idle menu bar glyph, tinted white for dark surfaces. There is no
+/// custom symbol to pick, so this is always the app's own mark.
 struct MenuBarGlyph: View {
     var body: some View {
         Group {

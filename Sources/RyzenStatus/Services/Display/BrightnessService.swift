@@ -76,9 +76,9 @@ final class BrightnessService: ObservableObject {
     static var keyboardLightIsSupported: Bool { sharedKeyboardLightBridge != nil }
 
     /// Field diagnosis channel: external display trouble is invisible from
-    /// here (issue #301 kind of reports), so the display pipeline narrates
-    /// its decisions to the unified log, where a user can collect them with
-    /// one `log show` command after something goes wrong.
+    /// here, so the display pipeline narrates its decisions to the unified
+    /// log, where a user can collect them with one `log show` command after
+    /// something goes wrong.
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ryzenstatus",
                                     category: "display")
 
@@ -95,13 +95,13 @@ final class BrightnessService: ObservableObject {
     /// SwiftUI body, and a body is laid out again from inside the display
     /// reconfiguration this app drives on the main thread, where a question
     /// for the display server is one the same thread is already busy
-    /// answering (issue #969).
+    /// answering.
     @Published private(set) var drawableDisplays = Set<CGDirectDisplayID>()
     @Published private(set) var pendingDisplayIDs = Set<CGDirectDisplayID>()
     /// Displays a person has told this app to dim in software. A channel that
     /// accepts writes and answers no reads is indistinguishable on the bus
     /// from one that swallows them, so the only witness is someone watching
-    /// the panel (issue #1589).
+    /// the panel.
     @Published private(set) var softwareDimmingPreferred = Set<CGDirectDisplayID>()
     @Published private(set) var extendedDimmingPreferred = Set<CGDirectDisplayID>()
     @Published private(set) var displayControlFailure: DisplayControlFailure?
@@ -261,7 +261,7 @@ final class BrightnessService: ObservableObject {
     /// Steps that arrived while the monitor behind a display was being read,
     /// waiting to be added to the step that read commits. An entry existing at
     /// all means a read is in flight for that display. Main thread only, like
-    /// the key presses that fill it (issue #370).
+    /// the key presses that fill it.
     private var ddcPendingSteps: [CGDirectDisplayID: (request: UUID, delta: Double)] = [:]
     private var drainScheduled = false
     /// Session memory for write-only monitors, so their slider does not jump
@@ -922,8 +922,8 @@ final class BrightnessService: ObservableObject {
         // `didChangeNotification`, and the observers registered with
         // `queue: .main` make that post wait for the main thread; held under
         // `stateLock` it waits on a main thread that is itself waiting for the
-        // same lock inside `canToggleDisplay`, called from a SwiftUI body
-        // (issue #647). Running here on the main thread is what keeps that from
+        // same lock inside `canToggleDisplay`, called from a SwiftUI body.
+        // Running here on the main thread is what keeps that from
         // happening today, and the thread this runs on is not something the
         // lock should have to depend on.
         deferredRestoration.record(display.id, result: .success)
@@ -970,7 +970,7 @@ final class BrightnessService: ObservableObject {
     /// is main-thread work. Driven from the work queue they run off the main
     /// thread while the main thread is itself inside CoreGraphics asking for
     /// the display list, and neither side can finish, so the app freezes with
-    /// nothing left that can end it (issue #747). A caller on the wrong
+    /// nothing left that can end it. A caller on the wrong
     /// thread is refused and logged rather than allowed to hang.
     private static func configureDisplay(
         _ id: CGDirectDisplayID, enabled: Bool
@@ -1640,7 +1640,7 @@ final class BrightnessService: ObservableObject {
     /// and its level is read once when the routes are built, which can be a
     /// moment when the panel answers badly. Starting from a stale value and
     /// writing the result is what threw a monitor sitting at 80% down to one
-    /// step above nothing (issue #370). So a step that follows a pause asks
+    /// step above nothing. So a step that follows a pause asks
     /// the monitor where it is first, exactly as the system-routed path
     /// already did; steps in a burst keep using the running value, so holding
     /// a key stays smooth and does not put a read between every press.
@@ -1861,7 +1861,7 @@ final class BrightnessService: ObservableObject {
             // target, never the display under the pointer, so a pointer
             // routed press on a system-routed external display (Apple
             // pipeline monitors, or any display in clamshell mode) is
-            // stepped here instead of passed through (issue #268).
+            // stepped here instead of passed through.
             // The published list can lag a rebuild by a beat; resolve the
             // panel kind from the display server so a press never lands on
             // the wrong side of the built-in check.
@@ -2059,7 +2059,7 @@ final class BrightnessService: ObservableObject {
     /// and the monitor never hears any of it, until opening the panel looks
     /// everything up again. Nothing else can catch this, because the list of
     /// displays is exactly the same on both sides of the sleep and the check
-    /// above has nothing to compare. Waking is the signal (issue #366).
+    /// above has nothing to compare. Waking is the signal.
     private func installWakeObservers() {
         guard wakeObservers.isEmpty else { return }
         let workspace = NSWorkspace.shared.notificationCenter
@@ -2256,7 +2256,7 @@ final class BrightnessService: ObservableObject {
             // A panel that is asleep answers a reading it cannot honour, and
             // it has been measured answering zero for a display sitting at a
             // third of its range. Taking that as the truth is what leaves a
-            // later key press stepping up from nothing (issue #370).
+            // later key press stepping up from nothing.
             let asleep = CGDisplayIsAsleep(id) != 0
             var level: Float = -1
             if let read = BrightnessBridge.getBrightness,
@@ -2266,7 +2266,7 @@ final class BrightnessService: ObservableObject {
                 // the panel sleeps is kept out of the remembered level: it
                 // has been measured answering zero for a display sitting at a
                 // third of its range, and a later key press would step up
-                // from that nothing (issue #370).
+                // from that nothing.
                 stateLock.lock()
                 let remembered = rememberedLevel(for: id)
                 stateLock.unlock()
@@ -2545,7 +2545,7 @@ final class BrightnessService: ObservableObject {
             guard gammaBaselines[id] != nil else { continue }
             // A display that was not here a moment ago may have been
             // replugged precisely to recover a black picture, so the saved
-            // dim returns floored to a visible level (issue #301).
+            // dim returns floored to a visible level.
             if !previousTopology.contains(id) {
                 let floored = BrightnessSupport.reconnectedDimLevel(value)
                 if floored != value {
@@ -2749,7 +2749,7 @@ final class BrightnessService: ObservableObject {
 
     /// A key step reaches a system display the way the system's own keys do:
     /// the level moves at once and the backlight eases after it, instead of
-    /// jumping (issue #2149). The easing call takes a change, measured from
+    /// jumping. The easing call takes a change, measured from
     /// the level the system reports, which is already the end of any ramp
     /// still running. A display that is asleep, refuses the change or does
     /// not land on the level gets the level directly.
@@ -2858,7 +2858,7 @@ final class BrightnessService: ObservableObject {
     /// The pauses inside a command are not enough on their own: without this
     /// gap a slider drag chains commands at the write pause, and monitors
     /// exist that answer a stream that fast by dropping their signal until
-    /// they are power cycled (issue #301).
+    /// they are power cycled.
     private func paceDDCCommand(for id: CGDirectDisplayID) {
         let now = DispatchTime.now().uptimeNanoseconds / 1_000
         let delay = BrightnessSupport.ddcCommandDelay(

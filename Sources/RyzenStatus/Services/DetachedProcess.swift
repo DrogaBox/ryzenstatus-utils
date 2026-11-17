@@ -10,10 +10,9 @@ import Foundation
 ///
 /// `nohup` is not enough: it only makes the child ignore SIGHUP. The child
 /// stays in this app's session and launchd job, so whatever tears that job
-/// down takes the installer with it, and the swap never happens (issue #731,
-/// reported under Endpoint Privilege Management). Leaving the session is the
-/// property that makes the child survive, and setsid(2) is the only way to
-/// get it.
+/// down takes the installer with it, and the swap never happens (reported
+/// under Endpoint Privilege Management). Leaving the session is the property
+/// that makes the child survive, and setsid(2) is the only way to get it.
 enum DetachedProcess {
     /// POSIX_SPAWN_SETSID: the kernel makes the child its own session leader
     /// before it execs, so there is no window where it belongs to us.

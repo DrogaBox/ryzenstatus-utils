@@ -5,8 +5,8 @@ import Foundation
 
 /// The questions about time the bar answers from the calendar this Mac already
 /// carries, and the much larger set of things that must stay a search.
-/// Expectations are the upstream suite's (Tests/CommandBarFeatureTests.swift,
-/// "Dates and places") run against the local `CommandBarDates`.
+/// Expectations for the "Dates and places" section, run against
+/// `CommandBarDates`.
 enum CommandBarDatesCases {
     static func run(_ expect: CommandBarExpect) {
         var gregorian = Calendar(identifier: .gregorian)

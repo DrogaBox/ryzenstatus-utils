@@ -11,7 +11,7 @@ import Foundation
 /// and notices, the menu bar panel's own clicks, the Super Key glyph, capture
 /// tool numbering, stable backups, watermark layouts, radial snippets, audio
 /// priority, the switcher's preview cards and the Scratchpad's done tasks.
-enum PortedBatch185Tests {
+enum Batch185Tests {
     static func run(_ suite: TestSuite) {
         displayRestoreChecks(suite)
         pointerRouteChecks(suite)

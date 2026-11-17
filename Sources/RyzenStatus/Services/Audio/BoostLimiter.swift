@@ -9,7 +9,7 @@ import Foundation
 ///
 /// A boost above 100% pushes loud material past full scale, and clamping the
 /// overshoot sample by sample flattens every peak into a burst of harsh
-/// crackle for as long as the sound stays loud (issue #326). What a booster
+/// crackle for as long as the sound stays loud. What a booster
 /// needs instead is a peak limiter: quiet passages get the full boost, and
 /// when a peak would not fit, the whole signal is momentarily turned down by
 /// just enough, which the ear reads as loudness rather than distortion.

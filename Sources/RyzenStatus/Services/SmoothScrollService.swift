@@ -12,13 +12,13 @@ import QuartzCore
 /// events that ease out, like a touch device would produce.
 ///
 /// Wheel detection matches the scroll inverter (`ScrollWheelSupport`), so
-/// mice whose drivers report the wheel as continuous pixel events (issue
-/// #267) glide too; trackpads, Magic Mouse and momentum
-/// are passed through untouched. The tap sits at the head, so the original
-/// tick is swallowed before the inverter (appended at the tail) can see it
-/// and the flip, like linear scrolling's cap, is applied here instead; the
-/// glide carries a mark that keeps the inverter off it. Nothing (tap or timer)
-/// exists while the feature is off. Requires Accessibility.
+/// mice whose drivers report the wheel as continuous pixel events glide
+/// too; trackpads, Magic Mouse and momentum are passed through untouched.
+/// The tap sits at the head, so the original tick is swallowed before the
+/// inverter (appended at the tail) can see it and the flip, like linear
+/// scrolling's cap, is applied here instead; the glide carries a mark that
+/// keeps the inverter off it. Nothing (tap or timer) exists while the
+/// feature is off. Requires Accessibility.
 final class SmoothScrollService: ObservableObject {
     static let shared = SmoothScrollService()
 
@@ -166,7 +166,7 @@ final class SmoothScrollService: ObservableObject {
         }
         // Hand the tap back rather than only switching it off: a disabled tap
         // keeps its place in the chain, and a session that is switched away
-        // has to stop being an event tap owner outright (issue #1075).
+        // has to stop being an event tap owner outright.
         if let tap {
             CFMachPortInvalidate(tap)
         }
@@ -227,7 +227,7 @@ final class SmoothScrollService: ObservableObject {
         }
         // Touch devices are already smooth; only mouse wheels glide. The
         // classification is shared with the scroll inverter, so mice that
-        // report the wheel as continuous events (issue #267) are wheels too.
+        // report the wheel as continuous events are wheels too.
         let traits = ScrollWheelEventTraits(
             isContinuous: event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0,
             momentumPhase: event.getIntegerValueField(.scrollWheelEventMomentumPhase),
@@ -249,7 +249,7 @@ final class SmoothScrollService: ObservableObject {
         }
         // Apps on this feature's exception list get their wheel raw: the
         // glide would arrive as a much longer move inside apps that read the
-        // wheel themselves (issue #358).
+        // wheel themselves.
         let exceptions = MouseAppExceptions.shared
         guard !exceptions.excludesPointerTarget(
                 .smoothScroll,
@@ -275,7 +275,7 @@ final class SmoothScrollService: ObservableObject {
         // system-wide aid for apps whose wheel jumps; over a panel it only
         // replays the notch late and at the smooth scrolling step, so the
         // clipboard history travelled further than the wheel asked and felt
-        // laggy (issue #3780). The tap sits at the annotated stage, where the
+        // laggy. The tap sits at the annotated stage, where the
         // window server has already named the receiver, so the target's
         // process is the routing decision rather than the pointer's position.
         guard !SmoothScrollSupport.targetsOwnWindow(
@@ -285,7 +285,7 @@ final class SmoothScrollService: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
 
-        // Our panels, including clipboard history (#3780), handle the original
+        // Our panels, including clipboard history, handle the original
         // notch. The fast capture loupe uses glide frames to zoom. Stepped
         // zoom already took the raw event above.
         guard let processID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID)),

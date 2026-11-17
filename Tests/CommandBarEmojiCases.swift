@@ -5,10 +5,9 @@ import Foundation
 
 /// The emoji catalog and the tones it can carry.
 ///
-/// Expectations lifted from upstream's `CommandBarEmojiTests` (the pure parts:
-/// the catalog's identity contract and the skin-tone rules). The row
-/// construction, usage recording and query-habit halves of that file need the
-/// catalog and the service, which this harness does not compile.
+/// Expectations for the pure parts: the catalog's identity contract and the
+/// skin-tone rules. Row construction, usage recording and query habits need
+/// the catalog and the service, which this harness does not compile.
 enum CommandBarEmojiCases {
     static func run(_ expect: CommandBarExpect) {
         // MARK: - Skin tones

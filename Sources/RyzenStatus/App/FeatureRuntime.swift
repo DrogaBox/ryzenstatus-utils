@@ -330,15 +330,15 @@ final class FeatureRuntime: ObservableObject {
         .radialMenu: { RadialMenuService.shared.syncWithPreferences() },
         .scratchpad: { ScratchpadService.shared.syncWithPreferences() },
         .cleaner: { CleanerScheduler.shared.syncWithPreferences() },
-        // Upstream rides these on the cleaner; this fork gives WhatsApp
-        // downloads its own hub entry, and both services already gate on it.
-        // Without this binding the daily pass and the organizer only came to
-        // life when their Settings toggles moved, never after a relaunch.
+        // WhatsApp downloads has its own hub entry rather than riding on the
+        // cleaner, and both services already gate on it. Without this
+        // binding the daily pass and the organizer only came to life when
+        // their Settings toggles moved, never after a relaunch.
         .whatsAppDownloads: {
             WhatsAppDownloadScheduler.shared.syncWithPreferences()
             WhatsAppDownloadOrganizer.shared.syncWithPreferences()
-            // Only on uninstall: this fork's organizer runs on its own switch,
-            // independent of the downloads switch upstream gates it on.
+            // Only on uninstall: the organizer runs on its own switch,
+            // independent of the downloads switch.
             if !AppFeature.whatsAppDownloads.isAvailable {
                 WhatsAppDownloadManager.shared.reset()
                 WhatsAppDownloadOrganizer.shared.stop()
@@ -355,7 +355,7 @@ final class FeatureRuntime: ObservableObject {
         // Dynamic Island. The island itself starts here when it is installed
         // and switched on; every extension re-syncs a running island (or
         // stops its own service when the island is gone) so a hub flip takes
-        // effect at once. Agents are not part of this fork.
+        // effect at once.
         .notch: { NotchService.shared.syncWithPreferences() },
         .notchGestures: {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }

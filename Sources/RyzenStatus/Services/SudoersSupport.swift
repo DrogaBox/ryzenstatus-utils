@@ -12,7 +12,7 @@ enum SudoersSupport {
     /// The closed-lid NOPASSWD rule, granted by uid (`#uid` user spec). A
     /// username would have to be sanitized against sudoers *and* shell
     /// metacharacters — short names on SSO-enrolled Macs can be full email
-    /// addresses (#915) — while a uid interpolates as bare digits, which
+    /// addresses — while a uid interpolates as bare digits, which
     /// neither interpreter can read as anything else.
     static func clamshellRule(uid: uid_t) -> String {
         "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"

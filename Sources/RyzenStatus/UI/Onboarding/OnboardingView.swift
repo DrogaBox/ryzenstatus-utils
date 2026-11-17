@@ -47,9 +47,9 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Scrollable so a step taller than the window (the menu bar
-            // metrics list outgrew it, issue #176) can never push the
-            // navigation bar out of the fixed frame — without a scroll, the
-            // footer was clipped away and the flow looked stuck.
+            // metrics list outgrew it) can never push the navigation bar out
+            // of the fixed frame — without a scroll, the footer was clipped
+            // away and the flow looked stuck.
             ScrollView {
                 content
                     .frame(maxWidth: .infinity, alignment: .top)

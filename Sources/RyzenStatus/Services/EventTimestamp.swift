@@ -9,7 +9,7 @@ import Darwin
 /// `CGEventTimestamp` is documented as nanoseconds, and that is what a session
 /// tap sees. A tap at the HID stage sees hardware events stamped in mach
 /// absolute time instead, which on Apple Silicon advances once every 125/3 ns,
-/// while events posted by software still arrive there in nanoseconds (#1689).
+/// while events posted by software still arrive there in nanoseconds.
 /// Because one HID tap sees both kinds, the unit is decided per event: of the
 /// two readings, the one nearer the current uptime is the unit it carries.
 enum EventTimestamp {

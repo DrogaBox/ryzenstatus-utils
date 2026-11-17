@@ -11,7 +11,7 @@ import CoreGraphics
 /// longer front-most, and an event tap created there keeps its place in the
 /// chain: the window server still routes events through a process that cannot
 /// answer, waits out the tap timeout on every one, and the account actually in
-/// use gets the stall (issue #1075). The tap goes back on the way out and is
+/// use gets the stall. The tap goes back on the way out and is
 /// rebuilt from the preferences on the way in, which is also why the timeout
 /// re-arm has to ask first — re-enabling a tap that was handed back for this
 /// reason puts the stall straight back.

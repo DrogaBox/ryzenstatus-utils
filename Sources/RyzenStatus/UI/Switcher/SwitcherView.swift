@@ -11,7 +11,7 @@ private enum SwitcherIconStyle {
     static let stroke = Color.primary.opacity(0.12)
     /// The search chip is the one control that floats over whatever is behind
     /// the panel, so its edge cannot borrow the panel hairline: at 12% it
-    /// dissolved into a white document and the chip read as clipped (#3508).
+    /// dissolved into a white document and the chip read as clipped.
     static let searchChipStroke = Color.primary.opacity(0.26)
     static let text = Color.primary
     static let secondaryText = Color.secondary
@@ -150,7 +150,7 @@ struct SwitcherView: View {
             .padding(.top, switcher.searchTopInset)
             // The header is reserved above the panel, so it has to stay at the
             // top edge: a centred frame let content that measured taller than
-            // its computed layout ride up over the chip (#3508).
+            // its computed layout ride up over the chip.
             .frame(width: iconRowPanelSize.width,
                    height: iconRowPanelSize.height + switcher.searchTopInset,
                    alignment: .top)

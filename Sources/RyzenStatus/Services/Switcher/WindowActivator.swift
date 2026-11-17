@@ -125,7 +125,7 @@ enum WindowActivator {
 
         // Unhiding an app that is not hidden still brings every one of its
         // windows forward (measured on macOS 27.2), so a window selection
-        // raised its siblings before fronting the window (issue #1503).
+        // raised its siblings before fronting the window.
         let appIsHidden = app.isHidden
         if appIsHidden { app.unhide() }
         let activationPlan = SwitcherSupport.activationPlan(
@@ -176,7 +176,7 @@ enum WindowActivator {
         let targetStartedMinimized = liveMinimizedState ?? itemReportedMinimized
         // A window parked on a Space that is not visible cannot be reached by
         // the Accessibility passes below; the hop travels there first and then
-        // runs the same focus pass on arrival (issue #339). A minimized window
+        // runs the same focus pass on arrival. A minimized window
         // keeps its Accessibility element and can be deminiaturized directly
         // on the regular path without relying on Space shortcuts being enabled.
         let spaceHopStarted = !targetStartedMinimized
@@ -607,7 +607,7 @@ enum WindowActivator {
     }
 
     /// Reuse the shared resolver for published and hidden-Space windows,
-    /// including fullscreen ones, without travelling first (issue #2708).
+    /// including fullscreen ones, without travelling first.
     private static func closableElement(windowID: CGWindowID, in axApp: AXUIElement, pid: pid_t) -> AXUIElement? {
         guard let window = axElement(windowID: windowID, in: axApp, pid: pid)
         else { return nil }

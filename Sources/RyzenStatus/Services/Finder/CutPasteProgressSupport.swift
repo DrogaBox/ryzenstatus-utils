@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// Pure decisions behind the move-progress HUD (issue #168). Progress only
+/// Pure decisions behind the move-progress HUD. Progress only
 /// appears for moves that actually take time: same-volume moves are renames
 /// and finish instantly, so they stay silent.
 enum CutPasteProgressSupport {

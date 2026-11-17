@@ -533,7 +533,7 @@ enum RadialNowPlayingSupport {
     /// The process to show and open for a reading. Safari and other WebKit
     /// apps play a page's sound from their GPU helper, so the reading names
     /// `com.apple.WebKit.GPU` and that helper's pid, and the helper's icon is
-    /// a blank executable (#3590). Every WebKit app runs a helper with that
+    /// a blank executable. Every WebKit app runs a helper with that
     /// identifier, so the reading's own pid decides which one, and the
     /// regular app answering for it is the player.
     static func playerPID(bundleMatch: pid_t?, readingPID: pid_t?,

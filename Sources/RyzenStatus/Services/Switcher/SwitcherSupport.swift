@@ -559,8 +559,9 @@ enum SwitcherGridCard {
     /// short of the card's rounded corners.
     static var titleWidth: CGFloat { thumbnailWidth - 8 }
     /// Stands in for a thumbnail that has not arrived, so it has to stay
-    /// inside the thumbnail at every preview size (#793 gave it the scale;
-    /// naming it is what lets a test hold it to the thumbnail it sits in).
+    /// inside the thumbnail at every preview size (it follows the preview
+    /// scale; naming it is what lets a test hold it to the thumbnail it sits
+    /// in).
     static var fallbackIconSize: CGFloat { 80 * PreviewSizing.switcherScale }
 }
 
@@ -682,7 +683,7 @@ struct SwitcherIconRowLayout: Equatable {
 
     /// The widest row the panel has to hold. Panel sizing and the rows
     /// themselves both measure against this one value, so a row can never come
-    /// out wider than the window drawing it and get clipped (issues #710, #730).
+    /// out wider than the window drawing it and get clipped.
     func contentWidth(simpleMode: Bool, windowRow: Bool) -> CGFloat {
         let hintWidth = showsShortcutHints ? Self.hintBarWidth : 0
         guard simpleMode else {
@@ -828,7 +829,7 @@ struct SwitcherShortcutHints: Equatable {
 enum SwitcherSupport {
     /// Nobody sees a thumbnail while the displays sleep, the screen is locked
     /// or another account is on screen, and capturing then only risks the
-    /// stall described on the capture queue (issue #1863).
+    /// stall described on the capture queue.
     static func screenIsInView(session: [String: Any]?, displaysAsleep: Bool) -> Bool {
         SessionActivitySupport.isOnConsole(session)
             && !KeepAwakeAutomationSupport.isScreenLocked(sessionDictionary: session)
@@ -926,7 +927,7 @@ enum SwitcherSupport {
     /// non-positive pid are dropped: the workspace list reports some apps
     /// (Xcode's Device Hub) as -1 while the process owning their windows is
     /// absent from it, so such an entry has no windows, no icon and nothing to
-    /// activate (issue #2960). A window owner missing from the list is looked up
+    /// activate. A window owner missing from the list is looked up
     /// by pid instead, and only a regular app is admitted so helper processes
     /// stay out.
     static func usableApps<App>(_ apps: [App],
@@ -994,7 +995,7 @@ enum SwitcherSupport {
     }
 
     /// A program that is not an app, such as the Java a game runs on, is
-    /// listed by its path (issue #3033) and matched the way the mouse
+    /// listed by its path and matched the way the mouse
     /// exceptions and Window Layout match it, by that path as well as by its
     /// bundle identifier. A JVM that AWT registers reports the identifier of
     /// Java's launcher, the same for every program that runtime runs, so only
@@ -1130,7 +1131,7 @@ enum SwitcherSupport {
     /// the loader's own name, or a per-app "winetemp-" copy that bottle
     /// managers create so the process carries the hosted program's name and
     /// icon. They need special handling in the switcher because their windows
-    /// expose no standard Accessibility subrole (issue #274).
+    /// expose no standard Accessibility subrole.
     static func isCompatibilityLayerApp(bundleIdentifier: String?,
                                         executablePath: String?,
                                         localizedName: String?) -> Bool {
@@ -1179,17 +1180,17 @@ enum SwitcherSupport {
     /// window server tells those apart from overlays for us — an ordinary
     /// window sits at the normal window level, while a HUD or panel floats
     /// above it — so a normal-level undescribed window is a real window
-    /// whoever shipped it (issues #215, #512). Compatibility-hosted windows
+    /// whoever shipped it. Compatibility-hosted windows
     /// keep their own exception for the surfaces that resolve to no window
-    /// server id at all (issue #274), and a screen-sized surface stays
+    /// server id at all, and a screen-sized surface stays
     /// switchable so full-screen playback on another desktop is not lost.
     ///
     /// Every subrole the app did describe is left alone: a dialog, a sheet or
     /// a floating panel is filtered as before unless it fills the screen.
     /// The one exception is a normal-level `AXDialog` that can be minimized.
     /// AppKit gives that subrole to every window of a hidden app, and a window
-    /// that still carries it after the app is shown again (reported on macOS 26,
-    /// issue #2279) would otherwise drop out of the list. Alerts and panels read
+    /// that still carries it after the app is shown again (reported on
+    /// macOS 26) would otherwise drop out of the list. Alerts and panels read
     /// `AXDialog` too but have no working minimize button, unless the app made
     /// the panel miniaturizable; such a panel is listed like a window.
     ///
@@ -1219,9 +1220,9 @@ enum SwitcherSupport {
     /// them let a single app with many windows push whole other applications
     /// off the end: the switcher then looked like those apps were not running
     /// at all, and the only way to bring one back was to raise it by other
-    /// means so its window rose in the use order. Issue #172 fixed the half of
-    /// this that truncated before the use order was applied; this is the other
-    /// half.
+    /// means so its window rose in the use order. An earlier fix covered the
+    /// half of this that truncated before the use order was applied; this is
+    /// the other half.
     ///
     /// Every app now gets its most recently used entry first, in app order, and
     /// only the slots left over are filled with further entries. With more apps
@@ -1308,7 +1309,7 @@ enum SwitcherSupport {
     /// Only a total absence counts. An app whose windows exist but were left
     /// out on purpose keeps its absence: showing the app anyway would undo the
     /// choice the user just made, which is what the current-desktop option
-    /// (issue #337) would suffer from otherwise. Order follows the candidate
+    /// would suffer from otherwise. Order follows the candidate
     /// list, so the caller keeps ranking these entries the same way it ranks
     /// windows.
     static func windowlessAppPIDs(mode: SwitcherWindowlessApps,
@@ -1415,7 +1416,7 @@ enum SwitcherSupport {
     /// When Accessibility does not match a hidden app's WindowServer surface,
     /// its Space assignment distinguishes a real window from a leftover. A
     /// window the app had already closed keeps its Space too, and used to
-    /// come back with the app's hidden badge (issues #512 and #2628), so a
+    /// come back with the app's hidden badge, so a
     /// surface the window server did not hide along with the app is not
     /// confirmed. `isHiddenWithApp` is nil when the window server cannot say.
     static func isConfirmedHiddenAppWindow(appIsHidden: Bool,
@@ -1454,7 +1455,7 @@ enum SwitcherSupport {
     }
 
     /// Whether a WindowServer surface whose owner never answered Accessibility
-    /// is a stale leftover instead of a real window (issue #807). The ghost
+    /// is a stale leftover instead of a real window. The ghost
     /// veto normally comes from the Accessibility cross-check, but a busy or
     /// dying process answers with nothing, which used to let its closed
     /// windows keep appearing in the switcher. The window server itself tells
@@ -1773,7 +1774,7 @@ enum SwitcherSupport {
 
     /// A Tab this close behind a Shift-press step is the same physical chord
     /// and must not step again; later Tabs during the Shift hold keep walking
-    /// the list (issue #784).
+    /// the list.
     static let shiftBackChordWindow: TimeInterval = 0.35
 
     static func selectedPreviewPlacement(appCount rawAppCount: Int,
@@ -1841,7 +1842,7 @@ enum SwitcherSupport {
     /// group whose neighbor on the other side is of the other kind. The
     /// divider is presentation only — the recent-use order already interleaves
     /// these entries — so a mixed-order choice empties the set entirely
-    /// (issue #3659) and nothing else about the row changes.
+    /// and nothing else about the row changes.
     static func windowlessAppDividerPIDs(items: [SwitcherItem],
                                          windowlessAppsMixedOrder: Bool = false) -> Set<pid_t> {
         guard !windowlessAppsMixedOrder else { return [] }
@@ -2220,7 +2221,7 @@ enum SwitcherSupport {
     /// The switcher's panel sits at the status bar level, beneath such a
     /// window, while macOS's own switcher is switched off for as long as the
     /// switcher holds its keys, so ⌘Tab did nothing visible in League of
-    /// Legends (issue #2636). True when the frontmost app covers a display
+    /// Legends. True when the frontmost app covers a display
     /// that way, so the keys go back to macOS while it does. A window in a
     /// macOS full-screen Space or a borderless game window stays at level 0
     /// and never qualifies, nor does a raised window that covers only part of
@@ -2412,8 +2413,8 @@ enum SwitcherSupport {
     /// Whether a click ends the session. The panel floats above everything and
     /// never takes the keyboard from the app in front, so clicking another
     /// window is what most people try when they want it gone, and a session
-    /// opened with no key held down has no release coming to close it either
-    /// (issue #384). Anything on the panel still belongs to the panel.
+    /// opened with no key held down has no release coming to close it either.
+    /// Anything on the panel still belongs to the panel.
     static func shouldDismissForClick(panelIsVisible: Bool,
                                       panelFrame: CGRect,
                                       location: CGPoint) -> Bool {

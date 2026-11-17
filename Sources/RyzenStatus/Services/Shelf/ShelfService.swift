@@ -224,7 +224,7 @@ final class ShelfService: ObservableObject {
     /// the mouse-up too) never reaches global monitors while the dragged
     /// events still do. A gesture with an unseen start re-baselines on its
     /// first dragged event, so a stale baseline cannot misread a window move
-    /// as a content drag (issue #240).
+    /// as a content drag.
     private var sawGestureStart = false
     private var dragBeganInDock = false
     private var dragSourceBundleIdentifier: String?
@@ -274,7 +274,7 @@ final class ShelfService: ObservableObject {
     /// drag may only read this: `resourceValues` walks the ancestor chain with
     /// `getattrlist`, which can stall for seconds on iCloud Drive, a sleeping
     /// NAS or a spinning-up disk, and RyzenStatus owns the drag session, so a
-    /// stalled main thread freezes pointer input for the whole Mac (#4014).
+    /// stalled main thread freezes pointer input for the whole Mac.
     private var packageContentByPath: [String: Bool] = [:]
     /// Paths already queued, so a file is read once per arrival.
     private var pendingPackageProbes: Set<String> = []
@@ -590,7 +590,7 @@ final class ShelfService: ObservableObject {
 
     /// A drag from one of our own windows never reaches the global monitor,
     /// so no gesture closes after it. What it left on the drag pasteboard is
-    /// absorbed here, or the next press in the Dock would count it (#2212).
+    /// absorbed here, or the next press in the Dock would count it.
     func absorbOwnDrag() {
         dragRestingChangeCount = NSPasteboard(name: .drag).changeCount
     }
@@ -1374,7 +1374,7 @@ final class ShelfService: ObservableObject {
         // The package answer was read when the item arrived; a path the probe
         // has not reached yet counts as protected (see the resolver). Reading
         // the disk here would stall the drag and with it system-wide pointer
-        // input, so this path must stay in memory (#4014).
+        // input, so this path must stay in memory.
         internalDragHoldsPackageContent = ShelfInteractionSupport.dragProtectsPackageContent(
             knownStates: draggedItems.map { item -> Bool? in
                 guard case let .file(url) = item.payload else { return nil }

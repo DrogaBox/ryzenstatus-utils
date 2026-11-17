@@ -475,7 +475,7 @@ struct MetricsTests {
         expect(maximumPasteboardOperations == 1,
                "pasteboard access serializes concurrent service work")
 
-        // The freeze this lane exists to prevent (issue #887): a read stuck
+        // The freeze this lane exists to prevent: a read stuck
         // behind an app that promised pasteboard content and stopped answering
         // holds the lane, and any caller that waited for it would be frozen
         // with it. Wedge the lane, then ask for work from the main thread: the
@@ -2784,8 +2784,7 @@ struct MetricsTests {
                "short, unnamed and UUID carrying owners are never attributable")
         // Deliberate: the shared-infrastructure guard still matches by prefix,
         // so an unrelated vendor whose domain starts with a listed one stays
-        // protected. Upstream narrows it to a dot boundary; see
-        // docs/HANDOFF-FASE-5.md §6 before changing this expectation.
+        // protected. It is deliberately not narrowed to a dot boundary.
         expect(CleanerSupport.isProtectedBundleID("com.segmentfault.tool"),
                "the strict prefix guard on shared infrastructure is kept as it is")
         expect(CleanerSupport.isOwned(candidate: "com.vendor.editor.startuphelper",
@@ -2955,7 +2954,7 @@ struct MetricsTests {
                == ["uninstaller", "homebrew", "media", "cleanURL", "cleaning"],
                "panel item order keeps saved valid items first and appends defaults")
 
-        // MARK: Window layout shortcut resolution (issue #169)
+        // MARK: Window layout shortcut resolution
 
         expect(WindowLayoutAction.resolvedShortcut(storedValue: nil,
                                                    defaultShortcut: .windowLayoutLeftDefault)
@@ -3528,8 +3527,8 @@ struct MetricsTests {
                                                               uid: "",
                                                               dataSourceName: nil),
                "Bluetooth speakers are not treated as headphones")
-        // Issue #256: some browsers' audio helpers answer for themselves, so
-        // the mixer walks the parent chain to the nearest regular app.
+        // Some browsers' audio helpers answer for themselves, so the mixer
+        // walks the parent chain to the nearest regular app.
         let helperParents: [pid_t: pid_t] = [500: 100, 100: 1, 700: 1,
                                              900: 901, 901: 902, 902: 903, 903: 904,
                                              904: 905, 905: 906, 906: 907, 907: 100]
@@ -3796,7 +3795,7 @@ struct MetricsTests {
                    && ClipboardHistoryBatch.listOwnsSelectAllShortcut(batchCount: 1, queryIsEmpty: false),
                "the list claims command-A over a selection or an empty search field")
 
-        // MARK: Middle click tap (issue #161)
+        // MARK: Middle click tap
 
         expect(Defaults.sanitizedMiddleClickTapFingers(3) == 3
                    && Defaults.sanitizedMiddleClickTapFingers(4) == 4,
@@ -3851,7 +3850,7 @@ struct MetricsTests {
                                                  tapFingers: 4),
                "a pinch or spread never fires the tap even with a still centroid")
 
-        // MARK: Cut and paste move progress (issue #168)
+        // MARK: Cut and paste move progress
 
         expect(!CutPasteProgressSupport.isCrossVolume(source: NSNumber(value: 1),
                                                       destination: NSNumber(value: 1)),
@@ -4912,7 +4911,7 @@ struct MetricsTests {
                                                                  selectedIndex: 2,
                                                                  delta: 1) == 2,
                "App Switcher icon-row window navigation stays put when the app has one window")
-        // Window use order is pinned by WindowUseOrder's own cases (upstream).
+        // Window use order is pinned by WindowUseOrder's own cases.
         let groupedIconLayout = SwitcherIconRowLayout.compute(appCount: appGroups.count,
                                                               selectedWindowCount: appGroups[0].windowCount,
                                                               screenVisibleFrame: screen)
@@ -5847,9 +5846,8 @@ struct MetricsTests {
                    "Spotlight uses technical identity for sensitive path: \(path)")
         }
         // Deliberate: HTTPStorages and WebKit stay technical segments here.
-        // Upstream drops them, which lets a display-name fragment claim a
-        // folder of web storage; see docs/PORT-PLAN.md (Fase 2) before
-        // changing these. Checked field by field, so a change to
+        // Dropping them would let a display-name fragment claim a folder of
+        // web storage. Checked field by field, so a change to
         // `technicalIdentity` itself cannot hide a relaxation.
         for path in ["/Users/test/Library/HTTPStorages/Sample",
                      "/Users/test/Library/WebKit/Sample"] {
@@ -7228,7 +7226,7 @@ struct MetricsTests {
 
         // MARK: Feature wiring
         //
-        // A feature was once ported with its code but no Settings page and no
+        // A feature once shipped with its code but no Settings page and no
         // runtime binding, and every island row repeated one description.
         // These checks make each AppFeature prove it is wired end to end.
 
@@ -7343,7 +7341,7 @@ struct MetricsTests {
         expect(BrightnessSupport.parseReply([0x6E, 0x88], code: 0x10) == nil,
                "a short DDC reply reads as no reply")
         // A monitor read too early answers the previous request; that reply
-        // must not be taken for this control's value (#2966).
+        // must not be taken for this control's value.
         expect(BrightnessSupport.parseReply(ddcReply, code: 0x12) == nil,
                "a DDC reply for another control reads as no reply")
 
@@ -7447,7 +7445,7 @@ struct MetricsTests {
                 && BrightnessSupport.steppedBrightness(0.03, delta: -BrightnessSupport.brightnessKeyStep) == 0.0,
                "key steps clamp at both ends of the range")
 
-        // Pointer routing on system-routed displays (issue #268): the system
+        // Pointer routing on system-routed displays: the system
         // only ever steps its native target, so any other display the
         // pointer picks must be stepped by the app.
         expect(BrightnessSupport.stepsSystemRoutedDisplay(followsPointer: true,
@@ -7482,7 +7480,7 @@ struct MetricsTests {
                 && BrightnessSupport.wholePercent(.infinity) == 0,
                "brightness overlay percentage rounds and clamps safely")
 
-        // MARK: Text snippets engine (issue #201)
+        // MARK: Text snippets engine
 
         expect(TextSnippetSupport.sanitizedTrigger("  ;e mail\n") == ";email", "triggers lose whitespace")
         expect(TextSnippetSupport.bufferAppending(String(repeating: "a", count: 64), typed: "b").count
@@ -7539,7 +7537,7 @@ struct MetricsTests {
 
         // Only a replacement that names the clipboard pays for reading it: the
         // pasteboard can hang on content nobody renders any more, and that read
-        // sits on the keystroke path (issue #887).
+        // sits on the keystroke path.
         expect(TextSnippetSupport.needsClipboard("clip: {{clipboard}}"),
                "a replacement naming the clipboard needs it read")
         expect(!TextSnippetSupport.needsClipboard("Report on {{date}} at {{time}}."),
@@ -7778,7 +7776,7 @@ struct MetricsTests {
                "snippets round-trip through persistence")
         expect(TextSnippetSupport.decode(nil).isEmpty, "no stored data means no snippets")
 
-        // MARK: Radial menu (issue #220)
+        // MARK: Radial menu
 
         expect(RadialMenuGeometry.angle(dx: 0, dyUp: 1) == 0
                 && abs(RadialMenuGeometry.angle(dx: 1, dyUp: 0) - .pi / 2) < 0.0001
@@ -7879,7 +7877,7 @@ struct MetricsTests {
                 && RadialMenuTool.scratchpad.feature == .scratchpad,
                "every wheel tool maps to a real feature and symbol")
 
-        // MARK: Dock click with AX-blind apps (issue #200)
+        // MARK: Dock click with AX-blind apps
 
         expect(DockClickSupport.effectiveHasUnminimized(unminimizedCount: 2,
                                                         minimizedCount: 0,
@@ -13502,9 +13500,9 @@ struct MetricsTests {
             expect(wheel == [.open], "a mouse wheel still opens the island at once")
         }
 
-        // MARK: Upstream suites
-        // Ported unchanged apart from the brand, so each keeps checking the
-        // behavior it was written for. They report into this run's totals.
+        // MARK: Feature suites
+        // Each keeps checking the behavior it was written for. They report
+        // into this run's totals.
         do {
             let suite = TestSuite()
             let suites: [(String, (TestSuite) -> Void)] = [
@@ -13528,8 +13526,8 @@ struct MetricsTests {
                 ("IslandPanelTests", IslandPanelTests.run),
                 ("ClipboardTextCaseTransformTests", ClipboardTextCaseTransformTests.run),
                 ("HomebrewOperationLogRetentionTests", HomebrewOperationLogRetentionTests.run),
-                ("PortedBatch180Tests", PortedBatch180Tests.run),
-                ("PortedBatch185Tests", PortedBatch185Tests.run),
+                ("Batch180Tests", Batch180Tests.run),
+                ("Batch185Tests", Batch185Tests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

@@ -509,7 +509,7 @@ extension ScrollWheelSupport {
 // MARK: - Modifier-held scroll speed
 
 /// Hold a key while rolling the mouse wheel to multiply how far each tick
-/// travels (issue #521). Shared by both wheel taps so the glide and the raw
+/// travels. Shared by both wheel taps so the glide and the raw
 /// wheel agree; trackpads stay out through the usual wheel classification.
 extension ScrollWheelSupport {
     /// How many times farther a modifier-held notch scrolls. The top end is
@@ -580,9 +580,9 @@ struct ScrollSpeedPreferences {
 /// HID stage, so it always counts. A posted one counts when the HID tap noted
 /// its timestamp, which it keeps on its way down. Both readings are compared
 /// as nanoseconds: at the HID stage a hardware event reads in mach ticks, a
-/// posted one in nanoseconds (`EventTimestamp`, #1689). Events overtake one
-/// another between the stages, so the last few hundred are kept rather than
-/// only the newest.
+/// posted one in nanoseconds (`EventTimestamp`). Events overtake one another
+/// between the stages, so the last few hundred are kept rather than only the
+/// newest.
 struct ScrollWheelHIDStageLedger {
     static let capacity = 256
     /// A posted event reads the same at both stages; the slack only covers

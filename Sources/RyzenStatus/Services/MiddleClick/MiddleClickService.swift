@@ -10,7 +10,7 @@ import IOKit
 /// Middle-click emulation for trackpads: a three-finger PHYSICAL click (four
 /// while macOS three-finger drag owns three fingers) becomes a middle click
 /// (mouse wheel click), and an opt-in tap mode fires
-/// it from a light three or four finger tap (issue #161). By default taps,
+/// it from a light three or four finger tap. By default taps,
 /// swipes and resting fingers never click. Contact data comes from the
 /// MultitouchSupport private framework (the only source; every middle-click
 /// utility uses it), loaded via dlopen/dlsym so a macOS that changes it
@@ -75,7 +75,7 @@ final class MiddleClickService: ObservableObject {
     /// When the contact count last changed, for the press settle guard.
     private var fingerCountSince: TimeInterval = 0
 
-    // Tap-to-middle-click (issue #161), all under `stateLock`. A candidate
+    // Tap-to-middle-click, all under `stateLock`. A candidate
     // starts when the chosen finger count lands, collects movement, and is
     // judged when every finger lifts.
     private var tapFingers = 0
@@ -550,7 +550,7 @@ final class MiddleClickService: ObservableObject {
             // below reads back afterwards, exactly as it did inline.
             if releaseLostHold { releaseHeldMiddleButton() }
             // An app on the exception list keeps the plain native click, so a
-            // three-finger click means to it what it always meant (issue #358).
+            // three-finger click means to it what it always meant.
             if MouseAppExceptions.shared.excludesPointerTarget(.middleClick, at: event.location) {
                 return Unmanaged.passUnretained(event)
             }

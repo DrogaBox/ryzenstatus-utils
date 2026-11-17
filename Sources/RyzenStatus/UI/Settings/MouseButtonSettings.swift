@@ -6,7 +6,7 @@ import SwiftUI
 /// Settings > Mouse > Mouse button shortcuts: the switch, one row per mapped
 /// button with its recorded combination, and a capture flow that asks for a
 /// real press instead of making the user guess button numbers. The Spaces and
-/// Mission Control drag (issue #1012) lives at the bottom of the same card,
+/// Mission Control drag lives at the bottom of the same card,
 /// because it hands a button a job the same way and borrows the same capture.
 struct MouseButtonShortcutsSection: View {
     @ObservedObject private var l10n = L10n.shared

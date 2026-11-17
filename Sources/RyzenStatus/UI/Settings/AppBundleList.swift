@@ -11,7 +11,7 @@ import SwiftUI
 /// the name and which apps the picker offers, so that is what they pass in.
 /// It stays a single quiet row while nothing is listed and comes up open when
 /// the feature already has entries, so a page with several of these never
-/// turns into a wall of lists (issues #358, #423).
+/// turns into a wall of lists.
 struct AppBundleList<Accessory: View>: View {
     let title: String
     let caption: String
@@ -23,7 +23,7 @@ struct AppBundleList<Accessory: View>: View {
     /// ones: it browses Applications and offers what is running as well.
     let reachesEveryApp: Bool
     /// Whether a program that is not packaged as an app may be added. Only the
-    /// lists whose feature can recognize one at runtime pass this (issue #1009).
+    /// lists whose feature can recognize one at runtime pass this.
     let acceptsExecutables: Bool
     let onAdd: (String) -> Void
     let onRemove: (String) -> Void
@@ -64,7 +64,7 @@ struct AppBundleList<Accessory: View>: View {
                         .frame(width: 18, height: 18)
                     if let location = InstalledApps.location(for: bundleID) {
                         // Path identities all display the file's own name —
-                        // every bundled runtime is "java" (issue #1009) — so
+                        // every bundled runtime is "java" — so
                         // the directory is what tells the rows apart. Sibling
                         // runtimes share a long common prefix and differ in
                         // the middle or tail, so the head is what truncation
@@ -148,7 +148,7 @@ struct AppBundleList<Accessory: View>: View {
             // Closed first: a file with nothing to be named by is nothing to
             // add, but the sheet still did its job and has to go away.
             showingAppPicker = false
-            // What the picked file will be reported as once it runs (#1009),
+            // What the picked file will be reported as once it runs,
             // which is a bundle identifier or a path depending on the file,
             // never on which of the two the sheet was pointed at. A list that
             // takes only apps drops a path rather than storing an entry its

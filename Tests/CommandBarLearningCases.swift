@@ -5,11 +5,10 @@ import Foundation
 
 /// What the bar noticed about this session: the letters that led to a row.
 ///
-/// Expectations lifted from upstream's `CommandBarFeatureTests` ("What the bar
-/// noticed about this session" and the folded-letters pair). The stored query
-/// habits (`CommandBarQueryHabits`, `CommandBarUsage`) live in
-/// `CommandBarSupport.swift`, which this harness does not compile, so the
-/// in-memory memory is what is pinned here.
+/// Expectations for the "What the bar noticed about this session" section and
+/// the folded-letters pair. The stored query habits (`CommandBarQueryHabits`,
+/// `CommandBarUsage`) live in `CommandBarSupport.swift`, which this harness
+/// does not compile, so the in-memory memory is what is pinned here.
 enum CommandBarLearningCases {
     static func run(_ expect: CommandBarExpect) {
         // MARK: - What a prefix is

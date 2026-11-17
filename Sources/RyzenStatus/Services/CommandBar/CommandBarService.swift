@@ -2540,7 +2540,7 @@ final class CommandBarService: ObservableObject {
         ShortcutCapture.begin()
         // The tap sits ahead of the app's own menu. Without it, Command Q
         // never reaches the local monitor. It quits RyzenStatus instead of
-        // landing on the card (issue #1193). When Accessibility cannot
+        // landing on the card. When Accessibility cannot
         // create the tap, the monitor below still records as before.
         ShortcutRecordingTap.begin { [weak self] keyCode, modifiers, _ in
             self?.handleCaptureKey(keyCode: keyCode, modifiers: modifiers)

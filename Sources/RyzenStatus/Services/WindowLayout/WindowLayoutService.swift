@@ -609,7 +609,7 @@ final class WindowLayoutService: ObservableObject {
                                                                     pressedAction: cyclePress)
                 if !actual.isClose(to: frame, tolerance: frameTolerance) {
                     // The lenient acceptance may have read a frame the app has
-                    // not committed yet (issue #334); look again once it has,
+                    // not committed yet; look again once it has,
                     // so a late, clamped resize still counts as the settled frame.
                     scheduleSettledFrameRefresh(for: window,
                                                 windowKey: windowKey,
@@ -623,7 +623,7 @@ final class WindowLayoutService: ObservableObject {
         // Some apps commit Accessibility size changes with a short delay, so
         // the reads above can still see the old frame. Judging failure now and
         // restoring the original is what used to leave windows moved but never
-        // resized (issue #334): let the window settle before deciding.
+        // resized: let the window settle before deciding.
         if UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapRestoreOnDrag) {
             settledFrames[windowKey] = WindowLayoutSettledFrame(requested: frame,
                                                                 actual: original ?? frame,
@@ -854,7 +854,7 @@ final class WindowLayoutService: ObservableObject {
 
     private func registerHotkeys() {
         // Cleared shortcuts are simply absent: their key combo stays free for
-        // other apps, which is the whole point of clearing them (issue #169).
+        // other apps, which is the whole point of clearing them.
         let shortcuts = Dictionary(uniqueKeysWithValues: WindowLayoutAction.shortcutActions.compactMap { action in
             action.savedShortcut.map { (action, $0) }
         })
@@ -2631,7 +2631,7 @@ final class WindowLayoutService: ObservableObject {
                                requiresResize: Bool) -> WindowGestureTarget? {
         let system = AXUIElementCreateSystemWide()
         // No cap here: on the system-wide element a timeout is the default for
-        // every question this process asks, whoever asks it (#938).
+        // every question this process asks, whoever asks it.
         var rawElement: AXUIElement?
         var window: AXUIElement?
         if AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &rawElement) == .success,
@@ -2872,7 +2872,7 @@ private struct WindowDirectionalSession {
     let modifierOwnership: WindowDirectionalModifierOwnership?
 }
 
-/// Native glass-ring container; no upstream artwork or media is bundled.
+/// Native glass-ring container; no artwork or media is bundled.
 private final class WindowDirectionalIndicatorView: NSView {
     private let canvas: WindowDirectionalIndicatorCanvasView
 

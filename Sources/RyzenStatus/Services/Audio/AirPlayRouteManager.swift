@@ -981,7 +981,7 @@ final class MixingAudioSource: @unchecked Sendable {
     private var laneBus = [Float](repeating: 0, count: 4096 * 2)
     /// A boosted app, or several loud ones together, can sum past full scale.
     /// The same limiter the device path uses turns the mix down for just those
-    /// peaks instead of clipping them into crackle (issue #326).
+    /// peaks instead of clipping them into crackle.
     private let limiter = BoostLookaheadLimiter(channels: 2)
     private let limiterRelease = BoostLimiter.release(sampleRate: 44_100)
 

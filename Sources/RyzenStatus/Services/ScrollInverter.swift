@@ -16,7 +16,7 @@ import CoreGraphics
 /// flagged continuous are wheels only when they carry no gesture phase at all.
 /// Toggling takes effect immediately. Requires Accessibility.
 ///
-/// Apps on this feature's own exception list (issue #358) keep the direction
+/// Apps on this feature's own exception list keep the direction
 /// macOS gives them. The list is separate from the smooth scrolling one on
 /// purpose, so excepting an app from the glide never leaves it scrolling
 /// backwards; when both features are on, the flip happens inside the smooth
@@ -216,7 +216,7 @@ final class ScrollInverter: ObservableObject {
         }
         // Hand the tap back rather than only switching it off: a disabled tap
         // keeps its place in the chain, and a session that is switched away
-        // has to stop being an event tap owner outright (issue #1075).
+        // has to stop being an event tap owner outright.
         if let source {
             PointerTapRunLoop.remove(source, invalidating: port)
         }

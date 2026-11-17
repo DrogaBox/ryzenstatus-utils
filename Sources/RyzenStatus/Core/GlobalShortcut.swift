@@ -58,7 +58,7 @@ struct GlobalShortcutModifiers: OptionSet, Hashable {
     var isSuperKeyCombination: Bool { self == .superKeyCombination }
 
     /// The one glyph the Super Key prints as. It is one key, so it gets one
-    /// cap of its own rather than the four it is built from (issue #3701).
+    /// cap of its own rather than the four it is built from.
     static let superKeyGlyph = "◆"
 
     /// The caps as the user should see them. The Super Key collapses into its
@@ -221,7 +221,7 @@ struct GlobalShortcut: Equatable, Hashable {
                                                  modifiers: [.control, .option, .command])
     static let micMuteDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_M),
                                                modifiers: [.control, .option, .command])
-    // Fallback for Quit all apps (issue #855). The shortcut stays off until the
+    // Fallback for Quit all apps. The shortcut stays off until the
     // user turns it on and records a combination; nothing is stolen by default.
     static let quitAllDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_Q),
                                                            modifiers: [.control, .option, .command])
@@ -352,8 +352,8 @@ struct GlobalShortcut: Equatable, Hashable {
     /// function flag on, the arrows and the keypad with the numeric pad flag
     /// on, and a synthesized press missing them matches no system-wide
     /// shortcut at all, even though the app in front still receives the key
-    /// (issue #401, measured here: a shortcut on Control-Command-Right never
-    /// fires without the function flag and always fires with it).
+    /// (measured here: a shortcut on Control-Command-Right never fires
+    /// without the function flag and always fires with it).
     var syntheticEventFlags: CGEventFlags {
         var flags = modifiers.cgFlags
         if Self.functionKeys.contains(keyCode) { flags.insert(.maskSecondaryFn) }
@@ -398,7 +398,7 @@ struct GlobalShortcut: Equatable, Hashable {
     /// without breaking the match. The switcher session passes its opening
     /// shortcut's modifiers here: they are necessarily still down while the
     /// panel is up, so a window shortcut like ⌥Tab must match even though ⌘ is
-    /// held for the session (issue #187).
+    /// held for the session.
     func matches(event: CGEvent,
                  allowingExtraShift: Bool = false,
                  tolerating extra: GlobalShortcutModifiers = []) -> Bool {
@@ -414,8 +414,8 @@ struct GlobalShortcut: Equatable, Hashable {
     /// character this shortcut displays. Key codes are positions on a US
     /// keyboard, so a default like ⌘` lands on a different position for ABNT2
     /// or German layouts, sometimes behind Shift or Option; the user goes by
-    /// the character shown in Settings, not by the invisible ANSI position
-    /// (issue #187). The character comes from the event itself, the same
+    /// the character shown in Settings, not by the invisible ANSI position.
+    /// The character comes from the event itself, the same
     /// signal the switcher's search uses, so dead keys resolve identically.
     func matchesByCharacter(event: CGEvent,
                             tolerating extra: GlobalShortcutModifiers = []) -> Bool {
@@ -595,7 +595,7 @@ struct GlobalShortcut: Equatable, Hashable {
     ///
     /// Answered from the cache: deriving a label asks Text Input Services,
     /// which traps the process off the main thread, and the Switcher's tap
-    /// asks for one on every key from its own (issue #578).
+    /// asks for one on every key from its own.
     static func layoutKeyLabel(for keyCode: Int64, usesCommand: Bool,
                                usesShift: Bool = false, capsLockOn: Bool = false) -> String? {
         let cacheKey = LayoutLabelKey(keyCode: keyCode, usesCommand: usesCommand,
@@ -684,7 +684,7 @@ struct GlobalShortcut: Equatable, Hashable {
     /// with the hardware. The ASCII capable layout under a method is the
     /// physical keyboard, so the caps stay put. A plain layout is still asked
     /// directly, which keeps AZERTY, QWERTZ and the non-Latin layouts showing
-    /// their own keys (issue #1047).
+    /// their own keys.
     private static func currentLayoutData() -> Data? {
         guard Thread.isMainThread else { return nil }
         let source = inputMethodIsActive
@@ -968,7 +968,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     /// RyzenStatus keeps `includeInactive` on by default: a combination saved
     /// for a feature that is switched off still blocks a second feature from
     /// taking it, so turning the first one back on never registers a duplicate.
-    /// Upstream only checks live roles by default; pass `false` for that.
+    /// Pass `false` to check live roles only.
     static func conflict(for shortcut: GlobalShortcut,
                          excluding role: GlobalShortcutRole? = nil,
                          isOn: (String) -> Bool = { UserDefaults.standard.bool(forKey: $0) },

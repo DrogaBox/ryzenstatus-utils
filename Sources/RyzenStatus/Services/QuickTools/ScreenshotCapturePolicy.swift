@@ -14,7 +14,7 @@ enum ScreenshotCapturePolicy {
     /// HUDs and the quick preview — are the tool taking the capture and can
     /// never be its subject, so they stay out whatever the preference says.
     /// Content windows — editors and pinned captures — are ordinary windows
-    /// somebody left on screen, so the preference owns them (issue #780).
+    /// somebody left on screen, so the preference owns them.
     ///
     /// Recording is exempt from that preference in
     /// `ScreenshotSupport.unifiedCapturePolicy`, so it passes
@@ -41,7 +41,7 @@ enum ScreenshotCapturePolicy {
     /// The island windows that show in captures, as the island normally looks.
     /// While the main island offers the capture controls or shows a capture
     /// just taken, it is the tool taking the picture and stays out of it, even
-    /// with the preference on (issue #2501). Copies on other displays only
+    /// with the preference on. Copies on other displays only
     /// ever show activities.
     static func islandCaptureWindowIDs(islandWindowIDs: Set<CGWindowID>,
                                        mainWindowID: CGWindowID?,
@@ -112,7 +112,7 @@ enum ScreenshotCapturePolicy {
     }
 
     /// What a sheet, alert or modal dialog stacked on the clicked window adds
-    /// to its capture (issue #1098).
+    /// to its capture.
     ///
     /// macOS gives a sheet a window of its own, so asking the window server or
     /// ScreenCaptureKit for the one window that was clicked returns it without

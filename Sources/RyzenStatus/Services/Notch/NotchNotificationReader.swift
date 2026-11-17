@@ -28,7 +28,7 @@ extension NotchNotificationReaderCore where Access == NotchNativeNotificationAcc
 
 /// Resolves a notification's source among running and installed apps, so a
 /// message from a closed app keeps its icon and can still open the app after
-/// its native banner is gone (issue #2027). The installed list is walked on
+/// its native banner is gone. The installed list is walked on
 /// the notification queue at most every few minutes; the main thread only
 /// reads the last walk.
 enum NotchNotificationSources {

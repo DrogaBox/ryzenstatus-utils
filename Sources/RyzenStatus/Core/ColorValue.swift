@@ -175,8 +175,8 @@ enum ColorCopyFormat: String, CaseIterable, Identifiable {
 extension ColorValue {
     /// Formats sRGB components (0...1) in the chosen copy format. Components
     /// out of range are clamped so extended-gamut samples never produce
-    /// invalid strings. `bareHex` drops the leading # (issue #168: some design
-    /// tools reject pasted values that carry it); it only affects `.hex`.
+    /// invalid strings. `bareHex` drops the leading # (some design tools
+    /// reject pasted values that carry it); it only affects `.hex`.
     /// A non-nil `alpha` writes the alpha form.
     static func string(red: Double,
                        green: Double,
