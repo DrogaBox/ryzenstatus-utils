@@ -1712,6 +1712,11 @@ final class NotchService: ObservableObject {
         if takeFocus { panel.makeKey() }
         if feedback, changesPresentation { provideHapticFeedback() }
         if closesCommandBar { commandBarDidClose() }
+        // Choosing the camera page by a click, a key or the sections is the
+        // request for the mirror; opening under the pointer still waits.
+        if changesPresentation, takeFocus, destination == .camera, !appPanel, !sections, metric == nil {
+            CameraPreviewService.shared.showEmbedded()
+        }
     }
 
     func collapse() {
@@ -1820,6 +1825,7 @@ final class NotchService: ObservableObject {
             && UserDefaults.standard.bool(forKey: DefaultsKey.notchHoverExpands) && !showsCompactActivityPicker
         let emphasize = inside && !hiddenInFullscreen && !hiddenUntilHover && !expanded && !peeking && !dragPlaceholder
             && notice == nil && captureControls == nil && !opensOnHover
+            && UserDefaults.standard.bool(forKey: DefaultsKey.notchHoverGrows)
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // An empty floating island comes on screen as the pointer reaches its strip.
         let revealsFloating = inside != wasInside && floatsWithNothingToShow
@@ -1876,10 +1882,9 @@ final class NotchService: ObservableObject {
                 // Following the closed island ends as it opens or peeks.
                 self.removeHoverExitMonitors()
                 if UserDefaults.standard.bool(forKey: DefaultsKey.notchHoverExpands) {
-                    self.open(takeFocus: false)
+                    self.open(takeFocus: false, feedback: false)
                 } else {
                     self.mutatePresentation(transitionContent: .reveal) { self.peeking = true }
-                    self.provideHapticFeedback()
                 }
             }
             hoverWork = work
@@ -1972,7 +1977,6 @@ final class NotchService: ObservableObject {
                   UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover),
                   self.geometry.contains(NSEvent.mouseLocation, in: self.surfaceSize) else { return }
             self.mutatePresentation(transitionContent: .reveal) { self.peeking = false; self.noticeExpanded = true }
-            self.provideHapticFeedback()
         }
         hoverWork = work
         let delay = NotchSupport.sanitizedHoverDelay(UserDefaults.standard.double(forKey: DefaultsKey.notchHoverDelay))
@@ -4861,8 +4865,9 @@ final class NotchService: ObservableObject {
         switch event {
         case .finished(let provider, let duration, let cost, _, _):
             show(NotchNotice(event: .agents, title: text.finished(provider.displayName),
-                             detail: [AgentFormat.duration(duration, locale: locale), cost > 0 ? AgentFormat.cost(cost) : ""]
-                                .filter { !$0.isEmpty }.joined(separator: " · "),
+                             detail: NotchAgentSupport.finishedDetail(duration: duration, cost: cost,
+                                                                      showsCost: NotchAgentSupport.showsFinishCost(),
+                                                                      locale: locale),
                              symbol: provider.symbol, agent: provider))
             // After the notice, the companion cheers the finished task.
             reactMascot(.celebrate)

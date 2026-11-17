@@ -198,6 +198,9 @@ enum Defaults {
     static let defaultSnippetSoundName = "Tink"
     /// The timer's alarm until the user picks another sound.
     static let defaultNotchTimerSoundName = "Glass"
+    /// Watch's first alert was Glass; keep that as the default so upgrades
+    /// keep the ding people already know.
+    static let defaultNotchWatchSoundName = "Glass"
     static let allowedKeyboardDebounceWindowRange = 0...500
     /// Stepper increment for the keyboard debounce window. Kept at 1 ms so
     /// magnetic-keyboard users can pick values below the old 5 ms UI step
@@ -596,6 +599,8 @@ enum Defaults {
         DefaultsKey.notchCalendarWeekNumbers: false,
         DefaultsKey.notchCalendarHidesAllDay: false,
         DefaultsKey.notchCalendarExcluded: [String](),
+        DefaultsKey.notchCalendarIgnoredTitles: "",
+        DefaultsKey.notchCalendarIgnoreEverywhere: false,
         DefaultsKey.notchAgentsEnabled: false,
         DefaultsKey.notchLyricsEnabled: true,
         DefaultsKey.notchLyricsOnline: false,
@@ -608,9 +613,12 @@ enum Defaults {
         DefaultsKey.notchDownloadsEnabled: true,
         DefaultsKey.notchWatchEnabled: true,
         DefaultsKey.notchWatchSound: true,
+        DefaultsKey.notchWatchSoundName: defaultNotchWatchSoundName,
+        DefaultsKey.notchWatchSoundRepeat: false,
         DefaultsKey.notchWatchCondition: "changes",
         DefaultsKey.notchGesturesEnabled: true,
         DefaultsKey.notchHoverExpands: false,
+        DefaultsKey.notchHoverGrows: true,
         DefaultsKey.notchKeyboardLight: false,
         DefaultsKey.notchHidesMenuBarIcon: false,
         DefaultsKey.notchKeepAwakeActivity: true,
@@ -1062,6 +1070,7 @@ enum Defaults {
         DefaultsKey.notchAgentsReadout: "elapsed", // NotchAgentReadout.elapsed upstream
         DefaultsKey.notchAgentsFinishAlert: true,
         DefaultsKey.notchAgentsFinishMinimum: 60.0, // NotchAgentSupport.defaultFinishMinimum upstream
+        DefaultsKey.notchAgentsFinishCost: true,
         DefaultsKey.notchAgentsLimitAlert: true,
         DefaultsKey.notchAgentsLimitThreshold: 80.0, // NotchAgentSupport.defaultLimitThreshold upstream
         DefaultsKey.notchAgentsDailyBudget: 0.0,

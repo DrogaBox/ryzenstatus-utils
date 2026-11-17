@@ -1084,4 +1084,16 @@ extension DefaultsKey {
     static let screenshotScrollingShortcutEnabled = "screenshotScrollingShortcutEnabled"
     static let screenshotScrollingShortcut = "screenshotScrollingShortcut"
     static let screenshotScrollingShowCaptureMenuOnShortcut = "screenshotScrollingShowCaptureMenuOnShortcut"
+
+    // Island calendar: title keywords kept out of the countdown, and whether
+    // they hide the event from the agenda too.
+    static let notchCalendarIgnoredTitles = "notchCalendarIgnoredTitles"
+    static let notchCalendarIgnoreEverywhere = "notchCalendarIgnoreEverywhere"
+    // Watch: which sound the alert plays, and whether it repeats.
+    static let notchWatchSoundName = "notchWatchSoundName"
+    static let notchWatchSoundRepeat = "notchWatchSoundRepeat"
+    // The closed island's hover emphasis in Click to open and Preview on hover.
+    static let notchHoverGrows = "notchHoverGrows"
+    // Whether an agent's finish notice carries the API-equivalent cost.
+    static let notchAgentsFinishCost = "notchAgentsFinishCost"
 }

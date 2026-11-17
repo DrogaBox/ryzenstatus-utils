@@ -45,6 +45,10 @@ struct NotchCalendarStrings {
     let hideAllDay: String
     /// Heads the per-calendar checkboxes in Settings.
     let calendars: String
+    /// Settings: keywords keeping events out of the countdown, and the switch widening that to the agenda.
+    let ignoreTitles: String
+    let ignoreTitlesHint: String
+    let ignoreEverywhere: String
 }
 
 extension FeatureStrings {
@@ -83,7 +87,10 @@ extension FeatureStrings {
             weekNumbers: "Week numbers",
             weekNumber: "Week %d",
             hideAllDay: "Hide all-day events",
-            calendars: "Calendars shown")
+            calendars: "Calendars shown",
+            ignoreTitles: "Ignore titles containing",
+            ignoreTitlesHint: "Comma-separated keywords. Matching events get no countdown or time left.",
+            ignoreEverywhere: "Also hide from the agenda")
         case .ptBR: return NotchCalendarStrings(
             title: "Calendário",
             description: "Veja o mês e seus próximos compromissos no Dynamic Island.",
@@ -117,7 +124,10 @@ extension FeatureStrings {
             weekNumbers: "Números das semanas",
             weekNumber: "Semana %d",
             hideAllDay: "Ocultar eventos de dia inteiro",
-            calendars: "Calendários exibidos")
+            calendars: "Calendários exibidos",
+            ignoreTitles: "Ignorar títulos que contenham",
+            ignoreTitlesHint: "Palavras-chave separadas por vírgula. Eventos correspondentes não têm contagem regressiva nem tempo restante.",
+            ignoreEverywhere: "Ocultar também da agenda")
         case .es: return NotchCalendarStrings(
             title: "Calendario",
             description: "Consulta el mes y tus próximas citas en el Dynamic Island.",
@@ -151,7 +161,10 @@ extension FeatureStrings {
             weekNumbers: "Números de semana",
             weekNumber: "Semana %d",
             hideAllDay: "Ocultar eventos de todo el día",
-            calendars: "Calendarios mostrados")
+            calendars: "Calendarios mostrados",
+            ignoreTitles: "Ignorar títulos que contengan",
+            ignoreTitlesHint: "Palabras clave separadas por comas. Los eventos coincidentes no tienen cuenta atrás ni tiempo restante.",
+            ignoreEverywhere: "Ocultar también de la agenda")
         case .sk: return NotchCalendarStrings(
             title: "Kalendár",
             description: "Prezerajte mesiac a nadchádzajúce stretnutia v Dynamic Island.",
@@ -185,7 +198,10 @@ extension FeatureStrings {
             weekNumbers: "Čísla týždňov",
             weekNumber: "%d. týždeň",
             hideAllDay: "Skryť celodenné udalosti",
-            calendars: "Zobrazené kalendáre")
+            calendars: "Zobrazené kalendáre",
+            ignoreTitles: "Ignorovať názvy obsahujúce",
+            ignoreTitlesHint: "Kľúčové slová oddeľte čiarkou. Zodpovedajúce udalosti nemajú odpočítavanie ani zostávajúci čas.",
+            ignoreEverywhere: "Skryť aj v agende")
         case .de: return NotchCalendarStrings(
             title: "Kalender",
             description: "Den Monat und deine nächsten Termine im Dynamic Island ansehen.",
@@ -219,7 +235,10 @@ extension FeatureStrings {
             weekNumbers: "Kalenderwochen",
             weekNumber: "Kalenderwoche %d",
             hideAllDay: "Ganztägige Ereignisse ausblenden",
-            calendars: "Angezeigte Kalender")
+            calendars: "Angezeigte Kalender",
+            ignoreTitles: "Titel ignorieren, die enthalten",
+            ignoreTitlesHint: "Stichwörter mit Komma trennen. Passende Termine bekommen keinen Countdown und keine Restzeit.",
+            ignoreEverywhere: "Auch in der Agenda ausblenden")
         case .fr: return NotchCalendarStrings(
             title: "Calendrier",
             description: "Consultez le mois et vos prochains rendez-vous dans le Dynamic Island.",
@@ -253,7 +272,10 @@ extension FeatureStrings {
             weekNumbers: "Numéros de semaine",
             weekNumber: "Semaine %d",
             hideAllDay: "Masquer les événements de toute la journée",
-            calendars: "Calendriers affichés")
+            calendars: "Calendriers affichés",
+            ignoreTitles: "Ignorer les titres contenant",
+            ignoreTitlesHint: "Mots-clés séparés par des virgules. Les événements correspondants n’ont ni compte à rebours ni temps restant.",
+            ignoreEverywhere: "Masquer aussi de l’agenda")
         case .it: return NotchCalendarStrings(
             title: "Calendario",
             description: "Consulta il mese e i prossimi appuntamenti nel Dynamic Island.",
@@ -287,7 +309,10 @@ extension FeatureStrings {
             weekNumbers: "Numeri delle settimane",
             weekNumber: "Settimana %d",
             hideAllDay: "Nascondi eventi di tutto il giorno",
-            calendars: "Calendari mostrati")
+            calendars: "Calendari mostrati",
+            ignoreTitles: "Ignora i titoli che contengono",
+            ignoreTitlesHint: "Parole chiave separate da virgole. Gli eventi corrispondenti non hanno conto alla rovescia né tempo rimanente.",
+            ignoreEverywhere: "Nascondi anche dall’agenda")
         case .ru: return NotchCalendarStrings(
             title: "Календарь",
             description: "Просматривайте месяц и ближайшие встречи в вырезе экрана.",
@@ -321,7 +346,10 @@ extension FeatureStrings {
             weekNumbers: "Номера недель",
             weekNumber: "Неделя %d",
             hideAllDay: "Скрывать события на весь день",
-            calendars: "Показываемые календари")
+            calendars: "Показываемые календари",
+            ignoreTitles: "Игнорировать названия, содержащие",
+            ignoreTitlesHint: "Ключевые слова через запятую. Для подходящих событий нет обратного отсчёта и оставшегося времени.",
+            ignoreEverywhere: "Также скрыть в повестке")
         case .tr: return NotchCalendarStrings(
             title: "Takvim",
             description: "Ayı ve yaklaşan randevularınızı çentikte görüntüleyin.",
@@ -355,7 +383,10 @@ extension FeatureStrings {
             weekNumbers: "Hafta numaraları",
             weekNumber: "%d. hafta",
             hideAllDay: "Tüm gün süren etkinlikleri gizle",
-            calendars: "Gösterilen takvimler")
+            calendars: "Gösterilen takvimler",
+            ignoreTitles: "Şunu içeren başlıkları yok say",
+            ignoreTitlesHint: "Virgülle ayrılmış anahtar kelimeler. Eşleşen etkinlikler için geri sayım ve kalan süre gösterilmez.",
+            ignoreEverywhere: "Gündemden de gizle")
         case .ja: return NotchCalendarStrings(
             title: "カレンダー",
             description: "Dynamic Islandで月のカレンダーと今後の予定を確認できます。",
@@ -389,7 +420,10 @@ extension FeatureStrings {
             weekNumbers: "週番号",
             weekNumber: "第%d週",
             hideAllDay: "終日の予定を非表示",
-            calendars: "表示するカレンダー")
+            calendars: "表示するカレンダー",
+            ignoreTitles: "次を含むタイトルを無視",
+            ignoreTitlesHint: "キーワードはカンマ区切り。一致する予定にはカウントダウンと残り時間が表示されません。",
+            ignoreEverywhere: "予定一覧からも非表示にする")
         case .ko: return NotchCalendarStrings(
             title: "캘린더",
             description: "Dynamic Island에서 월별 달력과 다가오는 일정을 확인하세요.",
@@ -423,7 +457,10 @@ extension FeatureStrings {
             weekNumbers: "주 번호",
             weekNumber: "%d주차",
             hideAllDay: "하루 종일 일정 숨기기",
-            calendars: "표시할 캘린더")
+            calendars: "표시할 캘린더",
+            ignoreTitles: "다음을 포함한 제목 무시",
+            ignoreTitlesHint: "쉼표로 구분한 키워드입니다. 일치하는 일정에는 카운트다운과 남은 시간이 표시되지 않습니다.",
+            ignoreEverywhere: "일정 목록에서도 숨기기")
         case .zhHans: return NotchCalendarStrings(
             title: "日历",
             description: "在Dynamic Island中浏览月历和即将开始的日程。",
@@ -457,7 +494,10 @@ extension FeatureStrings {
             weekNumbers: "周数",
             weekNumber: "第%d周",
             hideAllDay: "隐藏全天日程",
-            calendars: "显示的日历")
+            calendars: "显示的日历",
+            ignoreTitles: "忽略包含以下内容的标题",
+            ignoreTitlesHint: "关键词以逗号分隔。匹配的日程不显示倒计时和剩余时间。",
+            ignoreEverywhere: "同时在日程中隐藏")
         case .zhTW: return NotchCalendarStrings(
             title: "行事曆",
             description: "在Dynamic Island中瀏覽月曆與即將到來的行程。",
@@ -491,7 +531,10 @@ extension FeatureStrings {
             weekNumbers: "週數",
             weekNumber: "第%d週",
             hideAllDay: "隱藏整天行程",
-            calendars: "顯示的行事曆")
+            calendars: "顯示的行事曆",
+            ignoreTitles: "忽略包含以下內容的標題",
+            ignoreTitlesHint: "關鍵字以逗號分隔。符合的行程不顯示倒數計時和剩餘時間。",
+            ignoreEverywhere: "同時在行程中隱藏")
         case .zhHK: return NotchCalendarStrings(
             title: "日曆",
             description: "在Dynamic Island中瀏覽月曆及即將到來的行程。",
@@ -525,7 +568,10 @@ extension FeatureStrings {
             weekNumbers: "週數",
             weekNumber: "第%d週",
             hideAllDay: "隱藏全天行程",
-            calendars: "顯示的日曆")
+            calendars: "顯示的日曆",
+            ignoreTitles: "忽略包含以下內容的標題",
+            ignoreTitlesHint: "關鍵字以逗號分隔。符合的活動不顯示倒數計時和剩餘時間。",
+            ignoreEverywhere: "同時在日程中隱藏")
         case .uk: return NotchCalendarStrings(
             title: "Календар",
             description: "Переглядайте місяць та майбутні події у Dynamic Island.",
@@ -559,7 +605,10 @@ extension FeatureStrings {
             weekNumbers: "Номери тижнів",
             weekNumber: "Тиждень %d",
             hideAllDay: "Приховувати події на весь день",
-            calendars: "Календарі для показу")
+            calendars: "Календарі для показу",
+            ignoreTitles: "Ігнорувати назви, що містять",
+            ignoreTitlesHint: "Ключові слова через кому. Для відповідних подій немає зворотного відліку й часу, що залишився.",
+            ignoreEverywhere: "Також приховати в порядку денному")
         }
     }
 }
