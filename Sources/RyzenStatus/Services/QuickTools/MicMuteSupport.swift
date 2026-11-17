@@ -21,6 +21,9 @@ enum MicMuteSupport {
     /// Below this, a level is treated as silence. Matching the older volume
     /// save check keeps unmute from restoring a zero it never meant to keep.
     static let silenceThreshold: Float = 0.01
+    /// Drivers often nudge a restored master a hair off the saved scalar.
+    /// Mute switches stay exact; only gain uses this slack.
+    static let volumeMatchTolerance: Double = 0.05
     /// Devices without a readable stream layout still get the stereo pair
     /// tried, the way the mute used to.
     static let minimumChannelCount = 2
@@ -63,6 +66,25 @@ enum MicMuteSupport {
         !owned && captureSilenced
     }
 
+    /// Whether a change to a microphone this app muted is the person opening
+    /// it from the call they are in, rather than an app nudging a level.
+    /// Re-asserting the mute against that change leaves the call app showing
+    /// "unmuted" over a microphone that is still cut, so it is followed.
+    /// Three things have to hold together: the device was verifiably quiet
+    /// after this app's own last sweep (a mute that never took cannot be
+    /// "undone"), it has since opened, and another process is capturing from
+    /// it right now. Without that last one, a device arriving or an app
+    /// nudging gain with no call running is still put back.
+    /// A mute switch only counts if it was seen engaged after the sweep, so a
+    /// driver that reads 0 whatever it is told cannot look like an unmute.
+    static func isExternalUnmute(wasSilenced: Bool, silenced: Bool,
+                                 switchWasEngaged: Bool, muteSwitch: UInt32?,
+                                 capturedByOtherProcess: Bool) -> Bool {
+        guard wasSilenced, capturedByOtherProcess else { return false }
+        if !silenced { return true }
+        return switchWasEngaged && muteSwitch == 0
+    }
+
     /// What an unmute has to do to a device this app muted. The mute switch
     /// and the volume are separate controls: clearing one must not skip the
     /// other, or a mute that zeroed the level would leave the microphone dead.
@@ -89,6 +111,15 @@ enum MicMuteSupport {
         if let value = saved[uid], value > Double(silenceThreshold) { return Float(value) }
         if legacy > Double(silenceThreshold) { return Float(legacy) }
         return fallbackVolume
+    }
+
+    /// Mute is on or off; gain may settle a little away from the saved value
+    /// after a master/channel write. A still-zero gain must not count as a
+    /// match for a saved audible level.
+    static func controlValuesMatch(_ left: Double, _ right: Double, isMute: Bool) -> Bool {
+        guard left.isFinite && right.isFinite else { return false }
+        if isMute { return abs(left - right) <= 0.0001 }
+        return abs(left - right) <= volumeMatchTolerance
     }
 
     /// Master first, then every channel the stream layout named, never fewer
