@@ -23,7 +23,7 @@ enum ShortcutCapture {
         guard !isCapturing else { return }
         isCapturing = true
         // A flag inside the routing, not a teardown: rebuilding the tap per
-        // recording would churn the system keyboard path (issue #275).
+        // recording would churn the system keyboard path.
         AppSwitcher.shared.setCapturingShortcut(true)
         HotkeyManager.shared.setEnabled(false)
         ShelfService.shared.suspendShortcut()

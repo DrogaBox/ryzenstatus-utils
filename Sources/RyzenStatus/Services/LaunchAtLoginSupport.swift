@@ -42,7 +42,7 @@ enum LaunchAtLoginSupport {
     /// Registration is only redone from a stable location, because a record
     /// made from an unstable one would just die with the mount again, and
     /// never over an item awaiting approval: the record is already there and
-    /// registering again cannot approve it (issue #260).
+    /// registering again cannot approve it.
     static func startupAction(wanted: Bool, registration: Registration,
                               locationIsUnstable: Bool) -> StartupAction {
         switch registration {

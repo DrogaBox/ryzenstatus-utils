@@ -150,7 +150,7 @@ enum SpaceWindowBridge {
     /// it to tell "this surface belongs to no Space" (the leftover signature)
     /// apart from "the Space queries are unavailable here", so a macOS that
     /// drops the private symbol keeps the pre-existing behavior instead of
-    /// misreading every window as a leftover (issue #807).
+    /// misreading every window as a leftover.
     static var canResolveSpaces: Bool {
         connection != 0 && copySpacesForWindows != nil
     }
@@ -561,7 +561,7 @@ enum SpaceWindowBridge {
     /// The two Mission Control overviews, by their system symbolic hotkey ids
     /// (32 is "Mission Control", 33 is "Application windows"). The window
     /// server refuses software-simulated touch gestures, so an overview is
-    /// opened the same way the keyboard opens it (issue #1012).
+    /// opened the same way the keyboard opens it.
     enum SpaceOverview {
         case missionControl
         case appExpose

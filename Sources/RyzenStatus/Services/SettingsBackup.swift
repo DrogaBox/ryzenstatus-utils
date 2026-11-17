@@ -129,11 +129,11 @@ enum SettingsBackup {
         let localWatermarkPresets = defaults.string(forKey: DefaultsKey.screenshotWatermarkPresets)
         // A backup carries only the portable half of an exception list: the
         // path of a program that is not an app is authority on one Mac and is
-        // filtered out on export (issue #1009). The clear below covers every
+        // filtered out on export. The clear below covers every
         // exported key, so without carrying that half across by hand, applying
         // a backup would delete those entries outright -- including on the Mac
         // the file was written on, where nothing about them was ever wrong.
-        // The thumbnail pause lists take such paths too (issue #3033).
+        // The thumbnail pause lists take such paths too.
         let carried = (MouseExceptionScope.allCases.map(\.defaultsKey)
                        + SettingsBackupSupport.thumbnailPauseListKeys)
             .reduce(into: [String: [String]]()) { out, key in
@@ -219,7 +219,7 @@ enum SettingsBackup {
         exit(EXIT_FAILURE)
     }
 
-    /// The optional settings file (issue #497).
+    /// The optional settings file.
     static var configFileURL: URL {
         SettingsBackupSupport.configFileURL(
             environment: ProcessInfo.processInfo.environment,

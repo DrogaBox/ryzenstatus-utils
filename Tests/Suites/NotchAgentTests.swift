@@ -2559,9 +2559,9 @@ enum NotchAgentTests {
 
     // MARK: Preferences and layout
 
-    // Upstream migrates profiles where Agents used to be implicitly on. This
-    // app never shipped the section before, so there is nothing to migrate:
-    // it is simply off until the person turns it on.
+    // This app never shipped the section before, so there is no profile
+    // where Agents was implicitly on and nothing to migrate: it is simply
+    // off until the person turns it on.
     private static func agentDefaults(_ suite: TestSuite) {
         let domain = "com.ryzenstatus.tests.agent-defaults.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: domain)!

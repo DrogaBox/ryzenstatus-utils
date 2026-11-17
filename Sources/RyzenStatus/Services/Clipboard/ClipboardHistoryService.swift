@@ -101,7 +101,7 @@ final class ClipboardHistoryService: ObservableObject {
     /// The poll reads the pasteboard off the main thread: while a password
     /// prompt is up the pasteboard server can take seconds to answer, and a
     /// blocked main thread stalls every event tap with it, so typing freezes
-    /// system wide (issue #189). The shared access lane also keeps the URL
+    /// system wide. The shared access lane also keeps the URL
     /// cleaner from touching AppKit's mutable pasteboard cache concurrently.
     private var captureState = ClipboardHistoryCaptureState()
     /// Keep at most one history write queued or executing, even after its
@@ -934,7 +934,7 @@ final class ClipboardHistoryService: ObservableObject {
             // A spreadsheet or rich-text copy carries the text next to a
             // picture of it, while a screenshot or image copy has no text
             // siblings at all: with RTF or HTML on the board the text is
-            // the content and the picture only its look. Refs #3818.
+            // the content and the picture only its look.
             if ClipboardHistoryPasteboardText.prefersPlainText(types: types, plainText: plainText),
                let text = ClipboardHistoryPasteboardText.preferredText(
                    webURLString: webURLString(from: pasteboard), plainText: plainText) {
@@ -1412,7 +1412,7 @@ final class ClipboardHistoryService: ObservableObject {
     }
 
     /// The entry is already on the clipboard, so a paste that cannot follow
-    /// says so the way Paste as Plain Text does (#186) instead of doing nothing.
+    /// says so the way Paste as Plain Text does instead of doing nothing.
     /// No target means the window opened over RyzenStatus itself or an app
     /// without a Dock icon, where a pick is only a copy and stays silent.
     private func pasteIntoPreviousApp(_ app: NSRunningApplication?) {

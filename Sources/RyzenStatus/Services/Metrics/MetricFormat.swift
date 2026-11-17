@@ -557,7 +557,7 @@ enum MetricFormat {
     /// virtual interfaces (AirDrop, VPN tunnels, bridges, etc.) are excluded so a
     /// VPN does not double-count the traffic already seen on the physical NIC.
     /// `feth` interfaces come in pairs that each see the other's traffic the
-    /// other way round, so summing both made download and upload equal (#3429).
+    /// other way round, so summing both made download and upload equal.
     static func includeNetworkInterface(_ name: String) -> Bool {
         guard !name.isEmpty else { return false }
         let excluded = ["lo", "gif", "stf", "awdl", "llw", "nan", "utun", "bridge",

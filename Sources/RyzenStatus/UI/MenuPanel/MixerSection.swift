@@ -697,7 +697,7 @@ struct MixerOptionsControls: View {
         return choices
     }
 
-    /// Which apps the list shows (issue #300): the row reads how many are
+    /// Which apps the list shows: the row reads how many are
     /// hidden and opens a check per app, right in the panel so several can be
     /// checked or unchecked in one go. Hidden apps stay here even while they
     /// are not running, so they can always be brought back.
@@ -910,7 +910,7 @@ private struct MixerRow: View {
     private var isBoosting: Bool { (app.volume * 100).rounded() > 100 }
     private var isAtUnity: Bool { (app.volume * 100).rounded() == 100 }
 
-    /// SoundSource-sized icon spanning the row's two lines (issue #166); the
+    /// SoundSource-sized icon spanning the row's two lines; the
     /// bitmap must be requested at this size or the upscale looks blurry.
     private static let iconPointSize: CGFloat = 32
 

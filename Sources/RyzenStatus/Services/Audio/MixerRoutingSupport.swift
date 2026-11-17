@@ -705,9 +705,9 @@ enum MixerRoutingSupport {
     /// Pro audio hosts (DAWs and live rack hosts) own their output device,
     /// clock and latency chain; the mixer's stereo-mixdown tap mutes their
     /// real output and replays it elsewhere, which silences them outright
-    /// (issue #170: Logic and rack hosts stopped playing once routed). They
-    /// are never tapped, so they keep their own audio path and stay out of
-    /// the mixer list.
+    /// (Logic and rack hosts stopped playing once routed). They are never
+    /// tapped, so they keep their own audio path and stay out of the mixer
+    /// list.
     private static let proAudioBundlePrefixes = [
         "com.apple.logic",       // Logic Pro
         "com.apple.garageband",
@@ -761,7 +761,7 @@ enum MixerRoutingSupport {
     /// The regular app a helper's audio belongs to. Normally that is the
     /// helper's responsible process, but some browsers detach their helpers
     /// from the responsibility chain, macOS reports each one as responsible
-    /// for itself, and the browser vanished from the mixer (issue #256). The BSD
+    /// for itself, and the browser vanished from the mixer. The BSD
     /// parent chain still leads to the app that spawned the helper, so walk
     /// it and bill the helper to the nearest regular app.
     static func owningRegularAppPid(responsiblePid: pid_t,
@@ -783,7 +783,7 @@ enum MixerRoutingSupport {
     /// then the app that spawned it. Always the real pid that was checked,
     /// never the running-application entry's own pid, which the workspace
     /// reports as -1 for some apps (Steam, Device Hub) and which merged them
-    /// into one "pid -1" row (issue #3929). A game Steam launches is a regular
+    /// into one "pid -1" row. A game Steam launches is a regular
     /// app with its own bundle even though Steam stays responsible for it, so
     /// it gets its own row instead of being folded into Steam's.
     static func regularAppOwnerPid(of pid: pid_t,

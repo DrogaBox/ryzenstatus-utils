@@ -336,7 +336,7 @@ final class WindowMaximizer: ObservableObject {
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
         // No cap here: on the system-wide element a timeout is the default for
-        // every question this process asks, whoever asks it (#938).
+        // every question this process asks, whoever asks it.
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
               let element
@@ -347,8 +347,8 @@ final class WindowMaximizer: ObservableObject {
 
 
     /// An application element answers a role query by switching a Chromium app's
-    /// renderers into full accessibility mode for the rest of the process's life
-    /// (issue #953), so it must never be asked for one. Its own pid names it:
+    /// renderers into full accessibility mode for the rest of the process's life,
+    /// so it must never be asked for one. Its own pid names it:
     /// the element built from that pid is the same element, since Accessibility
     /// compares by value rather than by identity. Asking each element for its
     /// own pid also keeps this right where a parent chain crosses processes,
@@ -377,7 +377,7 @@ final class WindowMaximizer: ObservableObject {
         // element that never yields a window — a menu bar item, a detached
         // palette — walks onto it. Asking that element for a role is what puts
         // a Chromium app's renderers into full accessibility mode for the rest
-        // of the process's life (issue #953), so stop there instead: the walk
+        // of the process's life, so stop there instead: the walk
         // already ends with no window in that case.
         var current = element
         for _ in 0..<8 {

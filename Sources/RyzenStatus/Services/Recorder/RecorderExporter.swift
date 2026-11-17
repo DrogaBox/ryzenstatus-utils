@@ -696,7 +696,7 @@ private final class FrameCounter: @unchecked Sendable {
 
 /// Passes progress on at most ten times a second, and only once it has
 /// moved by half a percent. Frames are appended far faster than that, and
-/// every report redraws the editor on the main thread (#3075).
+/// every report redraws the editor on the main thread.
 private final class ProgressThrottle: @unchecked Sendable {
     private static let interval: TimeInterval = 0.1
     private static let step = 0.005

@@ -7,7 +7,7 @@ import AppKit
 ///
 /// `runModal()` keeps the main run loop in the modal panel mode until the
 /// alert closes, so default-mode timers stop meanwhile and a running
-/// recording's timer stops counting (issue #1665). The modal loop still runs
+/// recording's timer stops counting. The modal loop still runs
 /// main-queue blocks in that mode, unless it was started inside a main-queue
 /// block. The disk image installer opened both of its alerts inside such a
 /// block (the hop after the mount check and the one after the install), and

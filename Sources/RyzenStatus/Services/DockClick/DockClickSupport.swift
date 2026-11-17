@@ -127,7 +127,7 @@ enum DockClickSupport {
     /// frontmost — the one the user was working in — comes LAST. Restoring it
     /// last lets it animate in over the others and land on top on its own,
     /// which is the whole point: raising it afterwards to fix the stacking is
-    /// exactly the flick the user sees (issue #357). The AX windows array
+    /// exactly the flick the user sees. The AX windows array
     /// order is deliberately not used to decide this; it does not reliably
     /// report the focused window first.
     ///
@@ -211,10 +211,10 @@ enum DockClickSupport {
     /// Space, so fullscreen windows keep only the app-level hide action.
     /// Whether the click should treat the app as having windows to minimize.
     /// Apps with a busy or unresponsive accessibility server (Java and
-    /// Eclipse apps like DBeaver, issue #200) answer the AX window list with
-    /// nothing while the window server plainly shows their windows on
-    /// screen. In that blind spot the minimize path must still engage — it
-    /// runs through the app's own Minimize All menu item, which needs no
+    /// Eclipse apps like DBeaver) answer the AX window list with nothing
+    /// while the window server plainly shows their windows on screen. In
+    /// that blind spot the minimize path must still engage — it runs
+    /// through the app's own Minimize All menu item, which needs no
     /// per-window AX at all.
     static func effectiveHasUnminimized(unminimizedCount: Int,
                                         minimizedCount: Int,
@@ -235,7 +235,7 @@ enum DockClickSupport {
     /// only promises `.cycleWindows` when it holds more than one window, and
     /// the raise takes its last element. Deciding from one set of windows and
     /// raising from another is what made a Dock click either loop over two
-    /// windows forever or jump to a different desktop (issue #1204).
+    /// windows forever or jump to a different desktop.
     static func cycleCandidateIndices(windowIDs: [CGWindowID?],
                                       onScreenFrontToBack: [CGWindowID]) -> [Int] {
         var depths: [(index: Int, depth: Int)] = []

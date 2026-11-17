@@ -453,7 +453,7 @@ enum URLCleaning {
         // Safari's preview card for the link (title and icon), an archive
         // that repeats the tracked address. The system declares the type and
         // it conforms to neither text nor a link, so the checks below would
-        // refuse the copy (#3599). The rewrite drops it like the HTML of the
+        // refuse the copy. The rewrite drops it like the HTML of the
         // same link, which keeps the tracking out of the pasteboard.
         "com.apple.linkpresentation.metadata",
     ]

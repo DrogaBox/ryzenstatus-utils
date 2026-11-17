@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The apps the clipboard history never saves from (issue #423). It sits with
+/// The apps the clipboard history never saves from. It sits with
 /// the other choices about what gets saved, and stays a single quiet row until
 /// there is an app in it, so the page reads the same for everyone who never
 /// needs one.

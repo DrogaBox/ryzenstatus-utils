@@ -428,7 +428,7 @@ enum SettingsBackupSupport {
 
     /// A mouse exception list holds two kinds of identity at once: a bundle
     /// identifier, which names the same app on any Mac, and the resolved path
-    /// of a program that has no identifier to be named by (issue #1009). The
+    /// of a program that has no identifier to be named by. The
     /// never-exported list above already refuses the second kind wherever it
     /// has a key to itself -- `commandBarFileScopes`,
     /// `mediaImageWatermarkLogoPath`, `brightnessDDCWriteOnlyPaths`, all for
@@ -468,8 +468,7 @@ enum SettingsBackupSupport {
     }
 
     /// The lists of apps where Dock Preview and the switcher stop capturing
-    /// thumbnails. They take a program that is not an app by its path, too
-    /// (issue #3033).
+    /// thumbnails. They take a program that is not an app by its path, too.
     static let thumbnailPauseListKeys = [DefaultsKey.windowPreviewExcludedApps,
                                          DefaultsKey.switcherPreviewExcludedApps]
 

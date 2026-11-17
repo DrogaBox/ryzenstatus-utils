@@ -182,7 +182,7 @@ enum ExtraBrightnessSupport {
     /// (`-[NSWindow _updateWMWindowPresentationMode]`, macOS 27.2), and the
     /// overlay is on every Space. The halves keep that from happening, but
     /// alone they did not bring windows back into Mission Control's desktop
-    /// thumbnails (#3292); the overlay's own Space does that. The halves
+    /// thumbnails; the overlay's own Space does that. The halves
     /// meet on a whole point, so the uniform multiply shows no seam.
     static func overlayFrames(for screen: CGRect) -> [CGRect] {
         let lowerHeight = (screen.height / 2).rounded(.down)

@@ -716,9 +716,9 @@ enum CommandBarCatalog {
             let layoutArea = area(.windowLayout)
             let axTrouble = accessibilityTrouble()
             for action in WindowLayoutAction.allCases {
-                // This fork has no separate full-screen action to answer to:
-                // its `maximize` is the whole screen, so there is no second
-                // name the row should match (upstream's list has both).
+                // There is no separate full-screen action to answer to:
+                // `maximize` is the whole screen, so there is no second
+                // name the row should match.
                 let keywords = layoutText.title
                 entries.append(CommandBarEntry(
                     id: "action.layout.\(action.rawValue)",
@@ -1265,8 +1265,8 @@ enum CommandBarCatalog {
             let value = "\(battery.percent)%"
             // The row said "Plugged" beside a battery drawn without its bolt;
             // text and icon now answer from the same reading.
-            // This fork's snapshot says whether the Mac is running on the
-            // battery, so the adapter is the other reading, not a field.
+            // The snapshot says whether the Mac is running on the battery,
+            // so the adapter is the other reading, not a field.
             let state = BatteryPowerSupport.state(isCharging: battery.isCharging,
                                                   externalConnected: !battery.isOnBattery,
                                                   hasBattery: true)
@@ -1385,7 +1385,7 @@ enum CommandBarCatalog {
     /// The HUD travels with the write rather than racing it: it says the value
     /// is on the clipboard, so it appears once it is. The bar itself is never
     /// held up — the lane can be wedged behind an app that promised pasteboard
-    /// content and stopped answering (issue #887).
+    /// content and stopped answering.
     private static func copyAnswer(_ value: String) {
         GeneralPasteboardAccess.shared.async({
             NSPasteboard.general.clearContents()
@@ -1511,7 +1511,7 @@ enum CommandBarCatalog {
     /// The general pasteboard, handed back on the main queue. A destination
     /// without the clipboard placeholder never reads it at all, and one that
     /// does reads it on the shared lane, so a stalled pasteboard provider
-    /// delays this one row rather than freezing the app (issue #887).
+    /// delays this one row rather than freezing the app.
     private static func withClipboard(neededBy destination: String,
                                       _ body: @escaping (String) -> Void) {
         guard destination.contains(CommandBarLinkPlaceholder.clipboard.token) else {
@@ -1906,7 +1906,7 @@ enum CommandBarCatalog {
 
     /// Reads through the shared lane like every other clipboard row: a direct
     /// main-thread read races the lane's readers and freezes the app on a
-    /// promised flavour nobody is left to render (issue #887).
+    /// promised flavour nobody is left to render.
     private static func cleanClipboardURL() {
         GeneralPasteboardAccess.shared.async({
             NSPasteboard.general.string(forType: .string)

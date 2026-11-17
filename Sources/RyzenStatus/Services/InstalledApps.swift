@@ -36,7 +36,7 @@ enum InstalledApps {
     }
 
     /// A list entry can also be the path of a program that is not packaged as
-    /// an app, which has no bundle identifier to be named by (issue #1009).
+    /// an app, which has no bundle identifier to be named by.
     private static func fileURL(forIdentity identity: String) -> URL? {
         guard MouseAppExceptionSupport.isExecutablePathIdentity(identity) else {
             return url(for: identity)
@@ -45,7 +45,7 @@ enum InstalledApps {
     }
 
     /// Where a path identity's file sits, spelled from home. Every bundled
-    /// Java runtime is displayed as "java" (issue #1009), so the directory is
+    /// Java runtime is displayed as "java", so the directory is
     /// what tells two of them apart in a list. A bundle identifier names its
     /// app on its own and carries no location.
     static func location(for identity: String) -> String? {
@@ -256,9 +256,9 @@ enum InstalledApps {
                             isSystem: isSystemApplication(at: url))
     }
 
-    /// A program with no .app bundle (a runtime a game launcher starts, issue #865)
-    /// is listed only for lists that store path identities, because a list that
-    /// takes only apps would drop the pick silently and show a row that does nothing.
+    /// A program with no .app bundle (a runtime a game launcher starts) is listed
+    /// only for lists that store path identities, because a list that takes only
+    /// apps would drop the pick silently and show a row that does nothing.
     static func runningApplication(activationPolicy: NSApplication.ActivationPolicy,
                                    bundleID: String?,
                                    bundleURL: URL?,

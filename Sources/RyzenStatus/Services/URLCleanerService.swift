@@ -59,7 +59,7 @@ final class URLCleanerService: ObservableObject {
     /// Writes on the shared lane and settles the change count on the main
     /// queue, where the poll compares against it. The caller never waits: the
     /// lane can be wedged behind an app that promised pasteboard content and
-    /// stopped answering (issue #887).
+    /// stopped answering.
     func copy(_ urlString: String) {
         cancelPoll()
         lastCleaned = urlString
@@ -174,9 +174,9 @@ final class URLCleanerService: ObservableObject {
         // The rewrite drops the HTML, which is only right when the HTML adds
         // nothing to the link but formatting. When every anchor leads to this
         // link, whatever the copy shows, such as the page title, goes like any
-        // formatting of it (#1760). A picture's markup, an anchor to another
+        // formatting of it. A picture's markup, an anchor to another
         // address, or markup without anchors that shows more than the link is
-        // left alone, as the bare link would lose it (#1432).
+        // left alone, as the bare link would lose it.
         if types.contains("public.html") {
             let rawHTML = pasteboard.string(forType: .html) ?? ""
             // A copy of one link is a few hundred bytes. Far larger markup is

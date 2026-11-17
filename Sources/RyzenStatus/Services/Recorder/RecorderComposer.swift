@@ -348,7 +348,7 @@ final class RecorderComposer {
             // Not AVFoundation's Core Image handler: with a moving pointer it
             // compiled new GPU programs frame after frame and kept them for as
             // long as the composition lived, which took a long export on an M1
-            // to gigabytes (#3578). The same frames drawn by a compositor of
+            // to gigabytes. The same frames drawn by a compositor of
             // our own, through one context, reuse a handful.
             let timeline = (try? await asset.load(.duration)) ?? duration
             guard timeline.isValid, timeline > .zero else { return nil }

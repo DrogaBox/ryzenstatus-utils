@@ -526,7 +526,7 @@ final class KeepAwakeManager: ObservableObject {
             // The running-apps list rather than launch and terminate
             // notifications: macOS posts neither for some background helper
             // apps nested in another app's bundle, while the list still gains
-            // and loses them (#1468).
+            // and loses them.
             runningAppsObservation = NSWorkspace.shared.observe(\.runningApplications) { [weak self] _, _ in
                 DispatchQueue.main.async {
                     self?.scheduleAutomationEvaluation(after: 0.1)
@@ -625,7 +625,7 @@ final class KeepAwakeManager: ObservableObject {
     /// Whether the automation currently asks for a session, in either match
     /// mode. Every caller that used to read "any condition matches" has to ask
     /// this instead: under All, a session that stops being wanted still has a
-    /// non-empty matching set (issue #1587).
+    /// non-empty matching set.
     private func automationConditionsHold() -> Bool {
         KeepAwakeAutomationSupport.conditionsSatisfied(
             matching: currentMatchingAutomationConditions(),
@@ -699,7 +699,7 @@ final class KeepAwakeManager: ObservableObject {
               automaticSessionAllowedByBatteryProtection() else { return false }
         // The same full match the automation itself would need to start a
         // session: under All, a timed session must not be handed over on one
-        // condition the automation would never have acted on (issue #1587).
+        // condition the automation would never have acted on.
         let matches = currentMatchingAutomationConditions()
         guard KeepAwakeAutomationSupport.conditionsSatisfied(
                 matching: matches,
@@ -937,7 +937,7 @@ final class KeepAwakeManager: ObservableObject {
     /// Clearing `disablesleep` only clears a kernel flag. macOS evaluates the
     /// lid when it opens or closes, so a lid that shut during the session is
     /// never looked at again and the Mac stays awake until the battery runs
-    /// out (#1729). Request the sleep that closing the lid would have caused.
+    /// out. Request the sleep that closing the lid would have caused.
     /// `pmset` returns before powerd has handed the cleared flag to the
     /// kernel, which refuses sleep until it has, so a refusal is retried.
     private func sleepIfLidAlreadyClosed(attemptsLeft: Int = 10, synchronous: Bool = false,

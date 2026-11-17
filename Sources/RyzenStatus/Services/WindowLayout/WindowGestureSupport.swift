@@ -337,7 +337,7 @@ enum WindowDirectionalGestureSupport {
 
     /// Holding the ring open keeps keys auto-repeating. Those repeats must not
     /// force maximize/minimize, or the default ⌃⌥Space binding fights the
-    /// pointer aim (#1566). The event is still swallowed so repeats do not
+    /// pointer aim. The event is still swallowed so repeats do not
     /// leak to the front app.
     static func shouldApplyKeyboardManualOverride(isAutorepeat: Bool) -> Bool {
         !isAutorepeat
@@ -649,7 +649,7 @@ enum WindowEdgeSnapSupport {
     ///
     /// When displays span (Separate Spaces off) those switches are greyed
     /// out and the system's own tiling is inert, even if a key was written
-    /// as enabled. The warning's instruction is unreachable then (issue #1079).
+    /// as enabled. The warning's instruction is unreachable then.
     static func systemTilingEnabled(valueFor: (String) -> Bool?,
                                     displaysSpan: Bool = false) -> Bool {
         if displaysSpan { return false }

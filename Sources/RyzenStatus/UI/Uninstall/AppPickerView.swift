@@ -15,8 +15,7 @@ struct AppPickerView: View {
     var canBrowseApplications = false
     /// Whether a program that is not packaged as an app may be chosen too.
     /// Only the lists that can recognize one at runtime ask for this: offering
-    /// it anywhere else would take an entry that never matches anything
-    /// (issue #1009).
+    /// it anywhere else would take an entry that never matches anything.
     var acceptsExecutables = false
     /// What a list that leaves some apps out says when nothing shows, so a
     /// missing app reads as a rule rather than a fault.

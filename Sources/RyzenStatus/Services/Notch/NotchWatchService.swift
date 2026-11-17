@@ -293,7 +293,7 @@ final class NotchWatchService: ObservableObject {
         }
         // Captures paused while the permission check is slow cannot read the
         // window, which says nothing about how it looks: the last reading
-        // stays until they resume (issue #1863).
+        // stays until they resume.
         guard !WindowPreviewProvider.capturesArePaused else { return }
         // Turned off in System Settings: nothing can be read, and asking the
         // capture again would only raise the system's prompt.
@@ -316,7 +316,7 @@ final class NotchWatchService: ObservableObject {
             if captured == nil, info.onScreen, !displaysAsleep {
                 // ScreenCaptureKit alone, in a turn of its own: the window
                 // server already answered above, and asking it again would
-                // only add another permission check (issue #1863).
+                // only add another permission check.
                 captured = await WindowPreviewProvider.captureViaScreenCaptureKit {
                     await ScreenshotCaptureEngine.captureIndependentWindow(windowID, scale: 2)
                 }.flatMap { Self.wholeWindow($0, size: info.bounds.size) }

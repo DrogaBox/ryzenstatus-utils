@@ -9,7 +9,7 @@ import AppKit
 /// limit: content can be promised and rendered only on demand, so an app that
 /// stops answering leaves the reader hanging. Hence one serial lane, off the
 /// main thread, and no way to wait for it — a caller waiting on the main
-/// thread is a frozen app (issue #887).
+/// thread is a frozen app.
 final class GeneralPasteboardAccess {
     static let shared = GeneralPasteboardAccess()
 

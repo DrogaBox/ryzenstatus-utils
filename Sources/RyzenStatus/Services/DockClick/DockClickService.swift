@@ -49,7 +49,7 @@ final class DockClickService {
     /// Each app's windows front-to-back the instant before we minimized them.
     /// A restore cannot recover this later — minimized windows are off screen
     /// and carry no z-order — and it is what tells the restore which window to
-    /// bring back last (issue #357). Kept OUTSIDE `lastAction` on purpose:
+    /// bring back last. Kept OUTSIDE `lastAction` on purpose:
     /// that dictionary is pruned to `toggleIntentWindow`, and a user who
     /// watches the animation finish before clicking again (well over 1.5 s,
     /// the ordinary case) would otherwise never get the captured order. Held
@@ -293,7 +293,7 @@ final class DockClickService {
                 // The AX list came back empty; the window server is the cheap,
                 // AX-free truth about whether the app really is windowless.
                 // Some compatibility layers regularly fail or time out here
-                // while their windows remain plainly visible (#200).
+                // while their windows remain plainly visible.
                 windowServerSeesWindows = Self.windowServerHasStandardWindows(pid: pid)
                 if windowServerSeesWindows {
                     // One slower retry: a busy JVM often just missed the 0.35 s
@@ -488,7 +488,7 @@ final class DockClickService {
             DispatchQueue.global(qos: .userInteractive).async {
                 // != also sweeps windows whose state cannot be read (nil):
                 // setting an already-correct state is a no-op, while skipping
-                // an unreadable one leaves Java app windows behind (#200).
+                // an unreadable one leaves Java app windows behind.
                 var sweptRestoreStraggler = false
                 for window in targets where Self.isMinimized(window) != minimized {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, value)
@@ -496,7 +496,7 @@ final class DockClickService {
                 }
                 // A straggler the sweep re-opened animates in on top of the
                 // window the restore pinned focus to, splitting stacking and
-                // focus again (issue #357) — re-pin, but only while the app is
+                // focus again — re-pin, but only while the app is
                 // still frontmost, so a user who moved elsewhere during the
                 // settle delay is never yanked back. `refocus` is nil when the
                 // restore could not name a front window; correcting toward a
@@ -571,10 +571,10 @@ final class DockClickService {
     /// Window menu, so submenus are never entered. Matching by command
     /// character + modifiers instead of the localized title works in every
     /// language the target app ships. Apps without a Minimize All (Java and
-    /// Eclipse apps like DBeaver, issue #200) fall back to their plain
-    /// Minimize item (⌘M): one window per click, but the click works. This
-    /// runs off the tap, so it can afford a longer leash than the tap-side
-    /// window enumeration — busy JVMs routinely need it.
+    /// Eclipse apps like DBeaver) fall back to their plain Minimize item
+    /// (⌘M): one window per click, but the click works. This runs off the
+    /// tap, so it can afford a longer leash than the tap-side window
+    /// enumeration — busy JVMs routinely need it.
     /// Menu items one Minimize All walk may read. The other menu walks in
     /// this app stop at 600; an unbounded one here reads every item of every
     /// menu the app has, at two or three cross-process reads each.
@@ -845,7 +845,7 @@ final class DockClickService {
     /// frontmost when they went down is the last one to animate in and lands
     /// on top by itself. Nothing is raised or re-stacked afterwards: pulling
     /// the right window to the front after the fact is precisely the flick
-    /// the user sees (issue #357), so the order has to be right instead.
+    /// the user sees, so the order has to be right instead.
     ///
     /// Each window is read back and retried once before moving on. The set is
     /// a fire-and-forget AX write, and a window whose write the app dropped
@@ -861,7 +861,7 @@ final class DockClickService {
                                     frontToBack: [CGWindowID],
                                     actionTime: CFAbsoluteTime) {
         guard !targets.isEmpty else {
-            // An AX-blind app (issue #200) reaches a restore with nothing to
+            // An AX-blind app reaches a restore with nothing to
             // restore: its windows never made it into either list. The click
             // was swallowed, so the Dock will not act either — bring the app
             // forward or the icon looks dead.
@@ -934,7 +934,7 @@ final class DockClickService {
     ///
     /// Options stay empty on purpose: `restoreBackToFront` earns the batch's
     /// stacking one window at a time, and `.activateAllWindows` would re-raise
-    /// the whole app over it — the flick issue #357 was about.
+    /// the whole app over it, the flick this sequence is there to avoid.
     private static func activate(pid: pid_t) {
         DispatchQueue.main.async {
             guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
@@ -985,7 +985,7 @@ final class DockClickService {
     /// Both the decision to cycle and the raise read this list. They used to
     /// disagree — the decision counted every AX window, Spaces included, so a
     /// Space holding one window still promised a rotation and the raise then
-    /// had to guess (issue #1204).
+    /// had to guess.
     private static func cycleCandidates(pid: pid_t, windows: [AXUIElement]) -> [AXUIElement] {
         let ids = windows.map { AXWindowResolver.windowID(for: $0) }
         let indices = DockClickSupport.cycleCandidateIndices(
@@ -1219,7 +1219,7 @@ final class DockClickService {
             // An unreadable minimized state (busy JVM, SWT quirks) must not
             // erase the window from BOTH lists — a frontmost app whose
             // windows all fail this read would look windowless and the click
-            // would do nothing (issue #200). Unknown reads as "not
+            // would do nothing. Unknown reads as "not
             // minimized": over-including a minimize target is harmless, and
             // the restore action never fires while one exists.
             let isWindowMinimized = isMinimized(window) ?? false

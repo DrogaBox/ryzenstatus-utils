@@ -7,7 +7,7 @@ import Foundation
 /// Pure checks for the 1.80.0 batch: the window-layout Minimize action, the
 /// switcher's mixed windowless order, the Dock middle-click helpers, the
 /// Finder's Trash warning and the timer's typed durations.
-enum PortedBatch180Tests {
+enum Batch180Tests {
     static func run(_ suite: TestSuite) {
         let registered = Defaults.registeredDefaults
 

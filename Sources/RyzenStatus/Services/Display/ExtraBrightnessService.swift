@@ -50,7 +50,7 @@ final class ExtraBrightnessService: ObservableObject {
     /// window above. On macOS 27 Mission Control drops each window of the
     /// current desktop that a larger window above covers, see-through or
     /// not, so any screen-sized overlay on the desktop emptied that desktop's
-    /// thumbnail down to the wallpaper (#3292). Here the overlay belongs to
+    /// thumbnail down to the wallpaper. Here the overlay belongs to
     /// no desktop and is never counted. Rebuilt with the windows, which must
     /// join before they first show. Nil when the symbols are missing: the
     /// windows then stay on every desktop as before.

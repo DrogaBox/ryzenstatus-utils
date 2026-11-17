@@ -143,8 +143,8 @@ enum AutoQuitSupport {
                                allowsMenuBarQuit: allowsMenuBarQuit)
     }
 
-    /// A current Dock icon cannot distinguish a permanent choice (#2516) from
-    /// a menu bar app that drops it after Settings closes (#1824). Keep the
+    /// A current Dock icon cannot distinguish a permanent choice from
+    /// a menu bar app that drops it after Settings closes. Keep the
     /// exemption unless the user explicitly selected this app. Background-only
     /// apps remain exempt regardless of that choice or their current policy.
     static func isBackgroundApp(bundleURL: URL?,
@@ -205,9 +205,9 @@ enum AutoQuitSupport {
     /// How the window check reads one window of the app, or of a helper that
     /// draws for it. Normal windows sit at layer 0. Before an app is asked to
     /// quit, anything else it shows on screen counts too: a screen recorder's
-    /// control bar floating above other apps (layer 3, #2941), a slideshow that
-    /// covers the menu bar (#1721, #2013), and an Open panel, which Apple draws
-    /// in a service of its own (#1869). Only what is on screen when the check
+    /// control bar floating above other apps (layer 3), a slideshow that
+    /// covers the menu bar, and an Open panel, which Apple draws
+    /// in a service of its own. Only what is on screen when the check
     /// runs counts there, so a palette already hidden by then still lets it
     /// quit. Nothing watches these windows, so one going away later starts no
     /// check of its own, and the app can stay until a normal window of it
@@ -236,7 +236,7 @@ enum AutoQuitSupport {
     /// destroying it should still quit on close. Accessibility cannot tell the
     /// two apart (both leave the app with no windows at all), the window server
     /// can. A successful empty Space answer identifies a leftover surface,
-    /// even if it retains a title (#2696). A failed query proves nothing, and
+    /// even if it retains a title. A failed query proves nothing, and
     /// titles may be missing without Screen Recording permission, so keep the
     /// app alive whenever Space membership or visibility is unknown. Callers
     /// must check for minimized windows before discarding leftover surfaces.
@@ -257,7 +257,7 @@ enum AutoQuitSupport {
     /// `windowSpaces` judge a normal window off screen. A minimized window
     /// sits off screen on the Space in front, exactly like a window the app
     /// hid on close, so only the window server's minimized tag keeps it from
-    /// reading as closed when Accessibility cannot see it (issue #3249).
+    /// reading as closed when Accessibility cannot see it.
     /// An unavailable minimized state also keeps the app running: no Space
     /// membership alone must never discard a potentially minimized window.
     static func windowListHasUserWindow(_ windows: [[String: Any]],

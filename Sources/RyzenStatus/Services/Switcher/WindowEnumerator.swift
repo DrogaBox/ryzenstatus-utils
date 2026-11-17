@@ -143,8 +143,7 @@ enum WindowEnumerator {
     /// Ceiling on the whole batch. The Switcher waits on its serial session
     /// queue, which must stay bounded for later shortcuts. The five synchronous
     /// `listWindows(for:)` Dock and switcher callers still run on main, so this
-    /// bound also prevents their walks from stalling main and the event taps
-    /// (issues #971 and #189).
+    /// bound also prevents their walks from stalling main and the event taps.
     private static let accessibilityBatchBudget: TimeInterval = 5.0
 
     /// The apps one walk works with, after window-server owners have been
@@ -179,7 +178,7 @@ enum WindowEnumerator {
         // loader processes: no bundle, sometimes not even a regular
         // activation policy, and Accessibility describes their windows with no
         // standard subrole. Track those pids so the guards below treat their
-        // real windows as switchable instead of hiding the app (issue #274).
+        // real windows as switchable instead of hiding the app.
         var compatibilityLayerPids: Set<pid_t> = []
         for app in runningApps where SwitcherSupport.isCompatibilityLayerApp(
             bundleIdentifier: app.bundleIdentifier,
@@ -669,7 +668,7 @@ enum WindowEnumerator {
         // No cap during enumeration: the raw window-server order is not
         // "visible first" (windows parked on other Spaces can come before the
         // frontmost app), so truncating here silently drops whole apps on
-        // busy Macs (issue #172). Everything is collected, ordered by the
+        // busy Macs. Everything is collected, ordered by the
         // activation MRU, and only then trimmed, so the cap always cuts the
         // least recently used tail.
         for info in raw {
@@ -711,7 +710,7 @@ enum WindowEnumerator {
             }
             // With no Accessibility witness, the owner was too busy to answer
             // or is shutting down. That used to wave every one of its surfaces
-            // through, closed windows included (issue #807), so the window
+            // through, closed windows included, so the window
             // server's own leftover signature decides instead.
             guard SwitcherSupport.keepsSurface(
                 witness: witness,
@@ -878,8 +877,8 @@ enum WindowEnumerator {
         var result = ordered
         if ordered.count > maximumCount {
             // One entry per app first, then the remaining slots: an app with
-            // many windows must never push another app off the list entirely
-            // (issue #172). A session scoped to the front app caps that app's
+            // many windows must never push another app off the list entirely.
+            // A session scoped to the front app caps that app's
             // own windows instead.
             result = SwitcherSupport
                 .visibleSelectionIndices(items: ordered, limit: maximumCount,
@@ -917,7 +916,7 @@ enum WindowEnumerator {
     /// while preserving minimized windows and windows on other Spaces. When the
     /// owner cannot answer Accessibility at all (busy or terminating), surfaces
     /// that are off screen and belong to no Space are leftovers by the same
-    /// definition instead of trusted blindly (issue #807).
+    /// definition instead of trusted blindly.
     private struct AccessibilityWindowSnapshot {
         let title: String
         let frame: CGRect?
@@ -940,7 +939,7 @@ enum WindowEnumerator {
 
     /// One remote read supplies both the visibility decision and the snapshot.
     /// Reading these separately cost ten attribute round trips per ordinary
-    /// window, and repeated timeouts kept the panel behind busy apps (#2348).
+    /// window, and repeated timeouts kept the panel behind busy apps.
     private struct AccessibilityWindowAttributes {
         enum Attribute: Int, CaseIterable {
             case role, subrole, fullscreen, minimized, position, size, title
@@ -1139,7 +1138,7 @@ enum WindowEnumerator {
         // for the default timeout. The Switcher's serial session queue
         // must stay available for later shortcuts. The five synchronous
         // listWindows(for:) Dock and switcher callers run on main, where a long
-        // wait also stalls the event taps (issue #189).
+        // wait also stalls the event taps.
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
         var axWindows: [AXUIElement] = []
         let windowsResult: AXError
@@ -1364,8 +1363,8 @@ enum WindowEnumerator {
                 : nil
             let hasNormalWindowLevel = (subrole == "AXUnknown" || subrole == "AXDialog")
                 && (windowID.map { normalLevelWindowIDs.contains($0) } ?? false)
-            // A hidden app's ordinary windows read as dialogs too (issue
-            // #2279). Only a normal-level dialog pays for the button read.
+            // A hidden app's ordinary windows read as dialogs too. Only a
+            // normal-level dialog pays for the button read.
             let canMinimize = subrole == "AXDialog" && hasNormalWindowLevel
                 && !isCancelled()
                 && hasWorkingMinimizeButton(window)

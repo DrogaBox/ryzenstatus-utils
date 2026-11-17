@@ -37,7 +37,7 @@ final class FinderCutPaste: ObservableObject {
     }
 
     /// Live state of a move that left its volume (a real copy, not a rename),
-    /// so the HUD can show a progress bar for large transfers (issue #168).
+    /// so the HUD can show a progress bar for large transfers.
     /// `fraction` is nil when the batch's byte total is unknown (directories
     /// in the mix), which the HUD renders as an indeterminate bar.
     struct MoveProgress: Equatable {
@@ -441,7 +441,7 @@ final class FinderCutPaste: ObservableObject {
     private func isEditingText() -> Bool {
         let system = AXUIElementCreateSystemWide()
         // No cap here: on the system-wide element a timeout is the default for
-        // every question this process asks, whoever asks it (#938).
+        // every question this process asks, whoever asks it.
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
               let focused,

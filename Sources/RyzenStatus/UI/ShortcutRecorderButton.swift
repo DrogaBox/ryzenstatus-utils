@@ -53,7 +53,7 @@ struct ShortcutRecorderButton: NSViewRepresentable {
 
     /// The SwiftUI frame decides the width, never the title. An AppKit view's
     /// intrinsic size otherwise wins over the frame, so the field grew with
-    /// its own text and slid over the column beside it (issue #308). The
+    /// its own text and slid over the column beside it. The
     /// height is the bezel's own, so the control is never drawn short.
     func sizeThatFits(_ proposal: ProposedViewSize,
                       nsView: RecorderButton,
@@ -105,7 +105,7 @@ final class RecorderButton: NSButton {
     /// True once a Control, Option or Command combination went down while the
     /// field was listening and no key has arrived since. If the modifiers then
     /// come all the way back up with nothing in between, the key never reached
-    /// us: something upstream consumed it.
+    /// us: something earlier in the event chain consumed it.
     private var awaitingKeyForHeldModifiers = false
     private var observers: [NSObjectProtocol] = []
 
@@ -171,7 +171,7 @@ final class RecorderButton: NSButton {
     /// view hierarchy before the app's own menu, so this is where nearly every
     /// recordable press arrives. Without it the menu answered first and the
     /// app closed its window on Command W or quit on Command Q instead of
-    /// recording them (issue #308).
+    /// recording them.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard isRecording, window?.firstResponder === self else {
             return super.performKeyEquivalent(with: event)

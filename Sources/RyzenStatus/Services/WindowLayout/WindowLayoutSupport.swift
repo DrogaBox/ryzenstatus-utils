@@ -110,8 +110,8 @@ enum WindowLayoutAction: String, CaseIterable, Identifiable {
         case .bottomThird: return 63
         case .topTwoThirds: return 64
         case .bottomTwoThirds: return 65
-        // 56 went to center two thirds upstream, so the top quarter takes the
-        // next free id rather than moving an already-registered shortcut.
+        // 56 belongs to center two thirds, so the top quarter takes the next
+        // free id rather than moving an already-registered shortcut.
         case .topQuarter: return 66
         case .leftQuarter: return 67
         case .leftMiddleQuarter: return 68
@@ -207,9 +207,9 @@ enum WindowLayoutAction: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Stored value meaning the user removed this action's shortcut (issue
-    /// #169): most people use a handful of layouts, and every registered
-    /// hotkey occupies a system-wide key combo other apps then cannot use.
+    /// Stored value meaning the user removed this action's shortcut: most
+    /// people use a handful of layouts, and every registered hotkey occupies
+    /// a system-wide key combo other apps then cannot use.
     static let clearedShortcutStorageValue = "none"
 
     /// Resolves a stored shortcut value: the saved shortcut, the default when
@@ -334,7 +334,7 @@ enum WindowLayoutAction: String, CaseIterable, Identifiable {
     }
 }
 
-/// The configurable spacing around snapped windows (issue #1068). Values are
+/// The configurable spacing around snapped windows. Values are
 /// in pixels, offering standard spacing presets (0 to 128 px).
 enum WindowLayoutGaps {
     static let presets: [Int] = [0, 8, 16, 32, 64, 128]

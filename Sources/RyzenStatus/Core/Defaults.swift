@@ -311,7 +311,7 @@ enum Defaults {
         DefaultsKey.scrollInverterHorizontalEnabled: false,
         DefaultsKey.smoothScrollEnabled: false,
         DefaultsKey.smoothScrollStep: 40,
-        // Mouse extras ported from upstream: every switch starts off.
+        // Mouse extras: every switch starts off.
         DefaultsKey.scrollHorizontalEnabled: false,
         DefaultsKey.scrollHorizontalModifier: ScrollHorizontalModifier.shift.rawValue,
         DefaultsKey.focusFollowsMouseEnabled: false,
@@ -389,9 +389,8 @@ enum Defaults {
         DefaultsKey.mixerHeadphonesDisconnectSilenceAllowed: false,
         DefaultsKey.soundOutputSwitcherEnabled: false,
         DefaultsKey.soundOutputSwitcherShortcut: GlobalShortcut.soundOutputSwitcherDefault.storageValue,
-        // Upstream ships audio priority as an opt-in feature with both lists
-        // on. Here every feature is installed by default, so the automatic
-        // switching itself stays off until the user turns a list on: an
+        // Every feature is installed by default, so the automatic switching
+        // of audio priority stays off until the user turns a list on: an
         // update must never start changing the audio devices on its own.
         DefaultsKey.audioPriorityOutputEnabled: false,
         DefaultsKey.audioPriorityInputEnabled: false,
@@ -961,9 +960,8 @@ enum Defaults {
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,
-        // Ported from upstream fe24c17 (block A). Literal values stand in
-        // for upstream types whose areas are not ported yet; each names the
-        // constant it mirrors.
+        // Literal values stand in for constants declared in the features'
+        // own files; each names the constant it mirrors.
         DefaultsKey.notchLiquidGlassEnabled: false,
         DefaultsKey.dimScreenOnLidClose: false,
         DefaultsKey.keepAwakeRunningApps: false,
@@ -972,8 +970,8 @@ enum Defaults {
         DefaultsKey.keepAwakePauseWhenLocked: false,
         DefaultsKey.keepAwakeSwitchUsesUntil: false,
         DefaultsKey.keepAwakeUntilTime: 0.0,
-        DefaultsKey.smoothScrollResponse: 65, // SmoothScrollSupport.defaultResponse upstream
-        DefaultsKey.smoothScrollCoast: 0, // SmoothScrollSupport.defaultCoast upstream
+        DefaultsKey.smoothScrollResponse: 65, // SmoothScrollSupport.defaultResponse
+        DefaultsKey.smoothScrollCoast: 0, // SmoothScrollSupport.defaultCoast
         DefaultsKey.mouseButtonShortcuts: [String: String](),
         DefaultsKey.mouseSpacesGestureFollowsDrag: false,
         DefaultsKey.superKeySource: SuperKeySource.capsLock.rawValue,
@@ -994,7 +992,7 @@ enum Defaults {
         DefaultsKey.switcherShowShortcutHints: true,
         DefaultsKey.switcherAppearanceDelay: SwitcherSupport.defaultAppearanceDelayMilliseconds,
         DefaultsKey.switcherInstantSelection: false,
-        DefaultsKey.switcherScreenPlacement: "pointer", // SwitcherScreenPlacement.fallback upstream
+        DefaultsKey.switcherScreenPlacement: "pointer", // SwitcherScreenPlacement.fallback
         DefaultsKey.switcherCurrentDisplayOnly: false,
         DefaultsKey.minimalWindowPreviews: false,
         DefaultsKey.dockPreviewCurrentSpaceOnly: false,
@@ -1010,7 +1008,7 @@ enum Defaults {
         DefaultsKey.shelfEdgeDragEnabled: false,
         DefaultsKey.shelfClearOnClose: false,
         DefaultsKey.shelfShortcutAddsFinderSelection: false,
-        DefaultsKey.brightnessKeyStep: "standard", // BrightnessSupport.KeyStep.standard upstream
+        DefaultsKey.brightnessKeyStep: "standard", // BrightnessSupport.KeyStep.standard
         DefaultsKey.displayBrightnessShortcutsEnabled: false,
         DefaultsKey.displayBrightnessDecreaseShortcut: "shift+command:27",
         DefaultsKey.displayBrightnessIncreaseShortcut: "shift+command:24",
@@ -1063,20 +1061,20 @@ enum Defaults {
         DefaultsKey.notchAgentsCopilot: true,
         DefaultsKey.notchAgentsCardOrder: "",
         DefaultsKey.notchAgentsHiddenCards: "",
-        DefaultsKey.notchAgentsPeriod: "today", // AgentPeriod.today upstream
-        DefaultsKey.notchAgentsLimitDisplay: "remaining", // NotchAgentLimitDisplay.remaining upstream
-        DefaultsKey.notchAgentsLimitFocus: "mostUsed", // NotchAgentLimitFocus.mostUsed upstream
+        DefaultsKey.notchAgentsPeriod: "today", // AgentPeriod.today
+        DefaultsKey.notchAgentsLimitDisplay: "remaining", // NotchAgentLimitDisplay.remaining
+        DefaultsKey.notchAgentsLimitFocus: "mostUsed", // NotchAgentLimitFocus.mostUsed
         DefaultsKey.notchAgentsLiveActivity: true,
-        DefaultsKey.notchAgentsReadout: "elapsed", // NotchAgentReadout.elapsed upstream
+        DefaultsKey.notchAgentsReadout: "elapsed", // NotchAgentReadout.elapsed
         DefaultsKey.notchAgentsFinishAlert: true,
-        DefaultsKey.notchAgentsFinishMinimum: 60.0, // NotchAgentSupport.defaultFinishMinimum upstream
+        DefaultsKey.notchAgentsFinishMinimum: 60.0, // NotchAgentSupport.defaultFinishMinimum
         DefaultsKey.notchAgentsFinishCost: true,
         DefaultsKey.notchAgentsLimitAlert: true,
-        DefaultsKey.notchAgentsLimitThreshold: 80.0, // NotchAgentSupport.defaultLimitThreshold upstream
+        DefaultsKey.notchAgentsLimitThreshold: 80.0, // NotchAgentSupport.defaultLimitThreshold
         DefaultsKey.notchAgentsDailyBudget: 0.0,
         DefaultsKey.notchAgentsPriceUpdates: true,
         DefaultsKey.notchInputSource: true,
-        DefaultsKey.radialMenuActivationMode: "pressOrHold", // RadialMenuActivationMode.pressOrHold upstream
+        DefaultsKey.radialMenuActivationMode: "pressOrHold", // RadialMenuActivationMode.pressOrHold
         DefaultsKey.windowMaximizeExcludedApps: [String](),
         DefaultsKey.cleaningModeKeepScreenVisible: false,
         DefaultsKey.packageManagerProvider: "automatic",
@@ -1118,7 +1116,7 @@ enum Defaults {
         DefaultsKey.mediaImageProfiles: "[]",
         DefaultsKey.mediaImageSelectedProfileID: "",
         DefaultsKey.windowLayoutIgnoredApps: [String](),
-        DefaultsKey.clipboardHistoryLayout: "list", // ClipboardHistoryLayout.list upstream
+        DefaultsKey.clipboardHistoryLayout: "list", // ClipboardHistoryLayout.list
         DefaultsKey.clipboardHistoryWindowWidth: 0.0,
         DefaultsKey.clipboardHistoryWindowHeight: 0.0,
         DefaultsKey.clipboardHistoryMenuBarPreview: false,
@@ -1156,8 +1154,8 @@ enum Defaults {
         DefaultsKey.screenshotLoupeDefaultZoom: 1.0,
         DefaultsKey.screenshotLoupeLastZoom: 1.0,
         DefaultsKey.screenshotLoupeSteppedZoomByDefault: false,
-        DefaultsKey.screenshotLastTextSize: 19, // ScreenshotSupport.defaultTextSize upstream
-        DefaultsKey.screenshotLastBlurLevel: 3, // ScreenshotSupport.BlurStrength.defaultLevel upstream
+        DefaultsKey.screenshotLastTextSize: 19, // ScreenshotSupport.defaultTextSize
+        DefaultsKey.screenshotLastBlurLevel: 3, // ScreenshotSupport.BlurStrength.defaultLevel
         DefaultsKey.screenshotLastBlurStyle: "pixelate",
         DefaultsKey.screenshotLastBlurTextOnly: false,
         DefaultsKey.screenshotSpotlightDim: Double(ScreenshotSupport.defaultSpotlightDim),
@@ -1172,7 +1170,7 @@ enum Defaults {
         DefaultsKey.screenshotUploadShortcut: GlobalShortcut.screenshotUploadDefault.storageValue,
         DefaultsKey.screenshotUploadDuration: 3_600, // ScreenshotShareDuration.oneHour
         DefaultsKey.screenshotPreviewEnabled: true,
-        DefaultsKey.screenshotPreviewDuration: 3, // ScreenshotSupport.defaultConfirmationPreviewDuration upstream
+        DefaultsKey.screenshotPreviewDuration: 3, // ScreenshotSupport.defaultConfirmationPreviewDuration
         DefaultsKey.screenshotSharingEnabled: true,
         DefaultsKey.windowDirectionalEnabled: false,
         DefaultsKey.windowDirectionalShortcut: GlobalShortcut.windowDirectionalDefault.storageValue,
@@ -1205,8 +1203,8 @@ enum Defaults {
 
     static func register() {
         let defaults = UserDefaults.standard
-        // Upstream runs these before registering, so `object(forKey:)` still
-        // tells a saved choice from a registered default.
+        // These run before registering, so `object(forKey:)` still tells a
+        // saved choice from a registered default.
         migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateBatteryTemperatureVisibility(in: defaults)
         var defaultValues = registeredDefaults
@@ -1215,7 +1213,7 @@ enum Defaults {
 #endif
         defaults.register(defaults: defaultValues)
         defaults.register(defaults: AppFeature.availabilityDefaults)
-        // Idempotent repairs upstream runs on every launch.
+        // Idempotent repairs, run on every launch.
         migrateSilentHeadphonesDisconnectVolume(in: defaults)
         migrateAppVolumesToPositions(in: defaults)
         recheckBrightnessDDCWriteOnlyPaths(in: defaults)
@@ -1579,7 +1577,7 @@ enum Defaults {
         var result: [String] = []
         for raw in bundleIDs {
             // A mouse exception list also carries the path of a program that
-            // has no bundle identifier (issue #1009), and a file name may
+            // has no bundle identifier, and a file name may
             // legally end in a space. Trimming one would store a spelling the
             // running program never reports, so only an identifier is trimmed.
             let bundleID = MouseAppExceptionSupport.isExecutablePathIdentity(raw)

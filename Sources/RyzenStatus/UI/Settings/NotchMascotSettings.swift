@@ -861,8 +861,8 @@ private struct NotchMascotStageCard: View {
     @State private var showsMoments = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The moments it can act out here. This fork has no AI agents section,
-    /// so the moment that celebrates them is left out.
+    /// The moments it can act out here. The moment that celebrates AI agents
+    /// is left out.
     private static let moments = NotchMascotMoment.allCases.filter { $0 != .agents }
     private static let reactions = moments.filter { $0.reaction != nil }
 

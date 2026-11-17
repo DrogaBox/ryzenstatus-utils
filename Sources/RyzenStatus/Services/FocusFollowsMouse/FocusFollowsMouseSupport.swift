@@ -63,7 +63,7 @@ enum FocusFollowsMouseSupport {
         // suggestions or a popover belongs to the window it hangs from, and
         // moving focus between the two closes it: Chrome's address bar
         // suggestions never take focus and close once the address bar loses
-        // it (issue #3231).
+        // it.
         return focusedWindowID != targetWindowID && !focusedWindowBlocksTarget
             && !focusedWindowSharesRoot
     }

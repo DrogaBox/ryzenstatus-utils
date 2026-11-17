@@ -207,7 +207,7 @@ enum WindowServerSupport {
     /// Whether a click is on the close button by its place alone, for when
     /// Accessibility cannot point at the button. The close area above also
     /// takes the minimize button, which only Accessibility tells apart, and a
-    /// minimize taken for a close quits the app (issue #3249). Every title
+    /// minimize taken for a close quits the app. Every title
     /// bar style insets the close button as far from the window's left edge
     /// as from its top, its center 16 to 26 pt in, and puts the minimize
     /// button 20 to 23 pt to its right on the same row (measured on macOS 27

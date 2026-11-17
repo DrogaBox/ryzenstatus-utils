@@ -154,11 +154,11 @@ final class ScreenshotQuickPreviewController {
         self.panel = panel
         installKeyMonitor(for: panel)
         panel.orderFrontRegardless()
-        // On by default: leaving the keyboard behind after a capture is what
-        // #1463 reported, since Command-C and Command-S did nothing until a
-        // click. Taking it costs the caret in the app being typed into
-        // (#1089), so persistent previews always leave focus where it was;
-        // a click can still hand focus to the preview explicitly.
+        // On by default: with the keyboard left behind after a capture,
+        // Command-C and Command-S did nothing until a click. Taking it costs
+        // the caret in the app being typed into, so persistent previews
+        // always leave focus where it was; a click can still hand focus to
+        // the preview explicitly.
         if presentationPolicy.takesFocus {
             panel.makeKey()
         }

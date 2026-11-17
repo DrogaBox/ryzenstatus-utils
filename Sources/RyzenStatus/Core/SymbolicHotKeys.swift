@@ -100,9 +100,9 @@ enum SymbolicHotKeys {
 /// them from the table, not from memory: 28 is "save picture of screen as a
 /// file", and mapping the reverse window key there once let a switcher
 /// shortcut on the 3 key switch the macOS screenshot key off.
-/// RyzenStatus keeps this enum here rather than in `SwitcherSupport.swift`
-/// (upstream's home for it): `GlobalShortcut` reads it, and the command bar
-/// harness compiles `GlobalShortcut` without the switcher.
+/// RyzenStatus keeps this enum here rather than in `SwitcherSupport.swift`:
+/// `GlobalShortcut` reads it, and the command bar harness compiles
+/// `GlobalShortcut` without the switcher.
 enum SwitcherNativeSymbolicHotKey: Int32, CaseIterable, Hashable {
     case commandTab = 1
     case commandShiftTab = 2

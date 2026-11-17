@@ -9,10 +9,10 @@ import SwiftUI
 /// Selects the visible Settings page; the menu bar uses it to open Settings
 /// directly on a specific page.
 ///
-/// Upstream's destination API is carried here too: `request(_:)` selects a
-/// page and, optionally, a section on it, with a fresh request identity even
-/// when the same destination is asked for twice, and a back/forward history.
-/// Pages opt into the landing highlight with `settingsSectionFocus(for:)`.
+/// The destination API: `request(_:)` selects a page and, optionally, a
+/// section on it, with a fresh request identity even when the same
+/// destination is asked for twice, and a back/forward history. Pages opt
+/// into the landing highlight with `settingsSectionFocus(for:)`.
 @MainActor
 final class SettingsRouter: ObservableObject {
     static let shared = SettingsRouter()
@@ -375,7 +375,7 @@ struct SettingsView: View {
 
     /// From macOS 26 the pinned system search field has no opaque backing in
     /// a split-view sidebar, so scrolled rows stay legible behind and above
-    /// it (issues #183, #254); macOS 27's hard top scroll edge does not cover
+    /// it; macOS 27's hard top scroll edge does not cover
     /// it either. There the field lives on a fixed header above the list, as
     /// in System Settings, where rows can never reach it. Earlier systems keep
     /// the classic opaque sidebar chrome.
@@ -1366,7 +1366,7 @@ extension View {
 
 /// Search field for the macOS 26 sidebar, styled after the system pill.
 /// It sits on a fixed header outside the List, so scrolling rows can never
-/// cross it (issues #183, #254). Esc and the clear button empty the query,
+/// cross it. Esc and the clear button empty the query,
 /// matching the system field.
 private struct SidebarSearchField: View {
     @ObservedObject private var l10n = L10n.shared

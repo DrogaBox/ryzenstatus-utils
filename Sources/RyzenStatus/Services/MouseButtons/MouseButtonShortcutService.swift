@@ -13,8 +13,8 @@ import CoreGraphics
 /// while the feature is off or while no button is mapped. Requires
 /// Accessibility for the modifying event tap and the posted keys.
 ///
-/// One button may instead hold and drag for Spaces and Mission Control
-/// (issue #1012). That press is only held back, not taken: it becomes the
+/// One button may instead hold and drag for Spaces and Mission Control.
+/// That press is only held back, not taken: it becomes the
 /// app's ordinary click again the moment the release arrives without the
 /// pointer having gone anywhere. Same tap, because the drags it measures are
 /// events this one already receives.
@@ -344,7 +344,7 @@ final class MouseButtonShortcutService: ObservableObject {
                 return consumesPress ? nil : Unmanaged.passUnretained(event)
             }
             // An app on the exception list keeps its buttons: the press goes
-            // through whole and no shortcut is sent (issue #358). Capture is
+            // through whole and no shortcut is sent. Capture is
             // above on purpose, so a button can still be added from Settings
             // while such an app is in front.
             guard !MouseAppExceptions.shared.excludesActionTarget(.buttonShortcuts, at: event.location) else {
@@ -442,7 +442,7 @@ final class MouseButtonShortcutService: ObservableObject {
     /// Spaces and the overviews are asked for the way the keyboard asks for
     /// them. The window server refuses software-simulated touch gestures, and
     /// the combination it registered for that command is the one thing it
-    /// still accepts (issue #1012). A command whose shortcut the user switched
+    /// still accepts. A command whose shortcut the user switched
     /// off in System Settings reads as nil, and the gesture stays silent
     /// rather than pressing something else.
     private func perform(_ action: MouseSpacesGestureSupport.Action) {
@@ -571,7 +571,7 @@ final class MouseButtonShortcutService: ObservableObject {
     /// the way sees the same press a finger would have made. Sent further
     /// along, it would still reach the app in front but stay invisible to
     /// anything watching the keyboard, which is why a shortcut belonging to
-    /// the system or to another app did nothing at all (issue #401).
+    /// the system or to another app did nothing at all.
     private func post(_ shortcut: GlobalShortcut) {
         guard shortcut.hasUsableKeyCode else { return }
         let source = CGEventSource(stateID: .hidSystemState)

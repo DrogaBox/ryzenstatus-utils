@@ -87,7 +87,7 @@ final class AppSwitcher: ObservableObject {
     // window server hold every keystroke in the login session until this
     // process answers, so the callback must never queue behind main-thread
     // work. On the main run loop, any stall here delayed keys system-wide
-    // and then released them in a burst (issue #275). Same lifecycle shape
+    // and then released them in a burst. Same lifecycle shape
     // as the keyboard debounce tap.
     private let lifecycleLock = NSLock()
     private var tap: CFMachPort?
@@ -181,7 +181,7 @@ final class AppSwitcher: ObservableObject {
     private var shiftBackNavigationHeld = false
     /// Pressing Shift mid-session already steps back once, so the Tab landing
     /// in that same physical chord must not step again — but later Tabs during
-    /// the same Shift hold must keep walking the list (issue #784). The chord
+    /// the same Shift hold must keep walking the list. The chord
     /// is recognized by time: anything after this deadline is a deliberate
     /// separate press.
     private var shiftBackChordDeadline: TimeInterval = 0
@@ -298,7 +298,7 @@ final class AppSwitcher: ObservableObject {
     /// While a shortcut field is listening, every key has to reach it, even
     /// the switcher's own combination. This is a flag the routing reads, not a
     /// teardown: tearing the tap down and rebuilding it per recording would
-    /// churn the window server's keyboard path for no reason (issue #275).
+    /// churn the window server's keyboard path for no reason.
     /// Main thread only, like every other write to the routing state.
     func setCapturingShortcut(_ capturing: Bool) {
         if capturing, sessionActive {
@@ -1125,7 +1125,7 @@ final class AppSwitcher: ObservableObject {
             }
             let delta = shortcut.shiftIsNavigationModifier && flags.contains(.maskShift) ? -1 : 1
             // Holding the key stops at the list's end instead of wrapping, like
-            // the system switcher; a fresh press wraps around (issue #187).
+            // the system switcher; a fresh press wraps around.
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             advanceSelection(by: delta, wrapping: !isRepeat)
         case _ where sessionScope != .allApps
@@ -1153,7 +1153,7 @@ final class AppSwitcher: ObservableObject {
             // panel is up, so they never disqualify the window key (a window
             // shortcut like ⌥Tab works during a ⌘Tab session). Matching by
             // character too keeps the default ⌘` on the key that actually
-            // types ` on ABNT2, German and other non-US layouts (#187). Shift
+            // types ` on ABNT2, German and other non-US layouts. Shift
             // only means "backward" on a positional match: on a character
             // match it may be part of typing the character itself.
             let positional = windowShortcut.matches(event: event, allowingExtraShift: true,
@@ -1367,7 +1367,7 @@ final class AppSwitcher: ObservableObject {
         // them minimized or on another Space, still owns the keyboard. The
         // switcher opens either way. Bailing out here handed ⌘Tab back to the
         // system, so the shortcut looked dead until it was pressed a second
-        // time (issue #324).
+        // time.
         let source = SwitcherSupport.sessionSourceItem(frontmostPID: reportedFrontPID,
                                                        focusedWindowID: focusedSourceWindowID,
                                                        items: sourceItems)
@@ -2116,8 +2116,7 @@ final class AppSwitcher: ObservableObject {
 
     /// A click outside cancels before the event continues through the session
     /// tap. This preserves the click and prevents a nearly simultaneous Command
-    /// release from committing the highlighted window first (issues #384 and
-    /// #539).
+    /// release from committing the highlighted window first.
     private func dismissForClickOutsidePanel(_ event: CGEvent) {
         guard sessionActive, let panel else { return }
         // On the Accessibility Keyboard a modifier is latched by double-clicking

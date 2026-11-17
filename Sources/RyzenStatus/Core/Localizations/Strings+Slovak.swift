@@ -3,7 +3,7 @@
 
 import Foundation
 
-// Slovenčina. Shared text is translated from upstream; entries marked as English fallback are not yet translated.
+// Slovenčina. Entries marked as English fallback are not yet translated.
 extension Strings {
     static let sk = Strings(
         statusIdleTooltip: "RyzenStatus: normálny spánok",

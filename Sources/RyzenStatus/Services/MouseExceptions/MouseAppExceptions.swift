@@ -5,7 +5,7 @@ import AppKit
 import Combine
 import CoreGraphics
 
-/// Apps each mouse feature leaves alone (issue #358). Some apps drive
+/// Apps each mouse feature leaves alone. Some apps drive
 /// themselves with the wheel and the extra buttons, so a glide or a swallowed
 /// click lands as a wrong command inside them; while one of those apps is the
 /// one being scrolled or clicked, the feature that named it stands down and
@@ -42,7 +42,7 @@ final class MouseAppExceptions: ObservableObject {
     /// True while every list is empty, the fast path out of every question.
     private var allEmpty = true
     /// True while some list names a program by its path, the only time a
-    /// program's path is read (issue #1009).
+    /// program's path is read.
     private var listsNamePath = false
 
     /// Source process ids are resolved outside the event tap. The scroll taps
@@ -332,7 +332,7 @@ final class MouseAppExceptions: ObservableObject {
 
     /// While a list names a program by its path, a program answers to the
     /// file being run as well as to its bundle identifier, so a Java runtime
-    /// picked by its path (issue #1009) is matched even when AWT registered
+    /// picked by its path is matched even when AWT registered
     /// the JVM under the identifier of Java's launcher.
     private func identities(for app: NSRunningApplication?) -> [String] {
         guard let app else { return [] }

@@ -112,8 +112,7 @@ enum BrightnessSupport {
     /// above pace the steps inside a command; without this one, a slider
     /// drag or a held brightness key chains commands at the write pause,
     /// five times faster than monitors are promised, and some react to the
-    /// stream by dropping their signal until they are power cycled
-    /// (issue #301).
+    /// stream by dropping their signal until they are power cycled.
     static let commandIntervalMicroseconds: UInt64 = 50_000
 
     /// How long the next command must still wait, given when the previous
@@ -421,8 +420,7 @@ enum BrightnessSupport {
     /// restore: the session's remembered level is also filled in from a
     /// monitor's own DDC or system reading, and that is its backlight, not a
     /// gamma scale. Replaying such a level here darkened a screen that was
-    /// already at exactly that brightness, every time the routes were rebuilt
-    /// (issue #697).
+    /// already at exactly that brightness, every time the routes were rebuilt.
     static func softwareDimToRestore(remembered: Double?, appliedByApp: Bool) -> Double {
         appliedByApp ? (remembered ?? 1.0) : 1.0
     }
@@ -431,7 +429,7 @@ enum BrightnessSupport {
     /// connection gap. The saved level is honoured, but never so dark that
     /// the screen reads as dead: replugging the cable is the one gesture
     /// left to someone facing a black picture, and it has to land on
-    /// something visible (issue #301). Live control is untouched and still
+    /// something visible. Live control is untouched and still
     /// reaches true black.
     static let reconnectionDimFloor = 0.25
 
@@ -586,7 +584,7 @@ enum BrightnessSupport {
     /// offers as brightness keys in its own keyboard shortcuts whenever an
     /// external keyboard is attached. Measured against the display server:
     /// all four move brightness by the same sixteenth of the range as the
-    /// built-in keys (issue #287).
+    /// built-in keys.
     enum BrightnessKeyCode {
         static let increase = 144
         static let decrease = 145
@@ -726,7 +724,7 @@ enum BrightnessSupport {
     }
 
     /// Whether a brightness key press aimed at a system-routed display is
-    /// stepped by the app instead of left to the system (issue #268). The
+    /// stepped by the app instead of left to the system. The
     /// system's own key handling only ever moves its native target, so a
     /// press the pointer routes to any other display (an Apple pipeline
     /// external monitor, or any display in clamshell mode) has to be stepped
@@ -767,7 +765,7 @@ enum BrightnessSupport {
     /// Whether a remembered brightness can still be stepped from, or the
     /// monitor has to be asked first. A value the app itself just wrote is
     /// true; one that has been sitting around is only a guess, because the
-    /// monitor has buttons of its own (issue #370).
+    /// monitor has buttons of its own.
     static func trustsRememberedLevel(lastKnownAt: Date?,
                                       now: Date,
                                       window: TimeInterval) -> Bool {

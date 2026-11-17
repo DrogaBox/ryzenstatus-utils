@@ -170,7 +170,7 @@ enum QuickToolsSupport {
     /// character "V" with the shift (1) and option (2) bits set and nothing
     /// else (0 alone means a plain ⌘ equivalent). ⇧⌘V and ⌃ variants are
     /// deliberately out: in several apps those are different edit commands,
-    /// and pressing one would touch the document (issue #349).
+    /// and pressing one would touch the document.
     static func isMatchStyleEquivalent(commandCharacter: String?,
                                        modifierMask: UInt32?,
                                        isEnabled: Bool) -> Bool {

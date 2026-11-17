@@ -12,7 +12,7 @@ import Vision
 /// system's capture command. A separate command is judged by macOS on its own
 /// standing, which on recent versions can be refused even while this app is
 /// allowed, and a refused command writes no file and says nothing: the tool
-/// looked dead with no crosshair, no message and nothing to fix (issue #364).
+/// looked dead with no crosshair, no message and nothing to fix.
 final class ScreenTextService: ObservableObject {
     static let shared = ScreenTextService()
 

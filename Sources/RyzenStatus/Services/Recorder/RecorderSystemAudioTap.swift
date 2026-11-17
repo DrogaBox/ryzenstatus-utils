@@ -69,8 +69,8 @@ enum RecorderAudioProbe {
 /// ScreenCaptureKit hands over the same mix, but an app the volume mixer
 /// adjusts reaches it twice: its own muted stream and this app's re-render
 /// of it, about 30 ms apart, and excluding this app from the stream's filter
-/// does not drop that re-render (measured 2026-09-01, issue #692). A process
-/// tap that excludes this process hears each app once.
+/// does not drop that re-render (measured 2026-09-01). A process tap that
+/// excludes this process hears each app once.
 ///
 /// Reading a tap needs an audio permission of its own. It is asked for at
 /// the first start and, while missing, answered with silence rather than an

@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// are asked where the whole session waits on them. The limit is set once
     /// here, low enough that a slow answer is dropped rather than felt. It is
     /// the process-wide default, so nothing else may set a timeout on the
-    /// system-wide element (#938); hot paths cap their own elements lower.
+    /// system-wide element; hot paths cap their own elements lower.
     private static func boundAccessibilityWaits() {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.35)
     }
@@ -762,8 +762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // proven exception: while RyzenStatus is inactive (the first panel open
         // after a while), a click on the panel itself is an activation click
         // and still arrives here, stamped with the panel's own window number.
-        // A click that belongs to the panel never dismisses it (#1513, #3245,
-        // #3687); anything else in another app or on the desktop does.
+        // A click that belongs to the panel never dismisses it; anything else in
+        // another app or on the desktop does.
         popoverDismissMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
@@ -1882,7 +1882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// macOS places a rebuilt status item on its own schedule, and a busy bar
     /// can take longer than one look to settle. Judging it once meant a slow
     /// placement read as a failure and the person was told the bar was full
-    /// when it was not (issue #369). A newborn item also reports a zero-height
+    /// when it was not. A newborn item also reports a zero-height
     /// frame for a few seconds; that settling grace is separate from the
     /// "still hidden" countdown so recovery does not burn the arranged spot
     /// while macOS is still placing the window.

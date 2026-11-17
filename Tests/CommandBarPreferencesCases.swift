@@ -7,8 +7,8 @@ import Foundation
 /// Everything the person decides about the bar: which kinds of result it may
 /// offer, the names they gave things, what they pinned and what they hid.
 ///
-/// Expectations lifted from upstream's `CommandBarFeatureTests` (the sources,
-/// aliases, pins, hidden rows and position sections).
+/// Expectations for the sources, aliases, pins, hidden rows and position
+/// sections.
 enum CommandBarPreferencesCases {
     static func run(_ expect: CommandBarExpect) {
         // MARK: - Which source a row came from

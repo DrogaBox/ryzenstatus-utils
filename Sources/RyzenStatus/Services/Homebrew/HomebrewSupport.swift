@@ -274,9 +274,9 @@ enum HomebrewOperationResult: Equatable {
     case needsTerminal
 }
 
-/// Dismissal policy for a finished operation's status card. Issue #566: the
-/// card's timer used to wipe the technical log with it after 6 – 20 seconds;
-/// the log now stays until the next operation or an explicit Clear log, and
+/// Dismissal policy for a finished operation's status card. The card's
+/// timer used to wipe the technical log with it after 6 – 20 seconds; the
+/// log now stays until the next operation or an explicit Clear log, and
 /// only success and cancel cards dismiss themselves on a timer. A failure or
 /// terminal fallback card keeps its reason (and the open-in-terminal action)
 /// visible until then.

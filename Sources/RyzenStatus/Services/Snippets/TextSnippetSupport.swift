@@ -195,7 +195,7 @@ enum TextSnippetSupport {
     /// shows the rest selected after the caret: a browser's address bar turns
     /// "gitgra" into "gitgra[ph]". The first backspace then removes only that
     /// selection, so it takes one more, or the trigger keeps its first
-    /// character (issue #1377). Only a selection that starts after the
+    /// character. Only a selection that starts after the
     /// trigger and runs to the end of the text counts, measured in the UTF-16
     /// units Accessibility counts in. A selection elsewhere is not where the
     /// backspaces land: a terminal can keep one in its scrollback while you

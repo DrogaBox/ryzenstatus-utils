@@ -1357,7 +1357,7 @@ This is an app setting only. No kext is involved and nothing has to change in yo
 
 ## [1.38.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 
-Package-manager coexistence for Intel, safer clipboard controls, a corrected floating Dynamic Island, and most of the upstream port (shared foundations, everyday tools, windows, captures, mouse and the Dynamic Island's AI section). This release is a continuation of the upstream port, not a claim that every remaining block is complete: AMD-aware metric views, the Settings redesign, the remaining upstream test suites and native translation review are still pending.
+Package-manager coexistence for Intel, safer clipboard controls, a corrected floating Dynamic Island, and a large round of shared foundations, everyday tools, windows, captures, mouse and the Dynamic Island's AI section. Still pending: AMD-aware metric views, the Settings redesign, more test suites and native translation review.
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
 
@@ -1379,7 +1379,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - Clipboard: automatic cleanup, text preview, history window with saved size, OCR in previews, image editing, optional menu bar preview item.
 - Keep Awake: pause on lock, keep awake while chosen apps run, lid dimming, last-pick shortcut, battery protection.
 - Displays: lid-close dimming, keyboard backlight control, brightness shortcuts for display and keyboard.
-- Windows, switcher, captures and recorder from upstream: window layout gestures and exclusions, unified capture with watermark and tool picker, recorder blur, image overlay and export speed.
+- Windows, switcher, captures and recorder: window layout gestures and exclusions, unified capture with watermark and tool picker, recorder blur, image overlay and export speed.
 - Mixer: AirPlay routes and the precise volume roller.
 - Radial menu: per-profile shortcuts, visual editor, Now Playing read from the app's single Now Playing engine.
 - Mouse and scrolling: one Mouse page, Spaces gesture, Back/Forward side buttons in Settings, time-based smooth scrolling with response and coast, linear scrolling.
@@ -1389,7 +1389,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - The package-manager feature keeps its existing storage identity and Homebrew ownership safeguards, so current installations and preferences survive the new provider selector.
 - Homebrew commands inherit only supported proxy and `HOMEBREW_*` exports from a bounded login-shell session. Environment resolution stays off the main thread.
 - Launch synchronizes the island once for its installed modules and plans the monitor once for its metrics instead of repeatedly initializing the same services.
-- Memory in use follows upstream's definition (app + wired + compressed + tagged storage) and is read with a pure Swift decoder that understands macOS 26's newer statistics layout.
+- Memory in use is app + wired + compressed + tagged storage, read with a pure Swift decoder that understands macOS 26's newer statistics layout.
 - Decimal numbers in the monitor follow your region's separator.
 - Temporary-link sharing for captures and recordings stays hidden until a sharing server is configured; there is no default server.
 - Synthetic input events carry RyzenStatus's own marker, so they are never confused with another app's.
@@ -1409,7 +1409,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 
 Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes apps installed with Homebrew, the Cleaner finds forgotten screenshots and reports what an automatic cleanup left behind, and the app now speaks Slovak and Ukrainian.
 
-> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). All changes are strictly within the macOS application layer. **No kext updates in EFI or driver reinstalls are required.**
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17). All changes are strictly within the macOS application layer. **No kext updates in EFI or driver reinstalls are required.**
 
 ### Added
 
@@ -1469,7 +1469,7 @@ Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes 
 
 Bug fix for the hardware validation kext revision gate resolution.
 
-> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). **No kext updates in EFI or driver reinstalls are required.**
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17). **No kext updates in EFI or driver reinstalls are required.**
 
 ### Fixed
 
@@ -1479,15 +1479,14 @@ Bug fix for the hardware validation kext revision gate resolution.
 
 Hardware validation evidence surface to close pending silicon probes, frozen tachometer detector wiring, native Kaset player integration in Now Playing, and resolution of the launch hang caused by synchronous TCC prompts.
 
-> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). The full hardware validation cycle enabled by this release operates on existing kernel selectors, and the Now Playing integration operates entirely in the macOS user space layer. **No kext updates in EFI or driver reinstalls are required.**
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17). The full hardware validation cycle enabled by this release operates on existing kernel selectors, and the Now Playing integration operates entirely in the macOS user space layer. **No kext updates in EFI or driver reinstalls are required.**
 
 ### Added
 
-- **"Hardware Validation" Page in Settings** (`checkmark.seal`): The bottleneck for `[REQUIERE-HW]` milestone items was not missing code, but that evidence had no home. Kernel logs are sandboxed from repository tooling (`log show`), and CLI utilities (`--sensors` / `--selftest`) cannot be used during a probe cycle because closing a kext client triggers `clientClose()`, returning all six fan channels to BIOS and silently clearing the state being measured. The app itself is now the structured evidence surface.
+- **"Hardware Validation" Page in Settings** (`checkmark.seal`): Hardware probes had no place to keep their evidence: CLI utilities (`--sensors` / `--selftest`) cannot be used during a probe cycle because closing a kext client triggers `clientClose()`, returning all six fan channels to BIOS and silently clearing the state being measured. The app itself is now the structured evidence surface.
 - **Preconditions Matrix with PASS/FAIL/UNKNOWN Verdicts**: Real-time diagnostic gates with actionable fix hints and technical rationale: kext revision check against pin (3.34.17), selector 100 telemetry, privileged access, fan channel topology with AIO pump identification, per-channel tachometer trust, and Super I/O family inference. The *Run Preconditions Check* button evaluates selector 58 (privileged, read-only: writes no fan, voltage, or limit). Two documented false positives are now surfaced as explicit UI gates: unprivileged runs fall back to BIOS (~15% duty, mimicking the curve floor), and frozen tachometers make a stalled fan look healthy.
 - **P0–P6 Probe Checklist with Persisted State & Telemetry Sampling**: Retains validation history across reboot cycles. *Record Sample* captures a single-line snapshot (kext package temperature & power, per-channel duty %, RPM, and tachometer validity), capped at 400 bounded lines with FIFO eviction so the freshest evidence is evaluated.
 - **Copyable ASCII Evidence Report**: Formatted diagnostic report containing preconditions, fan channels (mode, chip duty %, RPM, validity, pump mark), curves (source sensor and fan mapping), package power readings, and the three core safety invariants (`floor=PWM40`, `guard=85 °C/PWM200`, `failsafe=PWM160`). The block is also embedded into the SMU diagnostics bundle to ensure bug reports and probe verdicts align.
-- **`HARDWARE_VALIDATION.md`** (local work document, gitignored): Step-by-step runbook for all seven probes, PASS criteria per probe, documented false positives, and roadmap checklist.
 - **Native Kaset Player Integration in Now Playing**: Full support for Kaset ([sozercan/kaset](https://github.com/sozercan/kaset)), the native macOS YouTube Music and YouTube client:
   - Bundle detection for both `com.sertacozercan.Kaset` and `com.sertacozercan.kaset` with active-player priority in Auto mode over paused background sessions.
   - JSON protocol parser for `get player info` (title, artist, album, duration, position, YouTube `videoId`, and artwork URL).
@@ -1509,7 +1508,7 @@ Hardware validation evidence surface to close pending silicon probes, frozen tac
 
 Modular separation of Overclocking/PBO in Settings, Dashboard telemetry deduplication, clarification on effective frequency/parked cores, and sensor cleanup.
 
-> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). All changes are strictly within the macOS application layer (UI, presentation, and monitoring services).
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17). All changes are strictly within the macOS application layer (UI, presentation, and monitoring services).
 
 ### Added & Changed
 
@@ -1525,7 +1524,7 @@ Modular separation of Overclocking/PBO in Settings, Dashboard telemetry deduplic
 
 ## [1.34.0] — 2026-09-14 — kexts 3.34.17
 
-Wave S11 release: Super I/O dual register map, duty cycle estimator, tachometer validity, fan-curve hardware safety floor & AIO pump protection. **Hardware validated on reference AMD Ryzen 9 5900XT / ASUS ROG Crosshair VII Hero (ITE IT8665E).**
+Super I/O dual register map, duty cycle estimator, tachometer validity, fan-curve hardware safety floor & AIO pump protection. **Hardware validated on reference AMD Ryzen 9 5900XT / ASUS ROG Crosshair VII Hero (ITE IT8665E).**
 
 Also new: `docs/SUPERIO.md`, which documents the Super I/O fan layer —
 the two ITE register maps, how to tell a pump channel from a fan channel, why duty
@@ -1666,13 +1665,13 @@ from any file touched.
 ## [1.31.0] — 2026-09-12
 
 ### AMD App: L3 decode + SMU-native value promotion
-- **L3 (GameCache) telemetry decoded** from the PM-table snapshot: per-cache effective clock, temperature, logic/VDDM power and EDC limit, from the `pm_tables.c` L3 tail blocks (0x380805/0x380804: 2 caches; 0x380904/0x380905: 1). Every layout's documented minimum size already bounds the L3 block, so the existing fail-closed size gate protects it; provenance kept honest — the two upstream-tested maps are hardware-validated against the live 5900XT fixtures, the 8-core maps stay synthetic-tested until a silicon capture lands. GameCache clocks are stored in GHz like core clocks and scale ×1000.
+- **L3 (GameCache) telemetry decoded** from the PM-table snapshot: per-cache effective clock, temperature, logic/VDDM power and EDC limit, from the `pm_tables.c` L3 tail blocks (0x380805/0x380804: 2 caches; 0x380904/0x380905: 1). Every layout's documented minimum size already bounds the L3 block, so the existing fail-closed size gate protects it; the two-cache maps are hardware-validated against live 5900XT fixtures, and the one-cache maps stay synthetic-tested until a silicon capture lands. GameCache clocks are stored in GHz like core clocks and scale ×1000.
 - **SMU-native promotion (the goal was: computed estimates give way to SMU values)**: `ProcessorModel` is now the **single owner** of the PM-table fetch+decode, refreshed on the telemetry tick into a thread-safe cache with a 6 s freshness gate (a stopped kext timer cleanly falls back to the old path). `lastCPUPowerWatts` prefers SMU SOCKET_POWER while fresh — menu bar and panel package power now come from the SMU itself instead of the kext-computed selector-100 estimate. The PM-table's per-core CORE_FREQEFF is deliberately **not** promoted into the SystemMonitor core snapshot: it is a window average (a CC6-parked core decodes to single-digit MHz) and would corrupt every current-clock aggregate — the Settings min/max/avg rows, the popover CPU card, the menu bar avg/peak and the IPS estimate; true per-core SMU clocks remain in the per-core disclosure and the dashboard grid, which render them with sleeping-core semantics. CPU temperature deliberately stays on its existing instantaneous sources: the PM table's PEAK_TEMP is a window peak, not an instantaneous reading.
 - **Settings**: the SMU PM Table section renders an L3 row per cache (clock, temp, logic+VDDM power, EDC limit) under the same monospace technical-label convention.
 - **Menu panel**: the per-core disclosure gains one compact L3 row per cache (clock/temp/power, full fields on hover) sized to the audited 308 pt row budget.
 - **Dashboard**: the Performance Suite dashboard gains an "SMU Telemetry (PM Table)" section — socket-power and package-temperature cards with trend charts (domain scaled to the PPT limit), a fabric-clock card (FCLK/UCLK/MEMCLK), and a 4-column per-core effective-clock grid fed by the same single-owner decode on the shared 3 s sync. One new localized key across all 13 locales; the section hides entirely on old kexts or undecodable table versions.
 - **Core grid, reinvented (UI alignment wave)**: the classic per-core load card in the menu panel gains a persisted metric mode — LOAD (the classic cyan→purple fill, byte-for-byte unchanged), or MHz / °C / W rendering true per-physical-core SMU cells with fixed scales (5.4 GHz / 100 °C / 25 W ceilings) so cells stay comparable; sleeping cores render flat and dim. The mode switch appears only while the SMU table decodes and cleanly falls back to LOAD otherwise. The dashboard's per-core grid gains the same voltage / C0 / CC6 column toggles as the panel disclosure, sharing the same persisted keys — both surfaces stay in sync.
-- **Tests**: synthetic L3 vectors for all four versions (both cache counts, exact elements, GHz→MHz scaling), live-fixture L3 pins (cache temps/clocks/EDC on both 5900XT captures), freshness-gate boundaries, and the promotion/mapping contract. Suite grew to **6172 checks OK**; strict-concurrency gate 0 diagnostics. App-only wave — kexts unchanged at **3.34.12**, no zip/SHA churn.
+- **Tests**: synthetic L3 vectors for all four versions (both cache counts, exact elements, GHz→MHz scaling), live-fixture L3 pins (cache temps/clocks/EDC on both 5900XT captures), freshness-gate boundaries, and the promotion/mapping contract. Suite grew to **6172 checks OK**; strict-concurrency gate 0 diagnostics. App-only release, kexts unchanged at **3.34.12**, no zip/SHA churn.
 
 ### Fixed
 - **Menu popover no longer flips beside the icon** when tall content hits the panel's scroll cap (SMU per-core disclosure, iStats chart editor — any capped content). The height budget now subtracts the real chrome: 40 pt margin, outer panel padding inside the section accounting — a capped window always fits the visible frame.
@@ -1764,7 +1763,7 @@ from any file touched.
 ### AMD Kernel & Concurrency
 - **Zero `nonisolated(unsafe)` in the kext bridge**: all six unsafe actor-isolation escape hatches in `ProcessorModel` were replaced with lock-guarded boxes in the project's established `PowerCache` pattern — an atomic `ConnectBox` for the IOKit handle (per-call handle snapshot in every kext call), a `WatchdogBox` for the reload-reconnect task, an `IdentityCache` for the About-panel kext version and baseboard strings, and a `FavoriteThreadsCache` for the menu-panel core-grid badges. The strict-concurrency gate remains at zero diagnostics; behavior is unchanged.
 - **Curve Optimizer capability report (new read-only selector 35)**: the kext — not the app — is now the single source of truth for whether Curve Optimizer writes are accepted, exposing {supported, active SMU command ID, safe offset range}. The settings UI gates on this report first and only falls back to the app-side family/model check on pre-1.22 kexts. Curve Optimizer behavior is unchanged on Vermeer (Zen 3) and stays fail-closed on Zen 4/5; a future kernel-side enablement will no longer require an app update. New tests cover the selector's sign-extension decode of the offset range.
-- Under the hood: this wave also fixed a latent kext-build breakage in the selector-34 access path by promoting the SMU-mailbox capability accessors to public members.
+- Under the hood: this release also fixed a latent kext-build breakage in the selector-34 access path by promoting the SMU-mailbox capability accessors to public members.
 
 ## [1.22.0] — 2026-09-10
 
@@ -2340,7 +2339,7 @@ Fourth stable release. Zero-warning compiler optimization, fan control overrides
 
 ### Stable Release
 
-Third stable release. Ports remaining upstream utility services and dependency methods.
+Third stable release. Adds the remaining utility services and dependency methods.
 
 ### Features
 - **Shortcut Capture**: Silences global shortcuts during recording sessions—captured keystrokes won't trigger features.
@@ -2358,7 +2357,7 @@ Third stable release. Ports remaining upstream utility services and dependency m
 
 ### Stable Release
 
-Second stable release. Adds 6 new productivity features from upstream plus GPU alert localizations and audit fixes.
+Second stable release. Adds 6 new productivity features plus GPU alert localizations and audit fixes.
 
 ### Features
 - **Boost Limiter**: Automatically reduces system volume when an app starts making loud noises—perfect for unexpected full-screen videos or audio glitches.
@@ -2469,7 +2468,7 @@ First stable release. Consolidates all beta features, fixes, and improvements fr
 
 ## [1.6.0-beta1]
 
-- **PRE-FASE 0 Kext Sanity Check**: Dynamic detection of `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` at launch. Runs gracefully in degraded read-only mode with UI warning banner instead of forcing app termination when kexts are missing.
+- **Kext Sanity Check**: Dynamic detection of `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` at launch. Runs gracefully in degraded read-only mode with UI warning banner instead of forcing app termination when kexts are missing.
 - **Classic Menu Bar Appearance**: Added 0% CPU/GPU overhead `.classic` menu bar appearance option.
 - **32-Thread SMT Dashboard & CCD Breakdown**: Full 32-logical-thread core grid support with distinct CCD0 and CCD1 temperature telemetry (`ccd0Temperature`, `ccd1Temperature`).
 - **Combined Metric Graph**: Dual-axis overlay of Peak CPU Frequency (GHz) over CPU Load (%) in metric detail views.

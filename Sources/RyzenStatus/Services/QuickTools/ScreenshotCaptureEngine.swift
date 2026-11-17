@@ -172,7 +172,7 @@ enum ScreenshotCaptureEngine {
     static func captureWindow(_ windowID: CGWindowID,
                               scale: CGFloat) async -> (image: CGImage, scale: CGFloat)? {
         // A sheet or dialog the app stacked on the window is a window of its
-        // own, and neither single-window route draws it (issue #1098). The
+        // own, and neither single-window route draws it. The
         // window list answers this without waiting on shareable content, so
         // the ordinary capture keeps the faster route.
         let onScreen = onScreenWindows()

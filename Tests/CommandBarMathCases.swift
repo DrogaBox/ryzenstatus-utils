@@ -6,8 +6,8 @@ import Foundation
 /// The command bar's inline calculator: what it answers, what it refuses, and
 /// how it writes the answer back in the person's own number format.
 ///
-/// Expectations are the upstream suite's (Tests/CommandBarFeatureTests.swift,
-/// "Command bar calculator"), run against the local `CommandBarMath`.
+/// Expectations for the "Command bar calculator" section, run against
+/// `CommandBarMath`.
 enum CommandBarMathCases {
     static func run(_ expect: CommandBarExpect) {
         func math(_ input: String, decimal: String = ".", grouping: String = ",") -> String? {

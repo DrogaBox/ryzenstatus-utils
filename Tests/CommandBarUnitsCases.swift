@@ -4,9 +4,8 @@
 import Foundation
 
 /// Unit conversion: what converts, what is refused, and how a number is read
-/// in each region's format. Expectations are the upstream suite's
-/// (Tests/CommandBarFeatureTests.swift, "Command bar unit conversion") run
-/// against the local `CommandBarUnits`.
+/// in each region's format. Expectations for the "Command bar unit
+/// conversion" section, run against `CommandBarUnits`.
 enum CommandBarUnitsCases {
     static func run(_ expect: CommandBarExpect) {
         func units(_ input: String,
@@ -114,8 +113,7 @@ enum CommandBarUnitsCases {
 
         // The measurement's words come from the localization data of the macOS
         // it runs on, not from the locale it is handed, so only the split into
-        // whole feet and leftover inches and the number format are pinned here
-        // (upstream issue #1344).
+        // whole feet and leftover inches and the number format are pinned here.
         let unitNumbers: (String?) -> [String] = { text in
             (text ?? "").split(whereSeparator: { !"0123456789.,-".contains($0) })
                 .filter { $0.rangeOfCharacter(from: .decimalDigits) != nil }

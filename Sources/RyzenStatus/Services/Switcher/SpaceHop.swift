@@ -4,7 +4,7 @@
 import AppKit
 
 /// Takes a switcher or dock-preview selection to a window that lives on a
-/// Space the user is not looking at (issue #339). The hop runs in stages, each
+/// Space the user is not looking at. The hop runs in stages, each
 /// verified against the window server and escalating only when the previous
 /// stage did not make the window's Space visible:
 ///

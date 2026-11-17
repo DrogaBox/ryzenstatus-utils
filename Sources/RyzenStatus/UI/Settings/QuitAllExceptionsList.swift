@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Apps "Quit all apps" leaves running. Mandatory rows (Finder, RyzenStatus,
 /// Phone when installed) stay locked; everything else is picked like the other
-/// exception lists (issue #855).
+/// exception lists.
 struct QuitAllExceptionsList: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = QuickTogglesService.shared

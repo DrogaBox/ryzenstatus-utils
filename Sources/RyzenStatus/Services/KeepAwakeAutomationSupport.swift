@@ -105,7 +105,7 @@ enum KeepAwakeAutomationSupport {
     }
 
     /// Whether the automation should hold a session open. Any (the default,
-    /// and the only behaviour before issue #1587) needs one matching
+    /// and the only behaviour before All existed) needs one matching
     /// condition; All needs every enabled one, which is also what ends a
     /// session when one of them goes away: with Any, an app that is still
     /// running keeps the Mac up after its AC power is gone.

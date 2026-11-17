@@ -112,8 +112,8 @@ struct NotchMascotSettingsStrings {
         case .timerStarted: return timerStarted
         case .timeIsUp: return FeatureStrings.notchActivities(language).finished
         case .music: return FeatureStrings.radialMenu(language).mediaNowPlaying
-        // This fork has no AI agents section; Settings never offers the
-        // moment, so it reads as a visit if it is ever named.
+        // Settings never offers the agents moment, so it reads as a visit
+        // if it is ever named.
         case .agents: return visitMoment
         case .eventStarts: return FeatureStrings.notchCalendar(language).ongoing
         case .downloadFinished: return FeatureStrings.notchFiles(language).completed

@@ -3308,7 +3308,7 @@ final class NotchService: ObservableObject {
         // The song held for the next one's notice is the one that ended; the
         // next song is named once the notice lets it go. With New track off
         // it keeps to the cover and the bars from the start, as the notched
-        // strip does (#3573).
+        // strip does.
         guard heldMusic == nil, NotchSupport.routes(.track) else { return }
         if again {
             guard NowPlayingService.shared.playback?.isPlaying == true,

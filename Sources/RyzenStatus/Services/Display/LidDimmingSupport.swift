@@ -18,8 +18,8 @@ enum LidDimmingSupport {
 
     /// The lid just closed while the option is armed. A reading of nil or
     /// zero means the panel already reads asleep — `BrightnessService` keeps
-    /// such a reading out of its own remembered level for the same reason
-    /// (issue #370): trusting it here would save "0" and later restore the
+    /// such a reading out of its own remembered level for the same reason:
+    /// trusting it here would save "0" and later restore the
     /// panel to black instead of leaving it alone.
     static func lidClosed(currentBrightness: Double?) -> Action {
         guard let currentBrightness, currentBrightness > 0 else { return .none }

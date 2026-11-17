@@ -12,11 +12,11 @@ import os
 ///
 /// Every capture has the system check Screen Recording for this app, and the
 /// window server can wait for that check on its main thread. When the check
-/// stalls (tccd took over a minute under heavy load in issue #1863), a
-/// window-server capture gives up on ScreenCaptureKit after 30 seconds and
-/// asks the window server directly, which then waits on the same check until
-/// macOS's 40-second watchdog ends the session. So a capture starts only soon
-/// after the check answered promptly, a slow answer or a slow capture pauses
+/// stalls (tccd has taken over a minute under heavy load), a window-server
+/// capture gives up on ScreenCaptureKit after 30 seconds and asks the window
+/// server directly, which then waits on the same check until macOS's
+/// 40-second watchdog ends the session. So a capture starts only soon after
+/// the check answered promptly, a slow answer or a slow capture pauses
 /// captures for longer each time, and nothing waits behind a turn that has
 /// not come back.
 final class WindowServerCaptureQueue: @unchecked Sendable {

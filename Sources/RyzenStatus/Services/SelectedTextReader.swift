@@ -90,7 +90,7 @@ enum SelectedTextReader {
     ///
     /// Only the selection, its length and its text are asked, never a role: a
     /// role query switches a Chromium app's renderers into full accessibility
-    /// mode for the rest of its life (issue #953), and this is asked of
+    /// mode for the rest of its life, and this is asked of
     /// whatever app is in front.
     static func focusedTextSelection(processID: pid_t, timeout: TimeInterval) -> FocusedTextSelection? {
         guard AXIsProcessTrusted(), processID != ProcessInfo.processInfo.processIdentifier

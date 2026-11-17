@@ -40,7 +40,7 @@ final class PastePlainService: ObservableObject {
     func performPastePlain() {
         // Without Accessibility the synthesized ⌘V can never be posted: say so
         // (system prompt once, a beep after) instead of silently swallowing the
-        // shortcut, which reads as "the feature does nothing" (issue #186).
+        // shortcut, which reads as "the feature does nothing".
         guard AXIsProcessTrusted() else {
             if promptedForAccessibility {
                 NSSound.beep()
@@ -61,11 +61,11 @@ final class PastePlainService: ObservableObject {
         // An app that ships its own matching-style paste does this better
         // than any synthesized ⌘V: the destination decides the typing
         // attributes (a stripped string pasted normally can leave the
-        // insertion point stuck with the styling of what it landed in,
-        // issue #349), the pasteboard keeps the original formatting for
-        // later pastes, and held modifier keys don't matter to a menu
-        // press. The strip-and-restore dance below stays as the fallback
-        // for every app without that command.
+        // insertion point stuck with the styling of what it landed in),
+        // the pasteboard keeps the original formatting for later pastes,
+        // and held modifier keys don't matter to a menu press. The
+        // strip-and-restore dance below stays as the fallback for every
+        // app without that command.
         if plain != nil, pressNativeMatchStyleItem() { return }
 
         var releaseHotkey = false

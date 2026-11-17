@@ -123,7 +123,7 @@ struct UninstallFailureNote: View {
 }
 
 /// Why the uninstaller turned down the app just dropped on it. The drop
-/// springs back, which on its own read as the drop never arriving (#1582).
+/// springs back, which on its own read as the drop never arriving.
 struct UninstallRefusalNote: View {
     let refusal: UninstallerSupport.RefusedApp
     var compact = false

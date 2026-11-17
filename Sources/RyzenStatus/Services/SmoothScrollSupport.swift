@@ -233,8 +233,8 @@ enum SmoothScrollSupport {
     /// left to that window. Its scroll views already apply the system's notch
     /// distance and easing, and the glide would deliver the same notch late,
     /// in pixels, and at the smooth scrolling step, which the clipboard
-    /// history and the panel's lists felt as laggy, longer scrolling (issue
-    /// #3780). A receiver of 0 is unknown, never ours.
+    /// history and the panel's lists felt as laggy, longer scrolling. A
+    /// receiver of 0 is unknown, never ours.
     static func targetsOwnWindow(targetProcessID: Int64, ownProcessID: Int64) -> Bool {
         targetProcessID != 0 && targetProcessID == ownProcessID
     }

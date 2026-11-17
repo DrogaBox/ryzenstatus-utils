@@ -8,12 +8,12 @@ import IOKit.usb
 /// Owns the list of connected external USB devices for the Connected Devices
 /// feature.
 ///
-/// Upstream samples this list inside `SystemMonitor`. This fork's monitor is
-/// AMD-specific and its telemetry paths stay untouched, so the list lives in
-/// this standalone owner instead. It is event driven rather than polled: one
-/// IOKit read when a surface starts watching, then a fresh read only after a
-/// USB device arrives or leaves. With no surface watching, or with the feature
-/// uninstalled in the hub, the IOKit notifications are torn down.
+/// `SystemMonitor` is AMD-specific and its telemetry paths stay untouched, so
+/// the list lives in this standalone owner instead of being sampled there. It
+/// is event driven rather than polled: one IOKit read when a surface starts
+/// watching, then a fresh read only after a USB device arrives or leaves. With
+/// no surface watching, or with the feature uninstalled in the hub, the IOKit
+/// notifications are torn down.
 final class ConnectedDevicesMonitor: ObservableObject {
     static let shared = ConnectedDevicesMonitor()
 

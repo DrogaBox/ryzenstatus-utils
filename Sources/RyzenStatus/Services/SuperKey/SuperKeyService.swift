@@ -269,7 +269,7 @@ final class SuperKeyService: ObservableObject {
                 | (CGEventMask(1) << CGEventType.keyUp.rawValue)
                 | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
             // Transform keys before every session shortcut consumer, even one
-            // that starts or restarts after us (#3556). The HID tail keeps raw
+            // that starts or restarts after us. The HID tail keeps raw
             // filters and shortcut recording ahead of the transformation.
             guard let tap = CGEvent.tapCreate(
                 tap: .cghidEventTap,
@@ -306,7 +306,7 @@ final class SuperKeyService: ObservableObject {
 
             // Mouse button presses need the modifiers too — a drag chord like
             // "move and resize by dragging" reads them off the mouse-down, not
-            // off any keyboard event (#888). They are stamped from a separate
+            // off any keyboard event. They are stamped from a separate
             // tap at the HID stage, which runs before every session tap
             // regardless of creation order, so consumers in this process and
             // clicks delivered to other apps both see the held modifiers.

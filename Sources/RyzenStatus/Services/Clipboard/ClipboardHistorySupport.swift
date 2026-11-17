@@ -139,7 +139,7 @@ enum ClipboardHistoryPasteRestore {
 
 /// Apps a history pick only copies into. Remote desktop clients rebuild the
 /// remote keyboard from the physical keys, so a synthetic ⌘V or ⌃V arrives
-/// without its modifier and types a bare "v" into the session (#3781). The
+/// without its modifier and types a bare "v" into the session. The
 /// pick stays on the clipboard, which the client shares with the session, for
 /// the user to paste themselves.
 enum ClipboardHistoryPasteTarget {
@@ -1160,7 +1160,7 @@ enum ClipboardHistoryPasteboardText {
     /// Whether the board's picture is only a rendering of text it also
     /// carries. Spreadsheet and rich-text copies put plain text next to a
     /// picture of it, with RTF or HTML siblings saying so; a screenshot or
-    /// image copy has no such siblings, so it keeps its picture. Refs #3818.
+    /// image copy has no such siblings, so it keeps its picture.
     static func prefersPlainText(types: [String], plainText: String?) -> Bool {
         guard trimmed(plainText) != nil else { return false }
         let rich = [NSPasteboard.PasteboardType.rtf, .rtfd, .html].map(\.rawValue)
@@ -1307,7 +1307,7 @@ enum ClipboardHistorySensitiveText {
         if isWebURL(text) { return false }
         // An identifier code is nobody's secret, and it fits the shape below
         // exactly: long, unbroken, letters and digits with dashes between
-        // them. Copying one around is ordinary work, so it stays (issue #423).
+        // them. Copying one around is ordinary work, so it stays.
         if isIdentifierCode(text) { return false }
 
         guard text.count >= 20, text.count <= 160, !text.contains(where: { $0.isWhitespace }) else {

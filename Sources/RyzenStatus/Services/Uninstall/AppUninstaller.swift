@@ -72,7 +72,7 @@ final class AppUninstaller: ObservableObject {
     @Published private(set) var homebrewPackage: HomebrewPackage?
     @Published private(set) var homebrewCheckFailed = false
     /// The app the last selection turned down, so the empty state can say
-    /// why instead of springing back in silence (#1582). An accepted
+    /// why instead of springing back in silence. An accepted
     /// selection or a reset clears it.
     @Published private(set) var refusal: UninstallerSupport.RefusedApp?
     @Published var items: [Leftover] = []

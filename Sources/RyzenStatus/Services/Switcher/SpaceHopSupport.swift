@@ -4,7 +4,7 @@
 import CoreGraphics
 
 /// Pure decisions behind showing and reaching windows that live on a Space the
-/// user is not currently looking at (issue #339). Kept free of AppKit and
+/// user is not currently looking at. Kept free of AppKit and
 /// window-server calls so the unit tests can exercise every branch.
 enum SpaceHopSupport {
     /// The largest number of "move a space" steps a hop will replay. Spaces
@@ -23,17 +23,17 @@ enum SpaceHopSupport {
     /// macOS follows an activation to another Space only when the app has no
     /// window where the user is already looking. With one there, activating
     /// just raises that window, so waiting for a travel that cannot happen is
-    /// pure delay and the hop asks for the move immediately (issue #422).
+    /// pure delay and the hop asks for the move immediately.
     /// An accepted Accessibility raise gets a chance to travel directly to the
     /// target Space. Arrival still has to be verified; success is only an
-    /// acknowledgement of the request (issue #2210).
+    /// acknowledgement of the request.
     static func firstStage(appHasWindowOnVisibleSpace: Bool,
                            directRaiseSucceeded: Bool = false) -> FirstStage {
         if directRaiseSucceeded { return .waitForActivationTravel }
         return appHasWindowOnVisibleSpace ? .moveASpace : .waitForActivationTravel
     }
 
-    /// Whether an arrival pulse should run the focus pass again (issue #1733).
+    /// Whether an arrival pulse should run the focus pass again.
     /// The first pulse always runs: it is the one Accessibility has to settle
     /// for. A later pulse only repeats it when the earlier pass has not landed,
     /// because raising a window that is already its app's focused window, with
@@ -84,7 +84,7 @@ enum SpaceHopSupport {
 
     /// Hiding an app tags each window it takes off screen. A window the app
     /// had already closed keeps its desktop assignment but never gets the
-    /// tag (issues #512 and #2628). The tag only means this while the app is
+    /// tag. The tag only means this while the app is
     /// hidden: a window closed in the meantime keeps it.
     static func isHiddenWithApp(windowTags: UInt64) -> Bool {
         let hiddenWithAppTag: UInt64 = 1 << 39
@@ -94,7 +94,7 @@ enum SpaceHopSupport {
     /// Minimizing a window into the Dock tags it from the start of the
     /// animation until it is restored. A window its app closed or hid never
     /// gets the tag, though both leave it off screen on the Space in front
-    /// (measured on macOS 27, issue #3249).
+    /// (measured on macOS 27).
     static func isMinimized(windowTags: UInt64) -> Bool {
         let minimizedTag: UInt64 = 1 << 60
         return windowTags & minimizedTag != 0

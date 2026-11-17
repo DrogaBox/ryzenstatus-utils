@@ -13,7 +13,7 @@ import Foundation
 /// the display's bottom-left origin, no preferred position is ever saved, and
 /// nothing the app does (recreating the item, resetting its autosave identity)
 /// changes that. Recovery has to recognise the state and point at the switch
-/// instead of blaming a full bar (#1394).
+/// instead of blaming a full bar.
 enum MenuBarAllowanceSupport {
     enum Allowance: Equatable {
         case allowed

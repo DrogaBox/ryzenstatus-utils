@@ -5,7 +5,7 @@ import AppKit
 import Combine
 import Foundation
 
-/// Apps whose copies never reach the clipboard history (issue #423).
+/// Apps whose copies never reach the clipboard history.
 ///
 /// The pasteboard says what was copied, never who copied it, so the app has to
 /// be worked out from who had the screen at the time. The history reads the

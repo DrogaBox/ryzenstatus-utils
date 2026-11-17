@@ -42,7 +42,7 @@ struct KeepAwakeAutomationEditor: View {
                 }
             }
             // One condition cannot be combined with anything, so the mode
-            // would be a control with no effect (issue #1587).
+            // would be a control with no effect.
             if selectedConditionCount > 1 {
                 Picker(selection: $requireAll) {
                     Text(strings.matchAny).tag(false)

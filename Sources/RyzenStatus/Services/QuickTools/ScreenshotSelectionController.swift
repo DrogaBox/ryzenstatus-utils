@@ -976,7 +976,7 @@ private final class ScreenshotOverlayPanel: OverlayPanel {
         // draws nothing over the desktop until a drag starts. Left at its
         // default, a window hands a press on a fully transparent pixel to
         // whatever is under it, so the desktop took the drag instead of the
-        // selection (#3005). Set explicitly, the panel takes every press.
+        // selection. Set explicitly, the panel takes every press.
         ignoresMouseEvents = false
 
         // The frozen still sits in its own view UNDER the chrome: a backing
@@ -1614,8 +1614,8 @@ private final class ScreenshotOverlayView: NSView {
         context.restoreGState()
 
         // A ring around the target pixel rather than lines through it: the
-        // ring sits just outside the pixel so the sample keeps its own color
-        // (issue #755), and the pixel grid underneath makes each
+        // ring sits just outside the pixel so the sample keeps its own color,
+        // and the pixel grid underneath makes each
         // magnified cell read as the single screen pixel it is.
         let target = ScreenshotSupport.captureLoupeTargetPixelRect(
             around: pixelPoint,
