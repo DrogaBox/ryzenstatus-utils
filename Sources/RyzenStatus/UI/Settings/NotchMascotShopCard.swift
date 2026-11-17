@@ -110,6 +110,10 @@ struct NotchMascotShopCard: View {
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Self.tint(item.rarity).opacity(0.18), in: Capsule())
                         .foregroundStyle(Self.tint(item.rarity))
+                    // The newest batches carry the wardrobe's own "new" mark.
+                    if item.isLabItem || item.isMayhemItem {
+                        NotchMascotNewBadge(text: FeatureStrings.notchMascotWardrobe(language).newBadge)
+                    }
                     if owned {
                         Text(craft.alreadyHas)
                             .font(.caption2.weight(.semibold))

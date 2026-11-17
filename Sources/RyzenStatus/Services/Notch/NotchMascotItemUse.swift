@@ -398,6 +398,7 @@ struct NotchMascotItemUse: Equatable {
                           (1.5, .symbol("★", .gold, count: 1)), (1.8, .move(.strut))])
         default:
             return partyUse(item, style: style) ?? oddityUse(item) ?? craftUse(item) ?? fairUse(item, random: random)
+                ?? labUse(item, random: random)
         }
     }
     // swiftlint:disable:next cyclomatic_complexity function_body_length

@@ -42,6 +42,17 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     case fishingRod, butterflyNet, wateringCan, pottedCactus, fryingPan, cupcake, lollipop, trumpet
     case violin, basketball, puzzleCube, answerBall, pinwheel, slingshot, balloonDog, sparkler
     case boomBox, hardHat, astronautHelmet, graduationCap, flowerCrown, binoculars, superCape, stilts
+    /// The lab: things that throw fire, water, wind, sparks, frost, light,
+    /// sound, pepper or a bonk at the nearest friend, and things that make
+    /// something of what is thrown at them.
+    case torch, waterBalloon, leafBlower, plasmaBall, freezeRay, laserPointer, tuningFork, pepperShaker
+    case squeakyHammer, popcornBucket, mysteryEgg, seedPacket, fireExtinguisher, lightningRod, rubberBoots, pocketMirror
+    case windChime, fishBowl, hotCocoa, iceSkates, gasMask, pinata, bubblingFlask, jackInTheBox
+    /// Mayhem: magnets, honey, goo, hypnosis, tickles, a big red button
+    /// and the things that make chaos out of all of it.
+    case giantMagnet, honeyJar, slimeBlaster, airHorn, hypnoSpiral, tickleFeather, hotSauce, bigRedButton
+    case stickyHand, fireworkRocket, bubbleWrap, metalDetector, compass, batteryPack, tapShoes, jelly
+    case trampoline, raincoat, garlicNecklace, voodooDoll, cheeseWheel, ghostTrap, lavaLamp, icePop
 
     var id: String { rawValue }
 
@@ -51,6 +62,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
                                                    .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
                                                    + partyItems + oddityItems + craftItems + fairItems
+                                                   + labItems + mayhemItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -100,9 +112,22 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .violin, .basketball, .puzzleCube, .answerBall, .pinwheel, .slingshot, .balloonDog, .sparkler,
         .boomBox, .hardHat, .astronautHelmet, .graduationCap, .flowerCrown, .binoculars, .superCape, .stilts]
     var isFairItem: Bool { Self.fairItems.contains(self) }
+    /// The twenty-four of the lab, each throwing or taking a stimulus.
+    static let labItems: [NotchMascotAccessory] = [
+        .torch, .waterBalloon, .leafBlower, .plasmaBall, .freezeRay, .laserPointer, .tuningFork, .pepperShaker,
+        .squeakyHammer, .popcornBucket, .mysteryEgg, .seedPacket, .fireExtinguisher, .lightningRod, .rubberBoots,
+        .pocketMirror, .windChime, .fishBowl, .hotCocoa, .iceSkates, .gasMask, .pinata, .bubblingFlask, .jackInTheBox]
+    var isLabItem: Bool { Self.labItems.contains(self) }
+    /// The twenty-four of mayhem, more chaos for the chains.
+    static let mayhemItems: [NotchMascotAccessory] = [
+        .giantMagnet, .honeyJar, .slimeBlaster, .airHorn, .hypnoSpiral, .tickleFeather, .hotSauce, .bigRedButton,
+        .stickyHand, .fireworkRocket, .bubbleWrap, .metalDetector, .compass, .batteryPack, .tapShoes, .jelly,
+        .trampoline, .raincoat, .garlicNecklace, .voodooDoll, .cheeseWheel, .ghostTrap, .lavaLamp, .icePop]
+    var isMayhemItem: Bool { Self.mayhemItems.contains(self) }
     /// Bought with gold rather than earned by level.
     var isPurchasable: Bool {
         isRPGItem || isShopItem || isDanceItem || isToyItem || isPartyItem || isOddity || isCraftItem || isFairItem
+            || isLabItem || isMayhemItem
     }
 
     /// Whether `style`, at `level`, may wear it: earned by its own level,
@@ -163,6 +188,22 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .stilts: return .feet
         case .fishingRod, .butterflyNet, .wateringCan, .pottedCactus, .fryingPan, .cupcake, .lollipop, .trumpet,
              .violin, .basketball, .puzzleCube, .answerBall, .pinwheel, .slingshot, .balloonDog, .sparkler, .boomBox:
+            return .hand
+        // The lab and mayhem: the rod on the head, the mask on the face,
+        // the garlic round the neck, boots, skates, tap shoes and the
+        // trampoline under the feet, the battery and the raincoat on its
+        // back, and the rest in hand.
+        case .lightningRod: return .head
+        case .gasMask: return .eyes
+        case .garlicNecklace: return .neck
+        case .rubberBoots, .iceSkates, .tapShoes, .trampoline: return .feet
+        case .batteryPack, .raincoat: return .back
+        case .torch, .waterBalloon, .leafBlower, .plasmaBall, .freezeRay, .laserPointer, .tuningFork, .pepperShaker,
+             .squeakyHammer, .popcornBucket, .mysteryEgg, .seedPacket, .fireExtinguisher, .pocketMirror, .windChime,
+             .fishBowl, .hotCocoa, .pinata, .bubblingFlask, .jackInTheBox,
+             .giantMagnet, .honeyJar, .slimeBlaster, .airHorn, .hypnoSpiral, .tickleFeather, .hotSauce, .bigRedButton,
+             .stickyHand, .fireworkRocket, .bubbleWrap, .metalDetector, .compass, .jelly, .voodooDoll, .cheeseWheel,
+             .ghostTrap, .lavaLamp, .icePop:
             return .hand
         case .bubbleGum, .kazoo, .snorkelMask, .wizardBeard, .spiderMonocle: return .eyes
         case .featherBoa: return .neck

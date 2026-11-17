@@ -35,8 +35,9 @@ enum NotchMascotFairTests {
         suite.expect(NotchMascotWearables.behindBody(.superCape) && NotchMascotWearables.coversHead(.astronautHelmet)
                      && NotchMascotWearables.coversHead(.hardHat),
                      "the cape goes behind the body and the helmets cover the head")
-        suite.expect(Array(NotchMascotAccessory.wardrobe.suffix(items.count)) == items,
-                     "the fair comes last in the wardrobe, after the workshop")
+        let afterFair = NotchMascotAccessory.labItems + NotchMascotAccessory.mayhemItems
+        suite.expect(Array(NotchMascotAccessory.wardrobe.suffix(items.count + afterFair.count)) == items + afterFair,
+                     "the fair comes after the workshop, and the lab and the mayhem after the fair")
     }
 
     private static func words(_ suite: TestSuite) {

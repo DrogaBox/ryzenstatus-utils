@@ -808,6 +808,52 @@ extension NotchMascotPlayEffects {
             return [NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.34), fill: rgb(0xFFFFFF),
                                             stroke: rgb(0xCFC9BC), lineWidth: max(0.5, side * 0.04)),
                     NotchMascotWearablePart(path: seam, fill: nil, stroke: rgb(0xE5384F), lineWidth: max(0.5, side * 0.05))]
+        case .drop, .goo:
+            // A drop, round below and pointed above: water, or green goo.
+            let drop = CGMutablePath()
+            drop.move(to: CGPoint(x: c.x, y: c.y - side * 0.42))
+            drop.addQuadCurve(to: CGPoint(x: c.x + side * 0.3, y: c.y + side * 0.12), control: CGPoint(x: c.x + side * 0.28, y: c.y - side * 0.12))
+            drop.addArc(center: CGPoint(x: c.x, y: c.y + side * 0.12), radius: side * 0.3, startAngle: 0, endAngle: .pi, clockwise: false)
+            drop.addQuadCurve(to: CGPoint(x: c.x, y: c.y - side * 0.42), control: CGPoint(x: c.x - side * 0.28, y: c.y - side * 0.12))
+            let shine = NotchMascotWearableShapes.circle(CGPoint(x: c.x - side * 0.1, y: c.y + side * 0.06), side * 0.07)
+            let fill = thing == .drop ? rgb(0x59B7FF) : rgb(0x8CEB4A)
+            let edge = thing == .drop ? rgb(0x2D7FD1) : rgb(0x4FA81F)
+            return [NotchMascotWearablePart(path: drop, fill: fill, stroke: edge, lineWidth: max(0.5, side * 0.05)),
+                    NotchMascotWearablePart(path: shine, fill: rgb(0xFFFFFF))]
+        case .pepper:
+            // A little brown cloud of pepper, three puffs and black grains.
+            let puff = CGMutablePath()
+            for (dx, dy, r) in [(-0.16, 0.04, 0.2), (0.12, 0.06, 0.22), (0.0, -0.12, 0.2)] as [(CGFloat, CGFloat, CGFloat)] {
+                puff.addPath(NotchMascotWearableShapes.circle(CGPoint(x: c.x + dx * side, y: c.y + dy * side), r * side))
+            }
+            let grains = CGMutablePath()
+            for (dx, dy) in [(-0.18, 0.0), (0.08, 0.1), (0.02, -0.14), (0.2, -0.04)] as [(CGFloat, CGFloat)] {
+                grains.addPath(NotchMascotWearableShapes.circle(CGPoint(x: c.x + dx * side, y: c.y + dy * side), side * 0.04))
+            }
+            return [NotchMascotWearablePart(path: puff, fill: rgb(0xC9A27A)), NotchMascotWearablePart(path: grains, fill: rgb(0x2A1E14))]
+        case .feather:
+            // A pink feather: a curved quill and a soft vane.
+            let vane = CGMutablePath()
+            vane.move(to: CGPoint(x: c.x - side * 0.3, y: c.y + side * 0.36))
+            vane.addQuadCurve(to: CGPoint(x: c.x + side * 0.3, y: c.y - side * 0.4), control: CGPoint(x: c.x - side * 0.36, y: c.y - side * 0.3))
+            vane.addQuadCurve(to: CGPoint(x: c.x - side * 0.3, y: c.y + side * 0.36), control: CGPoint(x: c.x + side * 0.34, y: c.y + side * 0.1))
+            let quill = CGMutablePath()
+            quill.move(to: CGPoint(x: c.x - side * 0.36, y: c.y + side * 0.42))
+            quill.addQuadCurve(to: CGPoint(x: c.x + side * 0.28, y: c.y - side * 0.38), control: CGPoint(x: c.x - side * 0.02, y: c.y - side * 0.02))
+            return [NotchMascotWearablePart(path: vane, fill: rgb(0xFF9ECF)),
+                    NotchMascotWearablePart(path: quill, fill: nil, stroke: rgb(0xFFFFFF), lineWidth: max(0.5, side * 0.05))]
+        case .spiral:
+            // A hypnotic spiral, purple and white.
+            let disc = NotchMascotWearableShapes.circle(c, side * 0.44)
+            let spiral = CGMutablePath()
+            spiral.move(to: c)
+            for step in 1...40 {
+                let t = CGFloat(step) / 40
+                let a = t * 4 * .pi
+                spiral.addLine(to: CGPoint(x: c.x + cos(a) * t * side * 0.4, y: c.y + sin(a) * t * side * 0.4))
+            }
+            return [NotchMascotWearablePart(path: disc, fill: rgb(0xFFFFFF), stroke: rgb(0x7B2FF7), lineWidth: max(0.5, side * 0.04)),
+                    NotchMascotWearablePart(path: spiral, fill: nil, stroke: rgb(0x7B2FF7), lineWidth: max(0.6, side * 0.07))]
         default:
             return []
         }
@@ -981,6 +1027,16 @@ private final class NotchMascotPassivePanel: NSPanel {
 final class NotchMascotPlayStage {
     private var panel: NSPanel?
     private var view: NotchMascotPlayLayerView?
+    /// When something last asked for the layer to draw into.
+    private var lastDrawn: CFTimeInterval = 0
+    private var watching = false
+    /// A stage left open with nothing showing on it puts itself away after
+    /// this long without drawing: an empty window over the whole screen
+    /// still costs the window server a blend on every frame the companions
+    /// move, and a show that forgets to close it would leave it there.
+    static let idleClose: CFTimeInterval = 5
+    /// How often an open stage looks whether it still shows anything.
+    static let idleCheck: TimeInterval = 2
 
     /// The layer to draw into over `screen`, in screen points less the
     /// screen's origin; `point(_:)` turns a screen point into its own.
@@ -998,7 +1054,37 @@ final class NotchMascotPlayStage {
             panel.orderFrontRegardless()
         }
         panel.ignoresMouseEvents = true
+        lastDrawn = CACurrentMediaTime()
+        watchIdle()
         return view?.canvas
+    }
+    private func watchIdle() {
+        guard !watching else { return }
+        watching = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleCheck) { [weak self] in self?.checkIdle() }
+    }
+    private func checkIdle() {
+        watching = false
+        guard let panel, panel.isVisible, let canvas = view?.canvas else { return }
+        if Self.shouldClose(idleFor: CACurrentMediaTime() - lastDrawn, showing: Self.shows(canvas)) {
+            close()
+        } else {
+            watchIdle()
+        }
+    }
+    /// Whether a stage idle this long, showing something or not, is put away.
+    static func shouldClose(idleFor idle: CFTimeInterval, showing: Bool) -> Bool {
+        idle >= idleClose && !showing
+    }
+    /// Whether anything under `layer` can still be seen or is still moving.
+    static func shows(_ layer: CALayer) -> Bool {
+        (layer.sublayers ?? []).contains { sublayer in
+            if sublayer.isHidden || (sublayer.presentation() ?? sublayer).opacity < 0.01 { return false }
+            if let keys = sublayer.animationKeys(), !keys.isEmpty { return true }
+            if type(of: sublayer) != CALayer.self || sublayer.contents != nil || sublayer.backgroundColor != nil
+                || sublayer.borderWidth > 0 || sublayer.shadowOpacity > 0 { return true }
+            return shows(sublayer)
+        }
     }
 
     func point(_ screenPoint: CGPoint) -> CGPoint {

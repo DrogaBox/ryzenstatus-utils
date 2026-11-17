@@ -5952,6 +5952,8 @@ extension NotchService {
                                              chance: NotchMascotItemUse.islandChance, random: Double.random(in: 0..<1))
         else { return }
         lastMascotItemUse = now
+        // Now and then what one holds is thrown across the room instead.
+        if Double.random(in: 0..<1) < NotchMascotChain.islandChance, startMascotIslandChain() { return }
         var users: [(byLeader: Bool, item: NotchMascotAccessory, style: NotchMascotStyle)] = []
         let leader = NotchMascotSupport.look()
         if leader.style.takesAccessory { users.append((true, leader.accessory, leader.style)) }
@@ -5964,6 +5966,28 @@ extension NotchService {
         let beats = use.islandBeats(byLeader: user.byLeader)
         guard !beats.isEmpty else { return }
         startMascotIslandPlay(NotchMascotIslandPlay(kind: .item(user.item), beats: beats), solo: true)
+    }
+    /// The two resting in the island set off a chain: one throws what it
+    /// holds or breathes across the room, the other takes it its own way and
+    /// may throw something back. True when it started.
+    @discardableResult
+    func startMascotIslandChain() -> Bool {
+        guard !mascotIslandPlaying, !mascotOnDesktop, NotchMascotSupport.reacts(), mascotItemUseFits,
+              mascotFriendRests(on: geometry), !mascotFriendSteppedAside, !mascotFriendOut,
+              let friend = mascotFriendLook else { return false }
+        let leader = NotchMascotSupport.look()
+        let members = [leader, friend].enumerated().map { index, look in
+            NotchMascotChainMember(look.style.takesAccessory ? look.accessory : .none, look.style, x: CGFloat(index),
+                                   formed: look.form != nil)
+        }
+        let starters = members.indices.filter {
+            NotchMascotChain.emission(item: members[$0].item, style: members[$0].style) != nil
+        }
+        guard let starter = starters.randomElement(),
+              let plan = NotchMascotChain.plan(members, starter: starter)?.settled() else { return false }
+        NotchMascotChainLog.record(plan)
+        startMascotIslandPlay(NotchMascotChain.islandPlay(plan, item: members[starter].item))
+        return true
     }
     /// The Pocket Card asks for `play`: it plays now where the closed island
     /// shows the two at rest, or as soon as the island rests closed again.
@@ -6575,8 +6599,23 @@ extension NotchService {
             previewMascotOccasion()
             shows.shake(mascotCheatCast)
             return
+        case .chainreaction:
+            shows.shake(mascotCheatCast)
+            if mascotOnDesktop {
+                NotificationCenter.default.post(name: .notchMascotChainNow, object: nil)
+            } else if !startMascotIslandChain(), NotchMascotCheatShows.movesFreely {
+                // Nothing to throw in the island: out they come, and the gang throws.
+                beginMascotDesktop(grabbedAt: nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    NotificationCenter.default.post(name: .notchMascotChainNow, object: nil)
+                }
+            }
+            return
         case .party:
             NotificationCenter.default.post(name: .notchMascotSummonGang, object: nil)
+        case .motherlode:
+            // The gold its banner promises, outside the day's share of luck.
+            NotchMascotRPG.collect(gold: NotchMascotCheat.motherlodeGold)
         default:
             break
         }

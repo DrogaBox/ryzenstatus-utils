@@ -211,7 +211,7 @@ enum NotchMascotEncounters {
         case .flowerCrown: return [.butterflies, .rainbow]
         case .fishingRod: return [.fishJump, .dockBoat]
         case .wateringCan: return [.rainbow, .rainShower]
-        default: return []
+        default: return labLured(item)
         }
     }
 

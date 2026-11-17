@@ -130,11 +130,8 @@ struct NotchMascotCheatsTests {
         suite.expect(NotchMascotCheat.motherlode.badge == "💸 +10,000 GOLD", "motherlode badge matches")
         suite.expect(NotchMascotCheat.motherlode.soundEffect == .coin, "motherlode sound matches .coin")
 
-        let initialGold = UserDefaults.standard.integer(forKey: DefaultsKey.notchMascotGold)
-        UserDefaults.standard.set(initialGold + 10_000, forKey: DefaultsKey.notchMascotGold)
-        suite.expect(UserDefaults.standard.integer(forKey: DefaultsKey.notchMascotGold) == initialGold + 10_000,
-                     "motherlode awards 10,000 gold")
-        UserDefaults.standard.set(initialGold, forKey: DefaultsKey.notchMascotGold)
+        suite.expect(NotchMascotCheat.motherlodeGold == 10_000 && NotchMascotCheat.motherlode.badge.contains("10,000"),
+                     "motherlode pays the 10,000 gold its banner says")
     }
 
     private static func newCheatSequences(_ suite: TestSuite) {

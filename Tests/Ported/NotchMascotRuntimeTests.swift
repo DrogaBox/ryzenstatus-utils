@@ -83,6 +83,12 @@ enum NotchMascotRuntimeTests {
         let range = NotchMascotDesktop.frameRates
         suite.expect(range.minimum == 30 && range.maximum == 72 && range.preferred == 60,
                      "the desktop companion asks for 60 frames, up to 72 and down to 30")
+        let walk = NotchMascotDesktop.walkFrameRates
+        suite.expect(walk.preferred == 30 && walk.maximum == 30 && walk.minimum >= 24,
+                     "walking it asks for 30 frames, half the window moves")
+        suite.expect(NotchMascotDesktop.frameRates(walking: true).preferred == 30
+                     && NotchMascotDesktop.frameRates(walking: false).preferred == 60,
+                     "flights, throws and the way home keep 60")
     }
 
     // MARK: The bond

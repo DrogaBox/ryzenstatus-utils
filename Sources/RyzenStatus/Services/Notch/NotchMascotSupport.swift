@@ -1846,4 +1846,6 @@ enum NotchMascotSupport {
 extension Notification.Name {
     /// Calls every companion of the gang out onto the desktop at once.
     static let notchMascotSummonGang = Notification.Name("NotchMascotSummonGang")
+    /// A chain reaction now, out on the desktop: asked by the cheat.
+    static let notchMascotChainNow = Notification.Name("NotchMascotChainNow")
 }
