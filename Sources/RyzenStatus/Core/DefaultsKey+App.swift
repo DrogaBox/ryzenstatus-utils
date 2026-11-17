@@ -1074,6 +1074,10 @@ extension DefaultsKey {
     // Per-monitor connection paths whose display answered the audio controls
     // with no speakers behind them, remembered like the write-only paths.
     static let displayAudioSilentPaths = "displayAudioSilentPaths"
+    // The level last written to each monitor whose speakers take volume
+    // writes but never answer a reading, by connection path: there is
+    // nothing to read it back from.
+    static let displayAudioBlindLevels = "displayAudioBlindLevels"
     static let uninstallerWatchesTrash = "uninstallerWatchesTrash"
     static let panelControlSmoothScroll = "panelControlSmoothScroll"
     static let screenshotScrollingAutoScroll = "screenshotScrollingAutoScroll"

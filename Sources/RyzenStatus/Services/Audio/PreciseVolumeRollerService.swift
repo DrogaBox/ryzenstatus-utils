@@ -19,6 +19,9 @@ final class PreciseVolumeRollerService: ObservableObject {
     /// Monitor volume presses this tap claimed and has not yet seen released,
     /// so their key-ups are consumed too. Main thread only: the tap runs there.
     private var monitorVolumeKeysHeld: [BrightnessSupport.VolumeKeyAction: BrightnessSupport.SpeakerTarget] = [:]
+    private var monitorFeedbackPreview: (target: BrightnessSupport.SpeakerTarget, volume: Double,
+                                         muted: Bool?, revision: UInt64)?
+    private var monitorFeedbackRevision: UInt64 = 0
     /// Island steps bypass the system, so its volume click plays on release here.
     /// Waits for both the release and the last step's adjustment, so a failed
     /// step forwarded to macOS never plays a second click.
@@ -68,6 +71,7 @@ final class PreciseVolumeRollerService: ObservableObject {
         feedback = nil
         keyOwnership = PreciseVolumeKeyOwnership()
         monitorVolumeKeysHeld = [:]
+        monitorFeedbackPreview = nil
     }
 
     private func start() {
@@ -209,14 +213,14 @@ final class PreciseVolumeRollerService: ObservableObject {
     private func applyMonitorVolumeKey(_ action: BrightnessSupport.VolumeKeyAction,
                                        target: BrightnessSupport.SpeakerTarget, fine: Bool, step: Int) {
         let mixer = AppVolumeMixer.shared
-        guard mixer.monitorOutput?.target == target else {
+        guard let output = mixer.monitorOutput, output.target == target else {
             if feedback?.step == step { feedback = nil }
             return
         }
-        func landed(_ result: AppVolumeMixer.OutputKeyResult) {
-            let applied = result == .applied && mixer.monitorOutput?.target == target
-            if applied { Self.showMonitorFeedback() }
+        // The click waits for the change to land, whatever the notice showed.
+        func settleClick(_ result: AppVolumeMixer.OutputKeyResult) {
             guard feedback?.step == step else { return }
+            let applied = result == .applied && mixer.monitorOutput?.target == target
             // Like macOS, the mute key clicks only when it unmutes.
             if applied, action != .toggleMute || mixer.monitorOutput?.muted == false {
                 feedback?.applied = true
@@ -225,24 +229,60 @@ final class PreciseVolumeRollerService: ObservableObject {
             }
             playFeedbackIfReady()
         }
-        switch action {
-        case let .step(direction):
-            let settings = BrightnessService.shared.monitorVolumeKeySettings
-            mixer.requestOutputStep(level: {
-                settings.requestedLevel(from: $0, direction: direction, fine: fine)
-            }, raises: direction > 0, completion: landed)
-        case .toggleMute:
-            mixer.requestOutputMuteToggle(completion: landed)
+        if action == .toggleMute {
+            mixer.requestOutputMuteToggle { result in
+                if result == .applied, let confirmed = mixer.monitorOutput, confirmed.target == target {
+                    Self.showMonitorFeedback(level: confirmed.volume,
+                                             muted: confirmed.muted, displayID: target.displayID)
+                }
+                settleClick(result)
+            }
+            return
         }
+        // The notice shows the level the key asks for at once, and is put
+        // right if the monitor lands somewhere else.
+        let prior = monitorFeedbackPreview?.target == target ? monitorFeedbackPreview : nil
+        let volume = prior?.volume ?? output.volume
+        let muted = prior?.muted ?? output.muted
+        let settings = BrightnessService.shared.monitorVolumeKeySettings
+        guard case let .step(direction) = action else { return }
+        let start = muted == true && direction > 0 ? 0 : volume
+        let requested = settings.requestedLevel(from: start, direction: direction, fine: fine)
+        let level = min(Double(settings.maximumPercent) / 100,
+                        max(Double(settings.minimumPercent) / 100, requested))
+        let preview = (volume: level, muted: direction > 0 ? false : level == 0 ? true : muted)
+        let outputUID = mixer.currentOutputDeviceUID
+        monitorFeedbackRevision &+= 1
+        let revision = monitorFeedbackRevision
+        monitorFeedbackPreview = (target, preview.volume, preview.muted, revision)
+        Self.showMonitorFeedback(level: preview.volume, muted: preview.muted, displayID: target.displayID)
+        func landed(_ result: AppVolumeMixer.OutputKeyResult) {
+            defer { settleClick(result) }
+            guard monitorFeedbackPreview?.revision == revision else { return }
+            monitorFeedbackPreview = nil
+            guard let confirmed = mixer.monitorOutput, confirmed.target == target else {
+                if result != .applied, outputUID != nil, mixer.currentOutputDeviceUID == outputUID {
+                    Self.showMonitorFeedback(level: output.volume, muted: output.muted,
+                                             displayID: target.displayID)
+                }
+                return
+            }
+            if result != .applied || confirmed.volume != preview.volume || confirmed.muted != preview.muted {
+                Self.showMonitorFeedback(level: confirmed.volume, muted: confirmed.muted,
+                                         displayID: target.displayID)
+            }
+        }
+        mixer.requestOutputStep(level: {
+            settings.requestedLevel(from: $0, direction: direction, fine: fine)
+        }, raises: direction > 0, completion: landed)
     }
 
     /// Shows the monitor's level after a key moved it. The island takes the
     /// notice when it can; the brightness overlay is the fallback.
-    private static func showMonitorFeedback() {
-        if NotchService.shared.showCurrentVolume() { return }
-        guard let output = AppVolumeMixer.shared.monitorOutput else { return }
-        BrightnessOSD.show(displayID: output.target.displayID, level: output.volume,
-                           kind: output.muted == true ? .mutedVolume : .volume)
+    private static func showMonitorFeedback(level: Double, muted: Bool?, displayID: CGDirectDisplayID) {
+        if NotchService.shared.showVolume(level, muted: muted) { return }
+        BrightnessOSD.show(displayID: displayID, level: level,
+                           kind: muted == true ? .mutedVolume : .volume)
     }
 
     private func routeNotchVolume(_ nsEvent: NSEvent, event: CGEvent) -> Bool {
