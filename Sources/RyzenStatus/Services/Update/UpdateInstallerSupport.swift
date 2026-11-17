@@ -98,13 +98,14 @@ enum UpdateInstallerSupport {
                 # adds): FinderInfo breaks strict signature verification.
                 /usr/bin/xattr -cr "$STAGE" 2>/dev/null
                 # Two kinds of build are accepted:
-                #   1. Developer ID + notarized (the official CI pipeline): the
-                #      certificate anchor below proves the publisher.
-                #   2. Ad-hoc signed (manual releases, no paid Apple identity):
-                #      there is no certificate to anchor, so the gate falls back
-                #      to an intact seal plus the project's bundle identifier —
-                # Production updates strictly enforce the Developer ID requirement.
-                # In developer builds or testing, ad-hoc is gated behind allowAdhoc.
+                #   1. Developer ID + notarized: the certificate anchor below
+                #      proves the publisher.
+                #   2. Ad-hoc signed (every release CI publishes: no paid Apple
+                #      identity): there is no certificate to anchor, so the gate
+                #      is an intact seal plus the project's bundle identifier.
+                #      ALLOW_ADHOC is only 1 when the app already checked that
+                #      the DMG's SHA-256 equals the one GitHub published for the
+                #      release asset (or for the local developer build).
                 # The bundle must be the release that was offered: a DMG that
                 # carries another version (an old asset served under the new
                 # name) is refused before anything is replaced.
@@ -204,6 +205,15 @@ enum UpdateInstallerSupport {
             .map(shellSingleQuoted)
             .joined(separator: " ")
         return "/usr/bin/nohup /bin/sh -c \(script) ryzenstatus-installer \(args) >/dev/null 2>&1 &"
+    }
+
+    /// Whether the installer may accept an ad-hoc signed bundle. Releases are
+    /// ad-hoc signed, and without a Developer ID certificate the only proof
+    /// that the DMG is the published one is its SHA-256 matching the digest
+    /// GitHub lists for the asset. Without that match the installer demands
+    /// Developer ID, which no current release has.
+    static func allowsAdhocInstall(isDeveloperBuild: Bool, digestVerified: Bool) -> Bool {
+        isDeveloperBuild || digestVerified
     }
 
     /// Whether the next install attempt should go straight through the admin

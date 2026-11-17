@@ -1,6 +1,14 @@
 # Changelog
 
-## [1.83.2] — 2026-11-16 — kexts 3.40.3
+## [1.83.3] — 2026-11-16 — kexts 3.40.3 (No kext changes)
+
+**Download and Update works again.** Install this one by hand: open the DMG below and drag RyzenStatus over the copy you have. The update button in older versions cannot install it, and from 1.83.3 on it can.
+
+### Fixed
+
+- **The update button never installed anything**: since August every in-app update ended with "The update was downloaded but could not be applied" (fail-verify). Releases are ad-hoc signed, but before replacing the app the installer demanded a Developer ID certificate, which no release has. The ad-hoc check was only switched on for the local developer build, which never updates itself.
+- **How a release is checked now**: GitHub publishes a SHA-256 for every release file. The app compares the downloaded DMG with it and throws it away if the two differ. Only a DMG that matches may carry an ad-hoc signed app, and the installer still checks that the app's seal is intact, that its bundle identifier is RyzenStatus's and that it is the offered version. A release without that SHA-256 still needs a Developer ID.
+- **Download size limit**: the size the release lists for the DMG was read but never used, so a download was only capped at 200 MB. It is now capped at that exact size, and a file of any other size is refused.
 
 **BIOS fan curves follow the CPU again, after sleep too (ITE IT8665E).** Install the new kexts from the DMG to get the fix.
 
