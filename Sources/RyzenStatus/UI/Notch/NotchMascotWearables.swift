@@ -33,7 +33,7 @@ final class NotchMascotWearables {
         case .topHat, .beanie, .crown, .witchHat, .santaHat, .partyHat, .headphones,
              .cap, .cowboyHat, .chefHat, .halo, .knightHelm, .vikingHelm,
              .trafficCone, .tinfoilHat, .unicornHorn, .jesterHat, .crackerCrown, .ufoHat, .beeHalo,
-             .hardHat, .astronautHelmet, .graduationCap, .flowerCrown: return true
+             .hardHat, .astronautHelmet, .graduationCap, .flowerCrown, .lightningRod: return true
         default: return false
         }
     }
@@ -41,6 +41,7 @@ final class NotchMascotWearables {
     /// Whether it is worn behind the body rather than over it.
     static func behindBody(_ accessory: NotchMascotAccessory) -> Bool {
         accessory == .angelWings || accessory == .jetpack || accessory == .superCape
+            || accessory == .batteryPack || accessory == .raincoat
     }
     /// Dresses it for `body`, the outline its fill is cut from, the eyes
     /// of `face`, its `neck`, from 0 to 1 down the figure, and its

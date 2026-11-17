@@ -53,6 +53,10 @@ final class NotchMascotGang {
     private let group = NotchMascotGroupDirector()
     /// Two of them fused into one, one pair at a time.
     private let fusion = NotchMascotFusionDirector()
+    /// Something thrown from one to the next down the line, one chain at a time.
+    private let chain = NotchMascotChainDirector()
+    private var lastChain: CFTimeInterval = -.infinity
+    private var chainObserver: NSObjectProtocol?
     private var lastGroupPlay: CFTimeInterval = -.infinity
     /// Some walk over to another display for a play of the whole gang.
     private var rallying = false
@@ -86,12 +90,16 @@ final class NotchMascotGang {
         group.mishap = { [weak self] one in self?.spread(.laugh, from: one) }
         group.ended = { [weak self] _, cast in self?.playedTogether(cast) }
         wireFusion()
+        chain.ended = { [weak self] _, cast in self?.playedTogether(cast) }
+        chainObserver = NotificationCenter.default.addObserver(forName: .notchMascotChainNow, object: nil,
+                                                               queue: .main) { [weak self] _ in self?.chainNow() }
         summonObserver = NotificationCenter.default.addObserver(forName: .notchMascotSummonGang, object: nil,
                                                                 queue: .main) { [weak self] _ in self?.summon() }
     }
 
     deinit {
         if let summonObserver { NotificationCenter.default.removeObserver(summonObserver) }
+        if let chainObserver { NotificationCenter.default.removeObserver(chainObserver) }
     }
 
     // MARK: Everyone
@@ -137,7 +145,7 @@ final class NotchMascotGang {
 
     /// Whether `one` is in a play just now, or on its way to another display.
     private func busy(_ one: NotchMascotDesktop) -> Bool {
-        one.isTravelling || fusion.involves(one) || group.involves(one)
+        one.isTravelling || fusion.involves(one) || group.involves(one) || chain.involves(one)
             || duos.contains { $0.playing != nil && $0.involves(one) }
     }
 
@@ -227,6 +235,7 @@ final class NotchMascotGang {
         duos.forEach { $0.cancel() }
         group.cancel()
         fusion.cancel()
+        chain.cancel()
     }
 
     /// The friend's own take on what the companion just reacted to, and
@@ -258,6 +267,7 @@ final class NotchMascotGang {
         guard !busy(one) else { return false }
         if startGroupPlay(around: one) { return true }
         if rallyGroup(around: one) { return true }
+        if startChain(from: one) { return true }
         // Alone on its display, it may go over to where the others are.
         if others(near: one).isEmpty, joinOthers(one) { return true }
         // At most two pairs play at once, so the desktop does not turn into a fair.
@@ -319,6 +329,41 @@ final class NotchMascotGang {
         return leanings
     }
 
+    // MARK: Chains
+    /// Now and then one with something to throw throws it at the nearest
+    /// one free on its screen, and the chain goes on from there. True when
+    /// it started. `forced`, asked for by the cheat: at once, whoever starts.
+    private func startChain(from one: NotchMascotDesktop, forced: Bool = false) -> Bool {
+        guard chain.playing == nil, gathering ? guestsMayPlay : allowed(), !one.isDozing,
+              forced || NotchMascotChain.shouldStart(since: CACurrentMediaTime() - lastChain,
+                                                     random: Double.random(in: 0..<1)),
+              NotchMascotChain.emission(item: one.playLook.accessory, style: one.playLook.style) != nil
+        else { return false }
+        let near = others(near: one).filter { $0.isFree && !$0.isDozing && !busy($0) && $0.feet != nil }
+        guard !near.isEmpty else { return false }
+        let cast = ([one] + near.prefix(NotchMascotGangVisits.mostOut - 1)).sorted { x($0) < x($1) }
+        let members = cast.map { member in
+            NotchMascotChainMember(member.playLook.style.takesAccessory ? member.playLook.accessory : .none,
+                                   member.playLook.style, x: x(member), formed: member.playLook.form != nil)
+        }
+        guard let starter = cast.firstIndex(where: { $0 === one }),
+              let plan = NotchMascotChain.plan(members, starter: starter) else { return false }
+        lastChain = CACurrentMediaTime()
+        chain.start(plan, with: cast)
+        return true
+    }
+    /// The cheat asks for a chain: the first one out with something to
+    /// throw starts it, the one holding the most likely chain first.
+    private func chainNow() {
+        guard chain.playing == nil else { return }
+        let throwers = out.filter {
+            !$0.fusedAway && !busy($0) && $0.feet != nil
+                && NotchMascotChain.emission(item: $0.playLook.accessory, style: $0.playLook.style) != nil
+        }
+        for one in throwers.shuffled() where startChain(from: one, forced: true) { return }
+        // Nobody holds anything to throw: the lead pulls a confused face.
+        if lead.isOut { lead.pullFace(.confused, for: 1.6) }
+    }
     /// A play of the whole gang, when three or more stand free on `one`'s
     /// screen and one is due.
     private func startGroupPlay(around one: NotchMascotDesktop) -> Bool {
@@ -434,6 +479,7 @@ final class NotchMascotGang {
     private func interrupted(_ one: NotchMascotDesktop) {
         for pair in duos where pair.involves(one) { pair.cancel() }
         if group.involves(one) { group.cancel() }
+        if chain.involves(one) { chain.cancel() }
         fusion.interrupted(one)
     }
 

@@ -36,6 +36,8 @@ struct NotchMascotIslandPlay: Equatable {
         case heart, star, note, spark, snowball, flower, cookie, coin, ball
         case fireball, boomerang, arrow, key, potion, bag, bolt, tornado, sword
         case pie, peel, dynamite, balloon, duck
+        /// What the chains throw: water, pepper, goo, a feather and a hypnotic spiral.
+        case drop, pepper, goo, feather, spiral
         case snack(NotchMascotSnack)
     }
 

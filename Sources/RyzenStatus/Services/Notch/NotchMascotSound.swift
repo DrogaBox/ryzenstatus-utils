@@ -39,6 +39,9 @@ enum NotchMascotSoundMap {
         case .coin, .bag: return .coin
         case .snack: return .munch
         case .balloon: return .boing
+        case .goo, .drop: return .slurp
+        case .feather: return .giggle
+        case .spiral: return .warble
         default: return .whoosh
         }
     }
@@ -53,6 +56,10 @@ enum NotchMascotSoundMap {
         case .snack: return .munch
         case .heart, .flower: return .chime
         case .sword: return .clash
+        case .drop, .goo: return .splat
+        case .pepper: return .poof
+        case .feather: return .giggle
+        case .spiral: return .magic
         default: return .pop
         }
     }

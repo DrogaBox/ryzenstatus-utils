@@ -13,6 +13,10 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
     case workshop
     /// The fair and the field.
     case fair
+    /// The lab: things that throw and take stimuli.
+    case lab
+    /// Mayhem: magnets, honey, goo, hypnosis and tickles.
+    case mayhem
 
     var id: Int { rawValue }
 
@@ -39,6 +43,8 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .forms: return "Transformations"
         case .workshop: return "The workshop"
         case .fair: return "The fair and the field"
+        case .lab: return "The lab"
+        case .mayhem: return "Mayhem"
         }
     }
 
@@ -65,6 +71,8 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .forms: return "Transformaciones"
         case .workshop: return "El taller"
         case .fair: return "La feria y el campo"
+        case .lab: return "El laboratorio"
+        case .mayhem: return "El caos"
         }
     }
 }
@@ -304,6 +312,7 @@ enum NotchMascotSynergyCatalog {
 
     static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
         + species + quests + curiosities + mascots + dance + toys + legends + signals + party + oddities + fairground
+        + laboratory + mayhemCombos
 
     static var total: Int { all.count }
 

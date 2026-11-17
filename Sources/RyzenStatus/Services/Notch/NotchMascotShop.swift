@@ -32,6 +32,7 @@ enum NotchMascotRarity: Int, CaseIterable, Comparable {
 
 extension NotchMascotAccessory {
     var rarity: NotchMascotRarity {
+        if let lab = Self.labRarity(self) { return lab }
         switch self {
         case .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .sleepMask, .pacifier, .goldBag, .hourglass,
              .rubberDuck, .bananaPeel, .clownNose, .whoopeeCushion, .trafficCone, .wiltedFlower, .tissueBox,
@@ -212,6 +213,7 @@ enum NotchMascotShop {
         NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
             + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems
             + NotchMascotAccessory.oddityItems + NotchMascotAccessory.craftItems + NotchMascotAccessory.fairItems
+            + NotchMascotAccessory.labItems + NotchMascotAccessory.mayhemItems
     }
     /// Everything the island's companion can still be bought.
     static var unowned: [NotchMascotAccessory] { unowned(for: activeStyle()) }

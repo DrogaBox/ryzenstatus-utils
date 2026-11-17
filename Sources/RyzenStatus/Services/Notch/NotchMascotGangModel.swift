@@ -362,7 +362,8 @@ enum NotchMascotGangCasting {
             let own = wardrobe(for: style, level: level, owns: owns)
             // Its toys and party gear more often than its hats, so the gang
             // has something to play with.
-            let playful = own.filter { $0.isPartyItem || $0.isToyItem || $0.isOddity || $0.isCraftItem || $0.isFairItem }
+            let playful = own.filter { $0.isPartyItem || $0.isToyItem || $0.isOddity || $0.isCraftItem || $0.isFairItem
+                || $0.isLabItem || $0.isMayhemItem }
             let pool = random() < 0.6 && !playful.isEmpty ? playful : own
             if !pool.isEmpty { look.accessory = pick(pool) }
         }

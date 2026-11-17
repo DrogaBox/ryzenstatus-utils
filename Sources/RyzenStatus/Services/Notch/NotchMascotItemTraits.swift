@@ -100,7 +100,7 @@ struct NotchMascotItemTrait: Equatable {
         case .shovel: return .init(gait: 0.9, trail: .dust)
         case .halo: return .init(gait: 0.95, face: .happy, trail: .stars)
         case .horns: return .init(gait: 1.1, face: .mischievous)
-        default: return fair(item) ?? .plain
+        default: return fair(item) ?? lab(item) ?? .plain
         }
     }
 }

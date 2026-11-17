@@ -3518,6 +3518,14 @@ final class NotchMascotDesktop: NSObject {
     /// smoother above 60 frames, and each frame moves a window. Up to 72, a
     /// 144 Hz display runs at half its rate rather than a third.
     static let frameRates = CAFrameRateRange(minimum: 30, maximum: 72, preferred: 60)
+    /// Walking, at a few dozen points a second, a step every other frame of
+    /// 60 looks the same and moves its window half as often, which is what
+    /// the window server pays for. Flights, throws and the way home, fast
+    /// and curved, keep the full rate.
+    static let walkFrameRates = CAFrameRateRange(minimum: 24, maximum: 30, preferred: 30)
+    private var walkPaced = false
+    /// The rate `walking` asks for: walking, or anything faster.
+    static func frameRates(walking: Bool) -> CAFrameRateRange { walking ? walkFrameRates : frameRates }
 
     private func resumeTicking() {
         if displayLink == nil, let stage {
@@ -3526,6 +3534,7 @@ final class NotchMascotDesktop: NSObject {
             link.preferredFrameRateRange = Self.frameRates
             link.add(to: .main, forMode: .common)
             displayLink = link
+            walkPaced = false
         }
         if displayLink?.isPaused != false { lastTick = CACurrentMediaTime() }
         displayLink?.isPaused = false
@@ -3546,6 +3555,12 @@ final class NotchMascotDesktop: NSObject {
         let now = CACurrentMediaTime()
         let dt = (now - lastTick) * cheatPace
         lastTick = now
+        var walking = false
+        if case .walking = mode { walking = true }
+        if walking != walkPaced {
+            walkPaced = walking
+            link.preferredFrameRateRange = Self.frameRates(walking: walking)
+        }
         switch mode {
         case .standing, .held:
             stopTicking()

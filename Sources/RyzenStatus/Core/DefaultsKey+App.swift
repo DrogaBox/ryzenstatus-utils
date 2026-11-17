@@ -726,6 +726,8 @@ extension DefaultsKey {
     static let notchMascotSound = "notchMascotSound"                     // Bool, the companions' sounds (default on)
     static let notchMascotSoundVolume = "notchMascotSoundVolume"         // Double 0...1 (default 0.35)
     static let notchMascotOwned = "notchMascotOwned"                     // [String], bought accessories (raw values)
+    static let notchMascotChainsFound = "notchMascotChainsFound"         // [String], chain reactions seen, by id
+    static let notchMascotChainRaresFound = "notchMascotChainRaresFound" // [String], NotchMascotChainRare raw values seen
     static let notchMascotShopStock = "notchMascotShopStock"             // [String], what the shop shows now
     static let notchMascotShopMigrated = "notchMascotShopMigrated"       // Bool, level unlocks carried over once
     static let notchMascotInventories = "notchMascotInventories"         // [String: [String]], style -> accessories bought for that figure

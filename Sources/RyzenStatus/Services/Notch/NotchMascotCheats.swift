@@ -26,7 +26,11 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
     case thereisnospoon
     /// Low gravity a while, and a walk backwards that slides.
     case moonwalk
+    /// A chain reaction at once: the one out with something to throw throws it.
+    case chainreaction
 
+    /// The gold `motherlode` pays, as its banner says.
+    static let motherlodeGold = 10_000
     var badge: String {
         switch self {
         case .konami: return "👾 30 LIVES"
@@ -41,6 +45,7 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .bighead: return "🎈 BIG HEAD MODE"
         case .thereisnospoon: return "🥄 THERE IS NO SPOON"
         case .moonwalk: return "🌙 MOONWALK"
+        case .chainreaction: return "💥 CHAIN REACTION"
         }
     }
 
@@ -58,6 +63,7 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .bighead: return .boing
         case .thereisnospoon: return .bleep
         case .moonwalk: return .warble
+        case .chainreaction: return .boom
         }
     }
     /// What is heard as its banner comes in: its own sound, then an arcade
@@ -77,6 +83,7 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .bighead: flourish = [.squeak, .boing, .giggle]
         case .thereisnospoon: flourish = [.warble, .whoosh, .bleep]
         case .moonwalk: flourish = [.whoosh, .chirp, .warble]
+        case .chainreaction: flourish = [.fire, .zap, .splat, .boom]
         }
         return ([soundEffect] + flourish).enumerated().map { (effect: $0.element, at: Double($0.offset) * 0.17) }
     }
@@ -95,6 +102,7 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .bighead: return NSColor(srgbRed: 1, green: 0.55, blue: 0.3, alpha: 1)
         case .thereisnospoon: return NSColor(srgbRed: 0.25, green: 1, blue: 0.4, alpha: 1)
         case .moonwalk: return NSColor(srgbRed: 0.8, green: 0.85, blue: 1, alpha: 1)
+        case .chainreaction: return NSColor(srgbRed: 1, green: 0.55, blue: 0.15, alpha: 1)
         }
     }
 }
@@ -234,7 +242,8 @@ final class NotchMascotCheatEngine {
         (.party, spelled("partyhard")),
         (.bighead, spelled("bighead")),
         (.thereisnospoon, spelled("thereisnospoon")),
-        (.moonwalk, spelled("moonwalk"))
+        (.moonwalk, spelled("moonwalk")),
+        (.chainreaction, spelled("chainreaction"))
     ]
     /// The ANSI key of each letter, matched as well as the letter typed.
     private static let letterKeys: [Character: UInt16] = [

@@ -236,6 +236,7 @@ struct NotchMascotItemSignature: Equatable {
         case .binoculars: return .init(.sneak, .star, .sparkles, .peek)
         case .superCape: return .init(.highJump, .star, .sparkles, .ready)
         case .stilts: return .init(.strut, .ball, .smoke, .confused)
+        default: return lab(item)
         }
     }
 }

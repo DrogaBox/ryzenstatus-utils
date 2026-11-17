@@ -130,9 +130,9 @@ struct NotchMascotIslandPlayLayer: View {
 
     static func spins(_ thing: NotchMascotIslandPlay.Thing) -> Bool {
         switch thing {
-        case .star, .ball, .coin, .cookie, .flower, .boomerang, .pie, .peel: return true
+        case .star, .ball, .coin, .cookie, .flower, .boomerang, .pie, .peel, .feather, .spiral: return true
         case .heart, .note, .spark, .snowball, .fireball, .arrow, .key, .potion, .bag, .bolt, .tornado, .sword,
-             .dynamite, .balloon, .duck, .snack: return false
+             .dynamite, .balloon, .duck, .snack, .drop, .pepper, .goo: return false
         }
     }
 
@@ -172,6 +172,11 @@ struct NotchMascotIslandPlayLayer: View {
         case .coin:
             Circle().fill(Color(hex: 0xFFC940)).frame(width: size * 0.8, height: size * 0.8)
                 .overlay(Circle().stroke(Color(hex: 0xD99A1E), lineWidth: 0.8))
+        case .drop: symbol("drop.fill", size: size, color: Color(hex: 0x59B7FF))
+        case .pepper: symbol("aqi.medium", size: size, color: Color(hex: 0x8C6A4A))
+        case .goo: symbol("drop.fill", size: size, color: Color(hex: 0x8CEB4A))
+        case .feather: symbol("leaf.fill", size: size, color: Color(hex: 0xFFF1F8))
+        case .spiral: symbol("tornado", size: size, color: Color(hex: 0xC77DFF))
         default:
             EmptyView()
         }

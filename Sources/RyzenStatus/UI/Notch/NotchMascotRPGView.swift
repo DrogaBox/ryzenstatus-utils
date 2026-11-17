@@ -288,28 +288,37 @@ struct NotchMascotPocketCard: View {
 
     // MARK: Gear carousel
 
-    /// What the two may wear: the wardrobe unlocked by now.
+    /// What the companion may wear: the wardrobe unlocked by now.
     private var unlocked: [NotchMascotAccessory] {
         NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= level || $0 == .none }
     }
 
+    /// What the friend may wear: its own wardrobe, by its own level and
+    /// what was bought for it, never the companion's.
+    private func friendWardrobe(for style: NotchMascotStyle) -> [NotchMascotAccessory] {
+        let level = NotchMascotBondStore.shared.shownLevel(for: style)
+        return NotchMascotAccessory.wardrobe.filter { $0.isUnlocked(level: level, for: style) || $0 == .none }
+    }
+
     private var gear: some View {
         VStack(spacing: 4) {
-            carousel(title: text.text(.leader), current: NotchMascotAccessory(rawValue: accessory) ?? .none) { next in
+            carousel(title: text.text(.leader), items: unlocked,
+                     current: NotchMascotAccessory(rawValue: accessory) ?? .none) { next in
                 accessory = next.rawValue
             }
-            if NotchMascotSupport.desktopFriend() != nil {
-                carousel(title: text.text(.friend),
-                         current: NotchMascotSupport.desktopFriend()?.accessory ?? .none) { next in
+            if let friend = NotchMascotSupport.desktopFriend() {
+                carousel(title: text.text(.friend), items: friendWardrobe(for: friend.style),
+                         current: friend.accessory) { next in
                     friendAccessory = next.rawValue
                 }
             }
         }
     }
 
-    private func carousel(title: String, current: NotchMascotAccessory,
+    /// One figure's gear: a step either way, or the menu in the middle to
+    /// jump straight to anything it owns, by family.
+    private func carousel(title: String, items: [NotchMascotAccessory], current: NotchMascotAccessory,
                           choose: @escaping (NotchMascotAccessory) -> Void) -> some View {
-        let items = unlocked
         let index = items.firstIndex(of: current) ?? 0
         func step(_ delta: Int) {
             guard !items.isEmpty else { return }
@@ -320,9 +329,7 @@ struct NotchMascotPocketCard: View {
                 .frame(width: 58, alignment: .leading)
             Button { step(-1) } label: { Image(systemName: "chevron.left") }
                 .buttonStyle(.plain)
-            Text(FeatureStrings.notchMascotLife(l10n.language).name(of: current))
-                .font(.system(size: 9, weight: .semibold))
-                .lineLimit(1)
+            NotchMascotWardrobeMenu(items: items, current: current, language: l10n.language, choose: choose)
                 .frame(maxWidth: .infinity)
             Button { step(1) } label: { Image(systemName: "chevron.right") }
                 .buttonStyle(.plain)

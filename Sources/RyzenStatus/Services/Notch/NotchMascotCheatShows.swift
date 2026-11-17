@@ -98,7 +98,7 @@ final class NotchMascotCheatShows {
         case .bighead: length = bighead()
         case .thereisnospoon: length = thereIsNoSpoon()
         case .moonwalk: length = moonwalk()
-        case .xyzzy, .plugh: length = 0.6
+        case .xyzzy, .plugh, .chainreaction: length = 0.6
         }
         step(after: length) { [weak self] in self?.stop() }
     }

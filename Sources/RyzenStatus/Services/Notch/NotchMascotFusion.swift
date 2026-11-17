@@ -436,7 +436,7 @@ enum NotchMascotFusion {
                 secondary: 0xFFE14D, split: true, aura: .stardust, mark: .earrings, signature: .gulp, scale: 1.6),
         Special(name: "Poltergeist", styles: [.ghost], item: .cursedMask, night: true, body: .ghost, primary: 0x3B2A55,
                 secondary: 0x7CFF9E, split: true, aura: .spirit, mark: .gem, signature: .teleport, scale: 1.4),
-    ]
+    ] + labFusions
 
     // MARK: Elements
 

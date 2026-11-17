@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.84.0] — 2026-11-16 — kexts 3.40.3 (No kext changes)
+
+**Chain reactions: what one companion wears sets off the next.** The AMD side is untouched; this release brings forty-eight new things for the companions, chain reactions between them, sixteen rare sights and a new wardrobe to find it all.
+
+### Added
+
+- **The lab**: twenty-four new things in the companions' shop: a torch, a water balloon, a leaf blower, a plasma ball, a freeze ray, a laser pointer, a tuning fork, a pepper shaker, a squeaky hammer, a popcorn bucket, a mystery egg, a seed packet, a fire extinguisher, a lightning rod, rubber boots, a pocket mirror, a wind chime, a fish bowl, hot cocoa, ice skates, a gas mask, a piñata, a bubbling flask and a jack-in-the-box.
+- **Mayhem**: twenty-four more: a giant magnet, a honey jar, a slime blaster, an air horn, a hypno spiral, a tickle feather, hot sauce, a big red button, a sticky hand, a firework rocket, bubble wrap, a metal detector, a compass, a battery pack, tap shoes, a jelly, a trampoline, a raincoat, a garlic necklace, a voodoo doll, a cheese wheel, a ghost trap, a lava lamp and an ice pop. Like the fair's, each one changes how the companion goes about while it is worn and puts on a show of its own on the desktop and in the island. Some figures have their own way with it.
+- **Chain reactions**: a companion's thing now and then throws something at the nearest companion: fire, water, wind, a spark, frost, light, a sound, pepper, a hit, a pull, something sweet, goo, hypnosis or a tickle. The one hit reacts by what it wears, then by its figure: boots stop a spark, a lightning rod passes it on, an extinguisher puts the fire out and sprays water on, pepper brings on a sneeze that can pass to the next one. A chain can go on for up to eight throws. It also plays in the island when two companions are there.
+- **Sixteen rare sights** that only a chain can set off: a perfect chain that reaches everyone, a baby dragon or a golden egg from the mystery egg, a beanstalk to the top of the screen, a golden piñata, a blackout, an ice age, a laser show, a sneeze storm that blows every hat off, a laughing fit, a zombie conga, a big bang from the red button, buried treasure, a fireworks display, a voodoo curse sent back to its holder and a kaboom. Some pay gold.
+- **Seventy-four new combos**, to 491, and **ten new fusions**: the new things together and with the rest of the wardrobe.
+- **A new wardrobe**: with 209 things to wear, the shop's wardrobe now has a search field, families that fold, filters for where a thing is worn and whether you own it, four ways to sort, and a card for each thing that says what it does in a chain and lets you buy it there. A card of rare sights shows the ones you have seen.
+
+### Improved
+
+- **Lighter companions**: the full-screen layers that companions draw their shows on now close a few seconds after their last show, instead of staying open and empty on every display. Companions that are walking draw at 30 frames per second instead of 60. Over one minute with companions out, the window server went from 33.1% to 28.3% of a core on our test Mac.
+
+### Fixed
+
+- A cheat that showed its gold without paying it.
+
 ## [1.83.2] — 2026-11-16 — kexts 3.40.3
 
 **BIOS fan curves follow the CPU again, after sleep too (ITE IT8665E).** Install the new kexts from the DMG to get the fix.

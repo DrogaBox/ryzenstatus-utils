@@ -152,41 +152,45 @@ struct NotchMascotSettings: View {
     private var animation: Animation? { reduceMotion ? nil : .smooth(duration: 0.25) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                if !islandOn { islandNote }
-                NotchMascotStageCard(look: look, friendLook: friendLook, side: restingSide, awake: enabled,
-                                     canGreet: enabled && islandOn, visits: visits, reactions: reactions,
-                                     hides: hidesWhenIdle, text: text, language: l10n.language)
-                // Nine cards one under the other were too much to take in at
-                // once, so they are grouped, one group at a time.
-                Picker(text.appearance, selection: $section) {
-                    ForEach(Part.allCases) { Text(title(of: $0)).tag($0) }
+        // The reader lets a wardrobe family opened low on the page scroll into view.
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    if !islandOn { islandNote }
+                    NotchMascotStageCard(look: look, friendLook: friendLook, side: restingSide, awake: enabled,
+                                         canGreet: enabled && islandOn, visits: visits, reactions: reactions,
+                                         hides: hidesWhenIdle, text: text, language: l10n.language)
+                    // Nine cards one under the other were too much to take in at
+                    // once, so they are grouped, one group at a time.
+                    Picker(text.appearance, selection: $section) {
+                        ForEach(Part.allCases) { Text(title(of: $0)).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    switch section {
+                    case .appearance:
+                        appearance
+                        transformationsCard
+                    case .wardrobe:
+                        NotchMascotShopCard(look: look, language: l10n.language)
+                        wardrobeCard(proxy)
+                        NotchMascotChainCard(language: l10n.language)
+                    case .story:
+                        storyCard
+                    case .behavior:
+                        behavior
+                        automaticCard
+                        soundCard
+                        commandBarCard
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                switch section {
-                case .appearance:
-                    appearance
-                    transformationsCard
-                case .wardrobe:
-                    NotchMascotShopCard(look: look, language: l10n.language)
-                    wardrobeCard
-                case .story:
-                    storyCard
-                case .behavior:
-                    behavior
-                    automaticCard
-                    soundCard
-                    commandBarCard
-                }
+                .padding(embedded ? [.bottom] : .all, 22)
             }
-            .padding(embedded ? [.bottom] : .all, 22)
+            .onReceive(NotchMascotRPGState.shared.$purchases.removeDuplicates()) { purchases = $0 }
+            .onAppear(perform: consumeShopHint)
+            .onChange(of: router.notchCompanionShop) { _, _ in consumeShopHint() }
         }
-        .onReceive(NotchMascotRPGState.shared.$purchases.removeDuplicates()) { purchases = $0 }
-        .onAppear(perform: consumeShopHint)
-        .onChange(of: router.notchCompanionShop) { _, _ in consumeShopHint() }
     }
 
     /// The shop was asked for, from the companion on the desktop or the island.
@@ -470,46 +474,36 @@ struct NotchMascotSettings: View {
 
     // MARK: Wardrobe
 
-    /// What a tile not yet worn says: its level, or what it costs in the shop.
-    private func lockedTitle(_ item: NotchMascotAccessory) -> String {
-        guard item.isPurchasable else { return life.locked(at: item.unlockLevel) }
-        return "\(FeatureStrings.notchMascotShop(L10n.shared.language).shopTag) · \(item.price)"
+    /// The companion, as the wardrobe dresses it: its own level and what was bought for it.
+    private var companionWearer: NotchMascotWardrobeBrowser.Wearer {
+        let name = petName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NotchMascotWardrobeBrowser.Wearer(style: currentStyle, level: level,
+                                                 name: name.isEmpty ? auto.style(currentStyle, base: text) : name,
+                                                 look: look, pick: $accessory, offersOwnPick: false,
+                                                 picked: { NotchService.shared.pickMascotAccessory() })
     }
 
-    private var wardrobeCard: some View {
-        let desktopText = FeatureStrings.notchMascotDesktop(l10n.language)
-        return SettingsCard(title: life.accessories) {
+    /// The friend with its own wardrobe, when one comes out and can wear things.
+    private var friendWearer: NotchMascotWardrobeBrowser.Wearer? {
+        guard !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory else {
+            return nil
+        }
+        var preview = friendLook ?? look
+        preview.style = friendStyle
+        return NotchMascotWardrobeBrowser.Wearer(style: friendStyle, level: bondStore.shownLevel(for: friendStyle),
+                                                 name: auto.style(friendStyle, base: text), look: preview,
+                                                 pick: $friendAccessory, offersOwnPick: true, picked: {})
+    }
+
+    private func wardrobeCard(_ proxy: ScrollViewProxy) -> some View {
+        SettingsCard(title: life.accessories) {
             SettingsRow(symbol: "tshirt", title: life.accessories, caption: life.accessoriesHint) {
                 Text(life.name(of: look.accessory)).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44, maximum: 54), spacing: 8)],
-                      alignment: .leading, spacing: 8) {
-                // What the shop sells stays a surprise until it is bought.
-                ForEach(NotchMascotAccessory.wardrobe.filter { !$0.isPurchasable || $0.unlockLevel <= level }) { item in
-                    let unlocked = item.unlockLevel <= level
-                    NotchMascotAccessoryTile(accessory: item, selected: chosenAccessory == item, unlocked: unlocked,
-                                            title: unlocked ? life.name(of: item) : lockedTitle(item)) {
-                        if unlocked {
-                            accessory = item.rawValue
-                            NotchService.shared.pickMascotAccessory()
-                        }
-                    }
-                }
-            }
-            .padding(.leading, settingsRowTextInset)
-            .id(purchases)
-            if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory {
-                let friendLevel = bondStore.shownLevel(for: friendStyle)
-                // Its own wardrobe: what its level unlocks and what was bought for it.
-                SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
-                    Text(desktopText.friendItemOwn).tag("")
-                    ForEach(NotchMascotAccessory.wardrobe.filter { $0.isUnlocked(level: friendLevel, for: friendStyle) }) {
-                        Text(life.name(of: $0)).tag($0.rawValue)
-                    }
-                }
-                .padding(.leading, settingsRowTextInset)
-                .transition(.opacity)
-            }
+            // Over two hundred things: searched, filtered, sorted and kept in
+            // families that open and close, for the companion and its friend.
+            NotchMascotWardrobeBrowser(companion: companionWearer, friend: friendWearer, language: l10n.language,
+                                       purchases: purchases, scroll: proxy)
             switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
             birthdayRow
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
