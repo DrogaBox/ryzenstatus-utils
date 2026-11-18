@@ -18,6 +18,9 @@ final class MonitorAlertService {
     private var highGPUPowerSince: Date?
     private var gpuMemoryHot = SustainedCondition(duration: 12, allowedMisses: 2)
     private var gpuHeldBack = SustainedCondition(duration: 12, allowedMisses: 2)
+    /// The GPUSensors sample the two kext alerts last counted; a sample
+    /// carried over between strides is counted once, not once per tick.
+    private var gpuSensorsGate = FreshSampleGate()
     private var lastSent: [MonitorAlertKind: Date] = [:]
 
     private init() {}
@@ -38,13 +41,19 @@ final class MonitorAlertService {
         }
     }
 
-    static func anyEnabled(in defaults: UserDefaults) -> Bool {
+    /// The GPUSensors.kext alerts count only while the kext is there, so a
+    /// switch left on after it went away keeps nothing running.
+    nonisolated static func anyEnabled(in defaults: UserDefaults,
+                           gpuSensorsPresent: Bool = GPUSensorsService.shared.isPresentNow) -> Bool {
         AppFeature.anyMonitorAlertEnabled(
             isAvailable: {
                 defaults.bool(forKey: $0.availabilityKey)
                     && ($0 != .monitorPower || PowerSampler.hasInternalBattery)
             },
-            boolFor: { defaults.bool(forKey: $0) }
+            boolFor: { key in
+                guard defaults.bool(forKey: key) else { return false }
+                return gpuSensorsPresent || !DefaultsKey.gpuSensorsAlertKeys.contains(key)
+            }
         )
     }
 
@@ -71,6 +80,7 @@ final class MonitorAlertService {
         highGPUPowerSince = nil
         gpuMemoryHot.reset()
         gpuHeldBack.reset()
+        gpuSensorsGate = FreshSampleGate()
     }
 
     private func evaluate(_ snapshot: SystemSnapshot) {
@@ -128,33 +138,43 @@ final class MonitorAlertService {
             highGPUPowerSince = nil
         }
 
-        // GPUSensors.kext alerts. Without the kext `gpuSensors` is nil, so
-        // the conditions never hold.
-        if alertOn(DefaultsKey.monitorAlertGPUMemoryTemperature, .monitorGPU) {
-            let threshold = Defaults.sanitizedPercent(
-                defaults.integer(forKey: DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold),
-                fallback: 90,
-                range: 60...110)
-            let memory = snapshot.gpuSensors?.memory
-            if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: Date()), let memory {
-                send(.gpuMemoryTemperature,
-                     title: strings.gpuMemoryTemperatureTitle,
-                     body: String(format: strings.gpuMemoryTemperatureBodyFormat,
-                                  Self.formattedTemperature(memory, defaults: defaults)))
+        // GPUSensors.kext alerts. Without the kext `gpuSensors` is nil and
+        // the waits are dropped. With alerts alone the kext is read every
+        // few seconds while snapshots arrive every second, so each sample
+        // counts once.
+        let memoryAlertOn = alertOn(DefaultsKey.monitorAlertGPUMemoryTemperature, .monitorGPU)
+        let throttleAlertOn = alertOn(DefaultsKey.monitorAlertGPUThrottle, .monitorGPU)
+        if !memoryAlertOn { gpuMemoryHot.reset() }
+        if !throttleAlertOn { gpuHeldBack.reset() }
+        if let sensors = snapshot.gpuSensors {
+            if gpuSensorsGate.isFresh(snapshot.gpuSensorsTakenAt) {
+                let now = Date()
+                if memoryAlertOn {
+                    let threshold = Defaults.sanitizedPercent(
+                        defaults.integer(forKey: DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold),
+                        fallback: 90,
+                        range: 60...110)
+                    let memory = sensors.memory
+                    if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: now), let memory {
+                        send(.gpuMemoryTemperature,
+                             title: strings.gpuMemoryTemperatureTitle,
+                             body: String(format: strings.gpuMemoryTemperatureBodyFormat,
+                                          Self.formattedTemperature(memory, defaults: defaults)))
+                    }
+                }
+                if throttleAlertOn {
+                    let throttle = sensors.throttle
+                    if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: now), let throttle {
+                        // The power limit is left out of the reasons: it is normal.
+                        let reasons = throttle.subtracting(.power).text(FeatureStrings.sensors(L10n.shared.language))
+                        send(.gpuThrottle,
+                             title: strings.gpuThrottleTitle,
+                             body: String(format: strings.gpuThrottleBodyFormat, reasons))
+                    }
+                }
             }
         } else {
             gpuMemoryHot.reset()
-        }
-        if alertOn(DefaultsKey.monitorAlertGPUThrottle, .monitorGPU) {
-            let throttle = snapshot.gpuSensors?.throttle
-            if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: Date()), let throttle {
-                // The power limit is left out of the reasons: it is normal.
-                let reasons = throttle.subtracting(.power).text(FeatureStrings.sensors(L10n.shared.language))
-                send(.gpuThrottle,
-                     title: strings.gpuThrottleTitle,
-                     body: String(format: strings.gpuThrottleBodyFormat, reasons))
-            }
-        } else {
             gpuHeldBack.reset()
         }
         if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory),
@@ -313,25 +333,28 @@ final class MonitorAlertService {
         let minutes = Defaults.sanitizedMonitorAlertCooldown(
             UserDefaults.standard.integer(forKey: DefaultsKey.monitorAlertCooldownMinutes)
         )
-        let key = kind.cooldownKey
-        if let previous = lastSent[key], now.timeIntervalSince(previous) < Double(minutes * 60) {
+        if let previous = lastSent[kind], now.timeIntervalSince(previous) < Double(minutes * 60) {
             return
         }
-        lastSent[key] = now
+        lastSent[kind] = now
         Notifier.post(title: title, body: body)
     }
 }
 
 private enum MonitorAlertKind: Hashable {
     case cpu, cpuTemperature, gpuTemperature, gpuPower, memory, disk, battery, thermalThrottle
+    // Each has its own wait between notices: an 85 °C hotspot alert, normal
+    // under load on Navi 21, must not hold back a VRAM or held-back warning.
     case gpuMemoryTemperature, gpuThrottle
-    /// One overheating GPU trips the core, the VRAM and the held-back alerts
-    /// within seconds of each other, so they share one wait between notices.
-    var cooldownKey: MonitorAlertKind {
-        switch self {
-        case .gpuTemperature, .gpuMemoryTemperature, .gpuThrottle: return .gpuTemperature
-        default: return self
-        }
+}
+/// Lets a sample through once: a snapshot that carries the same reading as
+/// the last one (same `takenAt`) is not a new observation.
+struct FreshSampleGate {
+    private(set) var last: TimeInterval?
+    mutating func isFresh(_ takenAt: TimeInterval?) -> Bool {
+        guard let takenAt, takenAt != last else { return false }
+        last = takenAt
+        return true
     }
 }
 /// A condition that has to hold for `duration` before it counts. Up to

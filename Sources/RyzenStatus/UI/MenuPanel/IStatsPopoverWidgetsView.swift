@@ -475,7 +475,7 @@ struct IStatsPopoverWidgetsView: View {
                     Spacer()
                     IStatsDonutMeter(title: "MEM", value: memPct.map { String(format: "%.0f%%", $0 * 100) } ?? "--", fraction: memPct ?? 0, ink: .secondary)
                     Spacer()
-                    IStatsDonutMeter(title: "TMP", value: gpuTemp > 0 ? MetricFormat.temperatureCompact(gpuTemp, unit: temperatureUnit) : "--", fraction: min(1.0, gpuTemp / 100.0), ink: .tertiary)
+                    IStatsDonutMeter(title: monitor.snapshot.gpuDisplayLabel == "GPU" ? "TMP" : monitor.snapshot.gpuDisplayLabel, value: gpuTemp > 0 ? MetricFormat.temperatureCompact(gpuTemp, unit: temperatureUnit) : "--", fraction: min(1.0, gpuTemp / 100.0), ink: .tertiary)
                     Spacer()
                     IStatsDonutMeter(title: "GHZ", value: gpuFreqGHz > 0 ? String(format: "%.1f", gpuFreqGHz) : "--", fraction: min(1.0, gpuFreqGHz / maxFreqGHz), ink: .primary)
                     Spacer()

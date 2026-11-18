@@ -16,6 +16,7 @@ struct MonitorAlertsControls: View {
     @AppStorage(DefaultsKey.monitorAlertGPUThrottle) private var alertGPUThrottle = false
     @AppStorage(DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold) private var alertGPUMemoryTemperatureThreshold = 90
     @ObservedObject private var gpuSensors = GPUSensorsService.shared
+    @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.monitorAlertMemory) private var alertMemory = false
     @AppStorage(DefaultsKey.monitorAlertDisk) private var alertDisk = false
     @AppStorage(DefaultsKey.monitorAlertBattery) private var alertBattery = false
@@ -77,7 +78,9 @@ struct MonitorAlertsControls: View {
                                 value: $alertGPUMemoryTemperatureThreshold,
                                 in: 60...110,
                                 step: 5)
-                        hint(text.gpuMemoryTemperatureHint)
+                        // The guide value in the unit the rest of the app uses.
+                        hint(String(format: text.gpuMemoryTemperatureHintFormat,
+                                    MetricFormat.temperature(90, unit: temperatureUnit)))
                     }
                 }
                 if gpuSensors.isPresent || alertGPUThrottle {
@@ -143,6 +146,9 @@ struct MonitorAlertsControls: View {
         .onChange(of: alertValues) { _, _ in sanitizeAlertValues() }
     }
 
+    private var temperatureUnit: TemperatureUnit {
+        TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
+    }
     private func hint(_ string: String) -> some View {
         Text(string)
             .font(compact ? .system(size: 9.5) : .caption)

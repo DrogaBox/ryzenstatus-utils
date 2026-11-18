@@ -633,7 +633,9 @@ struct MetricDetailView: View {
         case .cpu:
             return snapshot.cpuTemperature.map(formatTemperature) ?? l10n.s.temperatures
         case .gpu:
-            return snapshot.gpuTemperature.map(formatTemperature) ?? l10n.s.temperatures
+            guard let celsius = snapshot.gpuDisplayCelsius else { return l10n.s.temperatures }
+            let value = formatTemperature(celsius)
+            return snapshot.gpuDisplayLabel == "GPU" ? value : "\(snapshot.gpuDisplayLabel) \(value)"
         case .memory:
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal else { return l10n.s.memoryPressure }
             return "\(formatMemory(used)) / \(formatMemory(total))"

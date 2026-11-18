@@ -117,6 +117,8 @@ extension DefaultsKey {
     /// GPUSensors.kext alerts: VRAM temperature, and clocks held back by heat or current.
     static let monitorAlertGPUMemoryTemperature = "monitorAlertGPUMemoryTemperature"
     static let monitorAlertGPUThrottle = "monitorAlertGPUThrottle"
+    /// The alerts that read GPUSensors.kext and mean nothing without it.
+    static let gpuSensorsAlertKeys: Set<String> = [monitorAlertGPUMemoryTemperature, monitorAlertGPUThrottle]
     static let monitorAlertMemory = "monitorAlertMemory"
     static let monitorAlertDisk = "monitorAlertDisk"
     static let monitorAlertBattery = "monitorAlertBattery"

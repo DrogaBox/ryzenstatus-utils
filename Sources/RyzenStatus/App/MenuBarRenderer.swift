@@ -477,7 +477,20 @@ enum MenuBarRenderer {
                     renderedGPU = true
                     let usageFraction = enabled.contains(.gpu) ? snapshot.gpuUsage : nil
                     let usage = usageFraction.map(percent)
-                    let temperature = enabled.contains(.gpuTemperature) ? snapshot.gpuDisplayCelsius.map(temperatureCompact) : nil
+                    // A VRAM temperature is not the GPU's: it gets its own
+                    // labelled block instead of riding on the GPU group.
+                    let showsVRAM = snapshot.gpuDisplayLabel != "GPU"
+                    let displayTemperature = enabled.contains(.gpuTemperature) ? snapshot.gpuDisplayCelsius.map(temperatureCompact) : nil
+                    let temperature = showsVRAM ? nil : displayTemperature
+                    defer {
+                        if showsVRAM, let displayTemperature {
+                            groups.append([.metricBlock(label: temperatureLabel(snapshot.gpuDisplayLabel),
+                                                        value: displayTemperature,
+                                                        minimumValue: "999°",
+                                                        style: style,
+                                                        pressure: nil)])
+                        }
+                    }
                     if usesBars {
                         let group = usageAndTemperatureSegments(label: "GPU",
                                                                 fraction: usageFraction,
@@ -563,7 +576,8 @@ enum MenuBarRenderer {
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
-                let temp = snapshot.gpuDisplayCelsius.map(temperatureCompact) ?? "--°"
+                let tempValue = snapshot.gpuDisplayCelsius.map(temperatureCompact) ?? "--°"
+                let temp = snapshot.gpuDisplayLabel == "GPU" ? tempValue : snapshot.gpuDisplayLabel + " " + tempValue
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],

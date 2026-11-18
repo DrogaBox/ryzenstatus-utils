@@ -13,6 +13,7 @@ enum GPUSensorsTests {
         display(suite)
         sustained(suite)
         history(suite)
+        reviewFixes(suite)
     }
 
     /// The properties GPUSensors 0.1.0 published on an RX 6800 XT (macOS 26.7.3,
@@ -142,14 +143,15 @@ enum GPUSensorsTests {
             let alerts = FeatureStrings.monitorAlerts(language)
             let alertFields = [alerts.gpuTemperature, alerts.gpuTemperatureThreshold, alerts.gpuPower,
                                alerts.gpuPowerThreshold, alerts.gpuMemoryTemperature,
-                               alerts.gpuMemoryTemperatureThreshold, alerts.gpuMemoryTemperatureHint,
+                               alerts.gpuMemoryTemperatureThreshold, alerts.gpuMemoryTemperatureHintFormat,
                                alerts.gpuThrottle, alerts.gpuThrottleHint, alerts.gpuMemoryTemperatureTitle,
                                alerts.gpuMemoryTemperatureBodyFormat, alerts.gpuThrottleTitle,
                                alerts.gpuThrottleBodyFormat]
             suite.expect(alertFields.allSatisfy { !$0.isEmpty } && Set(alertFields).count == alertFields.count,
                          "\(language): the GPU alert labels are filled and distinct")
             suite.expect(alerts.gpuMemoryTemperatureBodyFormat.components(separatedBy: "%@").count == 2
-                             && alerts.gpuThrottleBodyFormat.components(separatedBy: "%@").count == 2,
+                             && alerts.gpuThrottleBodyFormat.components(separatedBy: "%@").count == 2
+                             && alerts.gpuMemoryTemperatureHintFormat.components(separatedBy: "%@").count == 2,
                          "\(language): each GPU alert body takes exactly one value")
         }
     }
@@ -207,6 +209,83 @@ enum GPUSensorsTests {
         _ = condition.update(false, now: at(14))
         _ = condition.update(false, now: at(15))
         suite.expect(condition.since == nil, "a third miss in a row starts over")
+    }
+    /// The review of 313080d7: alerts that never started, stale samples
+    /// replayed into the alerts, and a VRAM figure shown as "GPU".
+    private static func reviewFixes(_ suite: TestSuite) {
+        // 1. Only kext alerts on, and the kext appears after launch.
+        let gpuOn: (AppFeature) -> Bool = { $0 == .monitorGPU }
+        let vramOnly: (String) -> Bool = { $0 == DefaultsKey.monitorAlertGPUMemoryTemperature }
+        suite.expect(SystemMonitorPanelNeeds.alerts(boolFor: vramOnly, isAvailable: gpuOn, hasInternalBattery: false,
+                                                    gpuSensorsPresent: false) == .none,
+                     "without the kext a VRAM alert samples nothing")
+        let present = SystemMonitorPanelNeeds.alerts(boolFor: vramOnly, isAvailable: gpuOn, hasInternalBattery: false,
+                                                     gpuSensorsPresent: true)
+        suite.expect(present.gpuTemperature && present.any, "once the kext is there it samples the GPU temperature stride")
+        suite.expect(SystemMonitor.needsTimerStart(shouldSample: true, timerExists: false),
+                     "a plan that grew from nothing starts the timer instead of only resyncing it")
+        suite.expect(!SystemMonitor.needsTimerStart(shouldSample: true, timerExists: true),
+                     "a running timer is left alone")
+        let domain = "com.ryzenstatus.tests.gpusensors-alerts"
+        if let defaults = UserDefaults(suiteName: domain) {
+            defaults.removePersistentDomain(forName: domain)
+            defer { defaults.removePersistentDomain(forName: domain) }
+            defaults.set(true, forKey: AppFeature.monitorGPU.availabilityKey)
+            defaults.set(true, forKey: DefaultsKey.monitorAlertGPUThrottle)
+            suite.expect(!MonitorAlertService.anyEnabled(in: defaults, gpuSensorsPresent: false),
+                         "a kext alert left on without the kext keeps nothing running")
+            suite.expect(MonitorAlertService.anyEnabled(in: defaults, gpuSensorsPresent: true),
+                         "with the kext it counts")
+        }
+        // 2a. A due tick without a fresh reading drops the old sample.
+        let hot = GPUSensorsSample(hotspot: 90, edge: 70, memory: 96, coreVR: nil, throttle: .thermal)
+        let cool = GPUSensorsSample(hotspot: 50, edge: 45, memory: 60, coreVR: nil, throttle: nil)
+        let cache = (sample: hot, at: 100.0)
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: nil, now: 105, bridge: 12) == nil,
+                     "a stale or vanished kext never replays its last hot sample")
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 105, bridge: 12)?.at == 100,
+                     "between strides the last sample is bridged")
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 113, bridge: 12) == nil,
+                     "past the bridge it is dropped")
+        let replaced = SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: cool, now: 105, bridge: 12)
+        suite.expect(replaced?.sample == cool && replaced?.at == 105, "a fresh reading replaces it")
+        // 2b. One sample replayed by several 1 s snapshots counts once.
+        var gate = FreshSampleGate()
+        suite.expect(gate.isFresh(105) && !gate.isFresh(105) && !gate.isFresh(105) && gate.isFresh(110),
+                     "a carried-over sample is not counted again")
+        suite.expect(!gate.isFresh(nil), "no sample is never fresh")
+        var condition = SustainedCondition(duration: 12, allowedMisses: 2)
+        var lastCounted = FreshSampleGate()
+        // Hot every 5 s, one cool fresh sample at 10 s replayed on four 1 s ticks.
+        let ticks: [(at: Double, takenAt: Double, hot: Bool)] = [
+            (0, 0, true), (1, 0, true), (5, 5, true), (10, 10, false), (11, 10, false), (12, 10, false),
+            (13, 10, false), (15, 15, true)]
+        var fired = false
+        for tick in ticks where lastCounted.isFresh(tick.takenAt) {
+            fired = condition.update(tick.hot, now: Date(timeIntervalSince1970: tick.at)) || fired
+        }
+        suite.expect(fired, "one cool sample shown on several ticks is one miss, so the 12 s wait still ends")
+        // 3. The combined GPU menu bar item names a VRAM temperature.
+        let combineKey = DefaultsKey.menuBarCombineTemperatures
+        let previous = UserDefaults.standard.object(forKey: combineKey)
+        UserDefaults.standard.set(true, forKey: combineKey)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: combineKey) }
+            else { UserDefaults.standard.removeObject(forKey: combineKey) }
+        }
+        func labels(_ snapshot: SystemSnapshot) -> [String] {
+            MenuBarRenderer.segments(for: snapshot, metrics: [.gpu, .gpuTemperature]).compactMap {
+                if case .metricBlock(let label, _, _, _, _) = $0 { return label }
+                return nil
+            }
+        }
+        var snapshot = SystemSnapshot()
+        snapshot.gpuUsage = 0.4
+        snapshot.gpuTemperature = 61
+        suite.expect(!labels(snapshot).contains { $0.hasPrefix("VRAM") }, "the macOS temperature stays under GPU")
+        snapshot.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
+        suite.expect(labels(snapshot).contains { $0.hasPrefix("VRAM") },
+                     "a VRAM temperature gets its own VRAM block in the combined item (got \(labels(snapshot)))")
     }
     /// A history file from before the VRAM metric (ten metrics) still loads,
     /// each metric where it was, and the new one starts empty.

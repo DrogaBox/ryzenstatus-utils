@@ -415,8 +415,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isPresent != value else { return }
             self.isPresent = value
-            // The kext alerts add their sampling need only while it is here.
+            // The kext alerts count, and add their sampling need, only while
+            // it is here: re-sync both when it comes or goes.
             SystemMonitor.shared.planDidChange()
+            MainActor.assumeIsolated { MonitorAlertService.shared.syncWithPreferences() }
         }
     }
 
