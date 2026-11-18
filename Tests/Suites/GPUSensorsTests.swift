@@ -91,6 +91,11 @@ enum GPUSensorsTests {
                                                      units: ["GFX voltage": "mV", "GFX clock": "MHz"]))
         suite.expect(gfxOff?.rows(strings).map(\.value) == [.volts(0)],
                      "a GFX block powered off keeps its voltage row at 0 V instead of the row vanishing")
+        // GPUSensors 0.2.0 at idle: the fabric clock is a post-deep-sleep average.
+        let fabric = GPUSensorsReading.parse(fixture(sensors: ["Fabric clock": NSNumber(value: 95)], units: ["Fabric clock": "MHz"]))
+        suite.expect(fabric?.rows(strings).first?.value == .megahertz(95), "a sleeping fabric keeps its row")
+        suite.expect(fabric?.rows(strings).first?.label == "GPU fabric clock (average)",
+                     "the fabric clock is labelled as the average it is")
         let lanesOnly = GPUSensorsReading.parse(fixture(sensors: ["PCIe lanes": NSNumber(value: 16)], units: ["PCIe lanes": ""]))
         suite.expect(lanesOnly?.rows(strings).first?.value == .pcie(generation: nil, lanes: 16),
                      "the PCIe row shows the lanes even without the speed")

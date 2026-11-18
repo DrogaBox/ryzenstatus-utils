@@ -82,6 +82,9 @@ struct GPUSensorsReading: Equatable {
                                       value: .percent(percent)))
         }
         megahertz("SOC clock", strings.gpuSocClock)
+        // The driver fills this from the firmware's fabric clock averaged after
+        // deep sleep, so it falls to about 95 MHz whenever the fabric sleeps:
+        // a real figure, labelled as an average rather than the current clock.
         megahertz("Fabric clock", strings.gpuFabricClock)
         if let bits = value("Throttler status", unit: "bits"), bits >= 0, bits <= Double(UInt32.max) {
             rows.append(GPUSensorsRow(id: "Throttler status", label: strings.gpuThrottling,
