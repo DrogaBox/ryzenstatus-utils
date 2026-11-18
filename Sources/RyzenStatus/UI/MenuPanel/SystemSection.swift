@@ -365,6 +365,16 @@ struct SystemSection: View {
             if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal {
                 detailLine("VRAM", "\(formatMemory(used)) / \(formatMemory(total))")
             }
+            // GPUSensors.kext: the VRAM temperature and why the clocks are low.
+            if let sensors = monitor.snapshot.gpuSensors {
+                let sensorText = FeatureStrings.sensors(l10n.language)
+                if let memory = sensors.memory {
+                    detailLine(sensorText.gpuMemory, MetricFormat.temperature(memory, unit: displayTemperatureUnit))
+                }
+                if let throttle = sensors.throttle {
+                    detailLine(sensorText.gpuThrottling, throttle.text(sensorText))
+                }
+            }
             usageHistory(.gpu)
             breakdownList(for: .gpu)
         }
@@ -482,7 +492,7 @@ struct SystemSection: View {
                                 title: "GPU",
                                 icon: "display",
                                 usage: monitor.snapshot.gpuUsage ?? 0,
-                                temp: monitor.snapshot.gpuTemperature,
+                                temp: monitor.snapshot.gpuDisplayCelsius,
                                 freq: gpuFreqVal > 0 ? String(format: "%.0f MHz", gpuFreqVal) : "--",
                                 power: monitor.snapshot.gpuPower,
                                 accentColor: .orange,

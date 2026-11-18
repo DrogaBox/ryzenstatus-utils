@@ -16,6 +16,8 @@ final class MonitorAlertService {
     private var thermalThrottleSince: Date?
     private var highGPUTempSince: Date?
     private var highGPUPowerSince: Date?
+    private var gpuMemoryHot = SustainedCondition(duration: 12, allowedMisses: 2)
+    private var gpuHeldBack = SustainedCondition(duration: 12, allowedMisses: 2)
     private var lastSent: [MonitorAlertKind: Date] = [:]
 
     private init() {}
@@ -67,6 +69,8 @@ final class MonitorAlertService {
         thermalThrottleSince = nil
         highGPUTempSince = nil
         highGPUPowerSince = nil
+        gpuMemoryHot.reset()
+        gpuHeldBack.reset()
     }
 
     private func evaluate(_ snapshot: SystemSnapshot) {
@@ -124,6 +128,35 @@ final class MonitorAlertService {
             highGPUPowerSince = nil
         }
 
+        // GPUSensors.kext alerts. Without the kext `gpuSensors` is nil, so
+        // the conditions never hold.
+        if alertOn(DefaultsKey.monitorAlertGPUMemoryTemperature, .monitorGPU) {
+            let threshold = Defaults.sanitizedPercent(
+                defaults.integer(forKey: DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold),
+                fallback: 90,
+                range: 60...110)
+            let memory = snapshot.gpuSensors?.memory
+            if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: Date()), let memory {
+                send(.gpuMemoryTemperature,
+                     title: strings.gpuMemoryTemperatureTitle,
+                     body: String(format: strings.gpuMemoryTemperatureBodyFormat,
+                                  Self.formattedTemperature(memory, defaults: defaults)))
+            }
+        } else {
+            gpuMemoryHot.reset()
+        }
+        if alertOn(DefaultsKey.monitorAlertGPUThrottle, .monitorGPU) {
+            let throttle = snapshot.gpuSensors?.throttle
+            if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: Date()), let throttle {
+                // The power limit is left out of the reasons: it is normal.
+                let reasons = throttle.subtracting(.power).text(FeatureStrings.sensors(L10n.shared.language))
+                send(.gpuThrottle,
+                     title: strings.gpuThrottleTitle,
+                     body: String(format: strings.gpuThrottleBodyFormat, reasons))
+            }
+        } else {
+            gpuHeldBack.reset()
+        }
         if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory),
            snapshot.memoryPressure == .critical {
             send(.memory, title: strings.memoryTitle, body: strings.memoryBody)
@@ -280,14 +313,58 @@ final class MonitorAlertService {
         let minutes = Defaults.sanitizedMonitorAlertCooldown(
             UserDefaults.standard.integer(forKey: DefaultsKey.monitorAlertCooldownMinutes)
         )
-        if let previous = lastSent[kind], now.timeIntervalSince(previous) < Double(minutes * 60) {
+        let key = kind.cooldownKey
+        if let previous = lastSent[key], now.timeIntervalSince(previous) < Double(minutes * 60) {
             return
         }
-        lastSent[kind] = now
+        lastSent[key] = now
         Notifier.post(title: title, body: body)
     }
 }
 
 private enum MonitorAlertKind: Hashable {
     case cpu, cpuTemperature, gpuTemperature, gpuPower, memory, disk, battery, thermalThrottle
+    case gpuMemoryTemperature, gpuThrottle
+    /// One overheating GPU trips the core, the VRAM and the held-back alerts
+    /// within seconds of each other, so they share one wait between notices.
+    var cooldownKey: MonitorAlertKind {
+        switch self {
+        case .gpuTemperature, .gpuMemoryTemperature, .gpuThrottle: return .gpuTemperature
+        default: return self
+        }
+    }
+}
+/// A condition that has to hold for `duration` before it counts. Up to
+/// `allowedMisses` samples in a row may fall short without starting over, so
+/// one idle or missing sample from the GPU does not reset a long wait.
+struct SustainedCondition {
+    let duration: TimeInterval
+    let allowedMisses: Int
+    private(set) var since: Date?
+    private var misses = 0
+    init(duration: TimeInterval, allowedMisses: Int) {
+        self.duration = duration
+        self.allowedMisses = allowedMisses
+    }
+    /// True once the condition has held, give or take the allowed misses,
+    /// for `duration`, and on every holding sample after that.
+    mutating func update(_ holds: Bool, now: Date) -> Bool {
+        guard holds else {
+            if since != nil {
+                misses += 1
+                if misses > allowedMisses { reset() }
+            }
+            return false
+        }
+        misses = 0
+        guard let since else {
+            self.since = now
+            return false
+        }
+        return now.timeIntervalSince(since) >= duration
+    }
+    mutating func reset() {
+        since = nil
+        misses = 0
+    }
 }

@@ -291,6 +291,17 @@ struct MetricDetailView: View {
                                      format: { value, _ in value.isFinite ? formatTemperature(value) : "—" })
                         .frame(height: 16)
                 }
+                // GPUSensors.kext's VRAM temperature, kept only on Macs with
+                // the kext; the strip appears once the range holds any.
+                if kind == .gpu {
+                    let vram = store.averages(.gpuMemoryTemperature, range: range, end: now)
+                    if vram.contains(where: \.isFinite) {
+                        LongHistoryGraph(series: .single(vram, ceiling: 100),
+                                         range: range, end: end, language: l10n.language,
+                                         format: { value, _ in value.isFinite ? "VRAM " + formatTemperature(value) : "—" })
+                            .frame(height: 16)
+                    }
+                }
             }
         case .battery, .connectedDevices:
             EmptyView()
@@ -476,10 +487,30 @@ struct MetricDetailView: View {
                 row(l10n.s.systemUptime, SystemSection.uptimeString()),
             ]
         case .gpu:
+            let sensors = snapshot.gpuSensors
+            let sensorText = FeatureStrings.sensors(l10n.language)
+            // With GPUSensors.kext this reading is known to be the hotspot,
+            // unless the RyzenStatus kext reports the GPU and supplies it.
+            let temperatureTitle = sensors?.hotspot != nil && snapshot.gpuDevices.isEmpty
+                ? sensorText.gpuHotspot : l10n.s.temperatures
             var rows = [
                 row(l10n.s.usageSection, snapshot.gpuUsage.map(MetricFormat.percent) ?? l10n.s.networkMeasuring),
-                row(l10n.s.temperatures, snapshot.gpuTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
+                row(id: "gpuTemperature", temperatureTitle,
+                    snapshot.gpuTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
             ]
+            if let edge = sensors?.edge {
+                rows.append(row(sensorText.gpuEdgeTemperature, formatTemperature(edge)))
+            }
+            if let memory = sensors?.memory {
+                rows.append(row(sensorText.gpuMemory, formatTemperature(memory)))
+            }
+            if let gap = sensors?.hotspotEdgeGap(load: snapshot.gpuUsage) {
+                rows.append(row(sensorText.gpuHotspotEdgeGap,
+                                MetricFormat.temperatureDifference(gap, unit: displayTemperatureUnit)))
+            }
+            if let throttle = sensors?.throttle {
+                rows.append(row(sensorText.gpuThrottling, throttle.text(sensorText), wrapsValue: true))
+            }
             // Shown only while the driver reports the card's fan turning.
             if let fan = snapshot.gpuFan, fan > 0 {
                 rows.append(row(FeatureStrings.notchCapsuleCenter(l10n.language).fanSpeed, String(format: "%.0f RPM", fan)))

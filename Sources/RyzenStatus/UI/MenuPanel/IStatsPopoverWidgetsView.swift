@@ -464,7 +464,7 @@ struct IStatsPopoverWidgetsView: View {
                     }
                     return nil
                 }()
-                let gpuTemp = monitor.snapshot.gpuTemperature ?? 0
+                let gpuTemp = monitor.snapshot.gpuDisplayCelsius ?? 0
                 let rawFreq = monitor.snapshot.gpuFreq ?? 0
                 let gpuFreqGHz = rawFreq / 1000.0
                 let maxFreqGHz = max(2.5, gpuFreqGHz)

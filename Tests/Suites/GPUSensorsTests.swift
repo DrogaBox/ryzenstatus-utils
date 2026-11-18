@@ -9,6 +9,10 @@ enum GPUSensorsTests {
         rows(suite)
         text(suite)
         translations(suite)
+        throttle(suite)
+        display(suite)
+        sustained(suite)
+        history(suite)
     }
 
     /// The properties GPUSensors 0.1.0 published on an RX 6800 XT (macOS 26.7.3,
@@ -105,9 +109,13 @@ enum GPUSensorsTests {
         let strings = FeatureStrings.sensors(.enUS)
         suite.expect(GPUSensorsRow.text(.pcie(generation: 3, lanes: 8), strings: strings) == "PCIe 3.0 x8", "PCIe text")
         suite.expect(GPUSensorsRow.text(.pcie(generation: nil, lanes: 16), strings: strings) == "x16", "lanes only")
-        suite.expect(GPUSensorsRow.text(.throttler(0), strings: strings) == strings.gpuThrottlingNone,
+        suite.expect(GPUSensorsRow.text(.throttle(GPUThrottle(rawValue: 0)), strings: strings) == strings.gpuThrottlingNone,
                      "no throttler bit set reads as none")
-        suite.expect(GPUSensorsRow.text(.throttler(5), strings: strings) == "0x00000005", "throttler bits in hex")
+        suite.expect(GPUSensorsRow.text(.throttle(GPUThrottle(rawValue: 5)), strings: strings)
+                         == "\(strings.gpuThrottleCurrent), \(strings.gpuThrottlePower)",
+                     "the driver's bits are named, heat and current before the power limit")
+        suite.expect(MetricFormat.temperatureDifference(10, unit: .fahrenheit) == "18 °F",
+                     "a temperature difference in Fahrenheit takes no 32 °F offset")
         suite.expect(GPUSensorsRow.text(.megahertz(1_600), strings: strings) == "1600 MHz", "clock text")
         suite.expect(GPUSensorsRow.text(.percent(7), strings: strings) == "7%", "activity text")
         suite.expect(GPUSensorsRow.text(.temperature(40), strings: strings) == nil,
@@ -125,9 +133,106 @@ enum GPUSensorsTests {
                           strings.gpuMemoryVRMTemperature, strings.gpuSocVoltage, strings.gpuMemoryVoltage,
                           strings.gpuMemoryActivity, strings.gpuSocClock, strings.gpuFabricClock,
                           strings.gpuThrottling, strings.gpuThrottlingNone, strings.gpuPCIeLink,
-                          strings.gpuSensorsSource]
+                          strings.gpuSensorsSource, strings.gpuThrottlePower, strings.gpuThrottleThermal,
+                          strings.gpuThrottleCurrent, strings.gpuHotspotEdgeGap, strings.gpuTemperatureSource,
+                          strings.gpuSourceHotspot, strings.gpuSourceEdge, strings.gpuSourceMemory,
+                          strings.gpuTemperatureSourceHelp]
             suite.expect(fields.allSatisfy { !$0.isEmpty } && Set(fields).count == fields.count,
                          "\(language): the GPUSensors labels are filled and distinct")
+            let alerts = FeatureStrings.monitorAlerts(language)
+            let alertFields = [alerts.gpuTemperature, alerts.gpuTemperatureThreshold, alerts.gpuPower,
+                               alerts.gpuPowerThreshold, alerts.gpuMemoryTemperature,
+                               alerts.gpuMemoryTemperatureThreshold, alerts.gpuMemoryTemperatureHint,
+                               alerts.gpuThrottle, alerts.gpuThrottleHint, alerts.gpuMemoryTemperatureTitle,
+                               alerts.gpuMemoryTemperatureBodyFormat, alerts.gpuThrottleTitle,
+                               alerts.gpuThrottleBodyFormat]
+            suite.expect(alertFields.allSatisfy { !$0.isEmpty } && Set(alertFields).count == alertFields.count,
+                         "\(language): the GPU alert labels are filled and distinct")
+            suite.expect(alerts.gpuMemoryTemperatureBodyFormat.components(separatedBy: "%@").count == 2
+                             && alerts.gpuThrottleBodyFormat.components(separatedBy: "%@").count == 2,
+                         "\(language): each GPU alert body takes exactly one value")
         }
+    }
+    /// PMLog id 35 as AMDRadeonX6000HWLibs builds it (IDA, macOS 26.7.3):
+    /// 1 power, 2 thermal, 4 current, and nothing above bit 2.
+    private static func throttle(_ suite: TestSuite) {
+        suite.expect(GPUThrottle(rawValue: 8).isEmpty, "bits above the driver's three are dropped")
+        suite.expect(!GPUThrottle.power.holdsClocksBack, "the power limit at full load is not worth an alert")
+        suite.expect(GPUThrottle.thermal.holdsClocksBack && GPUThrottle.current.holdsClocksBack,
+                     "heat and current are")
+        let reading = GPUSensorsReading.parse(fixture(sensors: ["Throttler status": NSNumber(value: 2),
+                                                                "Hotspot temperature": NSNumber(value: 95),
+                                                                "Edge temperature": NSNumber(value: 70),
+                                                                "Memory temperature": NSNumber(value: 0)],
+                                                      units: ["Throttler status": "bits", "Hotspot temperature": "C",
+                                                              "Edge temperature": "C", "Memory temperature": "C"]))
+        let sample = reading?.sample
+        suite.expect(sample?.throttle == .thermal, "the throttler status reaches the shared sample")
+        suite.expect(sample?.memory == nil, "a 0 °C VRAM reading is a missing sensor")
+        suite.expect(sample?.hotspotEdgeGap(load: 0.3) == nil, "the hotspot-edge gap means nothing at light load")
+        suite.expect(sample?.hotspotEdgeGap(load: 0.9) == 25, "under load it is hotspot minus edge")
+    }
+    private static func display(_ suite: TestSuite) {
+        let sample = GPUSensorsSample(hotspot: 60, edge: 52, memory: 70, coreVR: nil, throttle: nil)
+        suite.expect(GPUDisplayTemperature.resolve(source: .memory, macOS: 60, sample: sample)
+                         == GPUDisplayTemperature(celsius: 70, source: .memory), "VRAM shows when chosen")
+        suite.expect(GPUDisplayTemperature.resolve(source: .edge, macOS: 60, sample: nil)
+                         == GPUDisplayTemperature(celsius: 60, source: .hotspot),
+                     "without the kext the macOS reading shows, labelled as such")
+        suite.expect(GPUDisplayTemperature.resolve(source: .hotspot, macOS: nil, sample: sample) == nil,
+                     "hotspot is always the macOS reading, as before")
+        suite.expect(GPUTemperatureSource.from("bogus") == .hotspot && GPUTemperatureSource.from(nil) == .hotspot,
+                     "an unknown saved source falls back to hotspot")
+        var snapshot = SystemSnapshot()
+        snapshot.gpuTemperature = 61
+        suite.expect(snapshot.gpuDisplayCelsius == 61 && snapshot.gpuDisplayLabel == "GPU",
+                     "a snapshot without a resolved display temperature shows the macOS one")
+        snapshot.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 70, source: .memory)
+        suite.expect(snapshot.gpuDisplayCelsius == 70 && snapshot.gpuDisplayLabel == "VRAM",
+                     "the VRAM figure is never labelled GPU")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.gpuTemperatureSource] as? String == "hotspot"
+                         && Defaults.registeredDefaults[DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold] as? Int == 90
+                         && Defaults.registeredDefaults[DefaultsKey.monitorAlertGPUThrottle] as? Bool == false,
+                     "the new settings are registered, so the settings backup carries them")
+    }
+    private static func sustained(_ suite: TestSuite) {
+        let start = Date(timeIntervalSince1970: 0)
+        func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+        var condition = SustainedCondition(duration: 12, allowedMisses: 2)
+        suite.expect(!condition.update(true, now: at(0)), "the first hot sample starts the wait")
+        suite.expect(!condition.update(false, now: at(5)) && !condition.update(false, now: at(6)),
+                     "two samples that fall short are tolerated")
+        suite.expect(condition.update(true, now: at(12)), "and the wait still ends on time")
+        _ = condition.update(false, now: at(13))
+        _ = condition.update(false, now: at(14))
+        _ = condition.update(false, now: at(15))
+        suite.expect(condition.since == nil, "a third miss in a row starts over")
+    }
+    /// A history file from before the VRAM metric (ten metrics) still loads,
+    /// each metric where it was, and the new one starts empty.
+    private static func history(_ suite: TestSuite) {
+        suite.expect(LongHistoryMetric.gpuMemoryTemperature.rawValue == 10,
+                     "the VRAM metric comes after every metric older files store")
+        var tiers = (0..<10).map { _ in
+            LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: LongHistoryStore.coarseCapacity)
+        }
+        for minute in 0...30 { tiers[9].record(120, at: TimeInterval(minute * 60)) }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("long-history-gpusensors-\(UUID().uuidString).bin")
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            try LongHistoryStore.encode(tiers).write(to: url)
+        } catch {
+            suite.expect(false, "the ten-metric fixture could be written")
+            return
+        }
+        let store = LongHistoryStore(fileURL: url, now: 1_800)
+        suite.expect(store.averages(.systemPower, range: .oneHour, end: 1_800).contains { $0.isFinite },
+                     "system power keeps its saved history")
+        suite.expect(!store.averages(.gpuMemoryTemperature, range: .oneHour, end: 1_800).contains { $0.isFinite },
+                     "the VRAM history starts empty")
+        let empty = LongHistoryTier(step: 60, capacity: 43_200)
+        suite.expect(empty.means.isEmpty && empty.mean(slot: 0) == nil,
+                     "a metric nothing records holds no slots in memory")
     }
 }

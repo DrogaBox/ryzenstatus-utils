@@ -108,6 +108,15 @@ struct SensorStrings {
     let gpuThrottlingNone: String
     let gpuPCIeLink: String
     let gpuSensorsSource: String
+    let gpuThrottlePower: String
+    let gpuThrottleThermal: String
+    let gpuThrottleCurrent: String
+    let gpuHotspotEdgeGap: String
+    let gpuTemperatureSource: String
+    let gpuSourceHotspot: String
+    let gpuSourceEdge: String
+    let gpuSourceMemory: String
+    let gpuTemperatureSourceHelp: String
 
     /// "1 sensor" / "5 sensors". Russian, Ukrainian and Slovak use a
     /// "Sensors: 5" form for every count above one, so no plural rule is needed.
@@ -251,7 +260,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU throttling",
         gpuThrottlingNone: "None",
         gpuPCIeLink: "GPU PCIe link",
-        gpuSensorsSource: "Extra readings from GPUSensors.kext"
+        gpuSensorsSource: "Extra readings from GPUSensors.kext",
+        gpuThrottlePower: "Power limit",
+        gpuThrottleThermal: "Temperature",
+        gpuThrottleCurrent: "Current limit",
+        gpuHotspotEdgeGap: "Hotspot above edge",
+        gpuTemperatureSource: "GPU temperature shown",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Edge",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Read from GPUSensors.kext. Without it, the macOS reading is shown."
     )
 
     static let ptBR = SensorStrings(
@@ -354,7 +372,16 @@ private extension SensorStrings {
         gpuThrottling: "Limitação da GPU",
         gpuThrottlingNone: "Nenhuma",
         gpuPCIeLink: "Link PCIe da GPU",
-        gpuSensorsSource: "Leituras extras do GPUSensors.kext"
+        gpuSensorsSource: "Leituras extras do GPUSensors.kext",
+        gpuThrottlePower: "Limite de energia",
+        gpuThrottleThermal: "Temperatura",
+        gpuThrottleCurrent: "Limite de corrente",
+        gpuHotspotEdgeGap: "Hotspot acima da borda",
+        gpuTemperatureSource: "Temperatura da GPU exibida",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Borda",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Lida do GPUSensors.kext. Sem ele, aparece a leitura do macOS."
     )
 
     static let tr = SensorStrings(
@@ -457,7 +484,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU kısıtlaması",
         gpuThrottlingNone: "Yok",
         gpuPCIeLink: "GPU PCIe bağlantısı",
-        gpuSensorsSource: "GPUSensors.kext'ten ek okumalar"
+        gpuSensorsSource: "GPUSensors.kext'ten ek okumalar",
+        gpuThrottlePower: "Güç sınırı",
+        gpuThrottleThermal: "Sıcaklık",
+        gpuThrottleCurrent: "Akım sınırı",
+        gpuHotspotEdgeGap: "Hotspot ile kenar farkı",
+        gpuTemperatureSource: "Gösterilen GPU sıcaklığı",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Kenar",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "GPUSensors.kext'ten okunur. O yoksa macOS değeri gösterilir."
     )
 
     static let ru = SensorStrings(
@@ -560,7 +596,16 @@ private extension SensorStrings {
         gpuThrottling: "Троттлинг ГП",
         gpuThrottlingNone: "Нет",
         gpuPCIeLink: "Канал PCIe ГП",
-        gpuSensorsSource: "Дополнительные показания GPUSensors.kext"
+        gpuSensorsSource: "Дополнительные показания GPUSensors.kext",
+        gpuThrottlePower: "Лимит мощности",
+        gpuThrottleThermal: "Температура",
+        gpuThrottleCurrent: "Лимит тока",
+        gpuHotspotEdgeGap: "Hotspot выше края",
+        gpuTemperatureSource: "Показываемая температура GPU",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Край",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Читается из GPUSensors.kext. Без него показывается значение macOS."
     )
 
     static let es = SensorStrings(
@@ -663,7 +708,16 @@ private extension SensorStrings {
         gpuThrottling: "Limitación de la GPU",
         gpuThrottlingNone: "Ninguna",
         gpuPCIeLink: "Enlace PCIe de la GPU",
-        gpuSensorsSource: "Lecturas extra de GPUSensors.kext"
+        gpuSensorsSource: "Lecturas extra de GPUSensors.kext",
+        gpuThrottlePower: "Límite de consumo",
+        gpuThrottleThermal: "Temperatura",
+        gpuThrottleCurrent: "Límite de corriente",
+        gpuHotspotEdgeGap: "Hotspot sobre el borde",
+        gpuTemperatureSource: "Temperatura de GPU mostrada",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Borde",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Se lee de GPUSensors.kext. Sin él se muestra el valor de macOS."
     )
 
     static let de = SensorStrings(
@@ -766,7 +820,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU-Drosselung",
         gpuThrottlingNone: "Keine",
         gpuPCIeLink: "GPU-PCIe-Verbindung",
-        gpuSensorsSource: "Zusätzliche Werte von GPUSensors.kext"
+        gpuSensorsSource: "Zusätzliche Werte von GPUSensors.kext",
+        gpuThrottlePower: "Leistungslimit",
+        gpuThrottleThermal: "Temperatur",
+        gpuThrottleCurrent: "Stromlimit",
+        gpuHotspotEdgeGap: "Hotspot über Edge",
+        gpuTemperatureSource: "Angezeigte GPU-Temperatur",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Edge",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Aus GPUSensors.kext. Ohne die Kext wird der Wert von macOS angezeigt."
     )
 
     static let fr = SensorStrings(
@@ -869,7 +932,16 @@ private extension SensorStrings {
         gpuThrottling: "Bridage du GPU",
         gpuThrottlingNone: "Aucun",
         gpuPCIeLink: "Liaison PCIe du GPU",
-        gpuSensorsSource: "Mesures supplémentaires de GPUSensors.kext"
+        gpuSensorsSource: "Mesures supplémentaires de GPUSensors.kext",
+        gpuThrottlePower: "Limite de puissance",
+        gpuThrottleThermal: "Température",
+        gpuThrottleCurrent: "Limite de courant",
+        gpuHotspotEdgeGap: "Écart hotspot / bord",
+        gpuTemperatureSource: "Température GPU affichée",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Bord",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Lue depuis GPUSensors.kext. Sans elle, la valeur de macOS s’affiche."
     )
 
     static let it = SensorStrings(
@@ -972,7 +1044,16 @@ private extension SensorStrings {
         gpuThrottling: "Limitazione GPU",
         gpuThrottlingNone: "Nessuna",
         gpuPCIeLink: "Collegamento PCIe GPU",
-        gpuSensorsSource: "Letture aggiuntive da GPUSensors.kext"
+        gpuSensorsSource: "Letture aggiuntive da GPUSensors.kext",
+        gpuThrottlePower: "Limite di potenza",
+        gpuThrottleThermal: "Temperatura",
+        gpuThrottleCurrent: "Limite di corrente",
+        gpuHotspotEdgeGap: "Hotspot sopra il bordo",
+        gpuTemperatureSource: "Temperatura GPU mostrata",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Bordo",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Letta da GPUSensors.kext. Senza, si vede il valore di macOS."
     )
 
     static let ja = SensorStrings(
@@ -1075,7 +1156,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU スロットリング",
         gpuThrottlingNone: "なし",
         gpuPCIeLink: "GPU PCIe リンク",
-        gpuSensorsSource: "GPUSensors.kext からの追加の値"
+        gpuSensorsSource: "GPUSensors.kext からの追加の値",
+        gpuThrottlePower: "電力制限",
+        gpuThrottleThermal: "温度",
+        gpuThrottleCurrent: "電流制限",
+        gpuHotspotEdgeGap: "ホットスポットとエッジの差",
+        gpuTemperatureSource: "表示する GPU 温度",
+        gpuSourceHotspot: "ホットスポット",
+        gpuSourceEdge: "エッジ",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "GPUSensors.kext から読み取ります。ない場合は macOS の値を表示します。"
     )
 
     static let ko = SensorStrings(
@@ -1178,7 +1268,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU 스로틀링",
         gpuThrottlingNone: "없음",
         gpuPCIeLink: "GPU PCIe 링크",
-        gpuSensorsSource: "GPUSensors.kext의 추가 측정값"
+        gpuSensorsSource: "GPUSensors.kext의 추가 측정값",
+        gpuThrottlePower: "전력 제한",
+        gpuThrottleThermal: "온도",
+        gpuThrottleCurrent: "전류 제한",
+        gpuHotspotEdgeGap: "핫스팟과 엣지 차이",
+        gpuTemperatureSource: "표시할 GPU 온도",
+        gpuSourceHotspot: "핫스팟",
+        gpuSourceEdge: "엣지",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "GPUSensors.kext에서 읽습니다. 없으면 macOS 값이 표시됩니다."
     )
 
     static let zhHans = SensorStrings(
@@ -1281,7 +1380,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU 降频",
         gpuThrottlingNone: "无",
         gpuPCIeLink: "GPU PCIe 链路",
-        gpuSensorsSource: "来自 GPUSensors.kext 的额外读数"
+        gpuSensorsSource: "来自 GPUSensors.kext 的额外读数",
+        gpuThrottlePower: "功耗限制",
+        gpuThrottleThermal: "温度",
+        gpuThrottleCurrent: "电流限制",
+        gpuHotspotEdgeGap: "热点高于边缘",
+        gpuTemperatureSource: "显示的 GPU 温度",
+        gpuSourceHotspot: "热点",
+        gpuSourceEdge: "边缘",
+        gpuSourceMemory: "显存",
+        gpuTemperatureSourceHelp: "从 GPUSensors.kext 读取。没有它时显示 macOS 的读数。"
     )
 
     static let zhTW = SensorStrings(
@@ -1384,7 +1492,16 @@ private extension SensorStrings {
         gpuThrottling: "GPU 降頻",
         gpuThrottlingNone: "無",
         gpuPCIeLink: "GPU PCIe 連結",
-        gpuSensorsSource: "來自 GPUSensors.kext 的額外讀數"
+        gpuSensorsSource: "來自 GPUSensors.kext 的額外讀數",
+        gpuThrottlePower: "功耗限制",
+        gpuThrottleThermal: "溫度",
+        gpuThrottleCurrent: "電流限制",
+        gpuHotspotEdgeGap: "熱點高於邊緣",
+        gpuTemperatureSource: "顯示的 GPU 溫度",
+        gpuSourceHotspot: "熱點",
+        gpuSourceEdge: "邊緣",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "從 GPUSensors.kext 讀取。沒有它時顯示 macOS 的讀數。"
     )
 
     static let zhHK = zhTW
@@ -1489,7 +1606,16 @@ private extension SensorStrings {
         gpuThrottling: "Obmedzovanie GPU",
         gpuThrottlingNone: "Žiadne",
         gpuPCIeLink: "Linka PCIe GPU",
-        gpuSensorsSource: "Ďalšie hodnoty z GPUSensors.kext"
+        gpuSensorsSource: "Ďalšie hodnoty z GPUSensors.kext",
+        gpuThrottlePower: "Limit výkonu",
+        gpuThrottleThermal: "Teplota",
+        gpuThrottleCurrent: "Limit prúdu",
+        gpuHotspotEdgeGap: "Hotspot nad okrajom",
+        gpuTemperatureSource: "Zobrazená teplota GPU",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Okraj",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Číta sa z GPUSensors.kext. Bez neho sa zobrazí hodnota z macOS."
     )
 
     static let uk = SensorStrings(
@@ -1592,6 +1718,15 @@ private extension SensorStrings {
         gpuThrottling: "Тротлінг ГП",
         gpuThrottlingNone: "Немає",
         gpuPCIeLink: "Канал PCIe ГП",
-        gpuSensorsSource: "Додаткові показники GPUSensors.kext"
+        gpuSensorsSource: "Додаткові показники GPUSensors.kext",
+        gpuThrottlePower: "Ліміт потужності",
+        gpuThrottleThermal: "Температура",
+        gpuThrottleCurrent: "Ліміт струму",
+        gpuHotspotEdgeGap: "Hotspot вище краю",
+        gpuTemperatureSource: "Показувана температура GPU",
+        gpuSourceHotspot: "Hotspot",
+        gpuSourceEdge: "Край",
+        gpuSourceMemory: "VRAM",
+        gpuTemperatureSourceHelp: "Читається з GPUSensors.kext. Без нього показується значення macOS."
     )
 }

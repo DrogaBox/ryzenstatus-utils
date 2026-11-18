@@ -97,7 +97,19 @@ struct SystemSnapshot {
     var avgCPUFreq: Double?
     /// GPU devices reported by the kext (selectors 27-30).
     var gpuDevices: [GPUDeviceSnapshot] = []
+    /// Readings from the optional GPUSensors.kext; nil without it.
+    var gpuSensors: GPUSensorsSample?
+    /// The GPU temperature the menu bar and the island show: the user's
+    /// choice of hotspot, edge or VRAM, or the macOS reading as a fallback.
+    var gpuDisplayTemperature: GPUDisplayTemperature?
 
+    /// The GPU temperature for compact displays (menu bar, island, panel
+    /// card): the user's choice when GPUSensors.kext reports it, otherwise
+    /// the macOS reading, so without the kext nothing changes.
+    var gpuDisplayCelsius: Double? { gpuDisplayTemperature?.celsius ?? gpuTemperature }
+    /// "VRAM" when that is what `gpuDisplayCelsius` shows, else "GPU", so the
+    /// figure never changes sensor under the same name.
+    var gpuDisplayLabel: String { gpuDisplayTemperature?.source == .memory ? "VRAM" : "GPU" }
     /// Temperature for CCD0 (°C) if reported by kext, nil otherwise
     var ccd0Temperature: Float? {
         ccdTemperatures.indices.contains(0) ? ccdTemperatures[0] : nil
@@ -168,6 +180,10 @@ struct SystemMonitorPanelNeeds: Equatable {
             // The GPU power reading comes with the kext power read, which
             // GPU usage switches on.
             case DefaultsKey.monitorAlertGPUPower: needs.gpu = true
+            // Read from GPUSensors.kext on the GPU temperature stride; without
+            // the kext these alerts cannot fire, so they wake nothing.
+            case DefaultsKey.monitorAlertGPUMemoryTemperature, DefaultsKey.monitorAlertGPUThrottle:
+                if GPUSensorsService.shared.isPresentNow { needs.gpuTemperature = true }
             default: break
             }
         }
@@ -238,6 +254,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// would otherwise sweep the SMC on every tick.
     private var lastCPUTemperatureSeed: TimeInterval = -.infinity
     private var lastGPUTemperatureSeed: TimeInterval = -.infinity
+    /// The last GPUSensors.kext reading and when it was taken, bridged like
+    /// the other temperatures so a stride-skipped tick does not blank it.
+    private var gpuSensorsCache: (sample: GPUSensorsSample, at: TimeInterval)?
     /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
     private var tickCount = 0
@@ -332,6 +351,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             self.previousCPUTicksAt = nil
             self.previousCoreTicks = []
             self.previousCoreTicksAt = nil
+            // A reading from before the sleep is not current.
+            self.gpuSensorsCache = nil
         }
     }
 
@@ -1202,6 +1223,25 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 } else {
                     next.gpuTemperature = self.gpuTemperatureCache?.value
                 }
+                // GPUSensors.kext rides on the GPU temperature stride. Without
+                // the kext `isPresentNow` is false and nothing is read.
+                if temperatureDue, GPUSensorsService.shared.isPresentNow {
+                    if let reading = GPUSensorsService.shared.currentReading(now: now) {
+                        let sample = reading.sample
+                        self.gpuSensorsCache = (sample, now)
+                        sampledAnything = true
+                        if let memory = sample.memory {
+                            LongHistoryStore.shared.record(.gpuMemoryTemperature, memory)
+                        }
+                    }
+                }
+                if let cache = self.gpuSensorsCache {
+                    if now - cache.at <= temperatureBridge {
+                        next.gpuSensors = cache.sample
+                    } else {
+                        self.gpuSensorsCache = nil
+                    }
+                }
             }
             if plan.needBatteryTemperature {
                 if temperatureDue {
@@ -1286,6 +1326,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
             if gpuTemperatureRead, let temp = next.gpuTemperature {
                 LongHistoryStore.shared.record(.gpuTemperature, temp)
+            }
+            if plan.needGPUTemperature {
+                let source = GPUTemperatureSource.from(UserDefaults.standard.string(forKey: DefaultsKey.gpuTemperatureSource))
+                next.gpuDisplayTemperature = GPUDisplayTemperature.resolve(source: source,
+                                                                           macOS: next.gpuTemperature,
+                                                                           sample: next.gpuSensors)
             }
             let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
             if !freqs.isEmpty {

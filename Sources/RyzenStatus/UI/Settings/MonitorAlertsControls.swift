@@ -12,6 +12,10 @@ struct MonitorAlertsControls: View {
     @AppStorage(DefaultsKey.monitorAlertCPUTemperature) private var alertCPUTemperature = false
     @AppStorage(DefaultsKey.monitorAlertGPUTemperature) private var alertGPUTemperature = false
     @AppStorage(DefaultsKey.monitorAlertGPUPower) private var alertGPUPower = false
+    @AppStorage(DefaultsKey.monitorAlertGPUMemoryTemperature) private var alertGPUMemoryTemperature = false
+    @AppStorage(DefaultsKey.monitorAlertGPUThrottle) private var alertGPUThrottle = false
+    @AppStorage(DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold) private var alertGPUMemoryTemperatureThreshold = 90
+    @ObservedObject private var gpuSensors = GPUSensorsService.shared
     @AppStorage(DefaultsKey.monitorAlertMemory) private var alertMemory = false
     @AppStorage(DefaultsKey.monitorAlertDisk) private var alertDisk = false
     @AppStorage(DefaultsKey.monitorAlertBattery) private var alertBattery = false
@@ -50,19 +54,37 @@ struct MonitorAlertsControls: View {
                 }
             }
             if AppFeature.monitorGPU.isAvailable {
-                Toggle("GPU Temperature", isOn: $alertGPUTemperature)
+                Toggle(text.gpuTemperature, isOn: $alertGPUTemperature)
                 if alertGPUTemperature {
-                    Stepper("GPU Threshold: \(alertGPUTemperatureThreshold) °C",
+                    Stepper("\(text.gpuTemperatureThreshold) \(alertGPUTemperatureThreshold) °C",
                             value: $alertGPUTemperatureThreshold,
                             in: 50...120,
                             step: 5)
                 }
-                Toggle("GPU Power", isOn: $alertGPUPower)
+                Toggle(text.gpuPower, isOn: $alertGPUPower)
                 if alertGPUPower {
-                    Stepper("GPU Power Threshold: \(alertGPUPowerThreshold) W",
+                    Stepper("\(text.gpuPowerThreshold) \(alertGPUPowerThreshold) W",
                             value: $alertGPUPowerThreshold,
                             in: 50...500,
                             step: 25)
+                }
+                // Only with GPUSensors.kext, or while one is still switched
+                // on after the kext went away, so it can be switched off.
+                if gpuSensors.isPresent || alertGPUMemoryTemperature {
+                    Toggle(text.gpuMemoryTemperature, isOn: $alertGPUMemoryTemperature)
+                    if alertGPUMemoryTemperature {
+                        Stepper("\(text.gpuMemoryTemperatureThreshold) \(alertGPUMemoryTemperatureThreshold) °C",
+                                value: $alertGPUMemoryTemperatureThreshold,
+                                in: 60...110,
+                                step: 5)
+                        hint(text.gpuMemoryTemperatureHint)
+                    }
+                }
+                if gpuSensors.isPresent || alertGPUThrottle {
+                    Toggle(text.gpuThrottle, isOn: $alertGPUThrottle)
+                    if alertGPUThrottle {
+                        hint(text.gpuThrottleHint)
+                    }
                 }
             }
             if AppFeature.monitorMemory.isAvailable {
@@ -113,24 +135,31 @@ struct MonitorAlertsControls: View {
             sanitizeAlertValues()
             refreshNotificationStatus()
         }
-        .onChange(of: alertCPU) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertCPUTemperature) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertGPUTemperature) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertGPUPower) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertMemory) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertDisk) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertBattery) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
-        .onChange(of: alertCPUThreshold) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertCPUTemperatureThreshold) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertGPUTemperatureThreshold) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertGPUPowerThreshold) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertDiskFreePercent) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertBatteryPercent) { _, _ in sanitizeAlertValues() }
-        .onChange(of: alertCooldown) { _, _ in sanitizeAlertValues() }
+        // One handler per kind keeps this body cheap to type-check.
+        .onChange(of: alertSwitches) { _, _ in
+            MonitorAlertService.shared.syncWithPreferences()
+            refreshNotificationStatus()
+        }
+        .onChange(of: alertValues) { _, _ in sanitizeAlertValues() }
     }
 
+    private func hint(_ string: String) -> some View {
+        Text(string)
+            .font(compact ? .system(size: 9.5) : .caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+    private var alertSwitches: [Bool] {
+        [alertCPU, alertCPUTemperature, alertGPUTemperature, alertGPUPower, alertGPUMemoryTemperature,
+         alertGPUThrottle, alertMemory, alertDisk, alertBattery]
+    }
+    private var alertValues: [Int] {
+        [alertCPUThreshold, alertCPUTemperatureThreshold, alertGPUTemperatureThreshold, alertGPUPowerThreshold,
+         alertGPUMemoryTemperatureThreshold, alertDiskFreePercent, alertBatteryPercent, alertCooldown]
+    }
     private var anyAlertEnabled: Bool {
         alertCPU || alertCPUTemperature || alertGPUTemperature || alertGPUPower || alertMemory || alertDisk
+            || alertGPUMemoryTemperature || alertGPUThrottle
             || (PowerSampler.hasInternalBattery && alertBattery)
     }
 
@@ -151,6 +180,7 @@ struct MonitorAlertsControls: View {
         alertCPUTemperatureThreshold = Defaults.sanitizedPercent(alertCPUTemperatureThreshold, fallback: 90, range: 70...105)
         alertGPUTemperatureThreshold = Defaults.sanitizedPercent(alertGPUTemperatureThreshold, fallback: 90, range: 50...120)
         alertGPUPowerThreshold = max(50, min(500, alertGPUPowerThreshold))
+        alertGPUMemoryTemperatureThreshold = Defaults.sanitizedPercent(alertGPUMemoryTemperatureThreshold, fallback: 90, range: 60...110)
         alertDiskFreePercent = Defaults.sanitizedPercent(alertDiskFreePercent, fallback: 10, range: 5...30)
         alertBatteryPercent = Defaults.sanitizedPercent(alertBatteryPercent, fallback: 15, range: 5...50)
         alertCooldown = Defaults.sanitizedMonitorAlertCooldown(alertCooldown)

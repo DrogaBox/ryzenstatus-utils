@@ -26,6 +26,9 @@ extension DefaultsKey {
     static let menuBarMemory = "menuBarMemory"
     static let menuBarCPUTemperature = "menuBarCPUTemperature"
     static let menuBarGPUTemperature = "menuBarGPUTemperature"
+    /// Which GPU temperature the menu bar and the island show (`GPUTemperatureSource`); only
+    /// hotspot means anything without GPUSensors.kext.
+    static let gpuTemperatureSource = "gpuTemperatureSource"
     static let menuBarBatteryTemperature = "menuBarBatteryTemperature"
     static let menuBarTemperature = "menuBarTemperature" // legacy Developer key for the old generic temperature metric
     static let menuBarNetwork = "menuBarNetwork"
@@ -111,6 +114,9 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperature = "monitorAlertCPUTemperature"
     static let monitorAlertGPUTemperature = "monitorAlertGPUTemperature"
     static let monitorAlertGPUPower = "monitorAlertGPUPower"
+    /// GPUSensors.kext alerts: VRAM temperature, and clocks held back by heat or current.
+    static let monitorAlertGPUMemoryTemperature = "monitorAlertGPUMemoryTemperature"
+    static let monitorAlertGPUThrottle = "monitorAlertGPUThrottle"
     static let monitorAlertMemory = "monitorAlertMemory"
     static let monitorAlertDisk = "monitorAlertDisk"
     static let monitorAlertBattery = "monitorAlertBattery"
@@ -118,6 +124,7 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperatureThreshold = "monitorAlertCPUTemperatureThreshold"
     static let monitorAlertGPUTemperatureThreshold = "monitorAlertGPUTemperatureThreshold"
     static let monitorAlertGPUPowerThreshold = "monitorAlertGPUPowerThreshold"
+    static let monitorAlertGPUMemoryTemperatureThreshold = "monitorAlertGPUMemoryTemperatureThreshold"
     static let monitorAlertDiskFreePercent = "monitorAlertDiskFreePercent"
     static let monitorAlertBatteryPercent = "monitorAlertBatteryPercent"
     static let monitorAlertCooldownMinutes = "monitorAlertCooldownMinutes"

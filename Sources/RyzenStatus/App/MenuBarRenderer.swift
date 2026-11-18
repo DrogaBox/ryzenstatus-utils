@@ -477,7 +477,7 @@ enum MenuBarRenderer {
                     renderedGPU = true
                     let usageFraction = enabled.contains(.gpu) ? snapshot.gpuUsage : nil
                     let usage = usageFraction.map(percent)
-                    let temperature = enabled.contains(.gpuTemperature) ? snapshot.gpuTemperature.map(temperatureCompact) : nil
+                    let temperature = enabled.contains(.gpuTemperature) ? snapshot.gpuDisplayCelsius.map(temperatureCompact) : nil
                     if usesBars {
                         let group = usageAndTemperatureSegments(label: "GPU",
                                                                 fraction: usageFraction,
@@ -497,8 +497,8 @@ enum MenuBarRenderer {
                     break
                 }
                 guard metric == .gpu else {
-                    if let temperature = snapshot.gpuTemperature {
-                        groups.append([.metricBlock(label: temperatureLabel("GPU"),
+                    if let temperature = snapshot.gpuDisplayCelsius {
+                        groups.append([.metricBlock(label: temperatureLabel(snapshot.gpuDisplayLabel),
                                                     value: temperatureCompact(temperature),
                                                     minimumValue: "999°",
                                                     style: style,
@@ -563,7 +563,7 @@ enum MenuBarRenderer {
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
-                let temp = snapshot.gpuTemperature.map(temperatureCompact) ?? "--°"
+                let temp = snapshot.gpuDisplayCelsius.map(temperatureCompact) ?? "--°"
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],
