@@ -124,15 +124,15 @@ struct MonitorSettings: View {
     /// How each usage reading is drawn, and the palettes the graphs use.
     private var menuBarStyleCard: some View {
         SettingsCard(title: appearanceStrings.label) {
-            styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: $appCPU,
+            styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: shown($appCPU, .cpu),
                      options: ["values", "bars", "pie", "sparkline", "histogram"])
-            styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: $appGPU,
+            styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: shown($appGPU, .gpu),
                      options: ["values", "bars", "pie", "sparkline"])
-            styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: $appRAM,
+            styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: shown($appRAM, .memory),
                      options: ["values", "bars", "pie", "sparkline"])
-            styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: $appNet,
+            styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: shown($appNet, .network),
                      options: ["values", "sparkline"])
-            styleRow(MenuBarMetric.diskUsage.title(l10n.s), symbol: "internaldrive", selection: $appDisk,
+            styleRow(MenuBarMetric.diskUsage.title(l10n.s), symbol: "internaldrive", selection: shown($appDisk, .diskUsage),
                      options: ["values", "bars"])
             Text(appearanceStrings.caption)
                 .font(.caption)
@@ -150,9 +150,11 @@ struct MonitorSettings: View {
     /// How the readings share the menu bar with the icon and with each other.
     private var menuBarLayoutCard: some View {
         SettingsCard {
-            SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
-                        caption: l10n.s.monitorCombineTemperaturesCaption) {
-                Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
+            if combineApplies {
+                SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
+                            caption: l10n.s.monitorCombineTemperaturesCaption) {
+                    Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
+                }
             }
             SettingsRow(symbol: "arrow.left.and.right", title: l10n.s.menuBarSpacingLabel) {
                 Picker(l10n.s.menuBarSpacingLabel, selection: $metricSpacing) {
@@ -172,6 +174,21 @@ struct MonitorSettings: View {
                 Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics).labelsHidden()
             }
         }
+    }
+
+    /// The stored style as the metric draws it, so an old "classic" or a GPU
+    /// "histogram" shows as the option it looks like instead of a blank.
+    private func shown(_ storage: Binding<String>, _ metric: MenuBarMetric) -> Binding<String> {
+        Binding(get: { MenuBarStyleMigration.shownStyle(storage.wrappedValue, for: metric) },
+                set: { storage.wrappedValue = $0 })
+    }
+
+    /// Combining applies only while CPU or GPU usage is text, or to a
+    /// built-in battery.
+    private var combineApplies: Bool {
+        MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(appCPU, for: .cpu))?.isText == true
+            || MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(appGPU, for: .gpu))?.isText == true
+            || PowerSampler.hasInternalBattery
     }
 
     private func styleRow(_ title: String, symbol: String, selection: Binding<String>,

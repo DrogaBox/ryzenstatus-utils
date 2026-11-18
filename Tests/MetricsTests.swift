@@ -1995,6 +1995,7 @@ struct MetricsTests {
             expect(!settings.combinesTemperature(of: .cpu), "nothing combines with the option off")
         }
         do {
+            // The tests run on the main thread, which the memory requires.
             let memory = MenuBarWidthMemory()
             _ = memory.compactReserve(key: "cpuPower", value: "105W")
             expect(memory.compactReserve(key: "cpu", value: "4%") == "88%",
@@ -8624,6 +8625,26 @@ struct MetricsTests {
             MenuBarStyleMigration.applyAfterImport([MenuBarMetric.cpu.styleKey: "pie"], to: suite)
             expect(suite.string(forKey: MenuBarMetric.cpu.styleKey) == "pie",
                    "a backup with per-metric styles is applied as it is")
+            // A launch config file (applied without clearing) from an older
+            // build: only its old keys convert, and a file that says nothing
+            // about styles leaves them alone.
+            SettingsBackup.apply(settings: [DefaultsKey.menuBarMetricAppearance: "sparkline"],
+                                 replacingMissing: false, in: suite)
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "sparkline"
+                   && suite.string(forKey: MenuBarMetric.diskUsage.styleKey) == "values",
+                   "an old config file's global style converts on a new Mac")
+            SettingsBackup.apply(settings: [DefaultsKey.language: "es"], replacingMissing: false, in: suite)
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "sparkline",
+                   "a config file without style keys keeps the current styles")
+            SettingsBackup.apply(settings: [DefaultsKey.menuBarLayoutMode: "classic"], replacingMissing: false, in: suite)
+            expect(suite.bool(forKey: DefaultsKey.menuBarCPUFrequency)
+                   && suite.string(forKey: DefaultsKey.menuBarLayoutMode) == "modern",
+                   "an old config file's classic layout converts to the readings it showed")
+            suite.set("classic", forKey: MenuBarMetric.cpu.styleKey)
+            suite.set("histogram", forKey: MenuBarMetric.gpu.styleKey)
+            expect(MenuBarMetricAppearance.stored(for: .cpu, in: suite) == .values
+                   && MenuBarMetricAppearance.stored(for: .gpu, in: suite) == .sparkline,
+                   "a stored style reads as what the metric draws, so its picker is never blank")
             suite.removePersistentDomain(forName: "menubar-style-import-test")
         }
         expect(backupKeys.contains(DefaultsKey.launchAtLoginWanted),

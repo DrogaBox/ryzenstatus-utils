@@ -57,7 +57,10 @@ struct MenuBarRenderSettings: Equatable {
         for metric in MenuBarMetricAppearance.styledMetrics {
             styles[metric] = MenuBarMetricAppearance.stored(for: metric, in: defaults)
         }
-        let resolvedAppearance = appearance ?? NSApp?.effectiveAppearance ?? NSAppearance(named: .aqua)!
+        // Callers that draw pass the appearance they draw for (the status
+        // button's, the preview's); without one, aqua keeps this free of
+        // main-actor state.
+        let resolvedAppearance = appearance ?? NSAppearance(named: .aqua)!
         return MenuBarRenderSettings(
             styles: styles,
             combineTemperatures: defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures),
@@ -115,8 +118,14 @@ enum MenuBarComponent {
 /// not by label: CPU usage and CPU power both read "CPU", and a 105 W reading
 /// used to make the usage block reserve three digits for the whole session.
 /// The Settings preview owns a separate memory so it never teaches the bar.
-/// Touched only on the main thread.
-final class MenuBarWidthMemory {
+///
+/// Touched only on the main thread: the status item and the preview render
+/// there. Not `@MainActor`, because the renderer's static helpers that read
+/// it also build the image drawing handlers, which must stay nonisolated;
+/// the precondition below checks the promise instead. Read it only while
+/// building a block, never inside an image drawing handler, which may run
+/// later and on another thread.
+final class MenuBarWidthMemory: @unchecked Sendable {
     static let shared = MenuBarWidthMemory()
 
     private var digitHighWater: [String: Int] = [:]
@@ -125,6 +134,7 @@ final class MenuBarWidthMemory {
     /// shape, widened to at least `MenuBarSpacingSupport.compactMinimumDigits`
     /// digits and to the block's session high-water mark.
     func compactReserve(key: String, value: String) -> String {
+        dispatchPrecondition(condition: .onQueue(.main))
         let digits = value.filter(\.isNumber).count
         let floor = MenuBarSpacingSupport.compactFloor(currentDigits: digits, highWater: digitHighWater[key])
         digitHighWater[key] = floor
@@ -216,16 +226,24 @@ enum MenuBarStyleMigration {
         defaults.set(true, forKey: markerKey)
     }
 
-    /// Re-applies the conversion to an imported backup written before it
-    /// existed: such a file carries the global style key and no per-metric
-    /// ones, and the import has just cleared the per-metric values.
+    /// Re-applies the conversion to settings written before it existed: an
+    /// imported backup or a launch config file that carries the old global
+    /// style (and no per-metric ones) or the classic layout. A file that
+    /// says nothing about menu bar styles leaves the current ones alone.
     static func applyAfterImport(_ settings: [String: Any], to defaults: UserDefaults) {
-        let hasPerMetric = MenuBarMetricAppearance.styledMetrics.contains { settings[$0.styleKey] != nil }
-        let hasClassic = settings[DefaultsKey.menuBarLayoutMode] as? String == "classic"
-        guard !hasPerMetric || hasClassic else { return }
+        guard needsConversion(settings) else { return }
         var stored: [String: Any] = [:]
         for key in inputKeys { stored[key] = settings[key] }
         apply(stored: stored, to: defaults)
+    }
+
+    /// Whether `settings` (a backup or config file) still speaks the old
+    /// vocabulary.
+    static func needsConversion(_ settings: [String: Any]) -> Bool {
+        let hasPerMetric = MenuBarMetricAppearance.styledMetrics.contains { settings[$0.styleKey] != nil }
+        let hasGlobal = settings[DefaultsKey.menuBarMetricAppearance] != nil
+        let hasClassic = settings[DefaultsKey.menuBarLayoutMode] as? String == "classic"
+        return (hasGlobal && !hasPerMetric) || hasClassic
     }
 
     private static func collect(from defaults: UserDefaults) -> [String: Any] {

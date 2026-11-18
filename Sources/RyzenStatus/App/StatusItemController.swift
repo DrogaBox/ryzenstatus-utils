@@ -622,7 +622,7 @@ final class StatusItemController {
         let wanted = Set(groups.map(\.id))
         removeMetricStatusItems(except: wanted)
 
-        let settings = MenuBarRenderSettings.current()
+        let settings = MenuBarRenderSettings.current(appearance: statusItem?.button?.effectiveAppearance)
         for group in groups {
             var itemSettings = settings
             if let existingButton = metricStatusItems[group.id]?.button {

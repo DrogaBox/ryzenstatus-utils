@@ -51,7 +51,8 @@ struct MenuBarMetricsPreview: View {
                 .fill(dark ? Color(white: 0.16) : Color(white: 0.9))
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(rendered.string.string)
+        // The title is block images; VoiceOver gets the readings' names.
+        .accessibilityLabel(model.metrics.map { $0.title(L10n.shared.s) }.joined(separator: ", "))
     }
 
     private func glyph(_ ink: Color) -> some View {
@@ -75,7 +76,8 @@ private final class MenuBarPreviewModel: ObservableObject {
     /// The preview's own width memory: a reading it shows never widens a
     /// block in the real menu bar.
     let widthMemory = MenuBarWidthMemory()
-    private var observer: NSObjectProtocol?
+    /// Read from deinit, which is not on the main actor.
+    nonisolated(unsafe) private var observer: NSObjectProtocol?
 
     init() {
         observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,

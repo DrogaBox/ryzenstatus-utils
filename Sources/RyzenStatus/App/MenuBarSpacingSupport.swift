@@ -32,8 +32,10 @@ enum MenuBarMetricAppearance: String, CaseIterable {
     /// value, written explicitly by `MenuBarStyleMigration` for older installs.
     static func stored(for metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> MenuBarMetricAppearance {
         let raw = Defaults.sanitizedMenuBarMetricAppearance(defaults.string(forKey: metric.styleKey) ?? "")
-        let style = MenuBarMetricAppearance(rawValue: raw) ?? .values
-        return style == .classic ? .values : style
+        // What the metric actually draws for the stored value ("classic" is
+        // values, a GPU "histogram" is history), so a picker never shows a
+        // value it does not offer.
+        return MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(raw, for: metric)) ?? .values
     }
 }
 
