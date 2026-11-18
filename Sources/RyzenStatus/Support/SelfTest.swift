@@ -174,6 +174,7 @@ enum SensorDump {
         // AMD system — so `--sensors` printed nothing but its header on exactly
         // the hardware the app targets.
         printAMDTelemetry()
+        printGPUSensors()
 
         // AppleSMC section. Non-fatal now: its absence must not suppress the AMD
         // dump above (the old `exit(1)` did precisely that).
@@ -207,6 +208,20 @@ enum SensorDump {
                          component as NSString, key.name, key.dataType, value))
         }
         exit(0)
+    }
+
+    /// The optional GPUSensors.kext readings, raw. Prints nothing without the
+    /// kext, so the dump stays as it was on every other Mac.
+    private static func printGPUSensors() {
+        guard let reading = GPUSensorsService.readOnce() else { return }
+        print("")
+        print("== GPUSensors.kext (\(GPUSensorsReading.serviceClass)) ==")
+        for name in reading.values.keys.sorted() {
+            let value = reading.values[name] ?? 0
+            let unit = reading.units[name] ?? ""
+            let padded = name.padding(toLength: max(name.count, 26), withPad: " ", startingAt: 0)
+            print(padded + String(format: " %8.0f ", value) + unit)
+        }
     }
 
     /// Dumps the AMD kext's own telemetry — the authoritative sensor
