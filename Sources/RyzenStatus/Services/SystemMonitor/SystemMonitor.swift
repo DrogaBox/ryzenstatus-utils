@@ -195,6 +195,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var menuPanelNeeds: SystemMonitorPanelNeeds = .none
     private var notchVisible = false
     private var notchDetailNeeds: SystemMonitorPanelNeeds = .none
+    private var dashboardNeeds: SystemMonitorPanelNeeds = .none
     private var notchAccessoryMonitoring = false
     private var menuBarActive = false
     private var alertsActive = false
@@ -438,6 +439,30 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The Monitor window reports the families its visible section shows.
+    /// A window someone is looking at samples on the foreground strides,
+    /// like the menu panel, never on the slow background ones; `.none` hands
+    /// the families back when the window is hidden or closed.
+    func setDashboardNeeds(_ needs: SystemMonitorPanelNeeds) {
+        runOnMain { [weak self] in
+            guard let self, self.dashboardNeeds != needs else { return }
+            self.dashboardNeeds = needs
+            self.stopTimerIfIdle()
+            if self.timer != nil {
+                // Resamples at once and starts a family switched on with a
+                // fresh history, so no chart joins old samples to new ones.
+                self.resyncIfPlanChanged()
+                // The same plan can still move between the foreground and
+                // background strides.
+                self.ensureTimer()
+            } else if needs.any {
+                self.ensureTimer()
+                self.refresh(suppressImmediateGPU: true)
+                self.scheduleDeferredGPURefreshIfNeeded()
+            }
+        }
+    }
+
     /// This background consumer only requests accessory batteries. It does
     /// not make CPU, graphics, temperature or disk sampling foreground work.
     func setNotchAccessoryMonitoring(_ enabled: Bool) {
@@ -636,7 +661,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// independent surfaces cannot desync.
     private var fullMonitorVisible: Bool { panelClients > 0 }
 
-    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
+    /// A surface someone is looking at: its readings follow the foreground
+    /// strides.
+    private var samplesInForeground: Bool { fullMonitorVisible || menuPanelNeeds.any || dashboardNeeds.any }
+
+    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || dashboardNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
 
     private func shouldSample(defaults: UserDefaults = .standard) -> Bool {
         shouldRun && currentPlan(defaults: defaults).any
@@ -691,7 +720,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        var effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds)
+        var effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds).merging(dashboardNeeds)
         if fullMonitorVisible || effectiveNeeds.system {
             enableAll(&plan)
         } else {
@@ -835,7 +864,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// onto the new grid or `tick % stride` could become unreachable.
     private func syncTimerCadence(plan: SamplingPlan) {
         lastSyncedPlan = plan
-        let foreground = fullMonitorVisible || menuPanelNeeds.any
+        let foreground = samplesInForeground
         let desired = MonitorSamplingPolicy.wakeTicks(for: Self.neededKinds(of: plan),
                                                       intervalSeconds: intervalSeconds,
                                                       foreground: foreground)
@@ -898,7 +927,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         syncTimerCadence(plan: plan)
         refreshInFlight = true
         let suppressGPUReadsUntil = self.suppressGPUReadsUntil
-        let foregroundSampling = fullMonitorVisible || menuPanelNeeds.any
+        let foregroundSampling = samplesInForeground
         let intervalSeconds = self.intervalSeconds
         // Ticks advance by the timer's cadence so `tick % stride` keeps
         // measuring base intervals; mutated on main only, read by the queue

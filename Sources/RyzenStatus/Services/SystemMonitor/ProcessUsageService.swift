@@ -6,6 +6,17 @@ import Foundation
 import IOKit
 
 /// One row of the per-app breakdown shown when a System stat is expanded.
+/// One app's CPU share (percent of one core, like `ps`) and resident memory
+/// in bytes, helpers summed under the app.
+struct AppUsage: Identifiable, Equatable {
+    let pid: pid_t
+    let name: String
+    let cpuPercent: Double
+    let memoryBytes: Double
+
+    var id: pid_t { pid }
+}
+
 struct ProcessUsage: Identifiable, Equatable {
     let pid: pid_t
     let name: String
@@ -60,6 +71,9 @@ final class ProcessUsageService {
     private let minimumGPUSampleInterval: TimeInterval = 0.8
     private let maximumCachedRows = 60
     private var cpuCache: CachedRows?
+    /// Every app's CPU and memory from one listing, for a table that shows
+    /// both columns at once.
+    private var appUsageCache: (rows: [AppUsage], updatedAt: TimeInterval)?
     private var memoryCache: CachedRows?
     private var gpuCache: CachedRows?
     private var energyCache: CachedRows?
@@ -420,6 +434,26 @@ final class ProcessUsageService {
         return cached
     }
 
+    /// Every app's CPU share and resident memory, read from the same `ps`
+    /// listing `topCPU` and `topMemory` share, so a table with both columns
+    /// costs no extra run. Refreshes like they do: a stale cache starts one
+    /// listing and is returned meanwhile.
+    func appUsage() -> [AppUsage] {
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        let cache = appUsageCache
+        let age = cache.map { now - $0.updatedAt } ?? .infinity
+        let cached = age <= staleCacheSeconds ? cache?.rows ?? [] : []
+        if age <= cacheFreshSeconds || tableLoading {
+            cacheLock.unlock()
+            return cached
+        }
+        tableLoading = true
+        cacheLock.unlock()
+        refreshProcessTable()
+        return cached
+    }
+
     // MARK: - Memory
 
     func topMemory(limit: Int = 15) -> [ProcessUsage] {
@@ -458,7 +492,9 @@ final class ProcessUsageService {
                 ProcessUsage(pid: $0.pid, name: $0.shortName, value: $0.rssBytes)
             })
             let leakSample = self.leakSampleIsDue() ? self.memoryByApp(table) : nil
-            self.finishTable(cpu: cpuRows, memory: memoryRows, leakSample: leakSample)
+            self.finishTable(cpu: cpuRows, memory: memoryRows, leakSample: leakSample,
+                             apps: Self.combined(cpu: cpuRows, memory: memoryRows,
+                                                 namedRows: self.maximumCachedRows))
         }
     }
 
@@ -479,6 +515,22 @@ final class ProcessUsageService {
             totals[appOwner(of: row.pid), default: 0] += bytes
         }
         return totals
+    }
+
+    /// Joins the two rankings by app. Every app is in the CPU ranking (it
+    /// keeps idle processes too); only the first `namedRows` of a ranking
+    /// carry the app's display name, so a heavy-memory, idle-CPU app takes
+    /// its name from the memory ranking.
+    static func combined(cpu: [ProcessUsage], memory: [ProcessUsage], namedRows: Int) -> [AppUsage] {
+        var memoryByApp: [pid_t: (bytes: Double, name: String?)] = [:]
+        for (index, row) in memory.enumerated() where memoryByApp[row.pid] == nil {
+            memoryByApp[row.pid] = (row.value, index < namedRows ? row.name : nil)
+        }
+        return cpu.enumerated().map { index, row in
+            let memoryRow = memoryByApp[row.pid]
+            let name = index < namedRows ? row.name : memoryRow?.name ?? row.name
+            return AppUsage(pid: row.pid, name: name, cpuPercent: row.value, memoryBytes: memoryRow?.bytes ?? 0)
+        }
     }
 
     // MARK: - Consolidation
@@ -648,7 +700,8 @@ final class ProcessUsageService {
 
     /// Stores both rankings from one `ps` run; nil keeps the old caches (a
     /// failed run serves the stale rows until the next one).
-    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?, leakSample: [pid_t: UInt64]? = nil) {
+    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?, leakSample: [pid_t: UInt64]? = nil,
+                             apps: [AppUsage] = []) {
         cacheLock.lock()
         tableLoading = false
         guard let cpu, let memory else {
@@ -657,6 +710,7 @@ final class ProcessUsageService {
         }
         cpuCache = cachedRows(from: cpu)
         memoryCache = cachedRows(from: memory)
+        appUsageCache = (apps, ProcessInfo.processInfo.systemUptime)
         let historyToAnalyze = recordLeakSample(leakSample)
         cacheLock.unlock()
         if let historyToAnalyze { updateLeakingPIDs(from: historyToAnalyze) }
