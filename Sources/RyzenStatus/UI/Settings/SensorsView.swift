@@ -106,17 +106,15 @@ struct SensorsView: View {
                 }
                 // Extra readings from the optional GPUSensors.kext; empty without it.
                 let gpuExtraRows = gpuSensorsService.reading?.rows(strings) ?? []
-                // With no kext GPU device and no SMC GPU key, the GPU
-                // temperature can only be PerformanceStatistics' Temperature(C),
-                // which GPUSensors identifies as the hotspot. That row is then
-                // labelled so, and the kext's copy of the same value is not repeated.
-                let gpuTemperatureIsHotspot = !hasKextGpu
-                    && !filteredReadings.contains { ($0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg")) && $0.value > 0 }
-                    && (monitor.snapshot.gpuTemperature ?? 0) > 0
-                    && gpuExtraRows.contains { $0.id == GPUSensorsRow.hotspotID }
-                let gpuExtraShown = gpuTemperatureIsHotspot
-                    ? gpuExtraRows.filter { $0.id != GPUSensorsRow.hotspotID }
-                    : gpuExtraRows
+                // Without kext GPU devices the generic GPU temperature is
+                // PerformanceStatistics' Temperature(C) or the hottest SMC TG
+                // key, which this platform's SMC plug-in fills from that same
+                // value. GPUSensors names it: its hotspot takes the row's place,
+                // labelled so, and the SMC keys keep their own rows below.
+                let gpuHotspotRow = hasKextGpu ? nil : gpuExtraRows.first { $0.id == GPUSensorsRow.hotspotID }
+                let gpuExtraShown = gpuHotspotRow == nil
+                    ? gpuExtraRows
+                    : gpuExtraRows.filter { $0.id != GPUSensorsRow.hotspotID }
                 let diskSensors = filteredReadings.filter { $0.key.hasPrefix("TH") && $0.value > 0 }
                 let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") && $0.value > 0 }
                 let airSensors = filteredReadings.filter { ($0.key.hasPrefix("TA") || $0.key.hasPrefix("Te") || $0.key.hasPrefix("TW")) && $0.value > 0 }
@@ -278,9 +276,10 @@ struct SensorsView: View {
                             }
                         } else {
                             // Fallback: show monitor snapshot GPU data ONLY when no discrete kext devices detected
-                            if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
-                                SensorRow(name: gpuTemperatureIsHotspot ? strings.gpuHotspot : strings.gpuTemperature,
-                                          value: formatTemp(temp), icon: "thermometer.snowflake")
+                            if let hotspot = gpuHotspotRow {
+                                SensorRow(name: hotspot.label, value: gpuExtraText(hotspot), icon: gpuExtraIcon(hotspot.value))
+                            } else if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
+                                SensorRow(name: strings.gpuTemperature, value: formatTemp(temp), icon: "thermometer.snowflake")
                             }
                             if let power = monitor.snapshot.gpuPower, power > 0 {
                                 SensorRow(name: strings.gpuPower, value: MetricFormat.fixed(power, decimals: 1, unit: "W"), icon: "bolt")
@@ -299,7 +298,7 @@ struct SensorsView: View {
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
                         }
-                        if !gpuExtraShown.isEmpty {
+                        if !gpuExtraRows.isEmpty {
                             Text(strings.gpuSensorsSource)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -313,7 +312,8 @@ struct SensorsView: View {
                             Spacer()
                             let kextCount = monitor.snapshot.gpuDevices.count
                             let fanCount = (monitor.snapshot.gpuFan ?? 0) > 0 ? 1 : 0
-                            let totalGpuCount = fanCount + gpuExtraShown.count + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0)))
+                            let fallbackTemperatureCount = (gpuHotspotRow != nil || monitor.snapshot.gpuTemperature != nil) ? 1 : 0
+                            let totalGpuCount = fanCount + gpuExtraShown.count + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + fallbackTemperatureCount))
                             Text(strings.sensorCount(totalGpuCount))
                                 .font(.caption)
                                 .foregroundColor(.secondary)

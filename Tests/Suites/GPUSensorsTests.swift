@@ -86,6 +86,11 @@ enum GPUSensorsTests {
         let coldRows = cold?.rows(strings) ?? []
         suite.expect(coldRows.map(\.id) == ["Memory VR 1 temperature"], "a 0 °C reading is a missing sensor")
         suite.expect(coldRows.first?.label == "GPU memory VRM 1 temperature", "the memory VRMs keep the kext's index")
+        // Seen on the RX 6800 XT at idle: the GFX block is off for a sample.
+        let gfxOff = GPUSensorsReading.parse(fixture(sensors: ["GFX voltage": NSNumber(value: 0), "GFX clock": NSNumber(value: 0)],
+                                                     units: ["GFX voltage": "mV", "GFX clock": "MHz"]))
+        suite.expect(gfxOff?.rows(strings).map(\.value) == [.volts(0)],
+                     "a GFX block powered off keeps its voltage row at 0 V instead of the row vanishing")
         let lanesOnly = GPUSensorsReading.parse(fixture(sensors: ["PCIe lanes": NSNumber(value: 16)], units: ["PCIe lanes": ""]))
         suite.expect(lanesOnly?.rows(strings).first?.value == .pcie(generation: nil, lanes: 16),
                      "the PCIe row shows the lanes even without the speed")

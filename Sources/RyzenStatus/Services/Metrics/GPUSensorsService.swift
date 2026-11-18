@@ -52,8 +52,11 @@ struct GPUSensorsReading: Equatable {
                 rows.append(GPUSensorsRow(id: name, label: label, value: .temperature(celsius)))
             }
         }
+        // 0 mV is a real reading: the driver powers the GFX block off at idle
+        // (GFX clock, activity and voltage all read 0 for that sample), and
+        // dropping the row then made it blink in and out.
         func millivolts(_ name: String, _ label: String) {
-            if let mV = value(name, unit: "mV"), mV > 0, mV < 5_000 {
+            if let mV = value(name, unit: "mV"), mV >= 0, mV < 5_000 {
                 rows.append(GPUSensorsRow(id: name, label: label, value: .volts(mV / 1_000)))
             }
         }
