@@ -1968,8 +1968,8 @@ struct MetricsTests {
             expect(migrated[DefaultsKey.menuBarCPU] == nil,
                    "without the hidden classic layout no visibility changes")
             let fresh = MenuBarStyleMigration.migratedValues(stored: [:])
-            expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] as? String == "values" },
-                   "a fresh install converts to values everywhere")
+            expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] == nil },
+                   "settings that name no style write none; the registered values apply")
             let classic = MenuBarStyleMigration.migratedValues(stored: [DefaultsKey.menuBarLayoutMode: "classic"])
             expect(classic[DefaultsKey.menuBarCPU] as? Bool == true
                    && classic[DefaultsKey.menuBarCPUTemperature] as? Bool == true
@@ -8636,10 +8636,31 @@ struct MetricsTests {
             SettingsBackup.apply(settings: [DefaultsKey.language: "es"], replacingMissing: false, in: suite)
             expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "sparkline",
                    "a config file without style keys keeps the current styles")
-            SettingsBackup.apply(settings: [DefaultsKey.menuBarLayoutMode: "classic"], replacingMissing: false, in: suite)
-            expect(suite.bool(forKey: DefaultsKey.menuBarCPUFrequency)
-                   && suite.string(forKey: DefaultsKey.menuBarLayoutMode) == "modern",
-                   "an old config file's classic layout converts to the readings it showed")
+            // A classic-only launch config file: translated in the file, so it
+            // converges after one apply and keeps the styles chosen on this Mac.
+            suite.set("pie", forKey: MenuBarMetric.gpu.styleKey)
+            let classicFile = SettingsBackupSupport.configOverrides(from: [DefaultsKey.menuBarLayoutMode: "classic"])
+            expect(classicFile[DefaultsKey.menuBarLayoutMode] == nil
+                   && classicFile[DefaultsKey.menuBarCPUFrequency] as? Bool == true
+                   && classicFile[MenuBarMetric.gpu.styleKey] == nil,
+                   "a classic config file reads as the readings it showed, naming no style")
+            SettingsBackup.apply(settings: classicFile, replacingMissing: false, in: suite)
+            let localAfterFirst = classicFile.keys.reduce(into: [String: Any]()) { $0[$1] = suite.object(forKey: $1) }
+            expect(classicFile.allSatisfy { localAfterFirst[$0.key] as? NSObject == $0.value as? NSObject },
+                   "after one apply the classic file matches this Mac, so the next launch changes nothing")
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "pie",
+                   "a classic config file keeps the GPU style chosen on this Mac")
+            let globalDefault = SettingsBackupSupport.configOverrides(from: [DefaultsKey.menuBarMetricAppearance: "values"])
+            expect(globalDefault[DefaultsKey.menuBarMetricAppearance] == nil
+                   && globalDefault[MenuBarMetric.gpu.styleKey] as? String == "values",
+                   "an old file's global style equal to the default still converts, so the diff sees it")
+            let partial = MenuBarStyleMigration.translatingOldKeys([DefaultsKey.menuBarMetricAppearance: "bars",
+                                                                   MenuBarMetric.cpu.styleKey: "pie"])
+            expect(partial[MenuBarMetric.cpu.styleKey] as? String == "pie"
+                   && partial[MenuBarMetric.memory.styleKey] as? String == "bars",
+                   "with some per-metric styles, the others inherit the old global one")
+            expect(suite.object(forKey: DefaultsKey.menuBarMetricAppearance) == nil,
+                   "the stale global style is removed after converting")
             suite.set("classic", forKey: MenuBarMetric.cpu.styleKey)
             suite.set("histogram", forKey: MenuBarMetric.gpu.styleKey)
             expect(MenuBarMetricAppearance.stored(for: .cpu, in: suite) == .values

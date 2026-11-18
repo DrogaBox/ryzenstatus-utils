@@ -369,7 +369,9 @@ enum SettingsBackupSupport {
            (values[DefaultsKey.screenshotDefaultAction] as? String ?? "").isEmpty {
             values[DefaultsKey.screenshotDefaultAction] = ScreenshotDefaultAction.edit.rawValue
         }
-        return values
+        // The old menu bar style keys likewise, so a converted file matches
+        // this Mac after one apply instead of resetting it on every launch.
+        return MenuBarStyleMigration.translatingOldKeys(values)
     }
 
     /// The portable form leaves out media logos, which name files on one Mac.

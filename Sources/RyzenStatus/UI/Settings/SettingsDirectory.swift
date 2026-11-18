@@ -10,7 +10,7 @@ struct SettingsSearchState: Equatable {
     }
 
     let hardware: Hardware
-    let bars, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
+    let bars, combineApplies, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
     private let switches: Set<String>
 
     init(defaults: UserDefaults, hardware: Hardware) {
@@ -18,6 +18,7 @@ struct SettingsSearchState: Equatable {
         bars = MenuBarMetricAppearance.styledMetrics.contains {
             MenuBarMetricAppearance.stored(for: $0, in: defaults) == .bars
         }
+        combineApplies = MenuBarMetricAppearance.combineApplies(in: defaults, hasBattery: hardware.battery)
         batteryRest = defaults.string(forKey: DefaultsKey.notchIdleContent) == NotchIdleContent.battery.rawValue
         capsule = defaults.string(forKey: DefaultsKey.notchSilhouette) != NotchSilhouette.notch.rawValue
         customSize = defaults.string(forKey: DefaultsKey.notchSize) == NotchSize.custom.rawValue
@@ -412,7 +413,7 @@ enum SettingsDirectory {
                                         (.monitorMemory, [s.monitorMemoryPressureDot, s.monitorMemoryMetricLabel]),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
                                        ], terms: [
-                                        .init([s.monitorCombineTemperatures], when: !state.bars),
+                                        .init([s.monitorCombineTemperatures], when: state.combineApplies),
                                         .init([barStyle.customize, barStyle.normalColor, barStyle.mediumColor, barStyle.highColor,
                                                barStyle.mediumFrom, barStyle.highFrom], when: state.bars),
                                        ]),

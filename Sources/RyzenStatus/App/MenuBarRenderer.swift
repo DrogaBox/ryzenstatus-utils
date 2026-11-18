@@ -513,8 +513,8 @@ enum MenuBarRenderer {
             case .network:
                 if let down = snapshot.netDownBytesPerSec, let up = snapshot.netUpBytesPerSec {
                     if settings.style(for: .network) == .values {
-                        groups.append([.networkBlock(down: MetricFormat.networkRateCompact(down),
-                                                     up: MetricFormat.networkRateCompact(up))])
+                        groups.append([.networkBlock(down: MetricFormat.networkRateCompact(down, inBits: settings.networkInBits),
+                                                     up: MetricFormat.networkRateCompact(up, inBits: settings.networkInBits))])
                     } else {
                         groups.append([networkDualGraphBlock(downHistory: snapshot.netDownHistory,
                                                              upHistory: snapshot.netUpHistory,

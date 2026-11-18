@@ -179,16 +179,16 @@ struct MonitorSettings: View {
     /// The stored style as the metric draws it, so an old "classic" or a GPU
     /// "histogram" shows as the option it looks like instead of a blank.
     private func shown(_ storage: Binding<String>, _ metric: MenuBarMetric) -> Binding<String> {
-        Binding(get: { MenuBarStyleMigration.shownStyle(storage.wrappedValue, for: metric) },
+        Binding(get: { MenuBarStyleMigration.shownStyle(Defaults.sanitizedMenuBarMetricAppearance(storage.wrappedValue),
+                                                        for: metric) },
                 set: { storage.wrappedValue = $0 })
     }
 
     /// Combining applies only while CPU or GPU usage is text, or to a
     /// built-in battery.
     private var combineApplies: Bool {
-        MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(appCPU, for: .cpu))?.isText == true
-            || MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(appGPU, for: .gpu))?.isText == true
-            || PowerSampler.hasInternalBattery
+        _ = (appCPU, appGPU)
+        return MenuBarMetricAppearance.combineApplies(hasBattery: PowerSampler.hasInternalBattery)
     }
 
     private func styleRow(_ title: String, symbol: String, selection: Binding<String>,
@@ -616,9 +616,16 @@ private struct MemoryMenuBarOrderOption: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.menuBarMemory) private var menuBarMemory = true
     @AppStorage(DefaultsKey.menuBarMemoryStyle) private var memoryStyle = "percent"
+    @AppStorage(MenuBarMetric.memory.styleKey) private var style = "values"
+
+    /// The dot is drawn only beside a value or a bar.
+    private var dotApplies: Bool {
+        _ = style
+        return [.values, .bars].contains(MenuBarMetricAppearance.stored(for: .memory))
+    }
 
     var body: some View {
-        if menuBarMemory {
+        if menuBarMemory && dotApplies {
             MetricRowOptionToggle(label: l10n.s.monitorMemoryPressureDot,
                                   isOn: Binding(
                                       get: { Defaults.sanitizedMenuBarMemoryStyle(memoryStyle) != "percent" },
@@ -634,9 +641,11 @@ private struct NetworkMenuBarOrderOption: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.menuBarNetwork) private var menuBarNetwork = true
     @AppStorage(DefaultsKey.menuBarNetworkUploadFirst) private var uploadFirst = false
+    @AppStorage(MenuBarMetric.network.styleKey) private var style = "values"
 
     var body: some View {
-        if menuBarNetwork {
+        // The graph draws upload and download in fixed places.
+        if menuBarNetwork && MenuBarMetricAppearance.stored(for: .network) == .values && style == style {
             MetricRowOptionToggle(label: l10n.s.monitorNetworkUploadFirst, isOn: $uploadFirst)
         }
     }

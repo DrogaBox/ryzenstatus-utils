@@ -830,11 +830,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     }
 
     private func apply(_ metric: MenuBarMetric, to plan: inout SamplingPlan) {
-        let combineTemps = UserDefaults.standard.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
         switch metric {
         case .cpu:
             plan.needCPU = true
-            if combineTemps { plan.needCPUTemperature = true }
+            // A graph style keeps its temperature apart, so combining asks
+            // for no temperature then.
+            if MenuBarMetricAppearance.usageCombinesTemperature(.cpu) { plan.needCPUTemperature = true }
         case .cpuPower, .cpuFrequency:
             plan.needCPU = true
         case .cpuTempPower, .cpuTemperature:
@@ -842,7 +843,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             plan.needCPUTemperature = true
         case .gpu:
             plan.needGPUUsage = true
-            if combineTemps { plan.needGPUTemperature = true }
+            if MenuBarMetricAppearance.usageCombinesTemperature(.gpu) { plan.needGPUTemperature = true }
         case .gpuTemperature:
             plan.needGPUTemperature = true
         case .gpuPower:

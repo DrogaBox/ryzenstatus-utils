@@ -18,6 +18,8 @@ struct MenuBarRenderSettings: Equatable {
     var memoryStyle: MemoryMenuBarStyle
     var memoryMetric: MonitorMemoryMetric
     var networkUploadFirst: Bool
+    /// MB/s or Mbps, read with the rest so the preview follows a change at once.
+    var networkInBits: Bool
     var temperatureUnit: TemperatureUnit
     var usageBarMediumThreshold: Int
     var usageBarHighThreshold: Int
@@ -75,6 +77,7 @@ struct MenuBarRenderSettings: Equatable {
                 rawValue: Defaults.sanitizedMonitorMemoryMetric(
                     defaults.string(forKey: DefaultsKey.monitorMemoryMetric) ?? "")) ?? .used,
             networkUploadFirst: defaults.bool(forKey: DefaultsKey.menuBarNetworkUploadFirst),
+            networkInBits: (defaults.string(forKey: DefaultsKey.networkSpeedUnit) ?? "") == NetworkSpeedUnit.bits.rawValue,
             temperatureUnit: TemperatureUnit(rawValue: defaults.string(forKey: DefaultsKey.temperatureUnit) ?? "")
                 ?? .celsius,
             usageBarMediumThreshold: defaults.integer(forKey: DefaultsKey.menuBarUsageBarMediumThreshold),
@@ -170,7 +173,11 @@ enum MenuBarStyleMigration {
     static func migratedValues(stored: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
         let global = validStyle(stored[DefaultsKey.menuBarMetricAppearance])
-        for metric in MenuBarMetricAppearance.styledMetrics {
+        let namesStyle = global != nil
+            || MenuBarMetricAppearance.styledMetrics.contains { validStyle(stored[$0.styleKey]) != nil }
+        // Settings that name no style (a classic-only config file) leave the
+        // current per-metric styles alone.
+        for metric in MenuBarMetricAppearance.styledMetrics where namesStyle {
             let effective = validStyle(stored[metric.styleKey]) ?? global ?? "values"
             result[metric.styleKey] = shownStyle(effective, for: metric)
         }
@@ -237,10 +244,30 @@ enum MenuBarStyleMigration {
         apply(stored: stored, to: defaults)
     }
 
+    /// A config file in the current vocabulary: the old global style and the
+    /// classic layout become what they mean, so the launch comparison sees
+    /// the converted keys and stops re-applying once they match.
+    static func translatingOldKeys(_ settings: [String: Any]) -> [String: Any] {
+        guard needsConversion(settings) else { return settings }
+        var result = settings
+        result.removeValue(forKey: DefaultsKey.menuBarMetricAppearance)
+        if result[DefaultsKey.menuBarLayoutMode] as? String == "classic" {
+            result.removeValue(forKey: DefaultsKey.menuBarLayoutMode)
+        }
+        var stored: [String: Any] = [:]
+        for key in inputKeys { stored[key] = settings[key] }
+        for (key, value) in migratedValues(stored: stored) where key != DefaultsKey.menuBarLayoutMode {
+            result[key] = value
+        }
+        return result
+    }
+
     /// Whether `settings` (a backup or config file) still speaks the old
     /// vocabulary.
     static func needsConversion(_ settings: [String: Any]) -> Bool {
-        let hasPerMetric = MenuBarMetricAppearance.styledMetrics.contains { settings[$0.styleKey] != nil }
+        // Current exports carry all five; with fewer, the rest inherit the
+        // old global style.
+        let hasPerMetric = MenuBarMetricAppearance.styledMetrics.allSatisfy { settings[$0.styleKey] != nil }
         let hasGlobal = settings[DefaultsKey.menuBarMetricAppearance] != nil
         let hasClassic = settings[DefaultsKey.menuBarLayoutMode] as? String == "classic"
         return (hasGlobal && !hasPerMetric) || hasClassic
@@ -256,5 +283,8 @@ enum MenuBarStyleMigration {
         for (key, value) in migratedValues(stored: stored) {
             defaults.set(value, forKey: key)
         }
+        // The old global style no longer decides anything; a saved copy would
+        // only travel in backups next to the per-metric keys.
+        defaults.removeObject(forKey: DefaultsKey.menuBarMetricAppearance)
     }
 }

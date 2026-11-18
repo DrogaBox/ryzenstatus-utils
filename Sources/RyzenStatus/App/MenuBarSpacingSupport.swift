@@ -37,6 +37,19 @@ enum MenuBarMetricAppearance: String, CaseIterable {
         // value it does not offer.
         return MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(raw, for: metric)) ?? .values
     }
+
+    /// Whether a usage reading takes its temperature into the same block:
+    /// only while "combine temperatures" is on and the usage draws as text.
+    /// The renderer, the sampler, Settings and search all ask this.
+    static func usageCombinesTemperature(_ metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures) && stored(for: metric, in: defaults).isText
+    }
+
+    /// Whether the "combine temperatures" switch can change anything: CPU or
+    /// GPU usage drawn as text, or a built-in battery.
+    static func combineApplies(in defaults: UserDefaults = .standard, hasBattery: Bool) -> Bool {
+        stored(for: .cpu, in: defaults).isText || stored(for: .gpu, in: defaults).isText || hasBattery
+    }
 }
 
 extension MenuBarMetric {
