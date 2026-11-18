@@ -904,7 +904,6 @@ extension DefaultsKey {
     static let panelToggleMicMute = "panelUtilityMicMute"
     static let menuBarConnectedDevices = "menuBarConnectedDevices"
     static let menuBarIconSymbol = "menuBarIconSymbol" // system symbol name drawn instead of the glyph; empty keeps the glyph
-    static let menuBarDiskStyle = "menuBarDiskStyle"       // percent | free | used
     static let monitorGraphScale = "monitorGraphScale"
     static let monitorSysCPUCores = "monitorSysCPUCores"
     static let monitorNetAddresses = "monitorNetAddresses"

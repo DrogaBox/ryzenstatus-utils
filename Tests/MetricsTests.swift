@@ -1938,10 +1938,78 @@ struct MetricsTests {
                "bar appearance is a valid stored choice")
         expect(Defaults.sanitizedMenuBarMetricAppearance("banana") == "values",
                "unknown menu bar appearances fall back to numeric values")
-        expect(MenuBarMetricAppearance.values.allowsCombinedTemperatures,
-               "numeric menu bar values may combine usage and temperature")
-        expect(!MenuBarMetricAppearance.bars.allowsCombinedTemperatures,
-               "menu bar bars keep usage and temperature separate")
+        expect(MenuBarMetricAppearance.values.isText && MenuBarMetricAppearance.classic.isText,
+               "numeric menu bar values (and the old classic duplicate) draw as text")
+        expect(!MenuBarMetricAppearance.bars.isText && !MenuBarMetricAppearance.sparkline.isText,
+               "menu bar graph styles are not text")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy {
+                   registeredDefaults[$0.styleKey] as? String == "values"
+               },
+               "every styled menu bar metric has a registered style, so none inherits the old global key")
+        do {
+            // The renderer read one stored value differently per metric;
+            // the conversion writes what each one actually showed.
+            let migrated = MenuBarStyleMigration.migratedValues(stored: [
+                DefaultsKey.menuBarMetricAppearance: "pie",
+                MenuBarMetric.cpu.styleKey: "histogram",
+                MenuBarMetric.gpu.styleKey: "histogram",
+                MenuBarMetric.memory.styleKey: "classic",
+            ])
+            expect(migrated[MenuBarMetric.cpu.styleKey] as? String == "histogram",
+                   "a CPU histogram stays the per-core graph")
+            expect(migrated[MenuBarMetric.gpu.styleKey] as? String == "sparkline",
+                   "a GPU histogram was drawn as history and is written as history")
+            expect(migrated[MenuBarMetric.memory.styleKey] as? String == "values",
+                   "classic is written as values, which it always looked like")
+            expect(migrated[MenuBarMetric.network.styleKey] as? String == "sparkline",
+                   "an unset network style inherits the old global ring, which network drew as its graph")
+            expect(migrated[MenuBarMetric.diskUsage.styleKey] as? String == "values",
+                   "disk drew every style but bars as a value")
+            expect(migrated[DefaultsKey.menuBarCPU] == nil,
+                   "without the hidden classic layout no visibility changes")
+            let fresh = MenuBarStyleMigration.migratedValues(stored: [:])
+            expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] as? String == "values" },
+                   "a fresh install converts to values everywhere")
+            let classic = MenuBarStyleMigration.migratedValues(stored: [DefaultsKey.menuBarLayoutMode: "classic"])
+            expect(classic[DefaultsKey.menuBarCPU] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUTemperature] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUFrequency] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUPower] as? Bool == true
+                   && classic[DefaultsKey.menuBarGPU] as? Bool == false,
+                   "the hidden classic layout becomes the four CPU readings it forced")
+            expect(classic[DefaultsKey.menuBarLayoutMode] as? String == "modern"
+                   && classic[DefaultsKey.menuBarHideIconWithMetrics] as? Bool == false,
+                   "classic converts once and keeps the glyph it forced on")
+        }
+        do {
+            // Usage and temperature combine only while the usage is text, so
+            // a graph never comes back as a second "CPU 23% 58°" block.
+            var settings = MenuBarRenderSettings.current(defaults: UserDefaults(suiteName: "menubar-settings-test")!)
+            settings.combineTemperatures = true
+            settings.styles[.cpu] = .values
+            settings.styles[.gpu] = .sparkline
+            expect(settings.combinesTemperature(of: .cpu), "text CPU usage takes its temperature along")
+            expect(!settings.combinesTemperature(of: .gpu), "a GPU graph leaves its temperature as its own block")
+            expect(settings.combinesTemperature(of: .battery), "battery charge always combines when asked")
+            settings.combineTemperatures = false
+            expect(!settings.combinesTemperature(of: .cpu), "nothing combines with the option off")
+        }
+        do {
+            let memory = MenuBarWidthMemory()
+            _ = memory.compactReserve(key: "cpuPower", value: "105W")
+            expect(memory.compactReserve(key: "cpu", value: "4%") == "88%",
+                   "a three digit power reading no longer widens the CPU usage block")
+            expect(memory.compactReserve(key: "cpuPower", value: "45W") == "888W",
+                   "each block keeps its own high-water mark")
+        }
+        expect(MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+               == MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a"),
+               "an unchanged title has an unchanged key, so it is not written again")
+        expect(MenuBarSpacingSupport.titleKey(glyphHidden: true, countdown: "", metricsKey: "a")
+               != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+               && MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "5 min", metricsKey: "a")
+               != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "4 min", metricsKey: "a"),
+               "the glyph spacing and a running countdown change the title key")
         expectClose(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 4) ?? -1, 0.75,
                     "menu bar memory bars use the current used fraction")
         expect(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 0) == nil,
@@ -2168,12 +2236,10 @@ struct MetricsTests {
                "a three digit value raises the floor")
         expect(MenuBarSpacingSupport.compactFloor(currentDigits: 2, highWater: 3) == 3,
                "the session high-water mark keeps a block from shrinking back and wobbling")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: false, spacing: .standard) == " ",
-               "standard dense spacing keeps the full space between blocks")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: false, spacing: .compact) == "\u{200A}",
-               "compact dense spacing joins blocks with a hair space")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: true, spacing: .compact) == " ",
-               "compact readable spacing tightens the double space to a single one")
+        expect(MenuBarSpacingSupport.blockGlue(spacing: .standard) == " ",
+               "standard spacing keeps the full space between blocks")
+        expect(MenuBarSpacingSupport.blockGlue(spacing: .compact) == "\u{200A}",
+               "compact spacing joins blocks with a hair space")
         expect(StatusItemAnchorSupport.anchorDriftX(clickX: 1135, reportedMidX: 1452, buttonWidth: 38) == -317,
                "a click far left of the status item's reported frame re-anchors the panel at the click")
         expect(StatusItemAnchorSupport.anchorDriftX(clickX: 1452, reportedMidX: 1135, buttonWidth: 38) == 317,
@@ -2326,8 +2392,6 @@ struct MetricsTests {
                "separate menu bar metric items are opt-in")
         expect(registeredDefaults[DefaultsKey.menuBarNetworkUploadFirst] as? Bool == false,
                "network menu bar upload-first layout is opt-in")
-        expect(registeredDefaults[DefaultsKey.menuBarLabelStyle] as? String == "compact",
-               "menu bar label style defaults to compact")
         expect(registeredDefaults[DefaultsKey.menuBarMemoryStyle] as? String == "percent",
                "memory menu bar style defaults to percent")
         expect(registeredDefaults[DefaultsKey.monitorPwrTimeRemaining] as? Bool == true,
@@ -2846,8 +2910,6 @@ struct MetricsTests {
                "valid debounce window is preserved")
         expect(Defaults.sanitizedKeyboardDebounceWindow(999) == Defaults.defaultKeyboardDebounceWindowMs,
                "invalid debounce window falls back to default")
-        expect(Defaults.sanitizedMenuBarLabelStyle("classic") == "classic", "valid label style is preserved")
-        expect(Defaults.sanitizedMenuBarLabelStyle("bad") == "compact", "invalid label style falls back to compact")
         expect(Defaults.sanitizedMenuBarMemoryStyle("percent") == "percent", "percent memory style is preserved")
         expect(Defaults.sanitizedMenuBarMemoryStyle("dot") == "dot", "valid memory style is preserved")
         expect(Defaults.sanitizedMenuBarMemoryStyle("both") == "both", "combined memory style is preserved")
@@ -8546,6 +8608,24 @@ struct MetricsTests {
                 && backupKeys.contains(DefaultsKey.keepAwakeActiveIcon)
                 && backupKeys.contains(AppFeature.dockPreview.availabilityKey),
                "backup carries preferences, menu bar pins, Keep Awake appearance, language and hub availability")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { backupKeys.contains($0.styleKey) }
+                && !backupKeys.contains(MenuBarStyleMigration.markerKey),
+               "each menu bar metric's style travels with the backup; the conversion marker stays local")
+        do {
+            // A backup written before the per-metric styles existed carries
+            // only the old global style; importing it converts again.
+            let suite = UserDefaults(suiteName: "menubar-style-import-test")!
+            suite.removePersistentDomain(forName: "menubar-style-import-test")
+            MenuBarStyleMigration.applyAfterImport([DefaultsKey.menuBarMetricAppearance: "bars"], to: suite)
+            expect(suite.string(forKey: MenuBarMetric.cpu.styleKey) == "bars"
+                   && suite.string(forKey: MenuBarMetric.network.styleKey) == "sparkline",
+                   "an old backup's global style becomes what each metric showed")
+            suite.set("pie", forKey: MenuBarMetric.cpu.styleKey)
+            MenuBarStyleMigration.applyAfterImport([MenuBarMetric.cpu.styleKey: "pie"], to: suite)
+            expect(suite.string(forKey: MenuBarMetric.cpu.styleKey) == "pie",
+                   "a backup with per-metric styles is applied as it is")
+            suite.removePersistentDomain(forName: "menubar-style-import-test")
+        }
         expect(backupKeys.contains(DefaultsKey.launchAtLoginWanted),
                "the launch at login choice travels with the settings backup")
         expect(backupKeys.contains(DefaultsKey.textSnippets)

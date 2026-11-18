@@ -16,7 +16,6 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarCombineTemperatures) private var combineTemperatures = true
     @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMetrics = false
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
-    @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
     @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
@@ -88,7 +87,6 @@ struct MonitorSettings: View {
         .settingsPageActivity(.monitorSettings)
         .onAppear {
             interval = Defaults.sanitizedMonitorInterval(interval)
-            metricAppearance = Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)
             if TemperatureUnit(rawValue: temperatureUnit) == nil {
                 temperatureUnit = TemperatureUnit.celsius.rawValue
             }
@@ -112,10 +110,6 @@ struct MonitorSettings: View {
         FeatureStrings.menuBarAppearance(l10n.language)
     }
 
-    private var appearance: MenuBarMetricAppearance {
-        MenuBarMetricAppearance(rawValue: Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)) ?? .values
-    }
-
     /// What sits in the menu bar, in the order it appears there.
     private var menuBarCard: some View {
         SettingsCard {
@@ -131,9 +125,9 @@ struct MonitorSettings: View {
     private var menuBarStyleCard: some View {
         SettingsCard(title: appearanceStrings.label) {
             styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: $appCPU,
-                     options: ["values", "bars", "pie", "sparkline", "histogram", "classic"])
+                     options: ["values", "bars", "pie", "sparkline", "histogram"])
             styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: $appGPU,
-                     options: ["values", "bars", "pie", "sparkline", "classic"])
+                     options: ["values", "bars", "pie", "sparkline"])
             styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: $appRAM,
                      options: ["values", "bars", "pie", "sparkline"])
             styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: $appNet,
@@ -156,11 +150,9 @@ struct MonitorSettings: View {
     /// How the readings share the menu bar with the icon and with each other.
     private var menuBarLayoutCard: some View {
         SettingsCard {
-            if appearance != .bars {
-                SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
-                            caption: l10n.s.monitorCombineTemperaturesCaption) {
-                    Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
-                }
+            SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
+                        caption: l10n.s.monitorCombineTemperaturesCaption) {
+                Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
             }
             SettingsRow(symbol: "arrow.left.and.right", title: l10n.s.menuBarSpacingLabel) {
                 Picker(l10n.s.menuBarSpacingLabel, selection: $metricSpacing) {
@@ -176,8 +168,7 @@ struct MonitorSettings: View {
                 Toggle(l10n.s.menuBarHideIconToggle, isOn: $hideIconWithMetrics).labelsHidden()
             }
             SettingsRow(symbol: "rectangle.split.3x1", title: l10n.s.monitorSeparateMenuBarMetrics,
-                        caption: appearance.allowsCombinedTemperatures
-                            ? l10n.s.monitorSeparateMenuBarMetricsCaption : nil) {
+                        caption: l10n.s.monitorSeparateMenuBarMetricsCaption) {
                 Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics).labelsHidden()
             }
         }
@@ -202,28 +193,7 @@ struct MonitorSettings: View {
         case "pie": return appearanceStrings.pie
         case "sparkline": return appearanceStrings.sparkline
         case "histogram": return appearanceStrings.histogram
-        case "classic": return Self.classicTitle(l10n.language)
         default: return appearanceStrings.values
-        }
-    }
-
-    /// The classic menu bar style's name in each language.
-    private static func classicTitle(_ language: AppLanguage) -> String {
-        switch language {
-        case .enUS: return "Classic"
-        case .ptBR: return "Clássico"
-        case .tr: return "Klasik"
-        case .ru: return "Классика"
-        case .es: return "Clásico"
-        case .sk: return "Klasický"
-        case .de: return "Klassisch"
-        case .fr: return "Classique"
-        case .it: return "Classico"
-        case .ja: return "クラシック"
-        case .ko: return "클래식"
-        case .uk: return "Класика"
-        case .zhHans: return "经典"
-        case .zhTW, .zhHK: return "經典"
         }
     }
 

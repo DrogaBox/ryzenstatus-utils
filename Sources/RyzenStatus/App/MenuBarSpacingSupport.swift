@@ -15,29 +15,31 @@ enum MenuBarMetricSpacing: String, CaseIterable {
         return MenuBarMetricSpacing(rawValue: Defaults.sanitizedMenuBarMetricSpacing(raw)) ?? .standard
     }
 }
-/// How percentage based monitor readings appear in the menu bar. Values keep
-/// the existing numeric blocks; bars replace CPU, GPU, memory and disk usage
-/// with a compact vertical gauge. Readings without a fixed 0...100 scale stay
-/// numeric in either mode.
+/// How a metric is drawn in the menu bar. Values keep the numeric blocks;
+/// the graph styles replace a usage reading with a gauge, a ring, a history
+/// graph or one bar per core. "classic" is a former duplicate of values that
+/// old settings may still carry; it reads as values.
 enum MenuBarMetricAppearance: String, CaseIterable {
     case values, bars, pie, sparkline, histogram, classic
 
-    var allowsCombinedTemperatures: Bool { self == .values || self == .classic }
-    var isClassic: Bool { self == .classic }
+    /// Drawn as text, so a temperature can join it in the same block.
+    var isText: Bool { self == .values || self == .classic }
 
-    static var current: MenuBarMetricAppearance {
-        let raw = UserDefaults.standard.string(forKey: DefaultsKey.menuBarMetricAppearance) ?? ""
-        let appearance = Defaults.sanitizedMenuBarMetricAppearance(raw)
-        return MenuBarMetricAppearance(rawValue: appearance) ?? .values
-    }
+    /// Metrics with a style of their own. The rest always draw as text.
+    static let styledMetrics: [MenuBarMetric] = [.cpu, .gpu, .memory, .network, .diskUsage]
 
-    static func appearance(for metricKey: String) -> MenuBarMetricAppearance {
-        let specificRaw = UserDefaults.standard.string(forKey: "menuBarMetricAppearance_\(metricKey)") ?? ""
-        if !specificRaw.isEmpty, let specific = MenuBarMetricAppearance(rawValue: specificRaw) {
-            return specific
-        }
-        return current
+    /// The stored style of one metric. Every styled metric has a registered
+    /// value, written explicitly by `MenuBarStyleMigration` for older installs.
+    static func stored(for metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> MenuBarMetricAppearance {
+        let raw = Defaults.sanitizedMenuBarMetricAppearance(defaults.string(forKey: metric.styleKey) ?? "")
+        let style = MenuBarMetricAppearance(rawValue: raw) ?? .values
+        return style == .classic ? .values : style
     }
+}
+
+extension MenuBarMetric {
+    /// The defaults key holding this metric's menu bar style.
+    var styleKey: String { "menuBarMetricAppearance_\(rawValue)" }
 }
 
 enum MenuBarUsageBarSupport {
@@ -159,13 +161,6 @@ enum MenuBarSpacingSupport {
     /// without ever moving.
     static let compactMinimumDigits = 2
 
-    /// Highest digit count each block has shown this session, so a spike to
-    /// three digits widens that block once and keeps it there instead of
-    /// letting the width oscillate while the value hovers at the boundary.
-    /// Touched only on the main thread (status item refresh and the settings
-    /// preview both render there).
-    private static var digitHighWater: [String: Int] = [:]
-
     /// A finite Keep Awake countdown is the only menu-bar content whose text
     /// changes just because time passed. Everything else refreshes from its
     /// publisher or preference change, so no timer should live at rest.
@@ -173,17 +168,6 @@ enum MenuBarSpacingSupport {
                                        showsCountdown: Bool,
                                        hasEndDate: Bool) -> Bool {
         keepAwakeActive && showsCountdown && hasEndDate
-    }
-
-    /// The reserve compact mode uses for a metric block: the current value's
-    /// shape, widened to at least `compactMinimumDigits` digits and to the
-    /// block's session high-water mark. Stable by construction; still far
-    /// narrower than reserving each metric's absolute maximum.
-    static func compactReserve(label: String, value: String) -> String {
-        let digits = value.filter(\.isNumber).count
-        let floor = compactFloor(currentDigits: digits, highWater: digitHighWater[label])
-        digitHighWater[label] = floor
-        return digitMatchedReserve(for: value, minimumDigits: floor)
     }
 
     static func compactFloor(currentDigits: Int, highWater: Int?) -> Int {
@@ -212,11 +196,18 @@ enum MenuBarSpacingSupport {
     }
 
     /// The glue string drawn between two metric blocks.
-    static func blockGlue(readableStyle: Bool, spacing: MenuBarMetricSpacing) -> String {
+    static func blockGlue(spacing: MenuBarMetricSpacing) -> String {
         switch spacing {
-        case .standard: return readableStyle ? "  " : " "
-        case .compact: return readableStyle ? " " : "\u{200A}"
+        case .standard: return " "
+        case .compact: return "\u{200A}"
         }
+    }
+
+    /// What the main item's title is made of, as a key that changes exactly
+    /// when the title would look different: the glyph spacing, a running
+    /// countdown and the metrics' render key (see `MenuBarRender`).
+    static func titleKey(glyphHidden: Bool, countdown: String, metricsKey: String) -> String {
+        [glyphHidden ? "-" : "+", countdown, metricsKey].joined(separator: "\u{1E}")
     }
 
     /// Whether the app glyph may hide so the menu bar shows metrics only

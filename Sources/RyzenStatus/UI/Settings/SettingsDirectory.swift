@@ -15,7 +15,9 @@ struct SettingsSearchState: Equatable {
 
     init(defaults: UserDefaults, hardware: Hardware) {
         self.hardware = hardware
-        bars = defaults.string(forKey: DefaultsKey.menuBarMetricAppearance) == "bars"
+        bars = MenuBarMetricAppearance.styledMetrics.contains {
+            MenuBarMetricAppearance.stored(for: $0, in: defaults) == .bars
+        }
         batteryRest = defaults.string(forKey: DefaultsKey.notchIdleContent) == NotchIdleContent.battery.rawValue
         capsule = defaults.string(forKey: DefaultsKey.notchSilhouette) != NotchSilhouette.notch.rawValue
         customSize = defaults.string(forKey: DefaultsKey.notchSize) == NotchSize.custom.rawValue

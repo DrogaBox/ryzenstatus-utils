@@ -153,6 +153,9 @@ enum SettingsBackup {
         for (key, value) in settings {
             defaults.set(value, forKey: key)
         }
+        if replacingMissing {
+            MenuBarStyleMigration.applyAfterImport(settings, to: defaults)
+        }
         if replacingMissing, let shared = SettingsBackupSupport.sharedSwitcherPauseList(in: settings) {
             defaults.set(shared, forKey: DefaultsKey.switcherPreviewExcludedApps)
         }
