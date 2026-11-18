@@ -347,16 +347,19 @@ private enum MonitorAlertKind: Hashable {
     // under load on Navi 21, must not hold back a VRAM or held-back warning.
     case gpuMemoryTemperature, gpuThrottle
 }
+
 /// Lets a sample through once: a snapshot that carries the same reading as
 /// the last one (same `takenAt`) is not a new observation.
 struct FreshSampleGate {
     private(set) var last: TimeInterval?
+
     mutating func isFresh(_ takenAt: TimeInterval?) -> Bool {
         guard let takenAt, takenAt != last else { return false }
         last = takenAt
         return true
     }
 }
+
 /// A condition that has to hold for `duration` before it counts. Up to
 /// `allowedMisses` samples in a row may fall short without starting over, so
 /// one idle or missing sample from the GPU does not reset a long wait.
@@ -365,10 +368,12 @@ struct SustainedCondition {
     let allowedMisses: Int
     private(set) var since: Date?
     private var misses = 0
+
     init(duration: TimeInterval, allowedMisses: Int) {
         self.duration = duration
         self.allowedMisses = allowedMisses
     }
+
     /// True once the condition has held, give or take the allowed misses,
     /// for `duration`, and on every holding sample after that.
     mutating func update(_ holds: Bool, now: Date) -> Bool {
@@ -386,6 +391,7 @@ struct SustainedCondition {
         }
         return now.timeIntervalSince(since) >= duration
     }
+
     mutating func reset() {
         since = nil
         misses = 0

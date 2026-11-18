@@ -66,6 +66,7 @@ struct LongHistoryTier {
         means = []
         counts = []
     }
+
     private mutating func allocateIfNeeded() {
         guard means.isEmpty else { return }
         means = [Float](repeating: 0, count: capacity)

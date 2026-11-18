@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 
 enum GPUSensorsTests {
@@ -174,6 +175,7 @@ enum GPUSensorsTests {
         suite.expect(sample?.hotspotEdgeGap(load: 0.3) == nil, "the hotspot-edge gap means nothing at light load")
         suite.expect(sample?.hotspotEdgeGap(load: 0.9) == 25, "under load it is hotspot minus edge")
     }
+
     private static func display(_ suite: TestSuite) {
         let sample = GPUSensorsSample(hotspot: 60, edge: 52, memory: 70, coreVR: nil, throttle: nil)
         suite.expect(GPUDisplayTemperature.resolve(source: .memory, macOS: 60, sample: sample)
@@ -197,6 +199,7 @@ enum GPUSensorsTests {
                          && Defaults.registeredDefaults[DefaultsKey.monitorAlertGPUThrottle] as? Bool == false,
                      "the new settings are registered, so the settings backup carries them")
     }
+
     private static func sustained(_ suite: TestSuite) {
         let start = Date(timeIntervalSince1970: 0)
         func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
@@ -210,6 +213,7 @@ enum GPUSensorsTests {
         _ = condition.update(false, now: at(15))
         suite.expect(condition.since == nil, "a third miss in a row starts over")
     }
+
     /// The review of 313080d7: alerts that never started, stale samples
     /// replayed into the alerts, and a VRAM figure shown as "GPU".
     private static func reviewFixes(_ suite: TestSuite) {
@@ -237,18 +241,28 @@ enum GPUSensorsTests {
             suite.expect(MonitorAlertService.anyEnabled(in: defaults, gpuSensorsPresent: true),
                          "with the kext it counts")
         }
-        // 2a. A due tick without a fresh reading drops the old sample.
+
+        // 2a. A due tick without a fresh reading drops the old sample, and a
+        // vanished kext counts as due (the monitor passes `due || !present`).
         let hot = GPUSensorsSample(hotspot: 90, edge: 70, memory: 96, coreVR: nil, throttle: .thermal)
         let cool = GPUSensorsSample(hotspot: 50, edge: 45, memory: 60, coreVR: nil, throttle: nil)
         let cache = (sample: hot, at: 100.0)
-        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: nil, now: 105, bridge: 12) == nil,
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: nil, now: 101) == nil,
                      "a stale or vanished kext never replays its last hot sample")
-        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 105, bridge: 12)?.at == 100,
-                     "between strides the last sample is bridged")
-        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 113, bridge: 12) == nil,
-                     "past the bridge it is dropped")
-        let replaced = SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: cool, now: 105, bridge: 12)
-        suite.expect(replaced?.sample == cool && replaced?.at == 105, "a fresh reading replaces it")
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 104)?.at == 100,
+                     "between strides the last sample is carried")
+        suite.expect(SystemMonitor.nextGPUSensors(cache: cache, due: false, fresh: nil, now: 105.5) == nil,
+                     "never past the driver's 5 s age limit")
+        let replaced = SystemMonitor.nextGPUSensors(cache: cache, due: true, fresh: (cool, 103), now: 105)
+        suite.expect(replaced?.sample == cool && replaced?.at == 103,
+                     "a fresh reading replaces it, dated when the driver took it")
+
+        // 2c. The sample is dated by the kext's SampleAgeMs, not by the read.
+        let aged = GPUSensorsReading.parse(fixture(age: 4_000), now: 100)
+        suite.expect(aged?.takenAt == 96, "a sample 4 s old at a read at 100 s was taken at 96 s")
+        suite.expect(aged?.isCurrent(at: 100.5) == true && aged?.isCurrent(at: 101.5) == false,
+                     "it stops counting once the driver's sample is over 5 s old, cache or not")
+
         // 2b. One sample replayed by several 1 s snapshots counts once.
         var gate = FreshSampleGate()
         suite.expect(gate.isFresh(105) && !gate.isFresh(105) && !gate.isFresh(105) && gate.isFresh(110),
@@ -265,6 +279,7 @@ enum GPUSensorsTests {
             fired = condition.update(tick.hot, now: Date(timeIntervalSince1970: tick.at)) || fired
         }
         suite.expect(fired, "one cool sample shown on several ticks is one miss, so the 12 s wait still ends")
+
         // 3. The combined GPU menu bar item names a VRAM temperature.
         let combineKey = DefaultsKey.menuBarCombineTemperatures
         let previous = UserDefaults.standard.object(forKey: combineKey)
@@ -273,6 +288,7 @@ enum GPUSensorsTests {
             if let previous { UserDefaults.standard.set(previous, forKey: combineKey) }
             else { UserDefaults.standard.removeObject(forKey: combineKey) }
         }
+
         func labels(_ snapshot: SystemSnapshot) -> [String] {
             MenuBarRenderer.segments(for: snapshot, metrics: [.gpu, .gpuTemperature]).compactMap {
                 if case .metricBlock(let label, _, _, _, _) = $0 { return label }
@@ -286,7 +302,31 @@ enum GPUSensorsTests {
         snapshot.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
         suite.expect(labels(snapshot).contains { $0.hasPrefix("VRAM") },
                      "a VRAM temperature gets its own VRAM block in the combined item (got \(labels(snapshot)))")
+
+        // 3b. GPU temp + power sizes its image from reserved lines, so the
+        // "VRAM 000°" line must be reserved or its digits are clipped.
+        func tempPowerWidth(_ snapshot: SystemSnapshot) -> CGFloat? {
+            for segment in MenuBarRenderer.segments(for: snapshot, metrics: [.gpuTempPower]) {
+                if case .customImage(let image) = segment { return image.size.width }
+            }
+            return nil
+        }
+        var plain = SystemSnapshot()
+        plain.gpuTemperature = 61
+        plain.gpuPower = 200
+        var vram = plain
+        vram.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
+        if let plainWidth = tempPowerWidth(plain), let vramWidth = tempPowerWidth(vram) {
+            let needed = ("VRAM 000°" as NSString).size(withAttributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: MenuBarRenderer.networkBlockFontSize(style: .dense),
+                                                   weight: .semibold)]).width
+            suite.expect(vramWidth > plainWidth && vramWidth >= needed,
+                         "the VRAM temp + power image is wide enough for its label (\(vramWidth) vs \(needed))")
+        } else {
+            suite.expect(false, "GPU temp + power renders an image")
+        }
     }
+
     /// A history file from before the VRAM metric (ten metrics) still loads,
     /// each metric where it was, and the new one starts empty.
     private static func history(_ suite: TestSuite) {

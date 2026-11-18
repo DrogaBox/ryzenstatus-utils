@@ -74,7 +74,8 @@ struct MonitorAlertsControls: View {
                 if gpuSensors.isPresent || alertGPUMemoryTemperature {
                     Toggle(text.gpuMemoryTemperature, isOn: $alertGPUMemoryTemperature)
                     if alertGPUMemoryTemperature {
-                        Stepper("\(text.gpuMemoryTemperatureThreshold) \(alertGPUMemoryTemperatureThreshold) °C",
+                        // Stored in °C like every threshold; shown in the user's unit.
+                        Stepper("\(text.gpuMemoryTemperatureThreshold) \(MetricFormat.temperature(Double(alertGPUMemoryTemperatureThreshold), unit: temperatureUnit))",
                                 value: $alertGPUMemoryTemperatureThreshold,
                                 in: 60...110,
                                 step: 5)
@@ -149,16 +150,19 @@ struct MonitorAlertsControls: View {
     private var temperatureUnit: TemperatureUnit {
         TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
     }
+
     private func hint(_ string: String) -> some View {
         Text(string)
             .font(compact ? .system(size: 9.5) : .caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
+
     private var alertSwitches: [Bool] {
         [alertCPU, alertCPUTemperature, alertGPUTemperature, alertGPUPower, alertGPUMemoryTemperature,
          alertGPUThrottle, alertMemory, alertDisk, alertBattery]
     }
+
     private var alertValues: [Int] {
         [alertCPUThreshold, alertCPUTemperatureThreshold, alertGPUTemperatureThreshold, alertGPUPowerThreshold,
          alertGPUMemoryTemperatureThreshold, alertDiskFreePercent, alertBatteryPercent, alertCooldown]

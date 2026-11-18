@@ -509,7 +509,9 @@ struct MetricDetailView: View {
                                 MetricFormat.temperatureDifference(gap, unit: displayTemperatureUnit)))
             }
             if let throttle = sensors?.throttle {
-                rows.append(row(sensorText.gpuThrottling, throttle.text(sensorText), wrapsValue: true))
+                // One reason fits beside the title; two or three wrap under it.
+                rows.append(row(sensorText.gpuThrottling, throttle.text(sensorText),
+                                wrapsValue: throttle.rawValue.nonzeroBitCount > 1))
             }
             // Shown only while the driver reports the card's fan turning.
             if let fan = snapshot.gpuFan, fan > 0 {

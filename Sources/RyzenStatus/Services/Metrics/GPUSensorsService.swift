@@ -19,9 +19,21 @@ struct GPUSensorsReading: Equatable {
     /// Sensor name, exactly as the kext spells it, to its value in `units`.
     let values: [String: Double]
     let units: [String: String]
+    /// When the driver took this sample, in system uptime: the read time
+    /// minus the kext's `SampleAgeMs`, so a copy read late is not dated as new.
+    var takenAt: TimeInterval = 0
 
-    /// Nil unless the kext reports itself active with a fresh sample.
-    static func parse(_ properties: [String: Any]) -> GPUSensorsReading? {
+    static var maxSampleAge: TimeInterval { maxSampleAgeMs / 1_000 }
+
+    /// Whether the sample is still current at `now` (uptime).
+    func isCurrent(at now: TimeInterval) -> Bool {
+        now - takenAt <= Self.maxSampleAge
+    }
+
+    /// Nil unless the kext reports itself active with a fresh sample. `now`
+    /// is the system uptime of the read, used to date the sample.
+    static func parse(_ properties: [String: Any],
+                      now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> GPUSensorsReading? {
         guard properties["Status"] as? String == "active",
               let age = (properties["SampleAgeMs"] as? NSNumber)?.doubleValue,
               age >= 0, age <= maxSampleAgeMs,
@@ -33,7 +45,7 @@ struct GPUSensorsReading: Equatable {
         }
         guard !values.isEmpty else { return nil }
         let units = (properties["Units"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
-        return GPUSensorsReading(values: values, units: units)
+        return GPUSensorsReading(values: values, units: units, takenAt: now - age / 1_000)
     }
 
     /// A value only when the kext states the unit this app expects for it, so
@@ -325,9 +337,12 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard service != 0 else { return nil }
-        if now - cachedAt < Self.cacheLifetime { return cached }
-        cached = Self.properties(of: service).flatMap(GPUSensorsReading.parse)
-        cachedAt = now
+        if now - cachedAt >= Self.cacheLifetime {
+            cached = Self.properties(of: service).flatMap { GPUSensorsReading.parse($0, now: now) }
+            cachedAt = now
+        }
+        // A cached copy ages too: past the driver's 5 s it is no reading.
+        guard let cached, cached.isCurrent(at: now) else { return nil }
         return cached
     }
 
@@ -373,7 +388,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         let entry = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(GPUSensorsReading.serviceClass))
         guard entry != 0 else { return nil }
         defer { IOObjectRelease(entry) }
-        return properties(of: entry).flatMap(GPUSensorsReading.parse)
+        return properties(of: entry).flatMap { GPUSensorsReading.parse($0) }
     }
 
     // `queue` only (IOKit delivers the notifications there).
@@ -415,6 +430,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isPresent != value else { return }
             self.isPresent = value
+            if !value { self.reading = nil }
             // The kext alerts count, and add their sampling need, only while
             // it is here: re-sync both when it comes or goes.
             SystemMonitor.shared.planDidChange()

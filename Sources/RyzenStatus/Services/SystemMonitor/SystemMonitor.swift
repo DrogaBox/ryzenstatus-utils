@@ -392,17 +392,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// The GPUSensors.kext sample a tick carries. A due tick replaces it with
-    /// the fresh reading, or drops it when there is none (the kext went away
-    /// or its sample went stale), so a dead reading never stands in for a
-    /// current one; between strides it is bridged like the temperatures.
+    /// The GPUSensors.kext sample a tick carries, with the time the driver
+    /// took it. A due tick replaces it with the fresh reading, or drops it
+    /// when there is none (the kext went away or its sample went stale), so a
+    /// dead reading never stands in for a current one. Between strides it is
+    /// carried, but never past the driver's own 5 s age limit.
     static func nextGPUSensors(cache: (sample: GPUSensorsSample, at: TimeInterval)?,
                                due: Bool,
-                               fresh: GPUSensorsSample?,
-                               now: TimeInterval,
-                               bridge: TimeInterval) -> (sample: GPUSensorsSample, at: TimeInterval)? {
-        let current = due ? fresh.map { (sample: $0, at: now) } : cache
-        guard let current, now - current.at <= bridge else { return nil }
+                               fresh: (sample: GPUSensorsSample, at: TimeInterval)?,
+                               now: TimeInterval) -> (sample: GPUSensorsSample, at: TimeInterval)? {
+        let current = due ? fresh : cache
+        guard let current, now - current.at <= GPUSensorsReading.maxSampleAge else { return nil }
         return current
     }
     /// The anti-glitch bridge for temperatures spans a couple of temperature
@@ -599,7 +599,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// would sit on its placeholder until the next wake (up to 60 s), so a
     /// changed plan resamples right away.
     private func resyncIfPlanChanged() {
-        guard shouldSample() else { return }
+        guard shouldSample() else {
+            // The plan shrank to nothing (the kext went away with only its
+            // alerts on): stop the timer instead of ticking for nothing.
+            stopTimerIfIdle()
+            return
+        }
         let plan = currentPlan(defaults: .standard)
         guard plan != lastSyncedPlan else { return }
         if let oldPlan = lastSyncedPlan {
@@ -1252,19 +1257,24 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 }
                 // GPUSensors.kext rides on the GPU temperature stride. Without
                 // the kext `isPresentNow` is false and nothing is read.
-                let fresh = temperatureDue && GPUSensorsService.shared.isPresentNow
-                    ? GPUSensorsService.shared.currentReading(now: now)?.sample : nil
-                let carried = Self.nextGPUSensors(cache: self.gpuSensorsCache, due: temperatureDue,
-                                                  fresh: fresh, now: now, bridge: temperatureBridge)
-                self.gpuSensorsCache = carried
-                next.gpuSensors = carried?.sample
-                next.gpuSensorsTakenAt = carried?.at
-                if let fresh {
+                // A kext that went away drops its sample at once, not at
+                // the next stride.
+                let present = GPUSensorsService.shared.isPresentNow
+                let reading = temperatureDue && present ? GPUSensorsService.shared.currentReading(now: now) : nil
+                let fresh = reading.map { (sample: $0.sample, at: $0.takenAt) }
+                let carried = Self.nextGPUSensors(cache: self.gpuSensorsCache, due: temperatureDue || !present,
+                                                  fresh: fresh, now: now)
+                // A new driver sample (not the cached copy seen last tick)
+                // publishes and reaches the history once.
+                if let fresh, carried?.at == fresh.at, fresh.at != self.gpuSensorsCache?.at {
                     sampledAnything = true
-                    if let memory = fresh.memory {
+                    if let memory = fresh.sample.memory {
                         LongHistoryStore.shared.record(.gpuMemoryTemperature, memory)
                     }
                 }
+                self.gpuSensorsCache = carried
+                next.gpuSensors = carried?.sample
+                next.gpuSensorsTakenAt = carried?.at
             }
             if plan.needBatteryTemperature {
                 if temperatureDue {

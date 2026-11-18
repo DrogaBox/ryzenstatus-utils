@@ -577,10 +577,14 @@ enum MenuBarRenderer {
                 groups.append([.customImage(image)])
             case .gpuTempPower:
                 let tempValue = snapshot.gpuDisplayCelsius.map(temperatureCompact) ?? "--°"
-                let temp = snapshot.gpuDisplayLabel == "GPU" ? tempValue : snapshot.gpuDisplayLabel + " " + tempValue
+                let labelled = snapshot.gpuDisplayLabel != "GPU"
+                let temp = labelled ? snapshot.gpuDisplayLabel + " " + tempValue : tempValue
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                // The image is sized from the reserved lines, so a labelled
+                // VRAM line reserves room for its label too.
+                let reservedTemp = labelled ? snapshot.gpuDisplayLabel + " 000°" : "000°"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["000°", "000W"],
+                                             reservedLines: [reservedTemp, "000W"],
                                              cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)|\(appearanceSuffix)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
