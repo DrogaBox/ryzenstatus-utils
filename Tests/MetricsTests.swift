@@ -13513,6 +13513,7 @@ struct MetricsTests {
                 ("DashboardMetricsTests", DashboardMetricsTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("LeakHistoryTests", LeakHistoryTests.run),
+                ("GPUSensorsTests", GPUSensorsTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),

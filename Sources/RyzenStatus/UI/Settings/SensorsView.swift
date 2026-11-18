@@ -12,6 +12,7 @@ struct SensorsView: View {
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var gpuSensorsService = GPUSensorsService.shared
 
     private var strings: SensorStrings { FeatureStrings.sensors(l10n.language) }
     
@@ -103,6 +104,17 @@ struct SensorsView: View {
                     }
                     return true
                 }
+                // Extra readings from the optional GPUSensors.kext; empty without it.
+                let gpuExtraRows = gpuSensorsService.reading?.rows(strings) ?? []
+                // Without kext GPU devices the generic GPU temperature is
+                // PerformanceStatistics' Temperature(C) or the hottest SMC TG
+                // key, which this platform's SMC plug-in fills from that same
+                // value. GPUSensors names it: its hotspot takes the row's place,
+                // labelled so, and the SMC keys keep their own rows below.
+                let gpuHotspotRow = hasKextGpu ? nil : gpuExtraRows.first { $0.id == GPUSensorsRow.hotspotID }
+                let gpuExtraShown = gpuHotspotRow == nil
+                    ? gpuExtraRows
+                    : gpuExtraRows.filter { $0.id != GPUSensorsRow.hotspotID }
                 let diskSensors = filteredReadings.filter { $0.key.hasPrefix("TH") && $0.value > 0 }
                 let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") && $0.value > 0 }
                 let airSensors = filteredReadings.filter { ($0.key.hasPrefix("TA") || $0.key.hasPrefix("Te") || $0.key.hasPrefix("TW")) && $0.value > 0 }
@@ -264,12 +276,17 @@ struct SensorsView: View {
                             }
                         } else {
                             // Fallback: show monitor snapshot GPU data ONLY when no discrete kext devices detected
-                            if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
+                            if let hotspot = gpuHotspotRow {
+                                SensorRow(name: hotspot.label, value: gpuExtraText(hotspot), icon: gpuExtraIcon(hotspot.value))
+                            } else if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
                                 SensorRow(name: strings.gpuTemperature, value: formatTemp(temp), icon: "thermometer.snowflake")
                             }
                             if let power = monitor.snapshot.gpuPower, power > 0 {
                                 SensorRow(name: strings.gpuPower, value: MetricFormat.fixed(power, decimals: 1, unit: "W"), icon: "bolt")
                             }
+                        }
+                        ForEach(gpuExtraShown) { row in
+                            SensorRow(name: row.label, value: gpuExtraText(row), icon: gpuExtraIcon(row.value))
                         }
                         // The card's own fan, as its driver reports it; it cannot be set from macOS.
                         if let fan = monitor.snapshot.gpuFan, fan > 0 {
@@ -281,6 +298,11 @@ struct SensorsView: View {
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
                         }
+                        if !gpuExtraRows.isEmpty {
+                            Text(strings.gpuSensorsSource)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "display")
@@ -290,7 +312,8 @@ struct SensorsView: View {
                             Spacer()
                             let kextCount = monitor.snapshot.gpuDevices.count
                             let fanCount = (monitor.snapshot.gpuFan ?? 0) > 0 ? 1 : 0
-                            let totalGpuCount = fanCount + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0)))
+                            let fallbackTemperatureCount = (gpuHotspotRow != nil || monitor.snapshot.gpuTemperature != nil) ? 1 : 0
+                            let totalGpuCount = fanCount + gpuExtraShown.count + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + fallbackTemperatureCount))
                             Text(strings.sensorCount(totalGpuCount))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -451,6 +474,7 @@ struct SensorsView: View {
         // cannot wipe these needs) and the 1 s SMC sweep run only while the
         // page is on screen in a visible Settings window.
         .settingsPageActivity(.sensors, activate: {
+            gpuSensorsService.start()
             smcDump.rediscoverKeys()
             smcDump.refresh()
             loadTimer?.invalidate()
@@ -464,6 +488,7 @@ struct SensorsView: View {
         }, deactivate: {
             loadTimer?.invalidate()
             loadTimer = nil
+            gpuSensorsService.stop()
         })
         .sheet(isPresented: $showingCPUDetails) {
             VStack {
@@ -496,6 +521,22 @@ struct SensorsView: View {
             : MetricFormat.temperature(value, unit: unit)
     }
     
+    private func gpuExtraText(_ row: GPUSensorsRow) -> String {
+        if case .temperature(let celsius) = row.value { return formatTemp(celsius) }
+        return GPUSensorsRow.text(row.value, strings: strings) ?? "—"
+    }
+
+    private func gpuExtraIcon(_ value: GPUSensorsRow.Value) -> String {
+        switch value {
+        case .temperature: return "thermometer.snowflake"
+        case .volts: return "bolt.horizontal"
+        case .percent: return "memorychip"
+        case .megahertz: return "speedometer"
+        case .throttler: return "gauge.with.dots.needle.33percent"
+        case .pcie: return "point.3.connected.trianglepath.dotted"
+        }
+    }
+
     private func formatValue(_ sensor: SMCSensorReading) -> String {
         let key = sensor.key
         if key.hasPrefix("T") {

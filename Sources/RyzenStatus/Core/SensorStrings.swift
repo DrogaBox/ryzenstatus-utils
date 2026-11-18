@@ -94,6 +94,20 @@ struct SensorStrings {
     let microcode: String
     let featuresSection: String
     let extFeaturesSection: String
+    let gpuEdgeTemperature: String
+    let gpuCoreVRMTemperature: String
+    let gpuSocVRMTemperature: String
+    let gpuMemoryVRMTemperature: String
+    let gpuMemoryVRMTemperatureFormat: String
+    let gpuSocVoltage: String
+    let gpuMemoryVoltage: String
+    let gpuMemoryActivity: String
+    let gpuSocClock: String
+    let gpuFabricClock: String
+    let gpuThrottling: String
+    let gpuThrottlingNone: String
+    let gpuPCIeLink: String
+    let gpuSensorsSource: String
 
     /// "1 sensor" / "5 sensors". Russian, Ukrainian and Slovak use a
     /// "Sensors: 5" form for every count above one, so no plural rule is needed.
@@ -223,7 +237,21 @@ private extension SensorStrings {
         brand: "Brand",
         microcode: "Microcode version",
         featuresSection: "Features",
-        extFeaturesSection: "Extended features"
+        extFeaturesSection: "Extended features",
+        gpuEdgeTemperature: "GPU edge temperature",
+        gpuCoreVRMTemperature: "GPU core VRM temperature",
+        gpuSocVRMTemperature: "GPU SoC VRM temperature",
+        gpuMemoryVRMTemperature: "GPU memory VRM temperature",
+        gpuMemoryVRMTemperatureFormat: "GPU memory VRM %d temperature",
+        gpuSocVoltage: "GPU SoC voltage",
+        gpuMemoryVoltage: "GPU memory voltage",
+        gpuMemoryActivity: "GPU memory activity",
+        gpuSocClock: "GPU SoC clock",
+        gpuFabricClock: "GPU fabric clock (average)",
+        gpuThrottling: "GPU throttling",
+        gpuThrottlingNone: "None",
+        gpuPCIeLink: "GPU PCIe link",
+        gpuSensorsSource: "Extra readings from GPUSensors.kext"
     )
 
     static let ptBR = SensorStrings(
@@ -312,7 +340,21 @@ private extension SensorStrings {
         brand: "Marca",
         microcode: "Versão do microcódigo",
         featuresSection: "Recursos",
-        extFeaturesSection: "Recursos estendidos"
+        extFeaturesSection: "Recursos estendidos",
+        gpuEdgeTemperature: "Temperatura da borda da GPU",
+        gpuCoreVRMTemperature: "Temperatura do VRM do núcleo da GPU",
+        gpuSocVRMTemperature: "Temperatura do VRM do SoC da GPU",
+        gpuMemoryVRMTemperature: "Temperatura do VRM da memória da GPU",
+        gpuMemoryVRMTemperatureFormat: "Temperatura do VRM %d da memória da GPU",
+        gpuSocVoltage: "Tensão do SoC da GPU",
+        gpuMemoryVoltage: "Tensão da memória da GPU",
+        gpuMemoryActivity: "Atividade da memória da GPU",
+        gpuSocClock: "Clock do SoC da GPU",
+        gpuFabricClock: "Clock do fabric da GPU (média)",
+        gpuThrottling: "Limitação da GPU",
+        gpuThrottlingNone: "Nenhuma",
+        gpuPCIeLink: "Link PCIe da GPU",
+        gpuSensorsSource: "Leituras extras do GPUSensors.kext"
     )
 
     static let tr = SensorStrings(
@@ -401,7 +443,21 @@ private extension SensorStrings {
         brand: "Marka",
         microcode: "Mikrokod sürümü",
         featuresSection: "Özellikler",
-        extFeaturesSection: "Genişletilmiş özellikler"
+        extFeaturesSection: "Genişletilmiş özellikler",
+        gpuEdgeTemperature: "GPU kenar sıcaklığı",
+        gpuCoreVRMTemperature: "GPU çekirdek VRM sıcaklığı",
+        gpuSocVRMTemperature: "GPU SoC VRM sıcaklığı",
+        gpuMemoryVRMTemperature: "GPU bellek VRM sıcaklığı",
+        gpuMemoryVRMTemperatureFormat: "GPU bellek VRM %d sıcaklığı",
+        gpuSocVoltage: "GPU SoC gerilimi",
+        gpuMemoryVoltage: "GPU bellek gerilimi",
+        gpuMemoryActivity: "GPU bellek etkinliği",
+        gpuSocClock: "GPU SoC saati",
+        gpuFabricClock: "GPU fabric saati (ortalama)",
+        gpuThrottling: "GPU kısıtlaması",
+        gpuThrottlingNone: "Yok",
+        gpuPCIeLink: "GPU PCIe bağlantısı",
+        gpuSensorsSource: "GPUSensors.kext'ten ek okumalar"
     )
 
     static let ru = SensorStrings(
@@ -490,7 +546,21 @@ private extension SensorStrings {
         brand: "Марка",
         microcode: "Версия микрокода",
         featuresSection: "Возможности",
-        extFeaturesSection: "Расширенные возможности"
+        extFeaturesSection: "Расширенные возможности",
+        gpuEdgeTemperature: "Температура края ГП",
+        gpuCoreVRMTemperature: "Температура VRM ядра ГП",
+        gpuSocVRMTemperature: "Температура VRM SoC ГП",
+        gpuMemoryVRMTemperature: "Температура VRM памяти ГП",
+        gpuMemoryVRMTemperatureFormat: "Температура VRM %d памяти ГП",
+        gpuSocVoltage: "Напряжение SoC ГП",
+        gpuMemoryVoltage: "Напряжение памяти ГП",
+        gpuMemoryActivity: "Загрузка памяти ГП",
+        gpuSocClock: "Частота SoC ГП",
+        gpuFabricClock: "Частота Fabric ГП (средняя)",
+        gpuThrottling: "Троттлинг ГП",
+        gpuThrottlingNone: "Нет",
+        gpuPCIeLink: "Канал PCIe ГП",
+        gpuSensorsSource: "Дополнительные показания GPUSensors.kext"
     )
 
     static let es = SensorStrings(
@@ -579,7 +649,21 @@ private extension SensorStrings {
         brand: "Marca",
         microcode: "Versión del microcódigo",
         featuresSection: "Funciones",
-        extFeaturesSection: "Funciones extendidas"
+        extFeaturesSection: "Funciones extendidas",
+        gpuEdgeTemperature: "Temperatura del borde de la GPU",
+        gpuCoreVRMTemperature: "Temperatura del VRM del núcleo de la GPU",
+        gpuSocVRMTemperature: "Temperatura del VRM del SoC de la GPU",
+        gpuMemoryVRMTemperature: "Temperatura del VRM de la memoria de la GPU",
+        gpuMemoryVRMTemperatureFormat: "Temperatura del VRM %d de la memoria de la GPU",
+        gpuSocVoltage: "Voltaje del SoC de la GPU",
+        gpuMemoryVoltage: "Voltaje de la memoria de la GPU",
+        gpuMemoryActivity: "Actividad de la memoria de la GPU",
+        gpuSocClock: "Reloj del SoC de la GPU",
+        gpuFabricClock: "Reloj del fabric de la GPU (promedio)",
+        gpuThrottling: "Limitación de la GPU",
+        gpuThrottlingNone: "Ninguna",
+        gpuPCIeLink: "Enlace PCIe de la GPU",
+        gpuSensorsSource: "Lecturas extra de GPUSensors.kext"
     )
 
     static let de = SensorStrings(
@@ -668,7 +752,21 @@ private extension SensorStrings {
         brand: "Marke",
         microcode: "Microcode-Version",
         featuresSection: "Funktionen",
-        extFeaturesSection: "Erweiterte Funktionen"
+        extFeaturesSection: "Erweiterte Funktionen",
+        gpuEdgeTemperature: "GPU-Edge-Temperatur",
+        gpuCoreVRMTemperature: "GPU-Kern-VRM-Temperatur",
+        gpuSocVRMTemperature: "GPU-SoC-VRM-Temperatur",
+        gpuMemoryVRMTemperature: "GPU-Speicher-VRM-Temperatur",
+        gpuMemoryVRMTemperatureFormat: "GPU-Speicher-VRM-%d-Temperatur",
+        gpuSocVoltage: "GPU-SoC-Spannung",
+        gpuMemoryVoltage: "GPU-Speicherspannung",
+        gpuMemoryActivity: "GPU-Speicherauslastung",
+        gpuSocClock: "GPU-SoC-Takt",
+        gpuFabricClock: "GPU-Fabric-Takt (Durchschnitt)",
+        gpuThrottling: "GPU-Drosselung",
+        gpuThrottlingNone: "Keine",
+        gpuPCIeLink: "GPU-PCIe-Verbindung",
+        gpuSensorsSource: "Zusätzliche Werte von GPUSensors.kext"
     )
 
     static let fr = SensorStrings(
@@ -757,7 +855,21 @@ private extension SensorStrings {
         brand: "Marque",
         microcode: "Version du microcode",
         featuresSection: "Fonctions",
-        extFeaturesSection: "Fonctions étendues"
+        extFeaturesSection: "Fonctions étendues",
+        gpuEdgeTemperature: "Température de bord du GPU",
+        gpuCoreVRMTemperature: "Température du VRM du cœur du GPU",
+        gpuSocVRMTemperature: "Température du VRM du SoC du GPU",
+        gpuMemoryVRMTemperature: "Température du VRM de la mémoire du GPU",
+        gpuMemoryVRMTemperatureFormat: "Température du VRM %d de la mémoire du GPU",
+        gpuSocVoltage: "Tension du SoC du GPU",
+        gpuMemoryVoltage: "Tension de la mémoire du GPU",
+        gpuMemoryActivity: "Activité de la mémoire du GPU",
+        gpuSocClock: "Horloge du SoC du GPU",
+        gpuFabricClock: "Horloge du fabric du GPU (moyenne)",
+        gpuThrottling: "Bridage du GPU",
+        gpuThrottlingNone: "Aucun",
+        gpuPCIeLink: "Liaison PCIe du GPU",
+        gpuSensorsSource: "Mesures supplémentaires de GPUSensors.kext"
     )
 
     static let it = SensorStrings(
@@ -846,7 +958,21 @@ private extension SensorStrings {
         brand: "Marca",
         microcode: "Versione del microcodice",
         featuresSection: "Funzionalità",
-        extFeaturesSection: "Funzionalità estese"
+        extFeaturesSection: "Funzionalità estese",
+        gpuEdgeTemperature: "Temperatura bordo GPU",
+        gpuCoreVRMTemperature: "Temperatura VRM core GPU",
+        gpuSocVRMTemperature: "Temperatura VRM SoC GPU",
+        gpuMemoryVRMTemperature: "Temperatura VRM memoria GPU",
+        gpuMemoryVRMTemperatureFormat: "Temperatura VRM %d memoria GPU",
+        gpuSocVoltage: "Tensione SoC GPU",
+        gpuMemoryVoltage: "Tensione memoria GPU",
+        gpuMemoryActivity: "Attività memoria GPU",
+        gpuSocClock: "Clock SoC GPU",
+        gpuFabricClock: "Clock fabric GPU (media)",
+        gpuThrottling: "Limitazione GPU",
+        gpuThrottlingNone: "Nessuna",
+        gpuPCIeLink: "Collegamento PCIe GPU",
+        gpuSensorsSource: "Letture aggiuntive da GPUSensors.kext"
     )
 
     static let ja = SensorStrings(
@@ -935,7 +1061,21 @@ private extension SensorStrings {
         brand: "ブランド",
         microcode: "マイクロコードのバージョン",
         featuresSection: "機能",
-        extFeaturesSection: "拡張機能"
+        extFeaturesSection: "拡張機能",
+        gpuEdgeTemperature: "GPU エッジ温度",
+        gpuCoreVRMTemperature: "GPU コア VRM 温度",
+        gpuSocVRMTemperature: "GPU SoC VRM 温度",
+        gpuMemoryVRMTemperature: "GPU メモリ VRM 温度",
+        gpuMemoryVRMTemperatureFormat: "GPU メモリ VRM %d 温度",
+        gpuSocVoltage: "GPU SoC 電圧",
+        gpuMemoryVoltage: "GPU メモリ電圧",
+        gpuMemoryActivity: "GPU メモリ使用率",
+        gpuSocClock: "GPU SoC クロック",
+        gpuFabricClock: "GPU ファブリッククロック（平均）",
+        gpuThrottling: "GPU スロットリング",
+        gpuThrottlingNone: "なし",
+        gpuPCIeLink: "GPU PCIe リンク",
+        gpuSensorsSource: "GPUSensors.kext からの追加の値"
     )
 
     static let ko = SensorStrings(
@@ -1024,7 +1164,21 @@ private extension SensorStrings {
         brand: "브랜드",
         microcode: "마이크로코드 버전",
         featuresSection: "기능",
-        extFeaturesSection: "확장 기능"
+        extFeaturesSection: "확장 기능",
+        gpuEdgeTemperature: "GPU 엣지 온도",
+        gpuCoreVRMTemperature: "GPU 코어 VRM 온도",
+        gpuSocVRMTemperature: "GPU SoC VRM 온도",
+        gpuMemoryVRMTemperature: "GPU 메모리 VRM 온도",
+        gpuMemoryVRMTemperatureFormat: "GPU 메모리 VRM %d 온도",
+        gpuSocVoltage: "GPU SoC 전압",
+        gpuMemoryVoltage: "GPU 메모리 전압",
+        gpuMemoryActivity: "GPU 메모리 사용률",
+        gpuSocClock: "GPU SoC 클럭",
+        gpuFabricClock: "GPU 패브릭 클럭(평균)",
+        gpuThrottling: "GPU 스로틀링",
+        gpuThrottlingNone: "없음",
+        gpuPCIeLink: "GPU PCIe 링크",
+        gpuSensorsSource: "GPUSensors.kext의 추가 측정값"
     )
 
     static let zhHans = SensorStrings(
@@ -1113,7 +1267,21 @@ private extension SensorStrings {
         brand: "品牌",
         microcode: "微码版本",
         featuresSection: "功能",
-        extFeaturesSection: "扩展功能"
+        extFeaturesSection: "扩展功能",
+        gpuEdgeTemperature: "GPU 边缘温度",
+        gpuCoreVRMTemperature: "GPU 核心 VRM 温度",
+        gpuSocVRMTemperature: "GPU SoC VRM 温度",
+        gpuMemoryVRMTemperature: "GPU 显存 VRM 温度",
+        gpuMemoryVRMTemperatureFormat: "GPU 显存 VRM %d 温度",
+        gpuSocVoltage: "GPU SoC 电压",
+        gpuMemoryVoltage: "GPU 显存电压",
+        gpuMemoryActivity: "GPU 显存活动",
+        gpuSocClock: "GPU SoC 频率",
+        gpuFabricClock: "GPU Fabric 频率（平均）",
+        gpuThrottling: "GPU 降频",
+        gpuThrottlingNone: "无",
+        gpuPCIeLink: "GPU PCIe 链路",
+        gpuSensorsSource: "来自 GPUSensors.kext 的额外读数"
     )
 
     static let zhTW = SensorStrings(
@@ -1202,7 +1370,21 @@ private extension SensorStrings {
         brand: "品牌",
         microcode: "微碼版本",
         featuresSection: "功能",
-        extFeaturesSection: "延伸功能"
+        extFeaturesSection: "延伸功能",
+        gpuEdgeTemperature: "GPU 邊緣溫度",
+        gpuCoreVRMTemperature: "GPU 核心 VRM 溫度",
+        gpuSocVRMTemperature: "GPU SoC VRM 溫度",
+        gpuMemoryVRMTemperature: "GPU 顯示記憶體 VRM 溫度",
+        gpuMemoryVRMTemperatureFormat: "GPU 顯示記憶體 VRM %d 溫度",
+        gpuSocVoltage: "GPU SoC 電壓",
+        gpuMemoryVoltage: "GPU 顯示記憶體電壓",
+        gpuMemoryActivity: "GPU 顯示記憶體活動",
+        gpuSocClock: "GPU SoC 時脈",
+        gpuFabricClock: "GPU Fabric 時脈（平均）",
+        gpuThrottling: "GPU 降頻",
+        gpuThrottlingNone: "無",
+        gpuPCIeLink: "GPU PCIe 連結",
+        gpuSensorsSource: "來自 GPUSensors.kext 的額外讀數"
     )
 
     static let zhHK = zhTW
@@ -1293,7 +1475,21 @@ private extension SensorStrings {
         brand: "Značka",
         microcode: "Verzia mikrokódu",
         featuresSection: "Funkcie",
-        extFeaturesSection: "Rozšírené funkcie"
+        extFeaturesSection: "Rozšírené funkcie",
+        gpuEdgeTemperature: "Teplota okraja GPU",
+        gpuCoreVRMTemperature: "Teplota VRM jadra GPU",
+        gpuSocVRMTemperature: "Teplota VRM SoC GPU",
+        gpuMemoryVRMTemperature: "Teplota VRM pamäte GPU",
+        gpuMemoryVRMTemperatureFormat: "Teplota VRM %d pamäte GPU",
+        gpuSocVoltage: "Napätie SoC GPU",
+        gpuMemoryVoltage: "Napätie pamäte GPU",
+        gpuMemoryActivity: "Aktivita pamäte GPU",
+        gpuSocClock: "Takt SoC GPU",
+        gpuFabricClock: "Takt fabric GPU (priemer)",
+        gpuThrottling: "Obmedzovanie GPU",
+        gpuThrottlingNone: "Žiadne",
+        gpuPCIeLink: "Linka PCIe GPU",
+        gpuSensorsSource: "Ďalšie hodnoty z GPUSensors.kext"
     )
 
     static let uk = SensorStrings(
@@ -1382,6 +1578,20 @@ private extension SensorStrings {
         brand: "Марка",
         microcode: "Версія мікрокоду",
         featuresSection: "Можливості",
-        extFeaturesSection: "Розширені можливості"
+        extFeaturesSection: "Розширені можливості",
+        gpuEdgeTemperature: "Температура краю ГП",
+        gpuCoreVRMTemperature: "Температура VRM ядра ГП",
+        gpuSocVRMTemperature: "Температура VRM SoC ГП",
+        gpuMemoryVRMTemperature: "Температура VRM пам'яті ГП",
+        gpuMemoryVRMTemperatureFormat: "Температура VRM %d пам'яті ГП",
+        gpuSocVoltage: "Напруга SoC ГП",
+        gpuMemoryVoltage: "Напруга пам'яті ГП",
+        gpuMemoryActivity: "Завантаження пам'яті ГП",
+        gpuSocClock: "Частота SoC ГП",
+        gpuFabricClock: "Частота Fabric ГП (середня)",
+        gpuThrottling: "Тротлінг ГП",
+        gpuThrottlingNone: "Немає",
+        gpuPCIeLink: "Канал PCIe ГП",
+        gpuSensorsSource: "Додаткові показники GPUSensors.kext"
     )
 }
