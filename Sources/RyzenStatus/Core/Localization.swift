@@ -1499,7 +1499,7 @@ extension Strings {
         istatsUser: "Usuário",
         istatsSystem: "Sistema",
         istatsAppMemory: "App",
-        istatsWiredMemory: "Wired",
+        istatsWiredMemory: "Residente",
         istatsCompressedMemory: "Comprimida",
         istatsFreeMemory: "Livre",
 

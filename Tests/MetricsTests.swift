@@ -6456,6 +6456,16 @@ struct MetricsTests {
                          "\(prefix) cleaner last run line format")
             expect(!strings.uninstallerSomeFailed.isEmpty,
                    "\(prefix) cleaner failure sentence is present")
+            // Wired memory is kernel-resident RAM, not a network cable.
+            let cableWords: Set<String> = ["filaire", "kablolu", "cableada", "cabeada"]
+            let wired = strings.istatsWiredMemory
+            expect(!wired.isEmpty && !cableWords.contains(wired.lowercased()),
+                   "\(prefix) wired memory label does not mean a network cable")
+            let wiredTranslatedLanguages: Set<AppLanguage> = [.es, .fr, .ptBR, .tr]
+            if wiredTranslatedLanguages.contains(language) {
+                expect(wired != "Wired",
+                       "\(prefix) wired memory label is translated")
+            }
 
             // The Settings window has one map: the sidebar draws its rows from
             // it and the command bar searches it. Every page has to be in it
