@@ -90,6 +90,13 @@ enum RollingDigitsTests {
                      && RollingDigits.numbers("1.234,56", locale: english) == [1234.56]
                      && RollingDigits.numbers("1.234.567", locale: english) == [1234567],
                      "with both marks in a number the last is the decimal point, whatever the locale")
+        suite.expect(RollingDigits.numbers("v1.86.0", locale: english) == [1, 86, 0]
+                     && RollingDigits.numbers("15.8.3", locale: english) == [15, 8, 3]
+                     && RollingDigits.plan(from: "v1.86.0", to: "v2.0.0", locale: english).up,
+                     "a version's repeated marks keep its numbers apart, so 1.86.0 -> 2.0.0 rolls up")
+        suite.expect(RollingDigits.numbers("USB-2", locale: english) == [2]
+                     && RollingDigits.numbers("M-1", locale: english) == [1],
+                     "a hyphen after a letter is no minus")
         suite.expect(RollingDigits.numbers("-10°", locale: english) == [-10]
                      && RollingDigits.numbers("CPU −3°", locale: english) == [-3]
                      && RollingDigits.numbers("10-20", locale: english) == [10, 20]
@@ -151,16 +158,44 @@ enum RollingDigitsTests {
         suite.expect(view.room == natural * 0.8 && !view.isTruncated, "probes, narrow or wide, leave the bounds the room")
         sized(natural * 3)
         suite.expect(view.currentFit == 1 && !view.isTruncated, "a wider box lets a line that was shrunk stand whole")
-        // A line that grows before SwiftUI widens its bounds takes the offered
-        // width, or all it needs, instead of flashing an ellipsis.
-        view.show("12%", animated: false, countsDown: nil)
-        sized(view.naturalSize.width)
-        view.offer(nil)
-        view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
-        view.layout()
-        suite.expect(!view.isTruncated && view.currentFit == 1, "a line that just grew is not cut before its bounds catch up")
-        sized(natural * 0.5)
-        suite.expect(view.isTruncated, "once the bounds move, they are the room again")
+        // A line that grows before SwiftUI widens its bounds is not cut: under
+        // .fixedSize() (offered nothing since it grew) it has all it needs...
+        let fixed = rollingView()
+        fixed.show("12%", animated: false, countsDown: nil)
+        fixed.frame = CGRect(x: 0, y: 0, width: fixed.naturalSize.width, height: 28)
+        fixed.layout()
+        fixed.offer(nil)
+        fixed.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
+        fixed.layout()
+        suite.expect(fixed.offeredWidth == nil && !fixed.isTruncated && fixed.currentFit == 1,
+                     "a line that just grew, offered nothing, stands whole until its bounds catch up")
+        fixed.frame = CGRect(x: 0, y: 0, width: natural * 0.5, height: 28)
+        fixed.layout()
+        suite.expect(fixed.isTruncated, "once the bounds move, they are the room again")
+        // ...and an offer left from before it grew does not count.
+        let leftover = rollingView()
+        leftover.show("12%", animated: false, countsDown: nil)
+        leftover.frame = CGRect(x: 0, y: 0, width: leftover.naturalSize.width, height: 28)
+        leftover.offer(leftover.naturalSize.width)
+        leftover.layout()
+        leftover.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
+        leftover.layout()
+        suite.expect(!leftover.isTruncated && leftover.currentFit == 1,
+                     "a narrow offer from before the line grew does not cut it")
+        leftover.offer(natural * 2)
+        leftover.layout()
+        suite.expect(leftover.room == natural * 2 && !leftover.isTruncated, "an offer made after it grew is its room")
+        // A line already shrunk or cut in a fixed box keeps that box when it grows.
+        let box = rollingView()
+        box.configure(style: .rounded(22, .medium), color: .white, duration: 0.25,
+                      frameRates: RollingDigitsView.defaultFrameRates, minimumScaleFactor: 0.7)
+        box.frame = CGRect(x: 0, y: 0, width: 68, height: 28)
+        box.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
+        box.layout()
+        box.show("↓ 19.6 MB/s", animated: false, countsDown: nil)
+        box.layout()
+        box.layout()
+        suite.expect(box.room == 68 && box.isTruncated, "a line that grows in a box it already overflowed keeps the box as its room")
         view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
         sized(natural * 0.8)
         let fit = view.currentFit
@@ -186,6 +221,7 @@ enum RollingDigitsTests {
         suite.expect(abs(view.firstBaselineOffsetFromTop + view.lastBaselineOffsetFromBottom - 28) < 0.01,
                      "the two baselines are the same line, seen from the top and the bottom")
         leaving(suite)
+        reach(suite)
         inactive(suite)
         cache(suite)
         shortcutTile(suite)
@@ -243,6 +279,13 @@ enum RollingDigitsTests {
         suite.expect(again.leavingLayers.isEmpty, "swapping the line whole drops them too")
     }
 
+    private static func reach(_ suite: TestSuite) {
+        let view = rollingView()
+        view.show("↓ 1.25 MB/s · 111", animated: false, countsDown: nil)
+        let farthest = (view.lineLayer.sublayers ?? []).map(\.frame.maxX).max() ?? 0
+        suite.expect(farthest <= view.naturalSize.width, "the line's width covers its last rounded-up column")
+    }
+
     /// A copy nobody sees neither rolls nor draws an ellipsis.
     private static func inactive(_ suite: TestSuite) {
         let rolling = rollingView()
@@ -272,9 +315,16 @@ enum RollingDigitsTests {
     /// Long lines are drawn as they come and never fill the cache.
     private static func cache(_ suite: TestSuite) {
         suite.expect(RollingDigitsGlyphs.cachedLength == 16, "lines up to 16 characters are cached")
-        let component = source("Sources/RyzenStatus/UI/Notch/RollingDigits.swift")
-        suite.expect(component.contains("if text.count <= Self.cachedLength { cache.setObject(image, forKey: key) }"),
-                     "a longer line is drawn without being kept")
+        let glyphs = RollingDigitsGlyphs.shared
+        let font = RollingDigitsStyle(size: 13).font()
+        let white = NSColor.white.cgColor
+        suite.expect(glyphs.image("45%", font: font, color: white, scale: 2)
+                     === glyphs.image("45%", font: font, color: white, scale: 2),
+                     "a short run is drawn once and shared")
+        let title = "A Song Title · An Artist"
+        suite.expect(glyphs.image(title, font: font, color: white, scale: 2)
+                     !== glyphs.image(title, font: font, color: white, scale: 2),
+                     "a longer line is drawn as it comes, without being kept")
     }
 
     /// The shortcut tile's longest reading fits its 68 pt line at the 0.7 the

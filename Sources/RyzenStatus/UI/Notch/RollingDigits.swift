@@ -94,8 +94,15 @@ enum RollingDigits {
         // Both marks in one number: the last is the decimal point and the
         // others group ("$1,234.56", "1.234,56"), whatever the locale says.
         if Set(marks).count > 1 { return index == last ? .decimal : .grouping }
-        // The same mark more than once only groups ("1.234.567").
-        if marks.count > 1 { return .grouping }
+        // The same mark more than once groups thousands ("1.234.567") only
+        // when every run after the first has three digits; otherwise, as in a
+        // version ("v1.86.0", "15.8.3"), the numbers stay apart.
+        if marks.count > 1 {
+            let runs = stride(from: first + 1, through: last + 1, by: 2).compactMap { i -> String? in
+                if case .digits(let run) = tokens[i] { return run }; return nil
+            }
+            return runs.allSatisfy { $0.count == 3 } ? .grouping : nil
+        }
         let thousands = next.count == 3
         switch text {
         case ".": return locale.groupingSeparator == "." && thousands ? .grouping : .decimal
@@ -169,9 +176,11 @@ enum RollingDigits {
         for (index, token) in tokens.enumerated() {
             switch token {
             case .digits(let run):
-                // A minus right before a number, not between two ("10-20"), makes it negative.
+                // A minus right before a number makes it negative, unless a
+                // letter or digit stands before it ("USB-2", "M-1", "10-20").
                 if current.isEmpty, index >= 1, case .text(let before) = tokens[index - 1],
-                   before.hasSuffix("-") || before.hasSuffix("−"), before.count > 1 || index == 1 {
+                   before.hasSuffix("-") || before.hasSuffix("−"), index == 1 || before.count > 1,
+                   before.dropLast().last.map({ !$0.isLetter && !$0.isNumber }) ?? true {
                     current = "-"
                 }
                 current += run
@@ -605,11 +614,14 @@ final class RollingDigitsView: NSView {
             }
         }
         var x: CGFloat = 0
+        // How far the rounded-up layers reach, which can pass x by a fraction.
+        var reach: CGFloat = 0
         for (slot, change) in zip(plan.slots, plan.changes) {
             let slotAdvance = advance(of: slot)
             // The layer is as wide as its image, which is drawn rounded up.
             let frame = CGRect(x: x, y: 0, width: ceil(slotAdvance), height: height)
             x += slotAdvance
+            reach = max(reach, frame.maxX)
             let content: String
             switch slot.content {
             case .digit(let digit): content = String(digit)
@@ -665,13 +677,21 @@ final class RollingDigitsView: NSView {
                 }
             }
         }
-        line.frame = CGRect(x: 0, y: 0, width: ceil(x), height: height)
+        let width = ceil(max(x, reach))
+        line.frame = CGRect(x: 0, y: 0, width: width, height: height)
         CATransaction.commit()
-        let size = CGSize(width: ceil(x), height: height)
+        let size = CGSize(width: width, height: height)
         if size != naturalSize {
             // A longer line takes its new room from SwiftUI's offer until its
             // bounds catch up (see `room`).
-            if size.width > naturalSize.width, !naturalSize.equalTo(.zero) { grownFrom = bounds.width }
+            // Only a line that fitted its bounds waits for them to catch up: one
+            // already shrunk or cut in a fixed box keeps that box as its room.
+            if size.width > naturalSize.width, !naturalSize.equalTo(.zero), naturalSize.width <= bounds.width + 0.5 {
+                grownFrom = bounds.width
+                // An offer from before the line grew says nothing about its new
+                // room; one SwiftUI makes now replaces it, and none (.fixedSize()) leaves ∞.
+                offeredWidth = nil
+            }
             naturalSize = size
             invalidateIntrinsicContentSize()
         }
