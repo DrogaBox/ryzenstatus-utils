@@ -9331,6 +9331,56 @@ struct MetricsTests {
                    "Without a choice, an installed TIDAL comes before Apple Music")
             expect(NowPlayingPreferredPlayer.resolve(choice: "", lastPlayed: "com.apple.Music", isInstalled: { installed.contains($0) }) == "com.apple.Music",
                    "The app that played last still wins over TIDAL")
+
+            // Covers through the perl helper, once per song.
+            let coverLine = #"perl: warning: Setting locale failed."# + "\n"
+                + #"{"bundle":"com.tidal.desktop","title":" Richter: Sunlight ","artist":"Louisa Fuller","album":"Voyager","mime":"image/jpeg","artwork":"AQID"}"# + "\n"
+            let cover = NowPlayingCoverReader.parse(Data(coverLine.utf8))
+            expect(cover?.title == "Richter: Sunlight" && cover?.bundleID == "com.tidal.desktop" && cover?.data == Data([1, 2, 3]),
+                   "Cover helper: the JSON line after perl's warnings, cover decoded")
+            expect(NowPlayingCoverReader.parse(Data(#"{"title":"Song"}"#.utf8))?.data == nil,
+                   "Cover helper: a song without a cover has no data")
+            expect(NowPlayingCoverReader.parse(Data(#"{"error":"MediaRemote did not answer"}"#.utf8)) == nil
+                   && NowPlayingCoverReader.parse(Data("error: no entry point\n".utf8)) == nil
+                   && NowPlayingCoverReader.parse(Data()) == nil,
+                   "Cover helper: errors and empty output are no cover")
+            var onScreen = NowPlayingSnapshot()
+            onScreen.title = "Richter: Sunlight"
+            onScreen.artist = "Louisa Fuller"
+            onScreen.appBundleID = "com.tidal.desktop"
+            if let cover {
+                expect(NowPlayingCoverReader.cover(cover, belongsTo: onScreen), "A cover for the song on screen is used")
+                var nextSong = onScreen
+                nextSong.title = "On the Nature of Daylight"
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: nextSong), "A cover read at a track change is not put on the next song")
+                var otherApp = onScreen
+                otherApp.appBundleID = "com.google.Chrome"
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: otherApp), "A cover from another player is not used")
+            }
+            var pausedSong = onScreen
+            pausedSong.isPlaying = false
+            pausedSong.elapsed = 99
+            expect(NowPlayingCoverReader.key(for: pausedSong) == NowPlayingCoverReader.key(for: onScreen),
+                   "Play, pause and the playhead do not ask for the cover again")
+            var renamed = onScreen
+            renamed.album = "Voyager (Deluxe)"
+            expect(NowPlayingCoverReader.key(for: renamed) != NowPlayingCoverReader.key(for: onScreen),
+                   "A new song or album asks for its cover")
+            let missing = NowPlayingCoverReader(libraryURL: URL(fileURLWithPath: "/nonexistent/NowPlayingCover.dylib"))
+            expect(missing.read() == nil && missing.gaveUp && missing.read() == nil,
+                   "Without the helper, covers stop at once and are not asked again")
+            expect(NowPlayingCoverReader.loader.contains("dl_load_file") && NowPlayingCoverReader.loader.contains("exit 2")
+                   && NowPlayingCoverReader.loader.contains("ryzenstatus_now_playing_cover"),
+                   "Cover loader loads the library and names its entry point")
+            let buildScript = (try? String(contentsOfFile: "build.sh", encoding: .utf8)) ?? ""
+            let helperSource = (try? String(contentsOfFile: "Sources/NowPlayingCover/NowPlayingCover.m", encoding: .utf8)) ?? ""
+            expect(buildScript.contains("Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib")
+                   && buildScript.contains("$STAGE/Contents/Frameworks/NowPlayingCover.dylib")
+                   && buildScript.contains("codesign_library \"$library\""),
+                   "build.sh compiles the cover helper, puts it in Frameworks and signs it before the bundle")
+            expect(helperSource.contains("void ryzenstatus_now_playing_cover(void *interpreter, void *sub)")
+                   && helperSource.contains("kMRMediaRemoteNowPlayingInfoArtworkData"),
+                   "The cover helper exports the entry point the loader calls")
         }
 
         // MARK: Now Playing island feed (playback mapping, song changes, timed lyrics, scripting)

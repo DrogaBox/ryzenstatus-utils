@@ -137,6 +137,16 @@ if (( ! DEV )); then
     strip -x "build/$EXECUTABLE"
 fi
 
+# Now Playing covers on macOS 15.4+: a small library /usr/bin/perl loads (see
+# Sources/NowPlayingCover). Both architectures, because perl runs natively
+# even when the app runs under Rosetta.
+echo "▸ Compiling the Now Playing cover helper…"
+rm -f build/NowPlayingCover.dylib
+clang -fobjc-arc -dynamiclib -O2 -Wall -Werror -arch x86_64 -arch arm64 \
+    -mmacosx-version-min=14.0 -isysroot "$SDK" -framework Foundation \
+    -install_name @rpath/NowPlayingCover.dylib \
+    Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib
+
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset
@@ -148,8 +158,9 @@ STAGE="$STAGE_ROOT/$APP_NAME.app"
 # remove the mktemp staging bundle on exit — every build used to
 # leave a full signed .app behind in $TMPDIR until the OS purged it.
 trap 'rm -rf "$STAGE_ROOT"' EXIT
-mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" "$STAGE/Contents/Frameworks"
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
+cp build/NowPlayingCover.dylib "$STAGE/Contents/Frameworks/NowPlayingCover.dylib"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
 for lproj in Resources/*.lproj(N); do
@@ -210,9 +221,26 @@ codesign_target() {
     fi
 }
 
+# Nested code is signed before the bundle, with the same identity and no
+# entitlements (a library has no use for them).
+codesign_library() {
+    local target="$1"
+    if [[ -n "$DEVID" ]]; then
+        codesign --force --strip-disallowed-xattrs --options runtime --timestamp --sign "$DEVID" "$target"
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+        codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
+    else
+        codesign --force --strip-disallowed-xattrs --sign - "$target"
+    fi
+}
+
 sign_bundle() {
     local bundle="$1"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
+    local library
+    for library in "$bundle"/Contents/Frameworks/*.dylib(N); do
+        codesign_library "$library"
+    done
 
     if [[ -n "$DEVID" ]]; then
         echo "  signing with Developer ID (hardened runtime): $DEVID"

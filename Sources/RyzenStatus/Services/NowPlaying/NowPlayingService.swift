@@ -113,6 +113,12 @@ final class NowPlayingService: ObservableObject {
     /// The last title the session reader delivered, on `queue`, so a TIDAL
     /// song change is read once more before it is shown.
     private var lastSessionTitle: String?
+    /// The cover the reader cannot send, read once per song through the
+    /// bundled perl helper on its own queue so a poll never waits for it.
+    private let coverQueue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-cover", qos: .utility)
+    private let coverReader = NowPlayingCoverReader()
+    /// The song the cover was asked for and what came back, on `queue`.
+    private var sessionCover: (key: String, data: Data?)?
     /// Data-keyed fingerprint memoization: the artwork bytes repeat on
     /// every poll of the same track, so comparing them skips the 12×12
     /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
@@ -267,6 +273,7 @@ final class NowPlayingService: ObservableObject {
         queue.async { [weak self] in
             self?.sessionReader.stop()
             self?.lastSessionTitle = nil
+            self?.sessionCover = nil
         }
         stopMarquee()
         pollGeneration += 1
@@ -387,6 +394,13 @@ final class NowPlayingService: ObservableObject {
                     next.appName = name
                 }
             }
+            let key = NowPlayingCoverReader.key(for: next)
+            if let sessionCover, sessionCover.key == key {
+                next.artworkData = sessionCover.data
+            } else {
+                sessionCover = (key, nil)
+                if provider.accepts(next.appBundleID) { requestCover(for: next, key: key, generation: gen) }
+            }
             deliverSessionReading(next, provider: provider, generation: gen)
             return
         }
@@ -398,6 +412,29 @@ final class NowPlayingService: ObservableObject {
             var next = snapshot
             next.sampledAt = Date()
             self?.deliverSessionReading(next, provider: provider, generation: gen)
+        }
+    }
+
+    /// Reads the cover of a new song once. It is published when it arrives if
+    /// the same song is still on screen; later readings of the song carry it.
+    private func requestCover(for reading: NowPlayingSnapshot, key: String, generation gen: Int) {
+        coverQueue.async { [weak self] in
+            guard let self else { return }
+            let cover = self.coverReader.read()
+            let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
+            self.queue.async { [weak self] in
+                guard let self, self.sessionCover?.key == key else { return }
+                self.sessionCover = (key, data)
+                guard let data else { return }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.timer != nil, gen == self.pollGeneration,
+                          NowPlayingCoverReader.key(for: self.snapshot) == key,
+                          self.snapshot.artworkData == nil else { return }
+                    var next = self.snapshot
+                    next.artworkData = data
+                    self.apply(next)
+                }
+            }
         }
     }
 
