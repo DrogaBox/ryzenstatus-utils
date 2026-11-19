@@ -10,6 +10,8 @@ import SwiftUI
 /// before it occupies the actual menu bar.
 struct MenuBarMetricsPreview: View {
     @ObservedObject private var monitor = SystemMonitor.shared
+    /// The spoken label follows a language change even without a new sample.
+    @ObservedObject private var l10n = L10n.shared
     @StateObject private var model = MenuBarPreviewModel()
     @Environment(\.colorScheme) private var colorScheme
 

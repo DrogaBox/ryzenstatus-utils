@@ -102,7 +102,13 @@ enum MenuBarMetricAppearance: String, CaseIterable {
         let usage: MenuBarMetric
         switch temperature {
         case .cpuTemperature: usage = .cpu
-        case .gpuTemperature: usage = .gpu
+        case .gpuTemperature:
+            // A VRAM reading is not the GPU's: it always keeps its own block
+            // and style (see MenuBarRenderer, the VRAM path).
+            if GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)) == .memory {
+                return false
+            }
+            usage = .gpu
         case .batteryTemperature: usage = .battery
         default: return false
         }

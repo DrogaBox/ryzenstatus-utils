@@ -629,9 +629,12 @@ enum MenuBarRenderer {
                                             pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil),
                              spoken: spoken)
                 } else {
+                    // A symbol alone says nothing: the icon style always
+                    // shows the percentage, whatever an old "dot only" said.
+                    let showsPercent = memoryStyle.showsPercent || style == .iconValue
                     text(.memory, label: "RAM",
-                         value: memoryStyle.showsPercent ? percentText : "",
-                         minimum: memoryStyle.showsPercent ? "100%" : "",
+                         value: showsPercent ? percentText : "",
+                         minimum: showsPercent ? "100%" : "",
                          pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil,
                          fraction: shownFraction,
                          symbol: "memorychip")
@@ -1248,7 +1251,7 @@ enum MenuBarRenderer {
         let upFractions = snapped(ups.map { $0 / upScale }, plotHeight: half)
         let key = ["netDual", sampleKey(downFractions), sampleKey(upFractions),
                    "\(layout.box.width)", "\(spaced)", graphLayout.rawValue,
-                   settings.graphToken, settings.appearanceName].joined(separator: "|")
+                   settings.graphToken, "\(settings.graphMonochrome)", settings.appearanceName].joined(separator: "|")
         return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel("NET", width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
@@ -1295,7 +1298,7 @@ enum MenuBarRenderer {
         let userLoads = snapped(MenuBarGraphGeometry.userShares(total: totals, system: systems),
                                 plotHeight: layout.plotHeight)
         let key = ["cores", sampleKey(loads), sampleKey(userLoads), valueText ?? "",
-                   settings.graphToken, settings.appearanceName].joined(separator: "|")
+                   settings.graphToken, "\(settings.graphMonochrome)", settings.appearanceName].joined(separator: "|")
         return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel("CPU", width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
@@ -1321,7 +1324,7 @@ enum MenuBarRenderer {
             return max(1, (min(1, value) * 360).rounded()) / 360
         }
         let key = ["ring", label, sampleKey(angles), valueText ?? "",
-                   settings.graphToken, settings.appearanceName].joined(separator: "|")
+                   settings.graphToken, "\(settings.graphMonochrome)", settings.appearanceName].joined(separator: "|")
         return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel(label, width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle, circular: true)
@@ -1345,7 +1348,7 @@ enum MenuBarRenderer {
         let visible = series.map { snapped(Array($0.suffix(count)), plotHeight: layout.plotHeight) }
         let key = ["history", label, visible.map(sampleKey).joined(separator: "/"), valueText ?? "",
                    "\(layout.box.width)", "\(spaced)",
-                   settings.graphToken, settings.appearanceName].joined(separator: "|")
+                   settings.graphToken, "\(settings.graphMonochrome)", settings.appearanceName].joined(separator: "|")
         return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel(label, width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)

@@ -2056,6 +2056,13 @@ struct MetricsTests {
             suite.set("sparkline", forKey: MenuBarMetric.cpu.styleKey)
             expect(!MenuBarMetricAppearance.drawnWithUsage(.cpuTemperature, in: suite),
                    "a CPU graph leaves the temperature on its own, with its own style")
+            suite.set(true, forKey: DefaultsKey.menuBarGPU)
+            suite.set(true, forKey: DefaultsKey.menuBarGPUTemperature)
+            expect(MenuBarMetricAppearance.drawnWithUsage(.gpuTemperature, in: suite),
+                   "the GPU temperature rides in the GPU block when combined")
+            suite.set(GPUTemperatureSource.memory.rawValue, forKey: DefaultsKey.gpuTemperatureSource)
+            expect(!MenuBarMetricAppearance.drawnWithUsage(.gpuTemperature, in: suite),
+                   "a VRAM reading keeps its own block, so its style menu stays active")
             suite.removePersistentDomain(forName: "menubar-drawn-with-usage-test")
         }
         do {
