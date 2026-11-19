@@ -296,7 +296,7 @@ struct NotchCapsuleRestingView: View {
                                                           tint: music.artworkTint?.color ?? .white)
                                         .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
                                 } else {
-                                    NotchMarquee {
+                                    NotchMarquee(key: center) {
                                         Text(center).font(Font(CapsuleLayout.levelFont as CTFont))
                                             .foregroundStyle(.white.opacity(0.85))
                                             .contentTransition(.numericText())
@@ -384,7 +384,10 @@ struct NotchCapsuleMusicStrip: View {
                     .contentShape(Rectangle())
                     .onHover { if live { service.hoverMusicStrip(.cover, entered: $0) } }
                 Group {
-                    if named { NotchMarquee { Text(title).capsuleTitle() }.transition(.opacity) }
+                    if named {
+                        // The row's white, said here: the scrolling copy draws in a view of its own.
+                        NotchMarquee(key: title) { Text(title).capsuleTitle().foregroundStyle(.white) }.transition(.opacity)
+                    }
                     else if visualizes {
                         NotchLiveSpectrumBars(isPlaying: playing, height: CapsuleLayout.artworkSide(geometry),
                                               tint: tint?.color ?? .white)
