@@ -249,6 +249,12 @@ enum MenuBarRenderer {
         max(1, Int(image.size.width * image.size.height) * 16)
     }
 
+    /// The font of the two-line readings (frequency, temperature and power,
+    /// network, disk activity).
+    static func rateLineFont() -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: rateFontSize, weight: .semibold)
+    }
+
     static func statusFont() -> NSFont {
         NSFont.monospacedSystemFont(ofSize: statusFontSize, weight: .medium)
     }
@@ -826,7 +832,7 @@ enum MenuBarRenderer {
         let cacheKey = key as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return BlockImage(image: cached, key: key) }
 
-        let font = NSFont.monospacedSystemFont(ofSize: rateFontSize, weight: .semibold)
+        let font = rateLineFont()
         let lineHeight = rateLineHeight
         let candidates = reservedLines.isEmpty ? lines : reservedLines
         let rateWidth = rateBlockWidth(candidates: candidates)
@@ -876,7 +882,7 @@ enum MenuBarRenderer {
     }
 
     private static func rateBlockWidth(candidates: [String]) -> CGFloat {
-        let font = NSFont.monospacedSystemFont(ofSize: rateFontSize, weight: .semibold)
+        let font = rateLineFont()
         let sizingAttrs: [NSAttributedString.Key: Any] = [.font: font]
         let contentWidth = candidates.map { ($0 as NSString).size(withAttributes: sizingAttrs).width }.max() ?? 22
         return ceil(contentWidth + 1.0)
