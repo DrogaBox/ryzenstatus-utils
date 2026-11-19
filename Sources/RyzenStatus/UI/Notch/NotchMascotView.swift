@@ -549,7 +549,7 @@ final class NotchMascotRig: NSObject {
         bob.keyTimes = [0, 0.45, 1]
         bob.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
         bob.duration = beat
-        bob.repeatCount = .infinity
+        bob.loopsForever()
         bob.isAdditive = true
         hopper.add(bob, forKey: "ambientBob")
         let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
@@ -557,7 +557,7 @@ final class NotchMascotRig: NSObject {
         sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
         sway.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         sway.duration = beat * 2
-        sway.repeatCount = .infinity
+        sway.loopsForever()
         sway.isAdditive = true
         tilter.add(sway, forKey: "ambientSway")
     }
@@ -578,7 +578,7 @@ final class NotchMascotRig: NSObject {
         breath.keyTimes = [0, 0.45, 1]
         breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         breath.duration = period
-        breath.repeatCount = .infinity
+        breath.loopsForever()
         breather.add(breath, forKey: "breathe")
     }
 
@@ -770,7 +770,7 @@ final class NotchMascotRig: NSObject {
                                 CAMediaTimingFunction(name: .easeInEaseOut)]
         // About 120 beats a minute.
         beat.duration = 0.5
-        beat.repeatCount = .infinity
+        beat.loopsForever()
         hopper.add(beat, forKey: "groove")
     }
 
@@ -817,7 +817,7 @@ final class NotchMascotRig: NSObject {
             sway.values = [0, 0.09, 0, -0.09, 0]
             sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
             sway.duration = 1.1
-            sway.repeatCount = .infinity
+            sway.loopsForever()
             sway.isAdditive = true
             tilter.add(sway, forKey: "strokeSway")
         } else {
@@ -1377,7 +1377,7 @@ final class NotchMascotRig: NSObject {
         bob.keyTimes = [0, 0.4, 1]
         bob.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
         bob.duration = gait.period
-        bob.repeatCount = .infinity
+        bob.loopsForever()
         bob.isAdditive = true
         hopper.add(bob, forKey: "stride")
         if gait.rock > 0, !showsSprite {
@@ -1398,7 +1398,7 @@ final class NotchMascotRig: NSObject {
             }
             waddle.animations = [rock, shift]
             waddle.duration = gait.period * 2
-            waddle.repeatCount = .infinity
+            waddle.loopsForever()
             hopper.add(waddle, forKey: "waddle")
         }
         if !showsSprite { attend(to: CGPoint(x: direction > 0 ? 0.1 : -0.1, y: 0)) }

@@ -206,7 +206,7 @@ final class NotchMascotDancerParts {
             move.keyTimes = keyTimes
             move.duration = duration
             move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if repeats { move.repeatCount = .infinity }
+            if repeats { move.loopsForever() }
             layer.add(move, forKey: key)
         }
     }
@@ -256,7 +256,7 @@ final class NotchMascotDancerParts {
             move.values = paths
             move.keyTimes = [0, 0.5, 1]
             move.duration = 3.4
-            move.repeatCount = .infinity
+            move.loopsForever()
             move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             // After any change of pose has played out.
             move.beginTime = CACurrentMediaTime() + 0.8

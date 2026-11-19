@@ -202,7 +202,7 @@ final class NotchMascotCritterParts {
                 move.keyTimes = keyTimes
                 move.duration = duration
                 move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                if repeats { move.repeatCount = .infinity }
+                if repeats { move.loopsForever() }
                 if let beginTime { move.beginTime = beginTime }
                 layer.add(move, forKey: key)
             }
@@ -269,7 +269,7 @@ final class NotchMascotCritterParts {
                 let move = CAKeyframeAnimation(keyPath: "path")
                 move.values = frames
                 move.duration = idle.period * (sleeping ? 1.6 : 1)
-                move.repeatCount = .infinity
+                move.loopsForever()
                 move.calculationMode = .linear
                 // After any change of pose has played out.
                 move.beginTime = CACurrentMediaTime() + 0.9
