@@ -456,10 +456,32 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 // background strides.
                 self.ensureTimer()
             } else if needs.any {
+                // Nothing sampled while the timer was stopped: start the
+                // charts afresh instead of joining old samples to new ones.
+                self.resetHistories()
                 self.ensureTimer()
                 self.refresh(suppressImmediateGPU: true)
                 self.scheduleDeferredGPURefreshIfNeeded()
             }
+        }
+    }
+
+    private func resetHistories() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let capacity = self.historyCapacity
+            self.cpuHistory = MetricHistory(capacity: capacity)
+            self.cpuSystemHistory = MetricHistory(capacity: capacity)
+            self.gpuHistory = MetricHistory(capacity: capacity)
+            self.memoryHistory = MetricHistory(capacity: capacity)
+            self.memoryAppHistory = MetricHistory(capacity: capacity)
+            self.netDownHistory = MetricHistory(capacity: capacity)
+            self.netUpHistory = MetricHistory(capacity: capacity)
+            self.diskReadHistory = MetricHistory(capacity: capacity)
+            self.diskWriteHistory = MetricHistory(capacity: capacity)
+            self.systemPowerHistory = MetricHistory(capacity: capacity)
+            self.batteryHistory = MetricHistory(capacity: capacity)
+            self.cpuFreqHistory = MetricHistory(capacity: capacity)
         }
     }
 
@@ -663,7 +685,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     /// A surface someone is looking at: its readings follow the foreground
     /// strides.
-    private var samplesInForeground: Bool { fullMonitorVisible || menuPanelNeeds.any || dashboardNeeds.any }
+    private var samplesInForeground: Bool {
+        Self.samplesInForeground(fullMonitor: fullMonitorVisible, menuPanel: menuPanelNeeds, dashboard: dashboardNeeds)
+    }
+
+    /// A full monitor surface, the menu panel or the Monitor window on screen.
+    static func samplesInForeground(fullMonitor: Bool, menuPanel: SystemMonitorPanelNeeds,
+                                    dashboard: SystemMonitorPanelNeeds) -> Bool {
+        fullMonitor || menuPanel.any || dashboard.any
+    }
 
     private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || dashboardNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
 

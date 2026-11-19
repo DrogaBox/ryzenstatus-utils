@@ -6610,10 +6610,6 @@ struct MetricsTests {
             let psStrings = FeatureStrings.performanceSuite(language)
             expect(!psStrings.title.isEmpty, "\(prefix) Performance Suite title is present")
             expect(!psStrings.dashboardTab.isEmpty, "\(prefix) Performance Suite dashboard tab is present")
-            expect(!psStrings.insightsTab.isEmpty, "\(prefix) Performance Suite insights tab is present")
-            expect(!psStrings.analyticsTab.isEmpty, "\(prefix) Performance Suite analytics tab is present")
-            expect(!psStrings.energyTab.isEmpty, "\(prefix) Performance Suite energy tab is present")
-            expect(!psStrings.networkTab.isEmpty, "\(prefix) Performance Suite network tab is present")
             expect(!psStrings.cpuUtilization.isEmpty, "\(prefix) Performance Suite CPU title is present")
             expect(!psStrings.memoryFootprint.isEmpty, "\(prefix) Performance Suite RAM title is present")
         }

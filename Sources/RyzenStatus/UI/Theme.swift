@@ -83,10 +83,6 @@ enum PanelSurface {
         scheme == .light ? Color.black.opacity(0.09) : Color.white.opacity(0.11)
     }
 
-    static func suiteCardFill(for scheme: ColorScheme) -> Color {
-        scheme == .light ? Color(NSColor.controlBackgroundColor) : Color.white.opacity(0.06)
-    }
-
     /// A control that sits ON a glass surface rather than in it: the system's
     /// own round toggles read as physical because they are lighter than what
     /// is behind them and carry their own shadow.
@@ -130,33 +126,10 @@ extension View {
         modifier(PanelCardModifier(interactive: interactive, padded: padded))
     }
 
-    /// The structured card container used by Performance Suite dashboard sections.
-    func suiteCard(padding: CGFloat = 12) -> some View {
-        modifier(SuiteCardModifier(padding: padding))
-    }
-
     /// A restrained glass base for the menu panel: still translucent, but with a
     /// stable tint so text and controls do not depend too much on the wallpaper.
     func panelGlassSurface(cornerRadius: CGFloat = 18) -> some View {
         background(PanelGlassSurface(cornerRadius: cornerRadius))
-    }
-}
-
-private struct SuiteCardModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    let padding: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .padding(padding)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PanelSurface.suiteCardFill(for: colorScheme))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
-            )
     }
 }
 

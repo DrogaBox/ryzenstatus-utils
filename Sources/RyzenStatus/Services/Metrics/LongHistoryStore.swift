@@ -154,7 +154,7 @@ struct LongHistoryTier {
 /// It never samples on its own, so a reading nobody shows leaves a gap
 /// rather than costing energy. The month ring is saved to Application
 /// Support every few minutes and when the app quits.
-final class LongHistoryStore {
+final class LongHistoryStore: @unchecked Sendable {
     static let shared = LongHistoryStore()
 
     /// Columns per graph, whatever the range.

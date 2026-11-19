@@ -65,6 +65,13 @@ final class SettingsRouter: ObservableObject {
     /// history entry, for a fallback when the visited tool went away.
     func request(_ destination: FeatureSettingsDestination, targetFeature: AppFeature? = nil,
                  sidebarFeature: AppFeature? = nil, replacingVisit: Bool = false) {
+        // The monitor extras live in the Monitor window: a request for one of
+        // them (from the Feature Hub, the Command Bar or search) opens the
+        // window on its section, besides landing on the Dashboard row.
+        if !isTraversingHistory, !replacingVisit,
+           let section = (targetFeature ?? sidebarFeature)?.monitorSection {
+            MonitorWindowController.shared.show(section: section)
+        }
         // Any request, history included, drops a companion hint nobody took.
         notchCompanion = false
         notchCompanionShop = false
@@ -770,7 +777,7 @@ struct SettingsView: View {
         case .amdPower: AmdPowerSettingsView()
         case .amdOverclocking: AmdOverclockingSettingsView()
         case .amdValidation: AmdValidationSettingsView()
-        case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
+        case .dashboard: MonitorLauncherPage()
         case .sensors: SensorsView()
         }
     }
