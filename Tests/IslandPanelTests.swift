@@ -399,7 +399,7 @@ enum IslandPanelTests {
         let capsule = text("Sources/RyzenStatus/UI/Notch/NotchCapsuleViews.swift", suite)
         suite.expect(capsule.contains("NotchMarquee(key: center) {")
                      && capsule.contains("RollingDigitsText(center, style: .font(CapsuleLayout.levelFont),")
-                     && marquee.contains("rootView.environment(\\.rollingDigitsAnimation, context.transaction.animation)"),
+                     && marquee.contains("rootView.environment(\\.rollingDigitsAnimation, animation)"),
                      "the capsule's reading rolls with Core Animation, scrolling or not")
     }
 

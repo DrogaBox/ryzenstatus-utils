@@ -611,9 +611,10 @@ struct NotchActionTile: View {
         if let reading {
             VStack(spacing: 1) {
                 // A later day's start with a 12-hour clock, such as Spanish
-                // "dom, 10:45 p. m.", needs up to 91 pt on a 68 pt line. The
-                // smaller optical size spaces its letters wider, so scaling
-                // alone would still cut it off.
+                // "dom, 10:45 p. m.", needs up to 91 pt on a 68 pt line. Text
+                // shrunk to a smaller optical size spaced its letters wider and
+                // needed tightening; the rolling line scales its 11 pt layers
+                // instead, keeping their spacing, so 0.7 fits it (tested).
                 NotchRollingReading(value: reading, style: RollingDigitsStyle(size: 11, weight: .semibold),
                                     color: .white, countsDown: readingCountsDown, minimumScaleFactor: 0.7)
                 ViewThatFits(in: .horizontal) {

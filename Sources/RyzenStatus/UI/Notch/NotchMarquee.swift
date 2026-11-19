@@ -36,10 +36,12 @@ struct NotchMarquee<Content: View>: View {
         content()
             .lineLimit(1)
             .truncationMode(.tail)
+            // Under the scrolling copy, the still line rolls and cuts nothing.
+            .environment(\.rollingDigitsActive, !scrolls)
             .opacity(scrolls ? 0 : 1)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
             .background(alignment: .leading) {
-                content().lineLimit(1).fixedSize().hidden()
+                content().lineLimit(1).fixedSize().environment(\.rollingDigitsActive, false).hidden()
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { lineWidth = $0 }
             }
             .overlay(alignment: .leading) {
@@ -118,7 +120,8 @@ private struct NotchMarqueeScroller<Row: View>: NSViewRepresentable {
 
     func updateNSView(_ view: NotchMarqueeScrollView, context: Context) {
         // A rolling reading inside rolls with the change it came in; the copy itself never animates.
-        view.show(AnyView(rootView.environment(\.rollingDigitsAnimation, context.transaction.animation)), key: lineKey)
+        let animation = context.transaction.disablesAnimations ? nil : context.transaction.animation
+        view.show(AnyView(rootView.environment(\.rollingDigitsAnimation, animation)), key: lineKey)
         view.run(motion)
     }
 }

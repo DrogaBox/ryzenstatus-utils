@@ -75,8 +75,22 @@ enum RollingDigitsTests {
         suite.expect(!RollingDigits.plan(from: "24:59", to: "24:58", countsDown: true).up
                      && RollingDigits.plan(from: "24:58", to: "24:59", countsDown: false).up,
                      "a caller that says which way it counts is obeyed")
-        suite.expect(RollingDigits.value("↓ 1.25 MB/s") == 1.25 && RollingDigits.value("…") == 0,
-                     "the value of a line is its numbers")
+        suite.expect(RollingDigits.plan(from: "↓ 1.2M · ↑ 90K", to: "↓ 1.2M · ↑ 100K").up
+                     && !RollingDigits.plan(from: "↓ 1.3M · ↑ 90K", to: "↓ 1.2M · ↑ 100K").up,
+                     "the first number that changed decides the way, not all the digits read as one")
+        let english = Locale(identifier: "en_US"), spanish = Locale(identifier: "es_ES")
+        suite.expect(RollingDigits.numbers("↓ 1.25 MB/s", locale: english) == [1.25]
+                     && RollingDigits.numbers("…", locale: english).isEmpty
+                     && RollingDigits.numbers("$1,234.56", locale: english) == [1234.56]
+                     && RollingDigits.numbers("↓ 2,0 KB/s", locale: english) == [2.0]
+                     && RollingDigits.numbers("1.234,5", locale: spanish) == [1234.5]
+                     && RollingDigits.numbers("2,0 KB/s", locale: spanish) == [2.0],
+                     "a comma or point is a decimal point or groups thousands as the locale and digits say")
+        let money = RollingDigits.slots("$1,234.56", locale: english).map(\.identity)
+        suite.expect(money == [.text(run: 0), .digit(run: 1, place: 0), .text(run: 2), .digit(run: 3, place: 2),
+                               .digit(run: 3, place: 1), .digit(run: 3, place: 0), .text(run: 4),
+                               .digit(run: 5, place: 0), .digit(run: 5, place: 1)],
+                     "thousands after a grouping comma count from the right; cents after the point from the left")
     }
 
     private static func view(_ suite: TestSuite) {
@@ -109,12 +123,33 @@ enum RollingDigitsTests {
 
         view.setVisible(true)
         view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
-        view.frame = CGRect(x: 0, y: 0, width: view.naturalSize.width * 0.5, height: 28)
+        let natural = view.naturalSize.width
+        view.offer(natural * 0.5)
         view.layout()
         suite.expect(view.isTruncated, "too wide even at its smallest, the line ends in an ellipsis as Text does")
-        view.frame = CGRect(x: 0, y: 0, width: view.naturalSize.width * 0.8, height: 28)
+        view.offer(natural * 0.8)
         view.layout()
         suite.expect(!view.isTruncated, "a line that fits once shrunk is shrunk, not cut")
+        // SwiftUI probes with nothing and with zero while it lays out; only a real width is the room.
+        view.offer(0)
+        view.offer(nil)
+        suite.expect(view.offeredWidth == natural * 0.8, "probes for the ideal or smallest size leave the room as it was")
+        view.offer(natural * 0.5)
+        view.offer(natural * 3)
+        view.layout()
+        suite.expect(view.offeredWidth == natural * 3 && !view.isTruncated && view.currentFit == 1,
+                     "a wide room after a narrow one lets the line stand whole")
+        view.offer(natural * 0.8)
+        view.frame = CGRect(x: 0, y: 0, width: natural * 0.8, height: 28)
+        view.layout()
+        let fit = view.currentFit
+        let descent = RollingDigitsGlyphs.shared.metrics(for: style.font()).descent
+        let lineHeight = RollingDigitsGlyphs.shared.metrics(for: style.font()).lineHeight
+        suite.expect(fit < 1 && abs(view.lastBaselineOffsetFromBottom - ((28 - lineHeight * fit) / 2 + descent * fit)) < 0.01,
+                     "a shrunk line reports the baseline where it is drawn, for .firstTextBaseline")
+        view.frame = CGRect(x: 0, y: 0, width: 120, height: 28)
+        view.offer(natural * 3)
+        view.layout()
         let glyphs = RollingDigitsGlyphs.shared
         let font = style.font()
         let cut = glyphs.truncated("↓ 9.6 MB/s", font: font, width: glyphs.width(of: "↓ 9.6", font: font) + 1)
@@ -127,9 +162,89 @@ enum RollingDigitsTests {
                      "design: .monospaced draws every glyph as wide as the others")
         let level = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         suite.expect(RollingDigitsStyle.font(level).font() == level, "a font given whole is used as it is")
-        suite.expect(view.firstBaselineOffsetFromTop + view.lastBaselineOffsetFromBottom
-                     == RollingDigitsGlyphs.shared.metrics(for: font).lineHeight,
-                     "the baselines sit inside the line, for .firstTextBaseline next to a Text")
+        suite.expect(abs(view.firstBaselineOffsetFromTop + view.lastBaselineOffsetFromBottom - 28) < 0.01,
+                     "the two baselines are the same line, seen from the top and the bottom")
+        leaving(suite)
+        inactive(suite)
+        cache(suite)
+        shortcutTile(suite)
+    }
+
+    private static func rollingView() -> RollingDigitsView {
+        let view = RollingDigitsView(frame: CGRect(x: 0, y: 0, width: 120, height: 28))
+        view.configure(style: .rounded(22, .medium), color: .white, duration: 0.25,
+                       frameRates: RollingDigitsView.defaultFrameRates, minimumScaleFactor: 1)
+        view.setVisible(true)
+        return view
+    }
+
+    /// Leaving digits slide inside their own column and never outlive a settle,
+    /// a redraw or a swap; a change mid-roll replaces the digit still leaving.
+    private static func leaving(_ suite: TestSuite) {
+        let view = rollingView()
+        view.show("100%", animated: false, countsDown: nil)
+        let columns = view.lineLayer.sublayers ?? []
+        view.show("99%", animated: true, countsDown: nil)
+        let hundreds = columns.first
+        suite.expect(hundreds?.animation(forKey: "leave") == nil
+                     && hundreds?.sublayers?.first?.animation(forKey: "leave") != nil
+                     && hundreds?.masksToBounds == true,
+                     "100 -> 99: the hundreds' glyph slides out inside its column, which clips it")
+        suite.expect(view.leavingLayers.contains { $0 === hundreds }, "the leaving column is kept track of")
+        view.setVisible(false)
+        suite.expect(view.leavingLayers.isEmpty && hundreds?.superlayer == nil,
+                     "hidden mid-roll, no leaving digit stays on top of the new one")
+
+        let again = rollingView()
+        again.show("42%", animated: false, countsDown: nil)
+        let ones = again.lineLayer.sublayers?[1]
+        again.show("43%", animated: true, countsDown: nil)
+        again.show("44%", animated: true, countsDown: nil)
+        again.show("45%", animated: true, countsDown: nil)
+        suite.expect((ones?.sublayers?.count ?? 0) == 2 && again.leavingLayers.count == 1,
+                     "a held key: each change replaces the digit still leaving instead of stacking copies")
+        again.configure(style: .rounded(15, .medium), color: .white, duration: 0.25,
+                        frameRates: RollingDigitsView.defaultFrameRates, minimumScaleFactor: 1)
+        suite.expect(again.leavingLayers.isEmpty, "a redraw drops the digits on their way out")
+        again.show("46%", animated: true, countsDown: nil)
+        again.show("…", animated: true, countsDown: nil)
+        suite.expect(again.leavingLayers.isEmpty, "swapping the line whole drops them too")
+    }
+
+    /// A copy nobody sees neither rolls nor draws an ellipsis.
+    private static func inactive(_ suite: TestSuite) {
+        let view = rollingView()
+        view.active = false
+        view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
+        view.offer(view.naturalSize.width * 0.3)
+        view.layout()
+        suite.expect(!view.isTruncated, "an unseen copy draws no ellipsis")
+        suite.expect(RollingDigitsText.animates(reduceMotion: false, transaction: Transaction(animation: .default),
+                                                host: nil),
+                     "the flag, not the transaction, keeps it still: RollingDigitsText passes active && animates")
+        let marquee = source("Sources/RyzenStatus/UI/Notch/NotchMarquee.swift")
+        suite.expect(marquee.contains(".environment(\\.rollingDigitsActive, !scrolls)")
+                     && marquee.contains(".fixedSize().environment(\\.rollingDigitsActive, false).hidden()")
+                     && marquee.contains("context.transaction.disablesAnimations ? nil : context.transaction.animation"),
+                     "the marquee's still line under the scroll and its sizing copy stay still")
+        let component = source("Sources/RyzenStatus/UI/Notch/RollingDigits.swift")
+        suite.expect(component.contains("animated: active && Self.animates("), "an inactive view never rolls")
+    }
+
+    /// Long lines are drawn as they come and never fill the cache.
+    private static func cache(_ suite: TestSuite) {
+        suite.expect(RollingDigitsGlyphs.cachedLength == 16, "lines up to 16 characters are cached")
+        let component = source("Sources/RyzenStatus/UI/Notch/RollingDigits.swift")
+        suite.expect(component.contains("if text.count <= Self.cachedLength { cache.setObject(image, forKey: key) }"),
+                     "a longer line is drawn without being kept")
+    }
+
+    /// The shortcut tile's longest reading fits its 68 pt line at the 0.7 the
+    /// tile allows, since the rolling line scales without respacing.
+    private static func shortcutTile(_ suite: TestSuite) {
+        let font = RollingDigitsStyle(size: 11, weight: .semibold).font()
+        let width = RollingDigitsGlyphs.shared.width(of: "dom, 10:45 p. m.", font: font)
+        suite.expect(width * 0.7 <= 68, "\"dom, 10:45 p. m.\" (\(width) pt) fits 68 pt at 0.7")
     }
 
     /// As numericText: a change rolls only inside an animation that is not
