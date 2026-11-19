@@ -68,6 +68,27 @@ struct NowPlayingSessionReading: Equatable {
     }
 }
 
+/// When the session reader may try. Three failed readings in a row rest it
+/// for a minute, during which Now Playing falls back to the scripted players.
+struct NowPlayingReaderHealth: Equatable {
+    static let failuresBeforeRest = 3
+    static let restInterval: TimeInterval = 60
+
+    private(set) var failures = 0
+    private(set) var restingUntil: TimeInterval = 0
+
+    func allows(at uptime: TimeInterval) -> Bool { uptime >= restingUntil }
+
+    mutating func recordSuccess() { failures = 0 }
+
+    mutating func recordFailure(at uptime: TimeInterval) {
+        failures += 1
+        guard failures >= Self.failuresBeforeRest else { return }
+        failures = 0
+        restingUntil = uptime + Self.restInterval
+    }
+}
+
 /// Reads the system media session on macOS 15.4 and later, where the media
 /// daemon answers only processes it trusts and returns nothing to this app.
 /// Apple's own `osascript` is one of them: a small JavaScript for Automation
@@ -85,10 +106,11 @@ final class NowPlayingSessionReader {
     /// keeps it near its starting size.
     static let readingsPerProcess = 300
     static let replyTimeout: TimeInterval = 1.0
-    /// After this many failed readings in a row the reader rests and callers
-    /// fall back to the scripted players.
-    static let failuresBeforeRest = 3
-    static let restInterval: TimeInterval = 60
+    /// A fresh `osascript` loads JavaScriptCore and MediaRemote before its
+    /// first answer (about 90 ms here, more under load or right after wake).
+    static let firstReplyTimeout: TimeInterval = 3.0
+    /// Nothing from the app's environment reaches the helpers.
+    static let childEnvironment = ["PATH": "/usr/bin:/bin", "LC_ALL": "C"]
 
     private var process: Process?
     private var requests: FileHandle?
@@ -96,29 +118,41 @@ final class NowPlayingSessionReader {
     private var buffer = Data()
     private var sequence = 0
     private var served = 0
-    private var failures = 0
-    private var restingUntil: TimeInterval = 0
+    private var health = NowPlayingReaderHealth()
 
     deinit { stop() }
 
     /// The current session, or nil when it cannot be read right now.
     func read(now: @autoclosure () -> Date = Date()) -> NowPlayingSessionReading? {
         let uptime = ProcessInfo.processInfo.systemUptime
-        guard uptime >= restingUntil else { return nil }
+        guard health.allows(at: uptime) else { return nil }
         if served >= Self.readingsPerProcess { stop() }
-        guard process != nil || launch() else { return fail() }
+        guard process != nil || launch() else {
+            health.recordFailure(at: uptime)
+            return nil
+        }
         sequence &+= 1
-        guard send("\(sequence)\n"), let reading = receive(sequence, now: now()) else {
+        let timeout = served == 0 ? Self.firstReplyTimeout : Self.replyTimeout
+        guard send("\(sequence)\n"), let reading = receive(sequence, timeout: timeout, now: now()) else {
             stop()
-            return fail()
+            health.recordFailure(at: ProcessInfo.processInfo.systemUptime)
+            return nil
         }
         served += 1
-        failures = 0
+        health.recordSuccess()
         return reading
     }
 
+    /// Ends the script. A script that does not leave on SIGTERM (stuck in a
+    /// media daemon call) is killed half a second later.
     func stop() {
-        if let process, process.isRunning { process.terminate() }
+        if let process, process.isRunning {
+            process.terminate()
+            let pid = process.processIdentifier
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+                if process.isRunning { kill(pid, SIGKILL) }
+            }
+        }
         try? requests?.close()
         try? replies?.close()
         process = nil
@@ -126,15 +160,6 @@ final class NowPlayingSessionReader {
         replies = nil
         buffer.removeAll()
         served = 0
-    }
-
-    private func fail() -> NowPlayingSessionReading? {
-        failures += 1
-        if failures >= Self.failuresBeforeRest {
-            failures = 0
-            restingUntil = ProcessInfo.processInfo.systemUptime + Self.restInterval
-        }
-        return nil
     }
 
     private func launch() -> Bool {
@@ -145,6 +170,7 @@ final class NowPlayingSessionReader {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         child.arguments = ["-l", "JavaScript", "-e", Self.script]
+        child.environment = Self.childEnvironment
         child.standardInput = input
         child.standardOutput = output
         child.standardError = FileHandle.nullDevice
@@ -163,25 +189,22 @@ final class NowPlayingSessionReader {
         guard let requests else { return false }
         let bytes = Array(line.utf8)
         return bytes.withUnsafeBytes { raw in
-            Darwin.write(requests.fileDescriptor, raw.baseAddress, raw.count) == raw.count
+            while true {
+                let written = Darwin.write(requests.fileDescriptor, raw.baseAddress, raw.count)
+                if written < 0, errno == EINTR { continue }
+                return written == raw.count
+            }
         }
     }
 
     /// Waits for the reply to `expected`, dropping late replies to requests
     /// that already timed out.
-    private func receive(_ expected: Int, now: Date) -> NowPlayingSessionReading? {
+    private func receive(_ expected: Int, timeout: TimeInterval, now: Date) -> NowPlayingSessionReading? {
         guard let replies else { return nil }
-        let deadline = ProcessInfo.processInfo.systemUptime + Self.replyTimeout
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         var chunk = [UInt8](repeating: 0, count: 16 * 1_024)
         while true {
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[buffer.startIndex..<newline]
-                buffer.removeSubrange(buffer.startIndex...newline)
-                if let reading = NowPlayingSessionReading.parse(line: Data(line), now: now),
-                   reading.sequence == expected {
-                    return reading
-                }
-            }
+            if let reading = Self.takeReply(to: expected, from: &buffer, now: now) { return reading }
             guard buffer.count <= 256 * 1_024 else { return nil }
             let remaining = deadline - ProcessInfo.processInfo.systemUptime
             guard remaining > 0 else { return nil }
@@ -190,9 +213,25 @@ final class NowPlayingSessionReader {
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { return nil }
             let count = chunk.withUnsafeMutableBytes { Darwin.read(replies.fileDescriptor, $0.baseAddress, $0.count) }
+            if count < 0, errno == EINTR { continue }
             guard count > 0 else { return nil }
             buffer.append(contentsOf: chunk[0..<count])
         }
+    }
+
+    /// Takes complete lines off the front of `buffer` until the reply to
+    /// `expected` is found. Replies to older requests and malformed lines are
+    /// dropped; a partial last line stays for the next read.
+    static func takeReply(to expected: Int, from buffer: inout Data, now: Date) -> NowPlayingSessionReading? {
+        while let newline = buffer.firstIndex(of: 0x0A) {
+            let line = buffer[buffer.startIndex..<newline]
+            buffer.removeSubrange(buffer.startIndex...newline)
+            if let reading = NowPlayingSessionReading.parse(line: Data(line), now: now),
+               reading.sequence == expected {
+                return reading
+            }
+        }
+        return nil
     }
 
     /// Answers each request line with the session as one JSON line carrying
@@ -206,9 +245,17 @@ final class NowPlayingSessionReader {
     const requests = $.NSClassFromString("MRNowPlayingRequest");
     const input = $.NSFileHandle.fileHandleWithStandardInput;
     const output = $.NSFileHandle.fileHandleWithStandardOutput;
-    const text = (v) => (v === undefined || v.isNil()) ? null : ObjC.unwrap(v);
-    const number = (v) => (v === undefined || v.isNil()) ? null : v.doubleValue;
+    const present = (v) => v !== undefined && v !== null && !v.isNil();
+    const text = (v) => present(v) && v.isKindOfClass($.NSString) ? ObjC.unwrap(v) : null;
+    const number = (v) => present(v) && v.isKindOfClass($.NSNumber) ? v.doubleValue : null;
     function reading(sequence) {
+        try {
+            return session(sequence);
+        } catch (error) {
+            return { seq: sequence };
+        }
+    }
+    function session(sequence) {
         const out = { seq: sequence };
         if (requests.isNil()) return out;
         out.playing = requests.localIsPlaying;
@@ -228,7 +275,7 @@ final class NowPlayingSessionReader {
             out.duration = number(key("Duration"));
             out.rate = number(key("PlaybackRate"));
             const stamp = key("Timestamp");
-            if (!stamp.isNil()) out.timestamp = stamp.timeIntervalSince1970;
+            if (present(stamp) && stamp.isKindOfClass($.NSDate)) out.timestamp = stamp.timeIntervalSince1970;
         }
         return out;
     }
@@ -242,7 +289,12 @@ final class NowPlayingSessionReader {
                     const received = data.isNil() ? "" : ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
                     if (!received) $.exit(0);
                     const lines = received.trim().split("\n");
-                    const line = JSON.stringify(reading(parseInt(lines[lines.length - 1], 10) || 0)) + "\n";
+                    let line;
+                    try {
+                        line = JSON.stringify(reading(parseInt(lines[lines.length - 1], 10) || 0)) + "\n";
+                    } catch (error) {
+                        line = "{}\n";
+                    }
                     output.writeData($(line).dataUsingEncoding($.NSUTF8StringEncoding));
                     input.readInBackgroundAndNotify;
                 }

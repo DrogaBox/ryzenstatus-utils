@@ -53,6 +53,16 @@ finalize_installed_bundle_after_child() {
 
     echo "▸ Finalizing installed signature…"
     sleep 3
+    local library
+    for library in "$bundle"/Contents/Frameworks/*.dylib(N); do
+        if [[ -n "$devid" ]]; then
+            /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime --timestamp --sign "$devid" "$library"
+        elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+            /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$library"
+        else
+            /usr/bin/codesign --force --strip-disallowed-xattrs --sign - "$library"
+        fi
+    done
     if [[ -n "$devid" ]]; then
         /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$devid" "$bundle"
@@ -83,6 +93,13 @@ if [[ -d "$PINNED_SDK" ]]; then
 else
     SDK="$(xcrun --show-sdk-path)"
 fi
+if [[ -z "$SDK" || ! -d "$SDK" ]]; then
+    echo "Error: no macOS SDK found (xcrun --show-sdk-path)." >&2
+    exit 1
+fi
+# Apple's clang through xcrun, not whichever clang is first on PATH.
+CLANG=(xcrun --sdk macosx clang)
+COVER_HELPER_FLAGS=(-fobjc-arc -O2 -Wall -Werror -mmacosx-version-min=14.0 -isysroot "$SDK")
 
 # --test: compile and run the standalone unit tests (pure helpers only: metrics,
 # Homebrew parsing, defaults, localization contracts; no app, no UI, no IOKit),
@@ -102,6 +119,8 @@ if (( TEST )); then
     rm -f build/metrics-tests
     # The whole module (minus the app entry point) so the harness can never go
     # stale when a helper gains a dependency. A hand-kept list drifted here.
+    # The Now Playing cover helper must keep compiling, even here.
+    "${CLANG[@]}" "${COVER_HELPER_FLAGS[@]}" -fsyntax-only Sources/NowPlayingCover/NowPlayingCover.m
     swiftc -Onone -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
         Tests/Suites/*.swift \
@@ -138,12 +157,15 @@ if (( ! DEV )); then
 fi
 
 # Now Playing covers on macOS 15.4+: a small library /usr/bin/perl loads (see
-# Sources/NowPlayingCover). Both architectures, because perl runs natively
-# even when the app runs under Rosetta.
+# Sources/NowPlayingCover). Both architectures when the toolchain has arm64,
+# because perl runs natively even when the app runs under Rosetta.
 echo "▸ Compiling the Now Playing cover helper…"
 rm -f build/NowPlayingCover.dylib
-clang -fobjc-arc -dynamiclib -O2 -Wall -Werror -arch x86_64 -arch arm64 \
-    -mmacosx-version-min=14.0 -isysroot "$SDK" -framework Foundation \
+COVER_HELPER_ARCHS=(-arch x86_64)
+if print 'int main(void) { return 0; }' | "${CLANG[@]}" -arch arm64 -isysroot "$SDK" -x c -c - -o /dev/null 2>/dev/null; then
+    COVER_HELPER_ARCHS+=(-arch arm64)
+fi
+"${CLANG[@]}" "${COVER_HELPER_FLAGS[@]}" -dynamiclib "${COVER_HELPER_ARCHS[@]}" -framework Foundation \
     -install_name @rpath/NowPlayingCover.dylib \
     Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib
 
@@ -234,13 +256,17 @@ codesign_library() {
     fi
 }
 
-sign_bundle() {
+sign_libraries() {
     local bundle="$1"
-    local executable="$bundle/Contents/MacOS/$EXECUTABLE"
     local library
     for library in "$bundle"/Contents/Frameworks/*.dylib(N); do
         codesign_library "$library"
     done
+}
+
+sign_bundle() {
+    local bundle="$1"
+    local executable="$bundle/Contents/MacOS/$EXECUTABLE"
 
     if [[ -n "$DEVID" ]]; then
         echo "  signing with Developer ID (hardened runtime): $DEVID"
@@ -249,6 +275,7 @@ sign_bundle() {
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"
     fi
+    sign_libraries "$bundle"
     codesign_target "$bundle"
 
     # If local filesystem metadata invalidates the first signature, sign once
@@ -256,6 +283,7 @@ sign_bundle() {
     if ! codesign --verify --deep --strict "$bundle" >/dev/null 2>&1; then
         echo "  re-signing after filesystem metadata settled"
         xattr -c -r "$bundle" 2>/dev/null || true
+        sign_libraries "$bundle"
         codesign_target "$bundle"
     fi
     [[ -f "$executable" ]] && codesign --verify --strict "$executable"

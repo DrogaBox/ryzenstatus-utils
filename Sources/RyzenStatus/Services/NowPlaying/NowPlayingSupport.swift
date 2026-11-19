@@ -12,6 +12,8 @@ struct NowPlayingSnapshot: Equatable {
     var album: String?
     var appName: String?
     var appBundleID: String?
+    /// The player's process as the session names it (macOS 15.4+ reader).
+    var appPID: Int32?
     var artworkData: Data?
     var isPlaying = false
     var elapsed: TimeInterval?
@@ -134,6 +136,7 @@ struct NowPlayingSnapshot: Equatable {
               lhs.album == rhs.album,
               lhs.appName == rhs.appName,
               lhs.appBundleID == rhs.appBundleID,
+              lhs.appPID == rhs.appPID,
               lhs.isPlaying == rhs.isPlaying,
               lhs.elapsed == rhs.elapsed,
               lhs.duration == rhs.duration,
@@ -271,6 +274,16 @@ enum NowPlayingTidal {
         var components = URLComponents()
         components.scheme = "tidal"
         components.host = ""
+        components.path = "/search"
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        return components.url
+    }
+
+    /// TIDAL's web player search, for a Mac without the app.
+    static func webSearchURL(for query: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "listen.tidal.com"
         components.path = "/search"
         components.queryItems = [URLQueryItem(name: "q", value: query)]
         return components.url
@@ -541,11 +554,16 @@ enum NowPlayingSearch {
         }
     }
 
-    /// Opens TIDAL's own search page, launching TIDAL when it is closed.
+    /// Opens TIDAL's own search page, launching TIDAL when it is closed, or
+    /// TIDAL's web player when the app is not installed.
     private static func openTidalSearch(query: String) {
-        guard let url = NowPlayingTidal.searchURL(for: query),
-              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingTidal.bundleID) else { return }
-        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        if let url = NowPlayingTidal.searchURL(for: query),
+           let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingTidal.bundleID) {
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+            return
+        }
+        guard let webURL = NowPlayingTidal.webSearchURL(for: query) else { return }
+        NSWorkspace.shared.open(webURL)
     }
 
     private static func openSpotifySearch(query: String) {

@@ -3,6 +3,50 @@
 
 import Foundation
 import os
+import Security
+
+/// When the cover helper may run. A library that does not load (missing,
+/// refused, wrong file) stops covers for the run; anything else, such as a
+/// timeout right after wake, rests covers for a while and then tries again.
+struct NowPlayingCoverBackoff: Equatable {
+    static let failuresBeforeRest = 2
+    static let restInterval: TimeInterval = 300
+
+    enum Outcome: Equatable { case success, unavailable, transientFailure }
+    enum Change: Equatable { case none, stopped, resting }
+
+    private(set) var stopped = false
+    private(set) var failures = 0
+    private(set) var restingUntil: TimeInterval = 0
+
+    func allows(at uptime: TimeInterval) -> Bool { !stopped && uptime >= restingUntil }
+
+    /// Records one attempt. The change says when to write the one log line.
+    mutating func record(_ outcome: Outcome, at uptime: TimeInterval) -> Change {
+        switch outcome {
+        case .success:
+            failures = 0
+            return .none
+        case .unavailable:
+            guard !stopped else { return .none }
+            stopped = true
+            return .stopped
+        case .transientFailure:
+            failures += 1
+            guard failures >= Self.failuresBeforeRest else { return .none }
+            failures = 0
+            restingUntil = uptime + Self.restInterval
+            return .resting
+        }
+    }
+
+    /// "Clear media cache" gives covers another chance after a rest, not
+    /// after a library that cannot load.
+    mutating func clearRest() {
+        failures = 0
+        restingUntil = 0
+    }
+}
 
 /// The cover of the system's Now Playing session on macOS 15.4 and later,
 /// where the session reader gets everything but the cover. The cover is only
@@ -11,9 +55,8 @@ import os
 /// `Sources/NowPlayingCover`) runs inside `/usr/bin/perl`, which the media
 /// daemon trusts, and prints it.
 ///
-/// It runs once per song, never per poll. If the library cannot load or
-/// answer, one line goes to the log and covers stop for the rest of the run;
-/// players then show their app icon, as before.
+/// It runs for a new song, never per poll. Failures write one log line and
+/// back off (`NowPlayingCoverBackoff`); players then show their app icon.
 ///
 /// Not thread-safe: every call runs on the caller's serial queue.
 final class NowPlayingCoverReader {
@@ -28,51 +71,114 @@ final class NowPlayingCoverReader {
     static let libraryName = "NowPlayingCover.dylib"
     static let timeout: TimeInterval = 4
     static let maximumOutputBytes = 12 * 1_024 * 1_024
-    /// Two failed songs in a row stop covers: a helper that cannot answer
-    /// would otherwise cost a launch and a wait on every song.
-    static let failuresBeforeGivingUp = 2
 
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ryzenstatus",
                                     category: "NowPlayingCover")
 
     private let libraryURL: URL?
-    private var failures = 0
-    private(set) var gaveUp = false
+    private let frameworksURL: URL?
+    private var backoff = NowPlayingCoverBackoff()
+    /// The library's signature is checked once per run.
+    private var verifiedLibrary = false
 
-    init(libraryURL: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent(NowPlayingCoverReader.libraryName)) {
+    var gaveUp: Bool { backoff.stopped }
+
+    init(libraryURL: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent(NowPlayingCoverReader.libraryName),
+         frameworksURL: URL? = Bundle.main.privateFrameworksURL) {
         self.libraryURL = libraryURL
+        self.frameworksURL = frameworksURL
     }
 
-    /// The session's cover now, or nil when there is none or covers stopped.
+    /// Whether a read would run now.
+    func isReady(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        backoff.allows(at: uptime)
+    }
+
+    func clearRest() { backoff.clearRest() }
+
+    /// The session's cover now, or nil when there is none or covers rest.
     func read() -> Cover? {
-        guard !gaveUp else { return nil }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        guard backoff.allows(at: uptime) else { return nil }
         guard let libraryURL, FileManager.default.isReadableFile(atPath: libraryURL.path) else {
-            giveUp("Now Playing covers off: \(Self.libraryName) is not in the app bundle")
+            note(.unavailable, "\(Self.libraryName) is not in the app bundle", at: uptime)
             return nil
         }
+        if !verifiedLibrary {
+            guard Self.isInside(libraryURL, frameworks: frameworksURL) else {
+                note(.unavailable, "\(Self.libraryName) is not inside the app's Frameworks folder", at: uptime)
+                return nil
+            }
+            guard Self.isSignedLikeThisApp(libraryURL) else {
+                note(.unavailable, "\(Self.libraryName) fails its code signature check", at: uptime)
+                return nil
+            }
+            verifiedLibrary = true
+        }
         let result = BoundedProcessRunner.run(
-            "/usr/bin/perl", ["-e", Self.loader, libraryURL.path],
+            "/usr/bin/perl", ["-e", Self.loader, libraryURL.resolvingSymlinksInPath().path],
             timeout: Self.timeout, maxOutputBytes: Self.maximumOutputBytes,
             // Nothing from the app's environment (PERL5LIB, PERL5OPT) reaches perl.
-            environment: ["PATH": "/usr/bin:/bin", "LC_ALL": "C"])
+            environment: NowPlayingSessionReader.childEnvironment)
         if result.status == 0, let cover = Self.parse(result.output) {
-            failures = 0
+            _ = backoff.record(.success, at: uptime)
             return cover
         }
-        failures += 1
-        // The loader exits 2 or 3 when the library does not load: no point in
-        // asking again.
-        if result.status == 2 || result.status == 3 || failures >= Self.failuresBeforeGivingUp {
-            let detail = String(decoding: result.output.prefix(300), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            giveUp("Now Playing covers off: perl helper \(result.timedOut ? "timed out" : "exited \(result.status)") \(detail)")
-        }
+        let detail = String(decoding: result.output.prefix(300), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The loader exits 2 or 3 when the library does not load.
+        let outcome: NowPlayingCoverBackoff.Outcome = (result.status == 2 || result.status == 3) ? .unavailable : .transientFailure
+        note(outcome, "perl helper \(result.timedOut ? "timed out" : "exited \(result.status)") \(detail)", at: uptime)
         return nil
     }
 
-    private func giveUp(_ message: String) {
-        gaveUp = true
-        Self.log.notice("\(message, privacy: .public)")
+    private func note(_ outcome: NowPlayingCoverBackoff.Outcome, _ reason: String, at uptime: TimeInterval) {
+        switch backoff.record(outcome, at: uptime) {
+        case .stopped:
+            Self.log.notice("Now Playing covers off for this run: \(reason, privacy: .public)")
+        case .resting:
+            Self.log.notice("Now Playing covers rest for \(Int(NowPlayingCoverBackoff.restInterval)) s: \(reason, privacy: .public)")
+        case .none:
+            break
+        }
+    }
+
+    /// The library is a file directly inside the app's Frameworks folder once
+    /// symbolic links are resolved, so perl never loads something else.
+    static func isInside(_ library: URL, frameworks: URL?) -> Bool {
+        guard let frameworks else { return false }
+        let folder = frameworks.resolvingSymlinksInPath().standardizedFileURL.path
+        let file = library.resolvingSymlinksInPath().standardizedFileURL.path
+        guard file.hasPrefix(folder + "/") else { return false }
+        return !file.dropFirst(folder.count + 1).contains("/")
+    }
+
+    /// The library's own signature is intact, and when this app is signed by
+    /// a team the library is signed by the same team. Ad-hoc builds have no
+    /// team to compare, so they get the integrity check only.
+    static func isSignedLikeThisApp(_ library: URL) -> Bool {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(library as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode,
+              SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSStrictValidate), nil) == errSecSuccess
+        else { return false }
+        guard let appTeam = runningAppTeamIdentifier() else { return true }
+        return teamIdentifier(of: staticCode) == appTeam
+    }
+
+    private static func runningAppTeamIdentifier() -> String? {
+        var me: SecCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me else { return nil }
+        var staticMe: SecStaticCode?
+        guard SecCodeCopyStaticCode(me, [], &staticMe) == errSecSuccess, let staticMe else { return nil }
+        return teamIdentifier(of: staticMe)
+    }
+
+    private static func teamIdentifier(of code: SecStaticCode) -> String? {
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let values = info as? [String: Any] else { return nil }
+        return values[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
     /// The helper's JSON line: the last line that is a JSON object. Perl
@@ -116,4 +222,21 @@ final class NowPlayingCoverReader {
     DynaLoader::dl_install_xsub("main::cover", $entry);
     cover();
     """#
+}
+
+/// One song's cover in the service: what came back, and whether to ask again.
+/// A song whose cover is not ready yet (TIDAL can still be downloading it) is
+/// asked once more a few seconds later; never more.
+struct NowPlayingSessionCover: Equatable {
+    static let attempts = 2
+    static let retryDelay: TimeInterval = 3
+
+    let key: String
+    var data: Data?
+    var tries: Int
+    var askedAt: TimeInterval
+
+    func shouldAskAgain(at uptime: TimeInterval) -> Bool {
+        data == nil && tries < Self.attempts && uptime - askedAt >= Self.retryDelay
+    }
 }

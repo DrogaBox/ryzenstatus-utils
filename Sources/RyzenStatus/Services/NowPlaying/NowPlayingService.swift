@@ -118,7 +118,10 @@ final class NowPlayingService: ObservableObject {
     private let coverQueue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-cover", qos: .utility)
     private let coverReader = NowPlayingCoverReader()
     /// The song the cover was asked for and what came back, on `queue`.
-    private var sessionCover: (key: String, data: Data?)?
+    private var sessionCover: NowPlayingSessionCover?
+    /// The newest polling run `stopPolling` ended, on `queue`: a delayed
+    /// reading of that run or an older one does nothing.
+    private var retiredGeneration = Int.min
     /// Data-keyed fingerprint memoization: the artwork bytes repeat on
     /// every poll of the same track, so comparing them skips the 12×12
     /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
@@ -270,10 +273,11 @@ final class NowPlayingService: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        let retired = pollGeneration
         queue.async { [weak self] in
-            self?.sessionReader.stop()
-            self?.lastSessionTitle = nil
-            self?.sessionCover = nil
+            guard let self else { return }
+            self.retiredGeneration = max(self.retiredGeneration, retired)
+            self.stopSessionReading()
         }
         stopMarquee()
         pollGeneration += 1
@@ -315,6 +319,8 @@ final class NowPlayingService: ObservableObject {
         }
 
         if MediaRemoteBridge.readsBlockedBySystem {
+            // A pinned scripted player needs no session reader.
+            queue.async { [weak self] in self?.stopSessionReading() }
             NowPlayingAutomation.fetchSnapshot(provider: provider, queue: queue) { [weak self] snapshot in
                 var next = snapshot
                 next.sampledAt = Date()
@@ -373,6 +379,8 @@ final class NowPlayingService: ObservableObject {
     /// when the session cannot be read. Every other player, TIDAL first among
     /// them, is shown from the session.
     private func readSession(provider: NowPlayingProvider, generation gen: Int, settled: Bool) {
+        // A delayed reading must not start a new reader for a run that ended.
+        guard gen > retiredGeneration else { return }
         let reading = sessionReader.read()
         if !settled, let reading, reading.snapshot.appBundleID == NowPlayingTidal.bundleID,
            reading.snapshot.hasTrack, let last = lastSessionTitle, reading.snapshot.title != last {
@@ -382,50 +390,77 @@ final class NowPlayingService: ObservableObject {
             return
         }
         lastSessionTitle = reading?.snapshot.title
-        if let reading, reading.snapshot.hasTrack,
-           NowPlayingProvider.scripted(for: reading.snapshot.appBundleID) == nil {
-            var next = reading.snapshot
-            if let bundleID = next.appBundleID {
-                if let cached = appNameCache[bundleID] {
-                    next.appName = cached
-                } else {
-                    let name = appName(for: bundleID)
-                    appNameCache[bundleID] = name
-                    next.appName = name
-                }
-            }
-            let key = NowPlayingCoverReader.key(for: next)
-            if let sessionCover, sessionCover.key == key {
-                next.artworkData = sessionCover.data
+        guard let reading, reading.snapshot.hasTrack else {
+            sessionCover = nil
+            fetchScripted(.auto, orShow: nil, provider: provider, generation: gen)
+            return
+        }
+        var next = reading.snapshot
+        next.appPID = reading.pid
+        if let bundleID = next.appBundleID {
+            if let cached = appNameCache[bundleID] {
+                next.appName = cached
             } else {
-                sessionCover = (key, nil)
-                if provider.accepts(next.appBundleID) { requestCover(for: next, key: key, generation: gen) }
+                let name = appName(for: bundleID)
+                appNameCache[bundleID] = name
+                next.appName = name
             }
-            deliverSessionReading(next, provider: provider, generation: gen)
+        }
+        if let scripted = NowPlayingProvider.scripted(for: next.appBundleID) {
+            // The session names the scripted player: ask that one, and show
+            // the session's own reading if it does not answer (Automation off).
+            fetchScripted(scripted, orShow: next, provider: provider, generation: gen)
             return
         }
+        if provider.accepts(next.appBundleID) { attachCover(to: &next, generation: gen) }
+        deliverSessionReading(next, provider: provider, generation: gen)
+    }
+
+    /// Reads a scripted player for an Auto session. A pinned provider other
+    /// than Auto shows the session's reading or nothing.
+    private func fetchScripted(_ scripted: NowPlayingProvider, orShow fallback: NowPlayingSnapshot?,
+                               provider: NowPlayingProvider, generation gen: Int) {
         guard provider == .auto else {
-            deliverSessionReading(.empty, provider: provider, generation: gen)
+            deliverSessionReading(fallback ?? .empty, provider: provider, generation: gen)
             return
         }
-        NowPlayingAutomation.fetchSnapshot(provider: .auto, queue: queue) { [weak self] snapshot in
-            var next = snapshot
-            next.sampledAt = Date()
+        NowPlayingAutomation.fetchSnapshot(provider: scripted, queue: queue) { [weak self] snapshot in
+            var next = snapshot.hasTrack ? snapshot : (fallback ?? snapshot)
+            next.sampledAt = next.sampledAt ?? Date()
             self?.deliverSessionReading(next, provider: provider, generation: gen)
         }
     }
 
-    /// Reads the cover of a new song once. It is published when it arrives if
+    /// Puts the song's cover on a session reading, on `queue`. A new song is
+    /// asked for once; a song whose cover was not ready is asked once more.
+    private func attachCover(to next: inout NowPlayingSnapshot, generation gen: Int) {
+        let key = NowPlayingCoverReader.key(for: next)
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if var cover = sessionCover, cover.key == key {
+            next.artworkData = cover.data
+            guard cover.shouldAskAgain(at: uptime) else { return }
+            cover.tries += 1
+            cover.askedAt = uptime
+            sessionCover = cover
+        } else {
+            sessionCover = NowPlayingSessionCover(key: key, data: nil, tries: 1, askedAt: uptime)
+        }
+        requestCover(for: next, key: key, generation: gen)
+    }
+
+    /// Reads the cover on its own queue. It is published when it arrives if
     /// the same song is still on screen; later readings of the song carry it.
     private func requestCover(for reading: NowPlayingSnapshot, key: String, generation gen: Int) {
         coverQueue.async { [weak self] in
             guard let self else { return }
+            // A song skipped while earlier covers were read costs no launch.
+            let current = self.queue.sync { self.sessionCover?.key == key }
+            guard current, self.coverReader.isReady() else { return }
             let cover = self.coverReader.read()
             let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
             self.queue.async { [weak self] in
-                guard let self, self.sessionCover?.key == key else { return }
-                self.sessionCover = (key, data)
-                guard let data else { return }
+                guard let self, self.sessionCover?.key == key, let data else { return }
+                self.sessionCover?.data = data
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.timer != nil, gen == self.pollGeneration,
                           NowPlayingCoverReader.key(for: self.snapshot) == key,
@@ -436,6 +471,14 @@ final class NowPlayingService: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Ends the session reader and forgets its song, on `queue`. Polling
+    /// starts it again when it needs it.
+    private func stopSessionReading() {
+        sessionReader.stop()
+        lastSessionTitle = nil
+        sessionCover = nil
     }
 
     private func deliverSessionReading(_ snapshot: NowPlayingSnapshot, provider: NowPlayingProvider, generation gen: Int) {
@@ -621,6 +664,8 @@ final class NowPlayingService: ObservableObject {
         lastRenderedKey = ""
         syncShortcuts()
         renderMenuBar()
+        // A provider change reads at once, not after the poll interval.
+        lastPollStartedAt = 0
         poll()
     }
 
@@ -651,6 +696,8 @@ final class NowPlayingService: ObservableObject {
         NowPlayingLyricsCenter.shared.clearCache()
         NowPlayingAnimatedArtworkCenter.shared.clearCache()
         NowPlayingThemeEngine.clearCache()
+        queue.async { [weak self] in self?.sessionCover = nil }
+        coverQueue.async { [weak self] in self?.coverReader.clearRest() }
     }
 
     /// Brings the app that owns the current session to the front, so the
@@ -670,7 +717,9 @@ final class NowPlayingService: ObservableObject {
     /// every published snapshot change, and only while the island listens.
     private func syncIslandFeed() {
         guard activeConsumers.contains(.notch) else { return }
-        let pid = snapshot.appBundleID.flatMap {
+        // The session names the player's process; a bundle lookup can pick
+        // another instance of the same app.
+        let pid = snapshot.appPID ?? snapshot.appBundleID.flatMap {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier
         }
         // The reading's own clock, so a feed derived later still places the
@@ -1072,6 +1121,8 @@ final class NowPlayingService: ObservableObject {
             poll()
         } else {
             timer.fireDate = .distantFuture
+            // Locked, asleep or another console: no reader waits meanwhile.
+            queue.async { [weak self] in self?.stopSessionReading() }
         }
         renderMenuBar()
     }

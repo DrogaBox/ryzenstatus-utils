@@ -9372,15 +9372,132 @@ struct MetricsTests {
             expect(NowPlayingCoverReader.loader.contains("dl_load_file") && NowPlayingCoverReader.loader.contains("exit 2")
                    && NowPlayingCoverReader.loader.contains("ryzenstatus_now_playing_cover"),
                    "Cover loader loads the library and names its entry point")
+            // build.sh: the helper is built and bundled, and every signature of
+            // a bundle is preceded by its libraries' signatures.
             let buildScript = (try? String(contentsOfFile: "build.sh", encoding: .utf8)) ?? ""
-            let helperSource = (try? String(contentsOfFile: "Sources/NowPlayingCover/NowPlayingCover.m", encoding: .utf8)) ?? ""
+            let buildLines = buildScript.components(separatedBy: "\n")
             expect(buildScript.contains("Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib")
-                   && buildScript.contains("$STAGE/Contents/Frameworks/NowPlayingCover.dylib")
-                   && buildScript.contains("codesign_library \"$library\""),
-                   "build.sh compiles the cover helper, puts it in Frameworks and signs it before the bundle")
-            expect(helperSource.contains("void ryzenstatus_now_playing_cover(void *interpreter, void *sub)")
-                   && helperSource.contains("kMRMediaRemoteNowPlayingInfoArtworkData"),
+                   && buildScript.contains("cp build/NowPlayingCover.dylib \"$STAGE/Contents/Frameworks/NowPlayingCover.dylib\"")
+                   && buildScript.contains("-fsyntax-only Sources/NowPlayingCover/NowPlayingCover.m"),
+                   "build.sh compiles the cover helper, checks it in --test and copies it into Frameworks")
+            let bundleSignings = buildLines.indices.filter { buildLines[$0].trimmingCharacters(in: .whitespaces) == "codesign_target \"$bundle\"" }
+            expect(bundleSignings.count == 2 && bundleSignings.allSatisfy { index in
+                index > 0 && buildLines[index - 1].trimmingCharacters(in: .whitespaces) == "sign_libraries \"$bundle\""
+            }, "build.sh signs the bundle's libraries right before each signature of the bundle")
+            if let finalize = buildLines.firstIndex(where: { $0.hasPrefix("finalize_installed_bundle_after_child()") }),
+               let finalizeEnd = buildLines[finalize...].firstIndex(where: { $0 == "}" }) {
+                let body = Array(buildLines[finalize...finalizeEnd])
+                let libraryLoop = body.firstIndex(where: { $0.contains("Contents/Frameworks/*.dylib(N)") })
+                let bundleSign = body.firstIndex(where: { $0.contains("--sign \"$devid\" \"$bundle\"") })
+                expect(libraryLoop != nil && bundleSign != nil && libraryLoop! < bundleSign!,
+                       "build.sh --install signs the libraries again before the installed bundle")
+            } else {
+                expect(false, "build.sh keeps finalize_installed_bundle_after_child")
+            }
+            let helperSource = (try? String(contentsOfFile: "Sources/NowPlayingCover/NowPlayingCover.m", encoding: .utf8)) ?? ""
+            expect(helperSource.contains("void ryzenstatus_now_playing_cover(void *interpreter, void *sub)"),
                    "The cover helper exports the entry point the loader calls")
+
+            // The reader script compiles as JavaScript for Automation.
+            let scriptCheck = Process()
+            scriptCheck.executableURL = URL(fileURLWithPath: "/usr/bin/osacompile")
+            let compiled = FileManager.default.temporaryDirectory.appendingPathComponent("now-playing-reader-\(ProcessInfo.processInfo.processIdentifier).scpt")
+            scriptCheck.arguments = ["-l", "JavaScript", "-e", NowPlayingSessionReader.script, "-o", compiled.path]
+            scriptCheck.standardOutput = FileHandle.nullDevice
+            scriptCheck.standardError = FileHandle.nullDevice
+            let scriptCompiles = (try? scriptCheck.run()) != nil && { scriptCheck.waitUntilExit(); return scriptCheck.terminationStatus == 0 }()
+            try? FileManager.default.removeItem(at: compiled)
+            expect(scriptCompiles, "The session reader's JavaScript compiles (osacompile)")
+            expect(NowPlayingSessionReader.script.contains("} catch (error) {")
+                   && NowPlayingSessionReader.script.contains("isKindOfClass($.NSNumber)")
+                   && NowPlayingSessionReader.script.contains("isKindOfClass($.NSDate)"),
+                   "The reader script checks value types and catches errors instead of ending")
+
+            // Reader replies: late replies and malformed lines are dropped, a
+            // partial line waits.
+            var replies = Data((#"{"seq":6,"title":"Old"}"# + "\n" + "garbage\n" + #"{"seq":7,"title":"New"}"# + "\n" + #"{"seq":8,"ti"#).utf8)
+            let reply = NowPlayingSessionReader.takeReply(to: 7, from: &replies, now: readAt)
+            expect(reply?.snapshot.title == "New" && String(decoding: replies, as: UTF8.self) == #"{"seq":8,"ti"#,
+                   "Reader replies: the expected reply is found and a partial line is kept")
+            var stale = Data((#"{"seq":6,"title":"Old"}"# + "\n").utf8)
+            expect(NowPlayingSessionReader.takeReply(to: 7, from: &stale, now: readAt) == nil && stale.isEmpty,
+                   "Reader replies: a reply to a timed-out request is dropped")
+
+            // Reader lines with JSON escapes, emoji and wrongly typed numbers.
+            let escaped = NowPlayingSessionReading.parse(line: Data(#"{"seq":9,"title":"Say \"hi\"\n🎧","artist":"Sigur Rós","elapsed":"12","duration":"300","rate":"1","playing":1}"#.utf8), now: readAt)
+            expect(escaped?.snapshot.title == "Say \"hi\"\n🎧" && escaped?.snapshot.artist == "Sigur Rós",
+                   "Reader line: quotes, newlines, accents and emoji survive")
+            expect(escaped?.snapshot.elapsed == nil && escaped?.snapshot.duration == nil && escaped?.snapshot.isPlaying == true,
+                   "Reader line: numbers sent as text are unknown, the playing key still counts")
+
+            // Reader health: three failures in a row rest it for a minute.
+            var health = NowPlayingReaderHealth()
+            health.recordFailure(at: 100)
+            health.recordFailure(at: 101)
+            expect(health.allows(at: 102), "Reader health: two failures do not rest the reader")
+            health.recordSuccess()
+            health.recordFailure(at: 103)
+            health.recordFailure(at: 104)
+            expect(health.allows(at: 105), "Reader health: a success starts the count again")
+            health.recordFailure(at: 105)
+            expect(!health.allows(at: 106) && !health.allows(at: 164) && health.allows(at: 165),
+                   "Reader health: the third failure in a row rests it for 60 s")
+
+            // Cover backoff: a library that cannot load stops covers; other
+            // failures rest them and they come back.
+            var backoff = NowPlayingCoverBackoff()
+            expect(backoff.record(.transientFailure, at: 10) == .none && backoff.allows(at: 11),
+                   "Cover backoff: one failure changes nothing")
+            expect(backoff.record(.transientFailure, at: 12) == .resting && !backoff.allows(at: 13)
+                   && !backoff.allows(at: 311) && backoff.allows(at: 312),
+                   "Cover backoff: two failures in a row rest covers for 300 s, then they try again")
+            _ = backoff.record(.transientFailure, at: 400)
+            expect(backoff.record(.success, at: 401) == .none && backoff.record(.transientFailure, at: 402) == .none,
+                   "Cover backoff: a success starts the count again")
+            backoff.clearRest()
+            expect(backoff.record(.unavailable, at: 500) == .stopped && !backoff.allows(at: 10_000)
+                   && backoff.record(.unavailable, at: 501) == .none,
+                   "Cover backoff: a library that does not load stops covers, logged once")
+            backoff.clearRest()
+            expect(!backoff.allows(at: 20_000), "Cover backoff: clearing the cache does not bring back a library that cannot load")
+
+            // A song's cover is asked once more if it was not ready, never more.
+            var songCover = NowPlayingSessionCover(key: "k", data: nil, tries: 1, askedAt: 50)
+            expect(!songCover.shouldAskAgain(at: 52) && songCover.shouldAskAgain(at: 53),
+                   "Song cover: a missing cover is asked again after 3 s")
+            songCover.tries = 2
+            expect(!songCover.shouldAskAgain(at: 100), "Song cover: never a third time")
+            songCover.tries = 1
+            songCover.data = Data([1])
+            expect(!songCover.shouldAskAgain(at: 100), "Song cover: a cover in hand is not asked for again")
+
+            // The library perl loads must sit directly in the app's Frameworks.
+            let frameworks = FileManager.default.temporaryDirectory
+                .appendingPathComponent("np-cover-\(ProcessInfo.processInfo.processIdentifier)/Frameworks")
+            try? FileManager.default.createDirectory(at: frameworks.appendingPathComponent("sub"), withIntermediateDirectories: true)
+            let inside = frameworks.appendingPathComponent("NowPlayingCover.dylib")
+            FileManager.default.createFile(atPath: inside.path, contents: Data())
+            let outsideFile = frameworks.deletingLastPathComponent().appendingPathComponent("elsewhere.dylib")
+            FileManager.default.createFile(atPath: outsideFile.path, contents: Data())
+            let link = frameworks.appendingPathComponent("Linked.dylib")
+            try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideFile)
+            expect(NowPlayingCoverReader.isInside(inside, frameworks: frameworks), "Cover library: a file in Frameworks is accepted")
+            expect(!NowPlayingCoverReader.isInside(link, frameworks: frameworks),
+                   "Cover library: a link out of Frameworks is refused")
+            expect(!NowPlayingCoverReader.isInside(frameworks.appendingPathComponent("sub/x.dylib"), frameworks: frameworks)
+                   && !NowPlayingCoverReader.isInside(frameworks.appendingPathComponent("../elsewhere.dylib"), frameworks: frameworks)
+                   && !NowPlayingCoverReader.isInside(inside, frameworks: nil),
+                   "Cover library: subfolders, parent paths and no Frameworks folder are refused")
+            expect(!NowPlayingCoverReader.isSignedLikeThisApp(inside), "Cover library: an unsigned file fails the signature check")
+            let wrongPlace = NowPlayingCoverReader(libraryURL: outsideFile, frameworksURL: frameworks)
+            expect(wrongPlace.read() == nil && wrongPlace.gaveUp, "Cover library: perl is never started for a library outside Frameworks")
+            try? FileManager.default.removeItem(at: frameworks.deletingLastPathComponent())
+
+            expectEqual(NowPlayingTidal.webSearchURL(for: "max richter")?.absoluteString ?? "",
+                        "https://listen.tidal.com/search?q=max%20richter", "TIDAL search falls back to the web player")
+            var withPID = onScreen
+            withPID.appPID = 12262
+            expect(withPID != onScreen, "The session's player process is part of a reading")
         }
 
         // MARK: Now Playing island feed (playback mapping, song changes, timed lyrics, scripting)

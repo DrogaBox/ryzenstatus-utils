@@ -24,7 +24,8 @@ typedef void (*RSGetNowPlayingClient)(dispatch_queue_t, void (^)(id));
 typedef CFStringRef (*RSClientGetBundleIdentifier)(id);
 
 static const NSUInteger RSMaximumArtworkBytes = 8 * 1024 * 1024;
-static const int64_t RSReplyTimeout = 2 * NSEC_PER_SEC;
+// Both questions share one deadline, well inside the app's wait for perl.
+static const int64_t RSReplyTimeout = (int64_t)(1.5 * NSEC_PER_SEC);
 
 static NSString *RSText(NSDictionary *info, NSString *key) {
     id value = info[key];
@@ -54,20 +55,23 @@ void ryzenstatus_now_playing_cover(void *interpreter, void *sub) {
             RSPrint(@{@"error": @"MediaRemote is unavailable"});
             return;
         }
+        // `reading` is only touched on this queue: the callbacks run on it,
+        // and the copy that is printed is taken on it.
         dispatch_queue_t queue = dispatch_queue_create("com.ryzenstatus.now-playing-cover", DISPATCH_QUEUE_SERIAL);
         NSMutableDictionary *reading = [NSMutableDictionary dictionary];
+        dispatch_group_t answers = dispatch_group_create();
+        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, RSReplyTimeout);
 
         if (getClient != NULL && getBundle != NULL) {
-            dispatch_semaphore_t answered = dispatch_semaphore_create(0);
+            dispatch_group_enter(answers);
             getClient(queue, ^(id client) {
                 CFStringRef bundle = client ? getBundle(client) : NULL;
                 if (bundle != NULL) reading[@"bundle"] = [(__bridge NSString *)bundle copy];
-                dispatch_semaphore_signal(answered);
+                dispatch_group_leave(answers);
             });
-            dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, RSReplyTimeout));
         }
-
-        dispatch_semaphore_t answered = dispatch_semaphore_create(0);
+        __block BOOL infoAnswered = NO;
+        dispatch_group_enter(answers);
         getInfo(queue, ^(CFDictionaryRef raw) {
             NSDictionary *info = (__bridge NSDictionary *)raw;
             NSString *title = RSText(info, @"kMRMediaRemoteNowPlayingInfoTitle");
@@ -83,12 +87,15 @@ void ryzenstatus_now_playing_cover(void *interpreter, void *sub) {
                 && [artwork length] <= RSMaximumArtworkBytes) {
                 reading[@"artwork"] = [(NSData *)artwork base64EncodedStringWithOptions:0];
             }
-            dispatch_semaphore_signal(answered);
+            infoAnswered = YES;
+            dispatch_group_leave(answers);
         });
-        if (dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, RSReplyTimeout)) != 0) {
-            RSPrint(@{@"error": @"MediaRemote did not answer"});
-            return;
-        }
-        RSPrint(reading);
+        dispatch_group_wait(answers, deadline);
+
+        __block NSDictionary *answer = nil;
+        dispatch_sync(queue, ^{
+            answer = infoAnswered ? [reading copy] : @{@"error": @"MediaRemote did not answer"};
+        });
+        RSPrint(answer);
     }
 }
