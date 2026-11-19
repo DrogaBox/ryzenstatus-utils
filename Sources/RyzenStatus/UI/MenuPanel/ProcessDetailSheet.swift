@@ -9,6 +9,9 @@ import SwiftUI
 /// memory regions, live CPU/RAM/Network telemetry (updating live at 1Hz), and system actions.
 struct ProcessDetailSheet: View {
     let row: ProcessUsage
+    /// The start time the caller read while checking that the pid is still
+    /// the app it names; nil for callers that did not check.
+    var knownStartedAt: UInt64?
     /// Whether the window can be seen: the live refresh runs only then.
     @ObservedObject var visibility: ProcessInspectorVisibility
     @ObservedObject private var l10n = L10n.shared
@@ -258,7 +261,10 @@ struct ProcessDetailSheet: View {
         .frame(width: 480, height: 420)
         .task {
             // Path and identity once; they do not change for a running process.
-            startedAt = KillProcessService.startTime(for: row.pid)
+            // Without a start time from the caller, the pid must still carry
+            // the row's name (read with no fallback) or Force Quit stays
+            // refused: a reused pid is never acted on.
+            startedAt = knownStartedAt ?? ProcessKillRequest.current(pid: row.pid, name: row.name)?.startedAt
             path = Self.executablePath(of: row.pid)
         }
         // While the window is hidden, occluded or behind the lock screen no
@@ -360,7 +366,9 @@ final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
 
     private override init() {}
 
-    func present(for process: ProcessUsage) {
+    /// `startedAt` is the start time a caller read while checking the pid
+    /// still names `process`; the sheet's Force Quit acts only on it.
+    func present(for process: ProcessUsage, startedAt: UInt64? = nil) {
         if let existing = window {
             existing.close()
             self.window = nil
@@ -368,7 +376,7 @@ final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
         removeOcclusionObserver()
 
         let visibility = ProcessInspectorVisibility()
-        let view = ProcessDetailSheet(row: process, visibility: visibility)
+        let view = ProcessDetailSheet(row: process, knownStartedAt: startedAt, visibility: visibility)
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
         window.title = String(format: FeatureStrings.processInspector(L10n.shared.language).windowTitleFormat,

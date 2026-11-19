@@ -91,8 +91,10 @@ final class ProcessesFeed: ObservableObject {
                                   uniquingKeysWith: { first, _ in first })
         }
         guard tick % 2 == 0 else { return }
+        // A newer listing than the one shown (another surface ran `ps`
+        // while this section was hidden) is shown at once.
         let cached = ProcessUsageService.shared.appUsage()
-        if apps.isEmpty && !cached.isEmpty {
+        if !cached.isEmpty && cached != apps {
             apps = cached
             rebuild()
         }
@@ -387,12 +389,13 @@ struct ProcessesSection: View {
     /// The Inspector can force quit, so it opens only for a pid that is
     /// still the app the row names.
     private func inspect(_ row: ProcessTableRow) {
-        guard ProcessKillRequest.current(pid: row.pid, name: row.name) != nil else {
+        guard let checked = ProcessKillRequest.current(pid: row.pid, name: row.name) else {
             processGone = true
             feed.refreshNow()
             return
         }
-        ProcessInspectorWindowController.shared.present(for: ProcessUsage(pid: row.pid, name: row.name, value: row.cpu))
+        ProcessInspectorWindowController.shared.present(for: ProcessUsage(pid: row.pid, name: row.name, value: row.cpu),
+                                                        startedAt: checked.startedAt)
     }
 
     /// The same gate the process manager had: the feature is on and the

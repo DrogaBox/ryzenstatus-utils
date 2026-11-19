@@ -62,7 +62,14 @@ final class InsightEngine: @unchecked Sendable {
         // 1. Memory Leak Detection Insights (Critical)
         let leaks = ProcessUsageService.shared.leakingPIDsCopy()
         for pid in leaks {
+            // Leaking apps are usually idle, so the CPU list rarely has them:
+            // the last listing's app names, then the live name, never a guess.
             let known = processes.first(where: { $0.pid == pid })?.name
+                ?? ProcessUsageService.shared.cachedAppUsage().first(where: { $0.pid == pid })?.name
+                ?? {
+                    let live = ResponsibleProcess.displayName(pid: pid, fallback: "")
+                    return live.isEmpty ? nil : live
+                }()
             let procName = known ?? "PID \(pid)"
             
             cards.append(InsightCard(

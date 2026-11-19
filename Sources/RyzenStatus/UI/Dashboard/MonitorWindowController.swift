@@ -179,11 +179,21 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
         window.contentMinSize = NSSize(width: 980, height: 520)
         window.setContentSize(NSSize(width: 1000, height: 660))
         if !window.setFrameUsingName(Self.frameName) { window.center() }
+        // A frame saved by an older build can be narrower than today's
+        // minimum; restoring does not clamp it, so it is clamped here and
+        // kept on screen.
+        let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: window.contentMinSize)).size
+        var frame = window.frame
+        frame.size.width = max(frame.width, minimum.width)
+        frame.size.height = max(frame.height, minimum.height)
+        frame = window.constrainFrameRect(frame, to: window.screen ?? NSScreen.main)
+        if frame != window.frame { window.setFrame(frame, display: false) }
         window.setFrameAutosaveName(Self.frameName)
 
         // Title = current section, in the app's current language.
         titleSubscription = state.$section
             .combineLatest(L10n.shared.$language)
+            .receive(on: DispatchQueue.main)
             .sink { [weak window] section, language in
                 let strings = MonitorWindowStrings.localized(language)
                 window?.title = section.title(strings) + " — " + strings.windowTitle
@@ -313,7 +323,7 @@ struct MonitorWindowView: View {
     var body: some View {
         let strings = MonitorWindowStrings.localized(l10n.language)
         content
-            .frame(minWidth: 980, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity, alignment: .topLeading)
+            .frame(minWidth: 980, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Picker(strings.section, selection: $state.section) {

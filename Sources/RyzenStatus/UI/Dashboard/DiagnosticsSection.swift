@@ -134,20 +134,21 @@ struct DiagnosticsSection: View {
                 Text(card.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if card.actionHint != nil || card.pid != nil {
+                if card.actionHint != nil || (card.pid != nil && card.processName != nil) {
                     HStack(alignment: .firstTextBaseline) {
                         if let hint = card.actionHint {
                             Label(hint, systemImage: "lightbulb")
                                 .font(.callout)
                         }
                         Spacer()
-                        if let pid = card.pid {
+                        if let pid = card.pid, card.processName != nil {
                             Button(suite.inspectButton) {
                                 // The Inspector can force quit: it opens only for
                                 // a pid that is still the app the notice named.
-                                if let name = card.processName, ProcessKillRequest.current(pid: pid, name: name) != nil {
+                                if let name = card.processName,
+                                   let checked = ProcessKillRequest.current(pid: pid, name: name) {
                                     ProcessInspectorWindowController.shared.present(
-                                        for: ProcessUsage(pid: pid, name: name, value: 0))
+                                        for: ProcessUsage(pid: pid, name: name, value: 0), startedAt: checked.startedAt)
                                 } else {
                                     processGone = true
                                 }

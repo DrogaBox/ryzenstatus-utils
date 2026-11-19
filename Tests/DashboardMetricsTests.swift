@@ -433,6 +433,10 @@ enum DashboardMetricsTests {
         suite.expect(!processes.contains("SIGTERM") && processes.contains("KillProcessService.shared.kill(")
                      && processes.contains("startedAt: request.startedAt"),
                      "the process table's kill goes through KillProcessService, to the start time read on request")
+        let inspector = source("Sources/RyzenStatus/UI/MenuPanel/ProcessDetailSheet.swift", suite)
+        suite.expect(inspector.contains("knownStartedAt ?? ProcessKillRequest.current(pid: row.pid, name: row.name)?.startedAt")
+                     && processes.contains("startedAt: checked.startedAt"),
+                     "the Inspector force quits only the start time read while checking the pid still names the app")
         for path in ["Sources/RyzenStatus/UI/Settings/MonitorSettings.swift",
                      "Sources/RyzenStatus/UI/Settings/AmdOverclockingSettingsView.swift",
                      "Sources/RyzenStatus/UI/Settings/SensorsView.swift"] {
