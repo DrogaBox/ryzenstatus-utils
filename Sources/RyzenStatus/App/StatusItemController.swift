@@ -43,6 +43,11 @@ final class StatusItemController {
     /// written again (every write re-lays out and redraws the item). Reset
     /// whenever an item is created, because a new button starts blank.
     private var lastMainTitleKey = ""
+    /// The menu bar's appearance follows the wallpaper under it (macOS 26),
+    /// independently of the app's; block images are drawn for the button's
+    /// appearance, so a change redraws them at once instead of on the next
+    /// monitor tick.
+    private var buttonAppearanceObservation: NSKeyValueObservation?
     private var metricTitleKeys: [String: String] = [:]
     /// Token for the system theme-change observer.
     private var themeObserver: Any?
@@ -131,6 +136,9 @@ final class StatusItemController {
             button.target = self
             button.action = #selector(clicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            buttonAppearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+                DispatchQueue.main.async { self?.refresh() }
+            }
         }
         refresh()
         syncMonitorMode()
@@ -522,6 +530,7 @@ final class StatusItemController {
             removeMetricStatusItems(except: Set<String>())
         }
         var metricsKey = ""
+        var spoken = includesCountdown ? title.string : ""
         if !separateMetrics, !metrics.isEmpty {
             let settings = MenuBarRenderSettings.current(defaults: defaults, appearance: button.effectiveAppearance)
             let rendered = MenuBarRenderer.render(for: snapshot, metrics: metrics, settings: settings)
@@ -529,6 +538,7 @@ final class StatusItemController {
                 if title.length > 0 { title.append(NSAttributedString(string: "  ")) }
                 title.append(rendered.string)
                 metricsKey = rendered.key
+                spoken = [spoken, rendered.spoken].filter { !$0.isEmpty }.joined(separator: ", ")
             }
         }
 
@@ -541,6 +551,7 @@ final class StatusItemController {
                 button.attributedTitle = NSAttributedString(string: "")
             }
             lastMainTitleKey = ""
+            button.setAccessibilityLabel(nil)
             if button.imagePosition != .imageOnly {
                 button.imagePosition = .imageOnly
             }
@@ -583,6 +594,8 @@ final class StatusItemController {
                 full.addAttribute(.font, value: font, range: NSRange(location: 0, length: full.length))
                 button.font = font
                 button.attributedTitle = full
+                // The title is block images, which VoiceOver cannot read.
+                button.setAccessibilityLabel(spoken)
                 lastMainTitleKey = titleKey
             }
             if button.imagePosition != .imageLeading {
@@ -665,6 +678,7 @@ final class StatusItemController {
                                   range: NSRange(location: 0, length: full.length))
                 button.font = font
                 button.attributedTitle = full
+                button.setAccessibilityLabel(rendered.spoken)
                 metricTitleKeys[group.id] = rendered.key
             }
             // Empty rather than nil, so the title dims with the menu bar on
@@ -679,7 +693,7 @@ final class StatusItemController {
     /// draw them in one block (`MenuBarRenderSettings.combinesTemperature`),
     /// so the item ids, which are also their saved positions, follow one rule.
     private func metricStatusGroups(for metrics: [MenuBarMetric], strings: Strings) -> [MetricStatusGroup] {
-        let settings = MenuBarRenderSettings.current()
+        let settings = MenuBarRenderSettings.current(appearance: statusItem?.button?.effectiveAppearance)
         let enabled = Set(metrics)
         var emittedIDs = Set<String>()
         var groups: [MetricStatusGroup] = []

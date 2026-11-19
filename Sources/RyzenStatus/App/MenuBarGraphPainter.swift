@@ -105,8 +105,11 @@ enum MenuBarGraphPainter {
         let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let filled = !dark && MenuBarGraphLightBackground.current(defaults) == .filled
         let monoTone: Double = (dark || filled) ? 1 : 0
+        let theme = defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome)
+            ? .mono
+            : MenuBarGraphTheme.current(dark: dark, defaults: defaults)
         let colors = MenuBarGraphPalette.colors(
-            for: MenuBarGraphTheme.current(dark: dark, defaults: defaults),
+            for: theme,
             accent: accentRGB(),
             mono: MenuBarUsageBarSupport.RGB(red: monoTone, green: monoTone, blue: monoTone))
         return Style(isDark: dark, filledBox: filled, colors: colors)
@@ -122,6 +125,7 @@ enum MenuBarGraphPainter {
             MenuBarGraphTheme.current(dark: true, defaults: defaults).rawValue,
             MenuBarGraphLightBackground.current(defaults).rawValue,
             MenuBarUsageBarSupport.hex(red: accent.red, green: accent.green, blue: accent.blue),
+            defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome) ? "mono" : "color",
         ].joined(separator: ",")
     }
 

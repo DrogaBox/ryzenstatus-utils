@@ -51,8 +51,8 @@ struct MenuBarMetricsPreview: View {
                 .fill(dark ? Color(white: 0.16) : Color(white: 0.9))
         )
         .accessibilityElement(children: .ignore)
-        // The title is block images; VoiceOver gets the readings' names.
-        .accessibilityLabel(model.metrics.map { $0.title(L10n.shared.s) }.joined(separator: ", "))
+        // The title is block images; VoiceOver gets the readings in words.
+        .accessibilityLabel(rendered.spoken)
     }
 
     private func glyph(_ ink: Color) -> some View {

@@ -1943,9 +1943,39 @@ struct MetricsTests {
         expect(!MenuBarMetricAppearance.bars.isText && !MenuBarMetricAppearance.sparkline.isText,
                "menu bar graph styles are not text")
         expect(MenuBarMetricAppearance.styledMetrics.allSatisfy {
-                   registeredDefaults[$0.styleKey] as? String == "values"
+                   registeredDefaults[$0.styleKey] as? String == MenuBarMetricAppearance.defaultStyle(for: $0).rawValue
                },
-               "every styled menu bar metric has a registered style, so none inherits the old global key")
+               "every menu bar metric has a registered style, so none inherits the old global key")
+        expect(MenuBarMetricAppearance.styledMetrics.count == MenuBarMetric.allCases.count,
+               "every menu bar metric has a style of its own")
+        expect(MenuBarMetricAppearance.defaultStyle(for: .cpuTempPower) == .valueOnly
+               && MenuBarMetricAppearance.defaultStyle(for: .battery) == .iconValue
+               && MenuBarMetricAppearance.defaultStyle(for: .cpuTemperature) == .values,
+               "each metric's default style is the look it had before it had a choice")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy {
+                   let allowed = MenuBarMetricAppearance.allowed(for: $0)
+                   return allowed.contains(MenuBarMetricAppearance.defaultStyle(for: $0))
+                       && allowed.contains(.values) && allowed.contains(.inline) && allowed.contains(.valueOnly)
+               },
+               "every metric offers the text styles, and its default among them")
+        expect(!MenuBarMetricAppearance.allowed(for: .gpu).contains(.iconValue)
+               && !MenuBarMetricAppearance.allowed(for: .cpuTemperature).contains(.iconValue),
+               "no symbol for readings that would share it (no GPU symbol; one thermometer for CPU and GPU)")
+        do {
+            let suite = UserDefaults(suiteName: "menubar-style-read-test")!
+            suite.removePersistentDomain(forName: "menubar-style-read-test")
+            suite.set("pie", forKey: MenuBarMetric.network.styleKey)
+            suite.set("histogram", forKey: MenuBarMetric.gpu.styleKey)
+            suite.set("bars", forKey: MenuBarMetric.cpuTemperature.styleKey)
+            suite.set("classic", forKey: MenuBarMetric.cpu.styleKey)
+            expect(MenuBarMetricAppearance.stored(for: .network, in: suite) == .sparkline
+                   && MenuBarMetricAppearance.stored(for: .gpu, in: suite) == .sparkline,
+                   "styles a metric never drew read as what it showed for them")
+            expect(MenuBarMetricAppearance.stored(for: .cpuTemperature, in: suite) == .values
+                   && MenuBarMetricAppearance.stored(for: .cpu, in: suite) == .values,
+                   "a style a metric does not offer falls back to its default; classic reads as values")
+            suite.removePersistentDomain(forName: "menubar-style-read-test")
+        }
         do {
             // The renderer read one stored value differently per metric;
             // the conversion writes what each one actually showed.

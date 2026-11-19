@@ -288,7 +288,7 @@ enum GPUSensorsTests {
         func labels(_ snapshot: SystemSnapshot) -> [String] {
             MenuBarRenderer.segments(for: snapshot, metrics: [.gpu, .gpuTemperature], settings: settings,
                                      widthMemory: MenuBarWidthMemory()).compactMap {
-                if case .metricBlock(let label, _, _, _, _) = $0 { return label }
+                if case .metricBlock(let label, _, _, _, _, _) = $0 { return label }
                 return nil
             }
         }

@@ -974,9 +974,6 @@ struct Strings {
     let obStepMenuBarTitle: String
     let obStepMenuBarBody: String
     let obStepMenuBarNote: String
-    let menuBarSpacingLabel: String
-    let menuBarSpacingStandard: String
-    let menuBarSpacingCompact: String
     let menuBarHideIconToggle: String
     let menuBarHideIconCaption: String
     let monitorMemoryPressureDot: String
@@ -2190,9 +2187,6 @@ extension Strings {
         obStepMenuBarTitle: "Métricas na barra de menus",
         obStepMenuBarBody: "Escolha o que mostrar ao lado do ícone. A prévia acima muda em tempo real.",
         obStepMenuBarNote: "Novidade: blocos de Rede e Energia e gráficos no painel. Ajuste tudo depois em Ajustes › Monitor.",
-        menuBarSpacingLabel: "Espaçamento na barra",
-        menuBarSpacingStandard: "Padrão",
-        menuBarSpacingCompact: "Compacto",
         menuBarHideIconToggle: "Ocultar o ícone do app enquanto houver métricas",
         menuBarHideIconCaption: "O ícone volta sozinho quando as métricas saem da barra e quando há algo a avisar (atualização pronta ou microfone silenciado).",
         monitorMemoryPressureDot: "Ponto de pressão",
@@ -3389,9 +3383,6 @@ extension Strings {
         obStepMenuBarTitle: "Metrics in the menu bar",
         obStepMenuBarBody: "Pick what to show next to the icon. The preview above updates live.",
         obStepMenuBarNote: "New: Network and Power blocks and graphs in the panel. Fine-tune it all later in Settings › Monitor.",
-        menuBarSpacingLabel: "Menu bar spacing",
-        menuBarSpacingStandard: "Standard",
-        menuBarSpacingCompact: "Compact",
         menuBarHideIconToggle: "Hide the app icon while metrics are shown",
         menuBarHideIconCaption: "The icon returns by itself when metrics leave the bar and when there is something to signal (an update ready or the microphone muted).",
         monitorMemoryPressureDot: "Pressure dot",
