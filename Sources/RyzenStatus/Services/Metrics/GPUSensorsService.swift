@@ -265,9 +265,9 @@ struct GPUSensorsRow: Equatable, Identifiable {
 /// registry themselves. Reads are shared: callers within `cacheLifetime` of
 /// each other (the system monitor and the Sensors page) get the same copy.
 ///
-/// `@unchecked Sendable`: `service`, `present`, `cached` and `cachedAt` are
-/// guarded by `lock`; `reading`, `isPresent`, `clients`, `timer` and the
-/// notification state are main thread only.
+/// `@unchecked Sendable`: `service`, `present`, `cached`, `cachedControl` and
+/// `cachedAt` are guarded by `lock`; `reading`, `control`, `isPresent`,
+/// `clients`, `timer` and the notification state are main thread only.
 final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     static let shared = GPUSensorsService()
 
@@ -350,7 +350,9 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     /// Thread-safe. The GPU control's state, from the same shared read as
     /// `currentReading`; nil without the kext or with one older than 0.3.0.
     func currentControl(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> GPUControlStatus? {
+        #if DEBUG
         if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return nil }
+        #endif
         lock.lock()
         defer { lock.unlock() }
         guard service != 0 else { return nil }

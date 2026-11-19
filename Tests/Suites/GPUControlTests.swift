@@ -17,14 +17,16 @@ enum GPUControlTests {
     private static let en = GPUControlStrings.enUS
 
     /// GPUSensors 0.2.0: sensors only, no control keys.
-    private static let v020: [String: Any] = [
-        "Status": "active",
-        "StatusCode": NSNumber(value: 1),
-        "Library": "AMDRadeonX6000HWLibs",
-        "SampleAgeMs": NSNumber(value: 640),
-        "Sensors": ["Hotspot temperature": NSNumber(value: 40)],
-        "Units": ["Hotspot temperature": "C"],
-    ]
+    private static var v020: [String: Any] {
+        [
+            "Status": "active",
+            "StatusCode": NSNumber(value: 1),
+            "Library": "AMDRadeonX6000HWLibs",
+            "SampleAgeMs": NSNumber(value: 640),
+            "Sensors": ["Hotspot temperature": NSNumber(value: 40)],
+            "Units": ["Hotspot temperature": "C"],
+        ]
+    }
 
     /// GPUSensors 0.3.0 on the RX 6800 XT here (macOS 26.7.3, 2026-11-19),
     /// as `ioreg -r -c DrogaBoxGPUSensors -l` showed it, no `gpuprofile`.
@@ -144,6 +146,26 @@ enum GPUControlTests {
         suite.expect(row(failed?.rows(en) ?? [], "LastSentW")?.value == "300 W, not taken (code 5)",
                      "a limit the firmware refused shows its code")
 
+        // uint32_t results with bit 31 set: a negative error (-1) and an IOReturn.
+        func sentRow(_ result: Any?) -> String? {
+            var watch: [String: Any] = ["Sent": NSNumber(value: 1), "LastSentW": NSNumber(value: 300)]
+            if let result { watch["LastSentResult"] = result }
+            return row(GPUControlStatus.parse(v040(watch: watch))?.rows(en) ?? [], "LastSentW")?.value
+        }
+        suite.expect(sentRow(NSNumber(value: UInt64(0xFFFF_FFFF))) == "300 W, not taken (code 0xFFFFFFFF)",
+                     "a -1 result (0xFFFFFFFF) is a refusal, shown in hex")
+        suite.expect(sentRow(NSNumber(value: UInt64(0xE000_02BC))) == "300 W, not taken (code 0xE00002BC)",
+                     "an IOReturn result is a refusal, shown in hex")
+        suite.expect(sentRow(NSNumber(value: Int32.max)) == "300 W, not taken (code 2147483647)",
+                     "the largest small code stays decimal")
+        suite.expect(sentRow(nil) == "300 W, not confirmed", "a send without a result is not shown as taken")
+        suite.expect(sentRow("0") == "300 W, not confirmed", "a result of the wrong type is not shown as taken")
+        suite.expect(sentRow(NSNumber(value: UInt64(0x1_0000_0000))) == "300 W, not confirmed",
+                     "a result past 32 bits is unreadable, so not taken")
+        suite.expect(sentRow(NSNumber(value: 0)) == "300 W", "only a read result of 0 counts as taken")
+        suite.expect(GPUControlStatus.resultCode(5) == "5" && GPUControlStatus.resultCode(0xE000_02BC) == "0xE00002BC",
+                     "result codes read right")
+
         let partial = GPUControlStatus.parse(v040(watch: ["BootW": NSNumber(value: 240), "Reads": NSNumber(value: 1),
                                                           "Sleeps": NSNumber(value: 0), "Wakes": NSNumber(value: 0)],
                                                   power: "watching in part: see PowerWatch"))
@@ -178,6 +200,31 @@ enum GPUControlTests {
         suite.expect(GPUControlStatus.integer(kCFBooleanTrue) == nil, "a boolean is no number")
         suite.expect(GPUControlStatus.integer("240") == nil, "a string is no number")
         suite.expect(GPUControlStatus.integer(NSNumber(value: UInt64.max)) == nil, "an absurd value is dropped")
+        suite.expect(GPUControlStatus.integer(NSNumber(value: UInt32.max)) == Int(UInt32.max),
+                     "a full uint32_t value is read")
+        suite.expect(GPUControlStatus.integer(NSNumber(value: UInt64(UInt32.max) + 1)) == nil,
+                     "past uint32_t is no value")
+
+        for blank in ["", "   ", "\n"] {
+            var noControl = v030
+            noControl["Control"] = blank
+            suite.expect(GPUControlStatus.parse(noControl) == nil, "a blank control means no group")
+            var blanks = v040()
+            blanks["Profile"] = blank
+            blanks["Power"] = blank
+            let ids = GPUControlStatus.parse(blanks)?.rows(en).map(\.id)
+            suite.expect(ids == ["Control", "BootW", "SleepWake"], "blank profile and power texts give no rows")
+        }
+        suite.expect(GPUControlStatus.parse(["Control": "  watching the profile requests "])?.control == .watching,
+                     "the kext's text is trimmed")
+        suite.expect(GPUControlStatus.Profile.parse("setting up") == .other("setting up"),
+                     "a word that only starts like \"set\" is not a set profile")
+        suite.expect(GPUControlStatus.Profile.parse("asking") == .other("asking"), "nor \"asking\" a request")
+        suite.expect(GPUControlStatus.Profile.parse("set") == .set, "a bare \"set\" is")
+        suite.expect(GPUControlStatus.Watch.parse("waitingroom") == .other("waitingroom"),
+                     "a word that only starts like \"waiting\" is kept as written")
+        suite.expect(GPUControlStatus.Watch.parse("offline") == .other("offline"), "\"offline\" is not off")
+        suite.expect(GPUControlStatus.Watch.parse("watching") == .watching, "a bare \"watching\" is")
         var wrong = v040(watch: ["BootW": "240", "Sleeps": NSNumber(value: 3)])
         wrong["Profile"] = NSNumber(value: 1)
         let status = GPUControlStatus.parse(wrong)
@@ -206,11 +253,16 @@ enum GPUControlTests {
             suite.expect(s.profileSetFormat.components(separatedBy: "%@").count == 2
                              && !s.profileSetFormat.contains("%d"),
                          "\(language): the set-profile text takes one name")
-            suite.expect(s.notTakenFormat.components(separatedBy: "%@").count == 2
-                             && s.notTakenFormat.components(separatedBy: "%d").count == 2,
+            suite.expect(s.notTakenFormat.components(separatedBy: "%@").count == 3
+                             && !s.notTakenFormat.contains("%d"),
                          "\(language): the not-taken text takes the watts and the code")
-            suite.expect(!String(format: s.notTakenFormat, "220 W", 5).contains("%"),
+            let notTaken = String(format: s.notTakenFormat, "220 W", "0xE00002BC")
+            suite.expect(!notTaken.contains("%") && notTaken.contains("220 W") && notTaken.contains("0xE00002BC"),
                          "\(language): the not-taken text formats cleanly")
+            suite.expect(s.unconfirmedFormat.components(separatedBy: "%@").count == 2
+                             && !String(format: s.unconfirmedFormat, "220 W").contains("%")
+                             && s.unconfirmedFormat != s.notTakenFormat,
+                         "\(language): the unconfirmed text takes the watts")
             if language != .enUS {
                 suite.expect(s.title != GPUControlStrings.enUS.title && s.footer != GPUControlStrings.enUS.footer,
                              "\(language): the group is translated")

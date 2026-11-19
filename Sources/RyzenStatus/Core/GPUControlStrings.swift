@@ -31,8 +31,10 @@ struct GPUControlStrings {
     let profileDriverChooses: String
     let profilePowerSaving: String
     let profileCompute: String
-    /// %@ = the watts, %d = the firmware's result code.
+    /// %@ = the watts, then the firmware's result code (already formatted).
     let notTakenFormat: String
+    /// %@ = the watts: sent, but the result could not be read.
+    let unconfirmedFormat: String
     let footer: String
 }
 
@@ -82,7 +84,8 @@ extension GPUControlStrings {
         profileDriverChooses: "chosen by the driver",
         profilePowerSaving: "power saving",
         profileCompute: "compute",
-        notTakenFormat: "%@, not taken (code %d)",
+        notTakenFormat: "%@, not taken (code %@)",
+        unconfirmedFormat: "%@, not confirmed",
         footer: "Read only. GPUSensors.kext watches the card’s driver; nothing on this page changes the GPU.")
 
     static let ptBR = GPUControlStrings(
@@ -109,7 +112,8 @@ extension GPUControlStrings {
         profileDriverChooses: "escolhido pelo driver",
         profilePowerSaving: "economia de energia",
         profileCompute: "computação",
-        notTakenFormat: "%@, não aceito (código %d)",
+        notTakenFormat: "%@, não aceito (código %@)",
+        unconfirmedFormat: "%@, não confirmado",
         footer: "Somente leitura. O GPUSensors.kext monitora o driver da placa; nada nesta página altera a GPU.")
 
     static let tr = GPUControlStrings(
@@ -136,7 +140,8 @@ extension GPUControlStrings {
         profileDriverChooses: "sürücü seçer",
         profilePowerSaving: "güç tasarrufu",
         profileCompute: "hesaplama",
-        notTakenFormat: "%@, kabul edilmedi (kod %d)",
+        notTakenFormat: "%@, kabul edilmedi (kod %@)",
+        unconfirmedFormat: "%@, doğrulanmadı",
         footer: "Yalnızca okuma. GPUSensors.kext kartın sürücüsünü izler; bu sayfadaki hiçbir şey GPU’yu değiştirmez.")
 
     static let ru = GPUControlStrings(
@@ -163,7 +168,8 @@ extension GPUControlStrings {
         profileDriverChooses: "выбирает драйвер",
         profilePowerSaving: "энергосбережение",
         profileCompute: "вычисления",
-        notTakenFormat: "%@, не принят (код %d)",
+        notTakenFormat: "%@, не принят (код %@)",
+        unconfirmedFormat: "%@, не подтверждён",
         footer: "Только чтение. GPUSensors.kext следит за драйвером карты; ничто на этой странице не меняет ГП.")
 
     static let es = GPUControlStrings(
@@ -190,7 +196,8 @@ extension GPUControlStrings {
         profileDriverChooses: "lo elige el controlador",
         profilePowerSaving: "ahorro de energía",
         profileCompute: "cómputo",
-        notTakenFormat: "%@, no aceptado (código %d)",
+        notTakenFormat: "%@, no aceptado (código %@)",
+        unconfirmedFormat: "%@, sin confirmar",
         footer: "Solo lectura. GPUSensors.kext vigila el controlador de la tarjeta; nada de esta página cambia la GPU.")
 
     static let de = GPUControlStrings(
@@ -208,7 +215,7 @@ extension GPUControlStrings {
         watchingPowerLimit: "Überwacht Limit, Ruhezustand und Aufwachen",
         watchingInPart: "Überwacht teilweise",
         waitingForDriver: "Wartet auf den Treiber",
-        profileMacOSDefault: "macOS-Standard (Compute)",
+        profileMacOSDefault: "macOS-Standard (Berechnung)",
         profileSetFormat: "Beim Start gesetzt: %@",
         profileSetAtBoot: "Beim Start gesetzt",
         profileWaiting: "Angefordert, wartet auf den Treiber",
@@ -216,8 +223,9 @@ extension GPUControlStrings {
         notSet: "Nicht gesetzt",
         profileDriverChooses: "vom Treiber gewählt",
         profilePowerSaving: "Energiesparen",
-        profileCompute: "Compute",
-        notTakenFormat: "%@, nicht übernommen (Code %d)",
+        profileCompute: "Berechnung",
+        notTakenFormat: "%@, nicht übernommen (Code %@)",
+        unconfirmedFormat: "%@, nicht bestätigt",
         footer: "Nur Anzeige. GPUSensors.kext überwacht den Treiber der Karte; nichts auf dieser Seite ändert die GPU.")
 
     static let fr = GPUControlStrings(
@@ -244,7 +252,8 @@ extension GPUControlStrings {
         profileDriverChooses: "choisi par le pilote",
         profilePowerSaving: "économie d’énergie",
         profileCompute: "calcul",
-        notTakenFormat: "%@, non accepté (code %d)",
+        notTakenFormat: "%@, non acceptée (code %@)",
+        unconfirmedFormat: "%@, non confirmée",
         footer: "Lecture seule. GPUSensors.kext surveille le pilote de la carte ; rien sur cette page ne modifie le GPU.")
 
     static let it = GPUControlStrings(
@@ -271,7 +280,8 @@ extension GPUControlStrings {
         profileDriverChooses: "scelto dal driver",
         profilePowerSaving: "risparmio energetico",
         profileCompute: "calcolo",
-        notTakenFormat: "%@, non accettato (codice %d)",
+        notTakenFormat: "%@, non accettato (codice %@)",
+        unconfirmedFormat: "%@, non confermato",
         footer: "Sola lettura. GPUSensors.kext osserva il driver della scheda; nulla in questa pagina modifica la GPU.")
 
     static let ja = GPUControlStrings(
@@ -298,7 +308,8 @@ extension GPUControlStrings {
         profileDriverChooses: "ドライバが選択",
         profilePowerSaving: "省電力",
         profileCompute: "コンピュート",
-        notTakenFormat: "%@、未適用（コード %d）",
+        notTakenFormat: "%@、未適用（コード %@）",
+        unconfirmedFormat: "%@、未確認",
         footer: "読み取り専用。GPUSensors.kext がカードのドライバを監視します。このページで GPU が変わることはありません。")
 
     static let ko = GPUControlStrings(
@@ -325,7 +336,8 @@ extension GPUControlStrings {
         profileDriverChooses: "드라이버가 선택",
         profilePowerSaving: "절전",
         profileCompute: "컴퓨트",
-        notTakenFormat: "%@, 적용 안 됨(코드 %d)",
+        notTakenFormat: "%@, 적용 안 됨(코드 %@)",
+        unconfirmedFormat: "%@, 확인 안 됨",
         footer: "읽기 전용. GPUSensors.kext가 카드 드라이버를 감시하며, 이 페이지의 어떤 것도 GPU를 바꾸지 않습니다.")
 
     static let zhHans = GPUControlStrings(
@@ -352,7 +364,8 @@ extension GPUControlStrings {
         profileDriverChooses: "由驱动程序选择",
         profilePowerSaving: "节能",
         profileCompute: "计算",
-        notTakenFormat: "%@，未被接受（代码 %d）",
+        notTakenFormat: "%@，未被接受（代码 %@）",
+        unconfirmedFormat: "%@，未确认",
         footer: "只读。GPUSensors.kext 监视显卡的驱动程序；此页面上的任何内容都不会更改 GPU。")
 
     static let zhTW = GPUControlStrings(
@@ -379,7 +392,8 @@ extension GPUControlStrings {
         profileDriverChooses: "由驅動程式選擇",
         profilePowerSaving: "省電",
         profileCompute: "運算",
-        notTakenFormat: "%@，未被接受（代碼 %d）",
+        notTakenFormat: "%@，未被接受（代碼 %@）",
+        unconfirmedFormat: "%@，未確認",
         footer: "唯讀。GPUSensors.kext 監看顯示卡的驅動程式；此頁面上的任何內容都不會變更 GPU。")
 
     static let sk = GPUControlStrings(
@@ -406,7 +420,8 @@ extension GPUControlStrings {
         profileDriverChooses: "vyberá ovládač",
         profilePowerSaving: "úspora energie",
         profileCompute: "výpočty",
-        notTakenFormat: "%@, neprijatý (kód %d)",
+        notTakenFormat: "%@, neprijatý (kód %@)",
+        unconfirmedFormat: "%@, nepotvrdený",
         footer: "Len na čítanie. GPUSensors.kext sleduje ovládač karty; nič na tejto stránke GPU nemení.")
 
     static let uk = GPUControlStrings(
@@ -433,6 +448,7 @@ extension GPUControlStrings {
         profileDriverChooses: "обирає драйвер",
         profilePowerSaving: "енергозбереження",
         profileCompute: "обчислення",
-        notTakenFormat: "%@, не прийнято (код %d)",
+        notTakenFormat: "%@, не прийнято (код %@)",
+        unconfirmedFormat: "%@, не підтверджено",
         footer: "Лише читання. GPUSensors.kext стежить за драйвером карти; ніщо на цій сторінці не змінює ГП.")
 }
