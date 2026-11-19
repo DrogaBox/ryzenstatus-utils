@@ -337,6 +337,12 @@ struct SensorsView: View {
                     }
                 }
                 
+                // 2b. What GPUSensors.kext's GPU control reports (0.3.0+), read only.
+                if let control = gpuSensorsService.control {
+                    GPUControlSection(status: control,
+                                      strings: FeatureStrings.gpuControl(l10n.language),
+                                      isExpanded: $gpuControlExpanded)
+                }
                 // 3. Storage / Disks Section
                 if !diskSensors.isEmpty {
                     Section {
@@ -522,6 +528,7 @@ struct SensorsView: View {
     
     @State private var cpuExpanded = true
     @State private var gpuExpanded = true
+    @State private var gpuControlExpanded = true
     @State private var disksExpanded = false
     @State private var ramExpanded = false
     @State private var fansExpanded = false

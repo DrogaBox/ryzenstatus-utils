@@ -273,6 +273,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
 
     /// The Sensors page's full table, refreshed while that page is open.
     @Published private(set) var reading: GPUSensorsReading?
+    /// What the kext's GPU control (0.3.0+) says about itself, from the same
+    /// read as `reading`. Kept apart so it still shows while the sensors have
+    /// no fresh sample. Nil without the kext or with one older than 0.3.0.
+    @Published private(set) var control: GPUControlStatus?
     /// Whether the kext's service exists. Gates settings that only mean
     /// something with the kext, so they never show on other Macs.
     @Published private(set) var isPresent = false
@@ -284,6 +288,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     private var service: io_service_t = 0
     private var present = false
     private var cached: GPUSensorsReading?
+    private var cachedControl: GPUControlStatus?
     private var cachedAt: TimeInterval = -.infinity
 
     private let queue = DispatchQueue(label: "ryzenstatus.gpusensors", qos: .utility)
@@ -337,13 +342,28 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard service != 0 else { return nil }
-        if now - cachedAt >= Self.cacheLifetime {
-            cached = Self.properties(of: service).flatMap { GPUSensorsReading.parse($0, now: now) }
-            cachedAt = now
-        }
+        refreshLocked(now: now)
         // A cached copy ages too: past the driver's 5 s it is no reading.
         guard let cached, cached.isCurrent(at: now) else { return nil }
         return cached
+    }
+    /// Thread-safe. The GPU control's state, from the same shared read as
+    /// `currentReading`; nil without the kext or with one older than 0.3.0.
+    func currentControl(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> GPUControlStatus? {
+        if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard service != 0 else { return nil }
+        refreshLocked(now: now)
+        return cachedControl
+    }
+    /// `lock` held. One registry read per `cacheLifetime` feeds both values.
+    private func refreshLocked(now: TimeInterval) {
+        guard now - cachedAt >= Self.cacheLifetime else { return }
+        let properties = Self.properties(of: service)
+        cached = properties.flatMap { GPUSensorsReading.parse($0, now: now) }
+        cachedControl = properties.flatMap(GPUControlStatus.parse)
+        cachedAt = now
     }
 
     /// Thread-safe, no registry access.
@@ -365,10 +385,13 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         timer.schedule(deadline: .now(), repeating: Self.pollInterval, leeway: .milliseconds(250))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            let next = self.currentReading()
+            let now = ProcessInfo.processInfo.systemUptime
+            let next = self.currentReading(now: now)
+            let nextControl = self.currentControl(now: now)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.reading != next else { return }
-                self.reading = next
+                guard let self else { return }
+                if self.reading != next { self.reading = next }
+                if self.control != nextControl { self.control = nextControl }
             }
         }
         self.timer = timer
@@ -419,6 +442,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
                 service = 0
                 present = false
                 cached = nil
+                cachedControl = nil
                 lost = true
             }
             lock.unlock()
@@ -430,7 +454,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isPresent != value else { return }
             self.isPresent = value
-            if !value { self.reading = nil }
+            if !value {
+                self.reading = nil
+                self.control = nil
+            }
             // The kext alerts count, and add their sampling need, only while
             // it is here: re-sync both when it comes or goes.
             SystemMonitor.shared.planDidChange()
