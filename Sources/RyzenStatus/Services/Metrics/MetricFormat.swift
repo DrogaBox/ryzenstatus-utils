@@ -509,6 +509,16 @@ enum MetricFormat {
         }
     }
 
+    /// A temperature difference, such as hotspot over edge: in Fahrenheit
+    /// it scales by 9/5 but takes no 32 °F offset.
+    static func temperatureDifference(_ celsius: Double, unit: TemperatureUnit) -> String {
+        switch unit {
+        case .celsius:
+            return String(format: "%.0f °C", locale: Self.locale, celsius)
+        case .fahrenheit:
+            return String(format: "%.0f °F", locale: Self.locale, celsius * 9 / 5)
+        }
+    }
     static func temperatureUnitSuffix(_ unit: TemperatureUnit) -> String {
         switch unit {
         case .celsius: return "°C"

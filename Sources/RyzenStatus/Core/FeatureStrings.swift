@@ -371,7 +371,20 @@ extension MonitorAlertFeatureStrings {
         gpuPowerTitle: "GPU 전력 높음",
         gpuPowerBodyFormat: "GPU 전력이 %.0f W에 도달했습니다.",
         thermalThrottleTitle: "열 조절",
-        thermalThrottleBodyFormat: "CPU 온도가 높은 부하 상태에서 %@로 >30초 지속"
+        thermalThrottleBodyFormat: "CPU 온도가 높은 부하 상태에서 %@로 >30초 지속",
+        gpuTemperature: "GPU 온도 높음",
+        gpuTemperatureThreshold: "GPU 온도 기준",
+        gpuPower: "GPU 전력 높음",
+        gpuPowerThreshold: "GPU 전력 기준",
+        gpuMemoryTemperature: "GPU 메모리(VRAM) 온도 높음",
+        gpuMemoryTemperatureThreshold: "VRAM 기준",
+        gpuMemoryTemperatureHintFormat: "%@는 참고값이며 AMD 한계가 아닙니다. GPUSensors.kext가 필요합니다.",
+        gpuThrottle: "열이나 전류 때문에 GPU 클럭 제한",
+        gpuThrottleHint: "드라이버 자체 플래그가 12초 동안 유지되면 알립니다. 전체 부하에서 GPU가 전력 한계에 닿는 것은 정상이라 알리지 않습니다. GPUSensors.kext가 필요합니다.",
+        gpuMemoryTemperatureTitle: "GPU 메모리 과열",
+        gpuMemoryTemperatureBodyFormat: "GPU 메모리(VRAM)가 %@에 도달했습니다.",
+        gpuThrottleTitle: "GPU 클럭 제한",
+        gpuThrottleBodyFormat: "GPU 드라이버가 클럭을 제한하고 있습니다: %@."
     )
 }
 
@@ -3050,6 +3063,19 @@ struct MonitorAlertFeatureStrings {
     let gpuPowerBodyFormat: String
     let thermalThrottleTitle: String
     let thermalThrottleBodyFormat: String
+    let gpuTemperature: String
+    let gpuTemperatureThreshold: String
+    let gpuPower: String
+    let gpuPowerThreshold: String
+    let gpuMemoryTemperature: String
+    let gpuMemoryTemperatureThreshold: String
+    let gpuMemoryTemperatureHintFormat: String
+    let gpuThrottle: String
+    let gpuThrottleHint: String
+    let gpuMemoryTemperatureTitle: String
+    let gpuMemoryTemperatureBodyFormat: String
+    let gpuThrottleTitle: String
+    let gpuThrottleBodyFormat: String
 
     static let enUS = MonitorAlertFeatureStrings(
         section: "Alerts",
@@ -3085,7 +3111,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "High GPU power",
         gpuPowerBodyFormat: "GPU power reached %.0f W.",
         thermalThrottleTitle: "Thermal throttling",
-        thermalThrottleBodyFormat: "Sustained CPU temperature at %@ under heavy load for >30 s"
+        thermalThrottleBodyFormat: "Sustained CPU temperature at %@ under heavy load for >30 s",
+        gpuTemperature: "High GPU temperature",
+        gpuTemperatureThreshold: "GPU temperature above",
+        gpuPower: "High GPU power",
+        gpuPowerThreshold: "GPU power above",
+        gpuMemoryTemperature: "High GPU memory (VRAM) temperature",
+        gpuMemoryTemperatureThreshold: "VRAM above",
+        gpuMemoryTemperatureHintFormat: "%@ is a guide, not an AMD limit. Needs GPUSensors.kext.",
+        gpuThrottle: "GPU held back by heat or current",
+        gpuThrottleHint: "The driver's own flag, held for 12 s. The power limit a GPU reaches at full load is normal and never alerts. Needs GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Hot GPU memory",
+        gpuMemoryTemperatureBodyFormat: "GPU memory (VRAM) reached %@.",
+        gpuThrottleTitle: "GPU held back",
+        gpuThrottleBodyFormat: "The GPU driver is limiting clocks: %@."
     )
 
     static let ptBR = MonitorAlertFeatureStrings(
@@ -3122,7 +3161,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Potência alta da GPU",
         gpuPowerBodyFormat: "Potência da GPU atingiu %.0f W.",
         thermalThrottleTitle: "Redução térmica",
-        thermalThrottleBodyFormat: "Temperatura sustentada da CPU em %@ sob carga pesada por >30 s"
+        thermalThrottleBodyFormat: "Temperatura sustentada da CPU em %@ sob carga pesada por >30 s",
+        gpuTemperature: "Temperatura alta da GPU",
+        gpuTemperatureThreshold: "Temperatura da GPU acima de",
+        gpuPower: "Potência alta da GPU",
+        gpuPowerThreshold: "Potência da GPU acima de",
+        gpuMemoryTemperature: "Temperatura alta da memória da GPU (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM acima de",
+        gpuMemoryTemperatureHintFormat: "%@ é uma referência, não um limite da AMD. Requer o GPUSensors.kext.",
+        gpuThrottle: "GPU contida por calor ou corrente",
+        gpuThrottleHint: "O próprio aviso do driver, mantido por 12 s. O limite de energia que uma GPU atinge em carga total é normal e nunca alerta. Requer o GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Memória da GPU quente",
+        gpuMemoryTemperatureBodyFormat: "A memória da GPU (VRAM) chegou a %@.",
+        gpuThrottleTitle: "GPU contida",
+        gpuThrottleBodyFormat: "O driver da GPU está limitando os clocks: %@."
     )
 
     static let tr = MonitorAlertFeatureStrings(
@@ -3159,7 +3211,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Yüksek GPU gücü",
         gpuPowerBodyFormat: "GPU gücü %.0f W değerine ulaştı.",
         thermalThrottleTitle: "Termal kısıtlama",
-        thermalThrottleBodyFormat: "CPU sıcaklığı ağır yük altında >30 sn boyunca %@ kaldı"
+        thermalThrottleBodyFormat: "CPU sıcaklığı ağır yük altında >30 sn boyunca %@ kaldı",
+        gpuTemperature: "Yüksek GPU sıcaklığı",
+        gpuTemperatureThreshold: "GPU sıcaklığı şunun üstünde",
+        gpuPower: "Yüksek GPU gücü",
+        gpuPowerThreshold: "GPU gücü şunun üstünde",
+        gpuMemoryTemperature: "Yüksek GPU belleği (VRAM) sıcaklığı",
+        gpuMemoryTemperatureThreshold: "VRAM şunun üstünde",
+        gpuMemoryTemperatureHintFormat: "%@ bir rehber değerdir, AMD sınırı değildir. GPUSensors.kext gerekir.",
+        gpuThrottle: "GPU ısı veya akım yüzünden yavaşlıyor",
+        gpuThrottleHint: "Sürücünün kendi işareti, 12 sn sürerse uyarır. GPU'nun tam yükte güç sınırına ulaşması normaldir ve hiç uyarmaz. GPUSensors.kext gerekir.",
+        gpuMemoryTemperatureTitle: "GPU belleği sıcak",
+        gpuMemoryTemperatureBodyFormat: "GPU belleği (VRAM) %@ değerine ulaştı.",
+        gpuThrottleTitle: "GPU yavaşlatılıyor",
+        gpuThrottleBodyFormat: "GPU sürücüsü saat hızlarını sınırlıyor: %@."
     )
 
     static let ru = MonitorAlertFeatureStrings(
@@ -3196,7 +3261,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Высокая мощность GPU",
         gpuPowerBodyFormat: "Мощность GPU достигла %.0f Вт.",
         thermalThrottleTitle: "Троттлинг",
-        thermalThrottleBodyFormat: "Температура CPU %@ под нагрузкой >30 с"
+        thermalThrottleBodyFormat: "Температура CPU %@ под нагрузкой >30 с",
+        gpuTemperature: "Высокая температура GPU",
+        gpuTemperatureThreshold: "Температура GPU выше",
+        gpuPower: "Высокая мощность GPU",
+        gpuPowerThreshold: "Мощность GPU выше",
+        gpuMemoryTemperature: "Высокая температура видеопамяти (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM выше",
+        gpuMemoryTemperatureHintFormat: "%@ — ориентир, а не предел AMD. Нужен GPUSensors.kext.",
+        gpuThrottle: "GPU сбрасывает частоты из-за нагрева или тока",
+        gpuThrottleHint: "Собственный флаг драйвера, держится 12 с. Предел мощности, которого GPU достигает под полной нагрузкой, — это нормально, о нём уведомлений нет. Нужен GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Видеопамять горячая",
+        gpuMemoryTemperatureBodyFormat: "Видеопамять (VRAM) достигла %@.",
+        gpuThrottleTitle: "GPU сбрасывает частоты",
+        gpuThrottleBodyFormat: "Драйвер GPU ограничивает частоты: %@."
     )
 
     static let es = MonitorAlertFeatureStrings(
@@ -3233,7 +3311,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Potencia alta de GPU",
         gpuPowerBodyFormat: "Potencia de GPU llegó a %.0f W.",
         thermalThrottleTitle: "Reducción térmica",
-        thermalThrottleBodyFormat: "Temperatura sostenida de CPU en %@ bajo carga pesada >30 s"
+        thermalThrottleBodyFormat: "Temperatura sostenida de CPU en %@ bajo carga pesada >30 s",
+        gpuTemperature: "Temperatura alta de GPU",
+        gpuTemperatureThreshold: "Temperatura de GPU por encima de",
+        gpuPower: "Potencia alta de GPU",
+        gpuPowerThreshold: "Potencia de GPU por encima de",
+        gpuMemoryTemperature: "Temperatura alta de la memoria de la GPU (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM por encima de",
+        gpuMemoryTemperatureHintFormat: "%@ es una guía, no un límite de AMD. Necesita GPUSensors.kext.",
+        gpuThrottle: "GPU frenada por temperatura o corriente",
+        gpuThrottleHint: "El aviso propio del driver, sostenido 12 s. El límite de consumo que una GPU alcanza a plena carga es normal y nunca avisa. Necesita GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Memoria de GPU caliente",
+        gpuMemoryTemperatureBodyFormat: "La memoria de la GPU (VRAM) llegó a %@.",
+        gpuThrottleTitle: "GPU frenada",
+        gpuThrottleBodyFormat: "El driver de la GPU está limitando los relojes: %@."
     )
 
     static let de = MonitorAlertFeatureStrings(
@@ -3270,7 +3361,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Hohe GPU-Leistung",
         gpuPowerBodyFormat: "GPU-Leistung hat %.0f W erreicht.",
         thermalThrottleTitle: "Drosselung",
-        thermalThrottleBodyFormat: "Dauerhafte CPU-Temperatur von %@ unter hoher Last >30 s"
+        thermalThrottleBodyFormat: "Dauerhafte CPU-Temperatur von %@ unter hoher Last >30 s",
+        gpuTemperature: "Hohe GPU-Temperatur",
+        gpuTemperatureThreshold: "GPU-Temperatur über",
+        gpuPower: "Hohe GPU-Leistung",
+        gpuPowerThreshold: "GPU-Leistung über",
+        gpuMemoryTemperature: "Hohe Temperatur des GPU-Speichers (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM über",
+        gpuMemoryTemperatureHintFormat: "%@ ist ein Richtwert, kein AMD-Limit. Benötigt GPUSensors.kext.",
+        gpuThrottle: "GPU durch Hitze oder Strom gebremst",
+        gpuThrottleHint: "Das eigene Signal des Treibers, 12 s lang gehalten. Das Leistungslimit, das eine GPU unter Volllast erreicht, ist normal und löst nie aus. Benötigt GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "GPU-Speicher heiß",
+        gpuMemoryTemperatureBodyFormat: "Der GPU-Speicher (VRAM) hat %@ erreicht.",
+        gpuThrottleTitle: "GPU gebremst",
+        gpuThrottleBodyFormat: "Der GPU-Treiber begrenzt die Takte: %@."
     )
 
     static let fr = MonitorAlertFeatureStrings(
@@ -3307,7 +3411,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Puissance GPU élevée",
         gpuPowerBodyFormat: "La puissance GPU a atteint %.0f W.",
         thermalThrottleTitle: "Limitation thermique",
-        thermalThrottleBodyFormat: "Température CPU soutenue à %@ sous forte charge >30 s"
+        thermalThrottleBodyFormat: "Température CPU soutenue à %@ sous forte charge >30 s",
+        gpuTemperature: "Température GPU élevée",
+        gpuTemperatureThreshold: "Température GPU au-dessus de",
+        gpuPower: "Puissance GPU élevée",
+        gpuPowerThreshold: "Puissance GPU au-dessus de",
+        gpuMemoryTemperature: "Température élevée de la mémoire GPU (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM au-dessus de",
+        gpuMemoryTemperatureHintFormat: "%@ est un repère, pas une limite d’AMD. Nécessite GPUSensors.kext.",
+        gpuThrottle: "GPU freiné par la chaleur ou le courant",
+        gpuThrottleHint: "Le signal propre du pilote, maintenu 12 s. La limite de puissance qu’un GPU atteint à pleine charge est normale et n’alerte jamais. Nécessite GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Mémoire GPU chaude",
+        gpuMemoryTemperatureBodyFormat: "La mémoire GPU (VRAM) a atteint %@.",
+        gpuThrottleTitle: "GPU freiné",
+        gpuThrottleBodyFormat: "Le pilote GPU limite les fréquences : %@."
     )
 
     static let it = MonitorAlertFeatureStrings(
@@ -3344,7 +3461,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Potenza GPU elevata",
         gpuPowerBodyFormat: "Potenza GPU ha raggiunto %.0f W.",
         thermalThrottleTitle: "Limitazione termica",
-        thermalThrottleBodyFormat: "Temperatura CPU sostenuta a %@ sotto carico pesante >30 s"
+        thermalThrottleBodyFormat: "Temperatura CPU sostenuta a %@ sotto carico pesante >30 s",
+        gpuTemperature: "Temperatura GPU alta",
+        gpuTemperatureThreshold: "Temperatura GPU sopra",
+        gpuPower: "Potenza GPU alta",
+        gpuPowerThreshold: "Potenza GPU sopra",
+        gpuMemoryTemperature: "Temperatura alta della memoria GPU (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM sopra",
+        gpuMemoryTemperatureHintFormat: "%@ è un riferimento, non un limite di AMD. Richiede GPUSensors.kext.",
+        gpuThrottle: "GPU frenata da calore o corrente",
+        gpuThrottleHint: "Il segnale del driver stesso, mantenuto per 12 s. Il limite di potenza che una GPU raggiunge a pieno carico è normale e non avvisa mai. Richiede GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Memoria GPU calda",
+        gpuMemoryTemperatureBodyFormat: "La memoria GPU (VRAM) ha raggiunto %@.",
+        gpuThrottleTitle: "GPU frenata",
+        gpuThrottleBodyFormat: "Il driver della GPU sta limitando le frequenze: %@."
     )
 
     static let ja = MonitorAlertFeatureStrings(
@@ -3381,7 +3511,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "GPU 消費電力大",
         gpuPowerBodyFormat: "GPU 消費電力が %.0f W に達しました。",
         thermalThrottleTitle: "サーマルスロットリング",
-        thermalThrottleBodyFormat: "CPU 温度 %@ が高負荷で >30秒 継続"
+        thermalThrottleBodyFormat: "CPU 温度 %@ が高負荷で >30秒 継続",
+        gpuTemperature: "GPU 温度が高い",
+        gpuTemperatureThreshold: "GPU 温度がこれを超えたら",
+        gpuPower: "GPU 電力が高い",
+        gpuPowerThreshold: "GPU 電力がこれを超えたら",
+        gpuMemoryTemperature: "GPU メモリ（VRAM）の温度が高い",
+        gpuMemoryTemperatureThreshold: "VRAM がこれを超えたら",
+        gpuMemoryTemperatureHintFormat: "%@ は目安で、AMD の上限ではありません。GPUSensors.kext が必要です。",
+        gpuThrottle: "熱または電流で GPU が抑えられている",
+        gpuThrottleHint: "ドライバー自身のフラグが 12 秒続いたときに通知します。全負荷で GPU が電力上限に達するのは正常なので、通知しません。GPUSensors.kext が必要です。",
+        gpuMemoryTemperatureTitle: "GPU メモリが高温",
+        gpuMemoryTemperatureBodyFormat: "GPU メモリ（VRAM）が %@ に達しました。",
+        gpuThrottleTitle: "GPU が抑えられています",
+        gpuThrottleBodyFormat: "GPU ドライバーがクロックを制限しています：%@。"
     )
 
     static let zhHans = MonitorAlertFeatureStrings(
@@ -3418,7 +3561,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗达到 %.0f W。",
         thermalThrottleTitle: "热节流",
-        thermalThrottleBodyFormat: "CPU 在重负载下持续 %@ 超过 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重负载下持续 %@ 超过 30 秒",
+        gpuTemperature: "GPU 温度过高",
+        gpuTemperatureThreshold: "GPU 温度高于",
+        gpuPower: "GPU 功耗过高",
+        gpuPowerThreshold: "GPU 功耗高于",
+        gpuMemoryTemperature: "GPU 显存（VRAM）温度过高",
+        gpuMemoryTemperatureThreshold: "显存高于",
+        gpuMemoryTemperatureHintFormat: "%@ 只是参考值，不是 AMD 的限制。需要 GPUSensors.kext。",
+        gpuThrottle: "GPU 因温度或电流降频",
+        gpuThrottleHint: "驱动程序自己的标志，持续 12 秒才通知。GPU 满载时达到功耗上限是正常的，不会通知。需要 GPUSensors.kext。",
+        gpuMemoryTemperatureTitle: "GPU 显存过热",
+        gpuMemoryTemperatureBodyFormat: "GPU 显存（VRAM）达到 %@。",
+        gpuThrottleTitle: "GPU 正在降频",
+        gpuThrottleBodyFormat: "GPU 驱动程序正在限制频率：%@。"
     )
 
     static let zhTW = MonitorAlertFeatureStrings(
@@ -3455,7 +3611,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
-        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒",
+        gpuTemperature: "GPU 溫度過高",
+        gpuTemperatureThreshold: "GPU 溫度高於",
+        gpuPower: "GPU 功耗過高",
+        gpuPowerThreshold: "GPU 功耗高於",
+        gpuMemoryTemperature: "GPU 顯示記憶體（VRAM）溫度過高",
+        gpuMemoryTemperatureThreshold: "VRAM 高於",
+        gpuMemoryTemperatureHintFormat: "%@ 只是參考值，不是 AMD 的限制。需要 GPUSensors.kext。",
+        gpuThrottle: "GPU 因溫度或電流而降頻",
+        gpuThrottleHint: "驅動程式自己的旗標，持續 12 秒才通知。GPU 滿載時碰到功耗上限是正常的，不會通知。需要 GPUSensors.kext。",
+        gpuMemoryTemperatureTitle: "GPU 顯示記憶體過熱",
+        gpuMemoryTemperatureBodyFormat: "GPU 顯示記憶體（VRAM）達到 %@。",
+        gpuThrottleTitle: "GPU 正在降頻",
+        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。"
     )
 
     static let zhHK = MonitorAlertFeatureStrings(
@@ -3492,7 +3661,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
-        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒",
+        gpuTemperature: "GPU 溫度過高",
+        gpuTemperatureThreshold: "GPU 溫度高於",
+        gpuPower: "GPU 功耗過高",
+        gpuPowerThreshold: "GPU 功耗高於",
+        gpuMemoryTemperature: "GPU 顯示記憶體（VRAM）溫度過高",
+        gpuMemoryTemperatureThreshold: "VRAM 高於",
+        gpuMemoryTemperatureHintFormat: "%@ 只是參考值，不是 AMD 的限制。需要 GPUSensors.kext。",
+        gpuThrottle: "GPU 因溫度或電流而降頻",
+        gpuThrottleHint: "驅動程式自己的旗標，持續 12 秒才通知。GPU 滿載時碰到功耗上限是正常的，不會通知。需要 GPUSensors.kext。",
+        gpuMemoryTemperatureTitle: "GPU 顯示記憶體過熱",
+        gpuMemoryTemperatureBodyFormat: "GPU 顯示記憶體（VRAM）達到 %@。",
+        gpuThrottleTitle: "GPU 正在降頻",
+        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。"
     )
 
     static let sk = MonitorAlertFeatureStrings(
@@ -3529,7 +3711,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Vysoký príkon GPU",
         gpuPowerBodyFormat: "Príkon GPU dosiahol %.0f W.",
         thermalThrottleTitle: "Tepelné obmedzovanie",
-        thermalThrottleBodyFormat: "Trvalá teplota CPU %@ pri vysokej záťaži dlhšie ako 30 s"
+        thermalThrottleBodyFormat: "Trvalá teplota CPU %@ pri vysokej záťaži dlhšie ako 30 s",
+        gpuTemperature: "Vysoká teplota GPU",
+        gpuTemperatureThreshold: "Teplota GPU nad",
+        gpuPower: "Vysoký príkon GPU",
+        gpuPowerThreshold: "Príkon GPU nad",
+        gpuMemoryTemperature: "Vysoká teplota pamäte GPU (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM nad",
+        gpuMemoryTemperatureHintFormat: "%@ je orientačná hodnota, nie limit AMD. Vyžaduje GPUSensors.kext.",
+        gpuThrottle: "GPU brzdená teplom alebo prúdom",
+        gpuThrottleHint: "Vlastný príznak ovládača, ktorý trvá 12 s. Limit príkonu, na ktorý GPU narazí pri plnej záťaži, je normálny a nikdy neupozorňuje. Vyžaduje GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Horúca pamäť GPU",
+        gpuMemoryTemperatureBodyFormat: "Pamäť GPU (VRAM) dosiahla %@.",
+        gpuThrottleTitle: "GPU je brzdená",
+        gpuThrottleBodyFormat: "Ovládač GPU obmedzuje takty: %@."
     )
 
     static let uk = MonitorAlertFeatureStrings(
@@ -3566,7 +3761,20 @@ struct MonitorAlertFeatureStrings {
         gpuPowerTitle: "Висока потужність GPU",
         gpuPowerBodyFormat: "Потужність GPU досягла %.0f Вт.",
         thermalThrottleTitle: "Теплове тротлінгування",
-        thermalThrottleBodyFormat: "Стійка температура CPU %@ під великим навантаженням понад 30 с"
+        thermalThrottleBodyFormat: "Стійка температура CPU %@ під великим навантаженням понад 30 с",
+        gpuTemperature: "Висока температура GPU",
+        gpuTemperatureThreshold: "Температура GPU вище",
+        gpuPower: "Висока потужність GPU",
+        gpuPowerThreshold: "Потужність GPU вище",
+        gpuMemoryTemperature: "Висока температура відеопам’яті (VRAM)",
+        gpuMemoryTemperatureThreshold: "VRAM вище",
+        gpuMemoryTemperatureHintFormat: "%@ — орієнтир, а не межа AMD. Потрібен GPUSensors.kext.",
+        gpuThrottle: "GPU скидає частоти через нагрів або струм",
+        gpuThrottleHint: "Власний прапорець драйвера, тримається 12 с. Межа потужності, якої GPU досягає під повним навантаженням, — це нормально, сповіщень про неї немає. Потрібен GPUSensors.kext.",
+        gpuMemoryTemperatureTitle: "Відеопам’ять гаряча",
+        gpuMemoryTemperatureBodyFormat: "Відеопам’ять (VRAM) досягла %@.",
+        gpuThrottleTitle: "GPU скидає частоти",
+        gpuThrottleBodyFormat: "Драйвер GPU обмежує частоти: %@."
     )
 }
 

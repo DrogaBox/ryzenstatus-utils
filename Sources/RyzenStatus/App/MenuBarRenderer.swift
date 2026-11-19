@@ -477,7 +477,20 @@ enum MenuBarRenderer {
                     renderedGPU = true
                     let usageFraction = enabled.contains(.gpu) ? snapshot.gpuUsage : nil
                     let usage = usageFraction.map(percent)
-                    let temperature = enabled.contains(.gpuTemperature) ? snapshot.gpuTemperature.map(temperatureCompact) : nil
+                    // A VRAM temperature is not the GPU's: it gets its own
+                    // labelled block instead of riding on the GPU group.
+                    let showsVRAM = snapshot.gpuDisplayLabel != "GPU"
+                    let displayTemperature = enabled.contains(.gpuTemperature) ? snapshot.gpuDisplayCelsius.map(temperatureCompact) : nil
+                    let temperature = showsVRAM ? nil : displayTemperature
+                    defer {
+                        if showsVRAM, let displayTemperature {
+                            groups.append([.metricBlock(label: temperatureLabel(snapshot.gpuDisplayLabel),
+                                                        value: displayTemperature,
+                                                        minimumValue: "999°",
+                                                        style: style,
+                                                        pressure: nil)])
+                        }
+                    }
                     if usesBars {
                         let group = usageAndTemperatureSegments(label: "GPU",
                                                                 fraction: usageFraction,
@@ -497,8 +510,8 @@ enum MenuBarRenderer {
                     break
                 }
                 guard metric == .gpu else {
-                    if let temperature = snapshot.gpuTemperature {
-                        groups.append([.metricBlock(label: temperatureLabel("GPU"),
+                    if let temperature = snapshot.gpuDisplayCelsius {
+                        groups.append([.metricBlock(label: temperatureLabel(snapshot.gpuDisplayLabel),
                                                     value: temperatureCompact(temperature),
                                                     minimumValue: "999°",
                                                     style: style,
@@ -563,10 +576,15 @@ enum MenuBarRenderer {
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
-                let temp = snapshot.gpuTemperature.map(temperatureCompact) ?? "--°"
+                let tempValue = snapshot.gpuDisplayCelsius.map(temperatureCompact) ?? "--°"
+                let labelled = snapshot.gpuDisplayLabel != "GPU"
+                let temp = labelled ? snapshot.gpuDisplayLabel + " " + tempValue : tempValue
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                // The image is sized from the reserved lines, so a labelled
+                // VRAM line reserves room for its label too.
+                let reservedTemp = labelled ? snapshot.gpuDisplayLabel + " 000°" : "000°"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["000°", "000W"],
+                                             reservedLines: [reservedTemp, "000W"],
                                              cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)|\(appearanceSuffix)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])

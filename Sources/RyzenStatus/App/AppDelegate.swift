@@ -194,6 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // Puts the Space arrangement back when a previous run held it and
         // the feature has since been uninstalled.
         SpacesOrderHold.recoverIfNeeded()
+        // Before the monitor starts, so its first ticks already know whether
+        // GPUSensors.kext is there. Without the kext this is one IOKit
+        // registration and nothing after it.
+        GPUSensorsService.shared.watchPresence()
         // One binding per feature: only available features are touched, so a
         // feature switched off in the hub never even instantiates here.
         FeatureRuntime.shared.syncAtLaunch()

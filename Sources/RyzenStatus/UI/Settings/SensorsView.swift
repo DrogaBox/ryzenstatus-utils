@@ -10,6 +10,7 @@ struct SensorsView: View {
     @AppStorage(DefaultsKey.showPreciseTemperature) private var showPreciseTemperature = true
     @AppStorage(DefaultsKey.showRawSMCSensors) private var showRawSMCSensors = false
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
+    @AppStorage(DefaultsKey.gpuTemperatureSource) private var gpuTemperatureSource = GPUTemperatureSource.hotspot.rawValue
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var gpuSensorsService = GPUSensorsService.shared
@@ -303,6 +304,20 @@ struct SensorsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        // The menu bar, the island and the panel card follow
+                        // this choice; it only exists with GPUSensors.kext.
+                        if gpuSensorsService.isPresent || gpuTemperatureSource != GPUTemperatureSource.hotspot.rawValue {
+                            Picker(strings.gpuTemperatureSource, selection: $gpuTemperatureSource) {
+                                Text(strings.gpuSourceHotspot).tag(GPUTemperatureSource.hotspot.rawValue)
+                                Text(strings.gpuSourceEdge).tag(GPUTemperatureSource.edge.rawValue)
+                                Text(strings.gpuSourceMemory).tag(GPUTemperatureSource.memory.rawValue)
+                            }
+                            .pickerStyle(.segmented)
+                            .padding(.top, 4)
+                            Text(strings.gpuTemperatureSourceHelp)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "display")
@@ -532,7 +547,7 @@ struct SensorsView: View {
         case .volts: return "bolt.horizontal"
         case .percent: return "memorychip"
         case .megahertz: return "speedometer"
-        case .throttler: return "gauge.with.dots.needle.33percent"
+        case .throttle: return "gauge.with.dots.needle.33percent"
         case .pcie: return "point.3.connected.trianglepath.dotted"
         }
     }

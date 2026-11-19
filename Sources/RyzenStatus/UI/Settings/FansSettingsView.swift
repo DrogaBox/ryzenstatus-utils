@@ -9,6 +9,7 @@ struct FansSettingsView: View {
     @ObservedObject var controller = FanCurveController.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
+    @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
     @State private var showingMaxSpeedConfirmation = false
 
@@ -210,7 +211,8 @@ struct FansSettingsView: View {
             // shows even when the SMC side has no fans to offer.
             let gpuFan = monitor.snapshot.gpuFan.flatMap { $0 > 0 ? $0 : nil }
             let showsGuide = !controller.kextMissing && !controller.fans.isEmpty
-            if gpuFan != nil || showsGuide {
+            let gpuTemperatures = gpuSensorTemperatures
+            if gpuFan != nil || showsGuide || !gpuTemperatures.isEmpty {
                 Section {
                     if let gpuFan {
                         VStack(alignment: .leading, spacing: 2) {
@@ -228,6 +230,19 @@ struct FansSettingsView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(.vertical, 2)
+                    }
+                    // GPUSensors.kext: what the card's fan is reacting to.
+                    // Read only, like the fan itself.
+                    ForEach(gpuTemperatures, id: \.label) { reading in
+                        HStack {
+                            Image(systemName: "thermometer.medium")
+                                .foregroundColor(.orange)
+                            Text(reading.label)
+                            Spacer()
+                            Text(MetricFormat.temperature(reading.celsius,
+                                                          unit: TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius))
+                                .font(.system(.body, design: .monospaced))
+                        }
                     }
                     if showsGuide {
                         GPUFanControlGuideView()
@@ -248,6 +263,18 @@ struct FansSettingsView: View {
         .settingsPageActivity(.fans,
                               activate: { controller.startPolling() },
                               deactivate: { controller.stopPolling() })
+    }
+    /// Hotspot, edge, VRAM and GFX VRM from GPUSensors.kext; empty without it.
+    private var gpuSensorTemperatures: [(label: String, celsius: Double)] {
+        guard let sensors = monitor.snapshot.gpuSensors else { return [] }
+        let text = FeatureStrings.sensors(l10n.language)
+        let readings: [(String, Double?)] = [
+            (text.gpuHotspot, sensors.hotspot),
+            (text.gpuEdgeTemperature, sensors.edge),
+            (text.gpuMemory, sensors.memory),
+            (text.gpuCoreVRMTemperature, sensors.coreVR),
+        ]
+        return readings.compactMap { label, celsius in celsius.map { (label, $0) } }
     }
 }
 

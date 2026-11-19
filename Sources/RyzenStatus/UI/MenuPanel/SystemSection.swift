@@ -365,6 +365,16 @@ struct SystemSection: View {
             if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal {
                 detailLine("VRAM", "\(formatMemory(used)) / \(formatMemory(total))")
             }
+            // GPUSensors.kext: the VRAM temperature and why the clocks are low.
+            if let sensors = monitor.snapshot.gpuSensors {
+                let sensorText = FeatureStrings.sensors(l10n.language)
+                if let memory = sensors.memory {
+                    detailLine(sensorText.gpuMemory, MetricFormat.temperature(memory, unit: displayTemperatureUnit))
+                }
+                if let throttle = sensors.throttle {
+                    detailLine(sensorText.gpuThrottling, throttle.text(sensorText))
+                }
+            }
             usageHistory(.gpu)
             breakdownList(for: .gpu)
         }
@@ -482,7 +492,8 @@ struct SystemSection: View {
                                 title: "GPU",
                                 icon: "display",
                                 usage: monitor.snapshot.gpuUsage ?? 0,
-                                temp: monitor.snapshot.gpuTemperature,
+                                temp: monitor.snapshot.gpuDisplayCelsius,
+                                tempLabel: monitor.snapshot.gpuDisplayLabel == "GPU" ? nil : monitor.snapshot.gpuDisplayLabel,
                                 freq: gpuFreqVal > 0 ? String(format: "%.0f MHz", gpuFreqVal) : "--",
                                 power: monitor.snapshot.gpuPower,
                                 accentColor: .orange,
@@ -1086,6 +1097,8 @@ struct PanelSquareCard: View {
     let icon: String
     let usage: Double
     let temp: Double?
+    /// Names the temperature when it is not the chip's own (VRAM).
+    var tempLabel: String? = nil
     let freq: String
     let power: Double?
     let accentColor: Color
@@ -1095,7 +1108,8 @@ struct PanelSquareCard: View {
         let tempStr: String = {
             guard let temp, temp > 0 else { return "--" }
             let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
-            return MetricFormat.temperature(temp, unit: unit)
+            let value = MetricFormat.temperature(temp, unit: unit)
+            return tempLabel.map { "\($0) \(value)" } ?? value
         }()
         let powerStr: String = {
             guard let power, power > 0 else { return "--" }

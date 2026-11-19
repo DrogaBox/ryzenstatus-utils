@@ -70,7 +70,7 @@ enum NotchCapsuleCenterSupport {
         case .cpuUsage:
             return snapshot.cpuUsage.map { "CPU " + MetricFormat.percent($0) }
         case .gpuTemperature:
-            return snapshot.gpuTemperature.map { "GPU " + MetricFormat.temperatureCompact($0, unit: unit) }
+            return snapshot.gpuDisplayCelsius.map { snapshot.gpuDisplayLabel + " " + MetricFormat.temperatureCompact($0, unit: unit) }
         case .memory:
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal, total > 0 else { return nil }
             return "RAM " + MetricFormat.percent(Double(used) / Double(total))
