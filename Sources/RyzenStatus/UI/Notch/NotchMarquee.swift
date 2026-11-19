@@ -12,11 +12,11 @@ import SwiftUI
 /// layer moves, where a SwiftUI timeline drew the faded line again on the CPU
 /// for every frame of the scroll.
 ///
-/// While a long line scrolls, a new reading replaces the old one without the
-/// rolling digits its text may ask for. SwiftUI draws that roll on the CPU at
-/// the display's full rate, 144 Hz here: a capsule scrolling several readings
-/// that change every second cost about 46 % of a core with the roll and 2.5 %
-/// without it. A line that fits still rolls as before.
+/// The scrolling copy never animates in SwiftUI: a numericText roll there
+/// was drawn on the CPU at the display's full rate (46 % of a core for a
+/// capsule scrolling several readings). Readings drawn by RollingDigitsText
+/// roll anyway, with the change they came in, since Core Animation moves
+/// their digits without drawing them again.
 struct NotchMarquee<Content: View>: View {
     /// Points per second.
     var speed: CGFloat = 26
@@ -117,7 +117,8 @@ private struct NotchMarqueeScroller<Row: View>: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NotchMarqueeScrollView, context: Context) {
-        view.show(rootView, key: lineKey)
+        // A rolling reading inside rolls with the change it came in; the copy itself never animates.
+        view.show(AnyView(rootView.environment(\.rollingDigitsAnimation, context.transaction.animation)), key: lineKey)
         view.run(motion)
     }
 }

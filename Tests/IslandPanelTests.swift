@@ -385,11 +385,11 @@ enum IslandPanelTests {
                      "back on screen, the newest line scrolls from its beginning")
         suite.expect(view.hitTest(CGPoint(x: 10, y: 8)) == nil, "the pointer goes to the strip under the line")
 
-        // While a long line scrolls, new readings replace the old ones without the
-        // rolling digits; a line that fits keeps them.
+        // The scrolling copy never animates in SwiftUI; a reading drawn by
+        // RollingDigitsText still rolls there, with the change it came in.
         let still = NotchMarqueeScrollView.stillTransaction
         suite.expect(still.animation == nil && still.disablesAnimations,
-                     "both scrolling copies take a new reading with no animation, so no digit roll is drawn")
+                     "both scrolling copies take a new reading with no SwiftUI animation, so nothing is drawn per frame")
         let marquee = text("Sources/RyzenStatus/UI/Notch/NotchMarquee.swift", suite)
         suite.expect(marquee.contains("hosting.rootView = Self.still(row)")
                      && marquee.contains("AnyView(row.transaction { $0 = stillTransaction })")
@@ -398,8 +398,9 @@ enum IslandPanelTests {
                      "the scrolling copy never animates, and starting or stopping the scroll swaps lines at once")
         let capsule = text("Sources/RyzenStatus/UI/Notch/NotchCapsuleViews.swift", suite)
         suite.expect(capsule.contains("NotchMarquee(key: center) {")
-                     && capsule.contains(".contentTransition(.numericText())"),
-                     "the line that fits still asks for its rolling digits")
+                     && capsule.contains("RollingDigitsText(center, style: .font(CapsuleLayout.levelFont),")
+                     && marquee.contains("rootView.environment(\\.rollingDigitsAnimation, context.transaction.animation)"),
+                     "the capsule's reading rolls with Core Animation, scrolling or not")
     }
 
     private static func hiddenHoverSkipsFarMoves(_ suite: TestSuite) {
