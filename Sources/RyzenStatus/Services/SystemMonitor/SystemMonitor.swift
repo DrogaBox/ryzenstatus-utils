@@ -833,9 +833,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         switch metric {
         case .cpu:
             plan.needCPU = true
-            // A graph style keeps its temperature apart, so combining asks
-            // for no temperature then.
-            if MenuBarMetricAppearance.usageCombinesTemperature(.cpu) { plan.needCPUTemperature = true }
         case .cpuPower, .cpuFrequency:
             plan.needCPU = true
         case .cpuTempPower, .cpuTemperature:
@@ -843,7 +840,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             plan.needCPUTemperature = true
         case .gpu:
             plan.needGPUUsage = true
-            if MenuBarMetricAppearance.usageCombinesTemperature(.gpu) { plan.needGPUTemperature = true }
         case .gpuTemperature:
             plan.needGPUTemperature = true
         case .gpuPower:

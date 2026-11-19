@@ -72,6 +72,10 @@ struct MenuBarSettings: View {
                     .labelsHidden()
                     .fixedSize()
                 }
+            }
+            // Only a usage ring, history or core graph draws a value inside;
+            // bars and the network graph never do.
+            if styles.usesValueGraphs {
                 SettingsRow(symbol: "number", title: l10n.s.graphShowsNumericValue) {
                     Toggle(l10n.s.graphShowsNumericValue, isOn: $graphShowsValue).labelsHidden()
                 }
@@ -80,7 +84,7 @@ struct MenuBarSettings: View {
             // colors only the bars.
             if (styles.usesBars && !graphMonochrome) || highlightHighValues {
                 Divider()
-                MenuBarUsageBarSettings(strings: strings)
+                MenuBarUsageBarSettings(strings: strings, showsColors: styles.usesBars && !graphMonochrome)
             }
             // The theme also colors the panel's graphs, so it stays even when
             // the menu bar draws its own in monochrome.
@@ -116,6 +120,8 @@ struct MenuBarSettings: View {
 private final class MenuBarStyleState: ObservableObject {
     @Published private(set) var usesGraphs = false
     @Published private(set) var usesBars = false
+    /// A usage ring, history or core graph is pinned (they can draw a value).
+    @Published private(set) var usesValueGraphs = false
     /// Combining applies only while CPU or GPU usage is text, or to a
     /// built-in battery.
     @Published private(set) var combineApplies = true
@@ -141,6 +147,10 @@ private final class MenuBarStyleState: ObservableObject {
         let bars = styles.contains(.bars)
         if graphs != usesGraphs { usesGraphs = graphs }
         if bars != usesBars { usesBars = bars }
+        let valueGraphs = MenuBarMetric.enabled(in: defaults).contains {
+            $0 != .network && [.pie, .sparkline, .histogram].contains(MenuBarMetricAppearance.stored(for: $0, in: defaults))
+        }
+        if valueGraphs != usesValueGraphs { usesValueGraphs = valueGraphs }
         let combine = MenuBarMetricAppearance.combineApplies(in: defaults, hasBattery: PowerSampler.hasInternalBattery)
         if combine != combineApplies { combineApplies = combine }
     }
@@ -154,6 +164,20 @@ private struct MenuBarMetricStylePicker: View {
     @AppStorage private var stored: String
     /// A hidden reading keeps its style, dimmed until it is shown again.
     @AppStorage private var shown: Bool
+    /// What decides whether a temperature rides in its usage block.
+    @AppStorage(DefaultsKey.menuBarCombineTemperatures) private var combine = true
+    @AppStorage(DefaultsKey.menuBarCPU) private var cpuShown = true
+    @AppStorage(DefaultsKey.menuBarGPU) private var gpuShown = true
+    @AppStorage(DefaultsKey.menuBarBattery) private var batteryShown = false
+    @AppStorage(MenuBarMetric.cpu.styleKey) private var cpuStyle = "values"
+    @AppStorage(MenuBarMetric.gpu.styleKey) private var gpuStyle = "values"
+
+    /// The temperature is drawn inside its usage block, so its own style
+    /// does not apply right now.
+    private var drawnWithUsage: Bool {
+        _ = (combine, cpuShown, gpuShown, batteryShown, cpuStyle, gpuStyle, shown)
+        return MenuBarMetricAppearance.drawnWithUsage(metric)
+    }
 
     init(metric: MenuBarMetric) {
         self.metric = metric
@@ -193,8 +217,8 @@ private struct MenuBarMetricStylePicker: View {
         .menuStyle(.button)
         .buttonStyle(.borderless)
         .fixedSize()
-        .disabled(!shown)
-        .help(strings.styleMenuHelp)
+        .disabled(!shown || drawnWithUsage)
+        .help(drawnWithUsage ? strings.combinedWithUsage : strings.styleMenuHelp)
         .accessibilityLabel(strings.styleMenuHelp)
         .accessibilityValue(title(current))
     }
@@ -228,6 +252,9 @@ private struct MenuBarMetricStylePicker: View {
 
 private struct MenuBarUsageBarSettings: View {
     let strings: MenuBarAppearanceStrings
+    /// The colors apply only to bars drawn in color; highlighted values use
+    /// the system's orange and red, so then only the limits show.
+    var showsColors = true
 
     @AppStorage(DefaultsKey.menuBarUsageBarNormalColor) private var normalColor = MenuBarUsageBarSupport.defaultNormalColor
     @AppStorage(DefaultsKey.menuBarUsageBarElevatedColor) private var elevatedColor = MenuBarUsageBarSupport.defaultElevatedColor
@@ -237,23 +264,25 @@ private struct MenuBarUsageBarSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(strings.customize)
-                .font(.subheadline.weight(.semibold))
+            if showsColors {
+                Text(strings.customize)
+                    .font(.subheadline.weight(.semibold))
 
-            ColorPicker(strings.normalColor,
-                        selection: colorBinding($normalColor,
-                                                fallback: MenuBarUsageBarSupport.defaultNormalColor),
-                        supportsOpacity: false)
-            ColorPicker(strings.mediumColor,
-                        selection: colorBinding($elevatedColor,
-                                                fallback: MenuBarUsageBarSupport.defaultElevatedColor),
-                        supportsOpacity: false)
-            ColorPicker(strings.highColor,
-                        selection: colorBinding($criticalColor,
-                                                fallback: MenuBarUsageBarSupport.defaultCriticalColor),
-                        supportsOpacity: false)
+                ColorPicker(strings.normalColor,
+                            selection: colorBinding($normalColor,
+                                                    fallback: MenuBarUsageBarSupport.defaultNormalColor),
+                            supportsOpacity: false)
+                ColorPicker(strings.mediumColor,
+                            selection: colorBinding($elevatedColor,
+                                                    fallback: MenuBarUsageBarSupport.defaultElevatedColor),
+                            supportsOpacity: false)
+                ColorPicker(strings.highColor,
+                            selection: colorBinding($criticalColor,
+                                                    fallback: MenuBarUsageBarSupport.defaultCriticalColor),
+                            supportsOpacity: false)
 
-            Divider()
+                Divider()
+            }
 
             Stepper(value: mediumBinding, in: 1...99) {
                 HStack {

@@ -64,12 +64,15 @@ struct MenuBarRenderSettings: Equatable {
     /// Usage and temperature share one block only while the usage reading is
     /// drawn as text. Decided once per component from the usage metric's own
     /// style, so the order of the pinned list can never draw a reading twice.
-    func combinesTemperature(of component: MenuBarComponent) -> Bool {
+    ///
+    /// Only while both readings are pinned: a temperature shown without its
+    /// usage keeps its own style and name.
+    func combinesTemperature(of component: MenuBarComponent, enabled: Set<MenuBarMetric>) -> Bool {
         guard combineTemperatures else { return false }
         switch component {
-        case .cpu: return style(for: .cpu).isText
-        case .gpu: return style(for: .gpu).isText
-        case .battery: return true
+        case .cpu: return enabled.contains(.cpu) && enabled.contains(.cpuTemperature) && style(for: .cpu).isText
+        case .gpu: return enabled.contains(.gpu) && enabled.contains(.gpuTemperature) && style(for: .gpu).isText
+        case .battery: return enabled.contains(.battery) && enabled.contains(.batteryTemperature)
         }
     }
 
@@ -156,6 +159,13 @@ final class MenuBarWidthMemory: @unchecked Sendable {
 
     private var digitHighWater: [String: Int] = [:]
 
+    /// Forgets every block's widest value, when the render settings change
+    /// (a unit, a style, a spacing): the old widths no longer apply.
+    func reset() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        digitHighWater.removeAll()
+    }
+
     /// The reserve compact mode uses for a metric block: the current value's
     /// shape, widened to at least `MenuBarSpacingSupport.compactMinimumDigits`
     /// digits and to the block's session high-water mark.
@@ -227,6 +237,11 @@ enum MenuBarStyleMigration {
     /// `MenuBarRenderer.blockSegments` as it stood before the conversion.
     static func shownStyle(_ stored: String, for metric: MenuBarMetric) -> String {
         let value = stored == "classic" ? "values" : stored
+        // Styles that only newer builds write mean what they say wherever
+        // the metric offers them.
+        if let style = MenuBarMetricAppearance(rawValue: value), [.inline, .valueOnly, .iconValue].contains(style) {
+            return MenuBarMetricAppearance.allowed(for: metric).contains(style) ? value : "values"
+        }
         switch metric {
         case .cpu:
             return value
@@ -244,11 +259,10 @@ enum MenuBarStyleMigration {
         }
     }
 
-    /// The vocabulary settings could hold before the conversion.
-    private static let legacyStyles = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
-
+    /// Any style a build ever wrote: a file that pairs the old global key
+    /// with a newer per-metric style ("inline") keeps that style.
     private static func validStyle(_ raw: Any?) -> String? {
-        guard let raw = raw as? String, legacyStyles.contains(raw) else { return nil }
+        guard let raw = raw as? String, MenuBarMetricAppearance(rawValue: raw) != nil else { return nil }
         return raw
     }
 

@@ -277,6 +277,36 @@ enum MenuBarRenderer {
 
     /// SF with fixed-width digits, condensed for the narrow text option.
     private static func textFont(size: CGFloat, weight: NSFont.Weight, narrow: Bool) -> NSFont {
+        fontTable[FontKey(size: size, weight: weight.rawValue, narrow: narrow)]
+            ?? makeTextFont(size: size, weight: weight, narrow: narrow)
+    }
+
+    private struct FontKey: Hashable {
+        let size: CGFloat
+        let weight: CGFloat
+        let narrow: Bool
+    }
+
+    /// Every text font the blocks use, made once: fonts are immutable, so the
+    /// table is safe to read from drawing handlers on any thread.
+    private static let fontTable: [FontKey: NSFont] = {
+        var table: [FontKey: NSFont] = [:]
+        let uses: [(CGFloat, NSFont.Weight)] = [(aboveLabelFontSize, .medium), (inlineLabelFontSize, .medium),
+                                                (valueFontSize, .semibold), (dualFontSize, .semibold)]
+        for (size, weight) in uses {
+            for narrow in [false, true] {
+                table[FontKey(size: size, weight: weight.rawValue, narrow: narrow)] =
+                    makeTextFont(size: size, weight: weight, narrow: narrow)
+            }
+        }
+        return table
+    }()
+
+    private static let stackedLabelFont = NSFont.systemFont(ofSize: stackedLabelFontSize, weight: .bold)
+    private static let overlayFont = NSFont.monospacedDigitSystemFont(ofSize: 7.8, weight: .heavy)
+    private static let ringOverlayFont = NSFont.monospacedDigitSystemFont(ofSize: 7.8 * 0.72, weight: .heavy)
+
+    private static func makeTextFont(size: CGFloat, weight: NSFont.Weight, narrow: Bool) -> NSFont {
         guard narrow else { return NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight) }
         let condensed = NSFont.systemFont(ofSize: size, weight: weight, width: .condensed)
         // Number spacing (type 6), monospaced numbers (selector 0).
@@ -462,7 +492,7 @@ enum MenuBarRenderer {
         for metric in metrics {
             switch metric {
             case .cpu, .cpuTemperature:
-                if settings.combinesTemperature(of: .cpu) {
+                if settings.combinesTemperature(of: .cpu, enabled: enabled) {
                     guard !renderedCPU else { break }
                     renderedCPU = true
                     let usage = enabled.contains(.cpu) ? snapshot.cpuUsage : nil
@@ -501,7 +531,7 @@ enum MenuBarRenderer {
                     text(.cpu, label: "CPU", value: percent(usage), minimum: "100%", fraction: usage)
                 }
             case .gpu, .gpuTemperature:
-                if settings.combinesTemperature(of: .gpu) {
+                if settings.combinesTemperature(of: .gpu, enabled: enabled) {
                     guard !renderedGPU else { break }
                     renderedGPU = true
                     let usage = enabled.contains(.gpu) ? snapshot.gpuUsage : nil
@@ -646,7 +676,7 @@ enum MenuBarRenderer {
                 }
             case .battery, .batteryTemperature:
                 let batteryStyle = settings.style(for: .battery)
-                if settings.combinesTemperature(of: .battery) {
+                if settings.combinesTemperature(of: .battery, enabled: enabled) {
                     guard !renderedBattery else { break }
                     renderedBattery = true
                     let chargePercent = enabled.contains(.battery) ? snapshot.power?.chargePercent : nil
@@ -737,10 +767,26 @@ enum MenuBarRenderer {
     // MARK: - Text blocks
 
     /// The reserve that keeps a block's width steady: the metric's largest
-    /// value in standard spacing, the session's widest value in compact.
-    private static func reserve(for value: String, minimum: String, widthKey: String,
+    /// value with a fixed width, the session's widest value when fitting the
+    /// value. Fitting is never wider than fixed: a digit-matched reserve can
+    /// be ("↓88888B ↑8B" after "↓12.3M ↑4.5M"), so the narrower one wins.
+    private static func reserve(for value: String, minimum: String, widthKey: String, font: NSFont,
                                 settings: MenuBarRenderSettings, widthMemory: MenuBarWidthMemory) -> String {
-        settings.spacing == .compact ? widthMemory.compactReserve(key: widthKey, value: value) : minimum
+        guard settings.spacing == .compact else { return minimum }
+        return narrowerReserve(widthMemory.compactReserve(key: widthKey, value: value), minimum, font: font)
+    }
+
+    /// The narrower of a fitted and a fixed reserve in `font`; an empty fixed
+    /// reserve (nothing to reserve) never wins.
+    static func narrowerReserve(_ fitted: String, _ fixed: String, font: NSFont) -> String {
+        guard !fixed.isEmpty else { return fitted }
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        return (fitted as NSString).size(withAttributes: attrs).width
+            <= (fixed as NSString).size(withAttributes: attrs).width ? fitted : fixed
+    }
+    /// `narrowerReserve` in the value font of the text blocks.
+    static func narrowerReserve(_ fitted: String, _ fixed: String) -> String {
+        narrowerReserve(fitted, fixed, font: textFont(size: valueFontSize, weight: .semibold, narrow: false))
     }
 
     private static func valueAttributes(font: NSFont, colorHex level: String?) -> [NSAttributedString.Key: Any] {
@@ -769,6 +815,7 @@ enum MenuBarRenderer {
                                          settings: MenuBarRenderSettings,
                                          widthMemory: MenuBarWidthMemory) -> BlockImage {
         let minimumValue = reserve(for: value, minimum: reservedValue, widthKey: widthKey,
+                                   font: textFont(size: valueFontSize, weight: .semibold, narrow: settings.narrowText),
                                    settings: settings, widthMemory: widthMemory)
         let pressureKey = pressure.map(String.init(describing:)) ?? "none"
         let key = "metric|\(label)|\(value)|\(minimumValue)|\(pressureKey)|\(valueColorHex ?? "-")|"
@@ -825,7 +872,9 @@ enum MenuBarRenderer {
                                          valueColorHex: String?,
                                          settings: MenuBarRenderSettings,
                                          widthMemory: MenuBarWidthMemory) -> BlockImage {
-        let minimumValue = reserve(for: value, minimum: reservedValue, widthKey: widthKey + "|inline",
+        let minimumValue = reserve(for: value, minimum: reservedValue,
+                                   widthKey: widthKey + (label == nil ? "|value" : "|inline"),
+                                   font: textFont(size: valueFontSize, weight: .semibold, narrow: settings.narrowText),
                                    settings: settings, widthMemory: widthMemory)
         let pressureKey = pressure.map(String.init(describing:)) ?? "none"
         let key = "inline|\(label ?? "")|\(value)|\(minimumValue)|\(pressureKey)|\(valueColorHex ?? "-")|"
@@ -876,6 +925,7 @@ enum MenuBarRenderer {
                                        settings: MenuBarRenderSettings,
                                        widthMemory: MenuBarWidthMemory) -> BlockImage {
         let minimumValue = reserve(for: value, minimum: reservedValue, widthKey: widthKey + "|icon",
+                                   font: textFont(size: valueFontSize, weight: .semibold, narrow: settings.narrowText),
                                    settings: settings, widthMemory: widthMemory)
         let key = "icon|\(symbolName)|\(value)|\(minimumValue)|\(valueColorHex ?? "-")|"
             + "\(settings.narrowText)|\(settings.appearanceName)"
@@ -1114,7 +1164,7 @@ enum MenuBarRenderer {
     /// A three letter name stacked one letter per row, each capital centered
     /// in its third of the block.
     private static func drawStackedLabel(_ label: String, width: CGFloat, height: CGFloat) {
-        let font = NSFont.systemFont(ofSize: stackedLabelFontSize, weight: .bold)
+        let font = stackedLabelFont
         let attrs = dynamicTextAttributes(font: font)
         let rowHeight = height / 3
         for (index, character) in label.prefix(3).map(String.init).enumerated() {
@@ -1166,13 +1216,15 @@ enum MenuBarRenderer {
 
     private static func graphSegment(key: String,
                                      size: NSSize,
+                                     settings: MenuBarRenderSettings,
                                      draw: @escaping (MenuBarGraphPainter.Style) -> Void) -> MenuBarSegment {
         let cacheKey = key as NSString
         if let cached = graphImageCache.object(forKey: cacheKey) { return .customImage(cached, key: key) }
+        let monochrome = settings.graphMonochrome
         let image = NSImage(size: size, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
-            draw(MenuBarGraphPainter.currentStyle())
+            draw(MenuBarGraphPainter.currentStyle(monochrome: monochrome))
             return true
         }
         image.isTemplate = false
@@ -1197,7 +1249,7 @@ enum MenuBarRenderer {
         let key = ["netDual", sampleKey(downFractions), sampleKey(upFractions),
                    "\(layout.box.width)", "\(spaced)", graphLayout.rawValue,
                    settings.graphToken, settings.appearanceName].joined(separator: "|")
-        return graphSegment(key: key, size: layout.imageSize) { graphStyle in
+        return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel("NET", width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
             MenuBarGraphPainter.drawDualHistory(upload: upFractions,
@@ -1215,8 +1267,7 @@ enum MenuBarRenderer {
                                               graphStyle: MenuBarGraphPainter.Style,
                                               fontScale: CGFloat = 1.0) {
         guard !valueText.isEmpty else { return }
-        let fontSize: CGFloat = 7.8 * fontScale
-        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .heavy)
+        let font = fontScale < 1 ? ringOverlayFont : overlayFont
         let onDark = graphStyle.overlaysOnDarkSurface
         let shadow = NSShadow()
         shadow.shadowColor = (onDark ? NSColor.black : NSColor.white).withAlphaComponent(0.85)
@@ -1245,7 +1296,7 @@ enum MenuBarRenderer {
                                 plotHeight: layout.plotHeight)
         let key = ["cores", sampleKey(loads), sampleKey(userLoads), valueText ?? "",
                    settings.graphToken, settings.appearanceName].joined(separator: "|")
-        return graphSegment(key: key, size: layout.imageSize) { graphStyle in
+        return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel("CPU", width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
             MenuBarGraphPainter.drawCoreBars(series: [loads, userLoads],
@@ -1271,7 +1322,7 @@ enum MenuBarRenderer {
         }
         let key = ["ring", label, sampleKey(angles), valueText ?? "",
                    settings.graphToken, settings.appearanceName].joined(separator: "|")
-        return graphSegment(key: key, size: layout.imageSize) { graphStyle in
+        return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel(label, width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle, circular: true)
             let colors = angles.count > 1 ? [graphStyle.secondary, graphStyle.primary] : [graphStyle.primary]
@@ -1295,7 +1346,7 @@ enum MenuBarRenderer {
         let key = ["history", label, visible.map(sampleKey).joined(separator: "/"), valueText ?? "",
                    "\(layout.box.width)", "\(spaced)",
                    settings.graphToken, settings.appearanceName].joined(separator: "|")
-        return graphSegment(key: key, size: layout.imageSize) { graphStyle in
+        return graphSegment(key: key, size: layout.imageSize, settings: settings) { graphStyle in
             drawStackedLabel(label, width: layout.labelWidth, height: layout.height)
             MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
             let colors = visible.count > 1 ? [graphStyle.secondary, graphStyle.primary] : [graphStyle.primary]

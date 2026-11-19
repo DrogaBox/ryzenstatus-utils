@@ -95,11 +95,20 @@ enum MenuBarMetricAppearance: String, CaseIterable {
         return style
     }
 
-    /// Whether a usage reading takes its temperature into the same block:
-    /// only while "combine temperatures" is on and the usage draws as text.
-    /// The renderer, the sampler, Settings and search all ask this.
-    static func usageCombinesTemperature(_ metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures) && stored(for: metric, in: defaults).isText
+    /// Whether a temperature reading is drawn inside its usage block right
+    /// now (combine on, both pinned, usage drawn as text), so its own style
+    /// does not apply. The same rule as `MenuBarRenderSettings.combinesTemperature`.
+    static func drawnWithUsage(_ temperature: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
+        let usage: MenuBarMetric
+        switch temperature {
+        case .cpuTemperature: usage = .cpu
+        case .gpuTemperature: usage = .gpu
+        case .batteryTemperature: usage = .battery
+        default: return false
+        }
+        return defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
+            && defaults.bool(forKey: usage.defaultsKey) && defaults.bool(forKey: temperature.defaultsKey)
+            && (usage == .battery || stored(for: usage, in: defaults).isText)
     }
 
     /// Whether the "combine temperatures" switch can change anything: CPU or

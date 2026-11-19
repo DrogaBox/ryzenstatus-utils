@@ -2025,11 +2025,38 @@ struct MetricsTests {
             settings.combineTemperatures = true
             settings.styles[.cpu] = .values
             settings.styles[.gpu] = .sparkline
-            expect(settings.combinesTemperature(of: .cpu), "text CPU usage takes its temperature along")
-            expect(!settings.combinesTemperature(of: .gpu), "a GPU graph leaves its temperature as its own block")
-            expect(settings.combinesTemperature(of: .battery), "battery charge always combines when asked")
+            let all = Set(MenuBarMetric.allCases)
+            expect(settings.combinesTemperature(of: .cpu, enabled: all), "text CPU usage takes its temperature along")
+            expect(!settings.combinesTemperature(of: .gpu, enabled: all), "a GPU graph leaves its temperature as its own block")
+            expect(settings.combinesTemperature(of: .battery, enabled: all), "battery charge always combines when asked")
+            expect(!settings.combinesTemperature(of: .cpu, enabled: [.cpuTemperature]),
+                   "a temperature pinned without its usage keeps its own style and name")
             settings.combineTemperatures = false
-            expect(!settings.combinesTemperature(of: .cpu), "nothing combines with the option off")
+            expect(!settings.combinesTemperature(of: .cpu, enabled: all), "nothing combines with the option off")
+            let kept = MenuBarStyleMigration.translatingOldKeys([DefaultsKey.menuBarMetricAppearance: "bars",
+                                                                MenuBarMetric.cpu.styleKey: "inline"])
+            expect(kept[MenuBarMetric.cpu.styleKey] as? String == "inline"
+                   && kept[MenuBarMetric.gpu.styleKey] as? String == "bars",
+                   "an old global style next to a newer per-metric style keeps the newer one")
+            expect(MenuBarRenderer.narrowerReserve("↓8888888B ↑8B", "↓000B ↑000B") == "↓000B ↑000B"
+                   && MenuBarRenderer.narrowerReserve("88%", "100%") == "88%",
+                   "fitting to the value is never wider than the fixed width")
+            let memory = MenuBarWidthMemory()
+            _ = memory.compactReserve(key: "unit", value: "136°")
+            memory.reset()
+            expect(memory.compactReserve(key: "unit", value: "58°") == "88°",
+                   "after a settings change (°F to °C) the width memory starts over")
+            let suite = UserDefaults(suiteName: "menubar-drawn-with-usage-test")!
+            suite.removePersistentDomain(forName: "menubar-drawn-with-usage-test")
+            suite.set(true, forKey: DefaultsKey.menuBarCombineTemperatures)
+            suite.set(true, forKey: DefaultsKey.menuBarCPU)
+            suite.set(true, forKey: DefaultsKey.menuBarCPUTemperature)
+            expect(MenuBarMetricAppearance.drawnWithUsage(.cpuTemperature, in: suite),
+                   "with combine on and both pinned, the CPU temperature rides in the usage block")
+            suite.set("sparkline", forKey: MenuBarMetric.cpu.styleKey)
+            expect(!MenuBarMetricAppearance.drawnWithUsage(.cpuTemperature, in: suite),
+                   "a CPU graph leaves the temperature on its own, with its own style")
+            suite.removePersistentDomain(forName: "menubar-drawn-with-usage-test")
         }
         do {
             // The tests run on the main thread, which the memory requires.

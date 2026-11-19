@@ -41,6 +41,7 @@ struct MenuBarAppearanceStrings {
     let widthCaption: String
     let showInMenuBar: String
     let hideFromMenuBar: String
+    let combinedWithUsage: String
 }
 
 extension FeatureStrings {
@@ -95,7 +96,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Monochrome",
         colorful: "Color",
         highlightHighValues: "Highlight high values",
-        highlightCaption: "Usage values take the medium and high colors past their limits.",
+        highlightCaption: "Usage values turn orange and red past the medium and high limits.",
         narrowText: "Narrow text",
         narrowCaption: "Condensed letters, so more readings fit.",
         itemWidth: "Item width",
@@ -103,7 +104,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Fit to Value",
         widthCaption: "Fixed keeps each item at its widest value, so the menu bar never shifts.",
         showInMenuBar: "Show in menu bar",
-        hideFromMenuBar: "Hide from menu bar"
+        hideFromMenuBar: "Hide from menu bar",
+        combinedWithUsage: "Shown inside the usage block while temperatures are combined."
     )
 
     static let ptBR = MenuBarAppearanceStrings(
@@ -135,7 +137,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Monocromático",
         colorful: "Colorido",
         highlightHighValues: "Destacar valores altos",
-        highlightCaption: "Os valores de uso ganham as cores média e alta ao passar dos limites.",
+        highlightCaption: "Os valores de uso ficam laranja e vermelhos ao passar dos limites médio e alto.",
         narrowText: "Texto estreito",
         narrowCaption: "Letras condensadas, para caber mais leituras.",
         itemWidth: "Largura dos itens",
@@ -143,7 +145,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Conforme o valor",
         widthCaption: "Fixa mantém cada item no seu valor mais largo, então a barra de menus nunca se mexe.",
         showInMenuBar: "Mostrar na barra de menus",
-        hideFromMenuBar: "Ocultar da barra de menus"
+        hideFromMenuBar: "Ocultar da barra de menus",
+        combinedWithUsage: "Aparece dentro do bloco de uso enquanto as temperaturas estão combinadas."
     )
 
     static let tr = MenuBarAppearanceStrings(
@@ -175,7 +178,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Tek renk",
         colorful: "Renkli",
         highlightHighValues: "Yüksek değerleri vurgula",
-        highlightCaption: "Kullanım değerleri sınırları aşınca orta ve yüksek renklerini alır.",
+        highlightCaption: "Kullanım değerleri orta ve yüksek sınırları aşınca turuncu ve kırmızı olur.",
         narrowText: "Dar metin",
         narrowCaption: "Daha fazla okuma sığsın diye sıkışık harfler.",
         itemWidth: "Öğe genişliği",
@@ -183,7 +186,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Değere göre",
         widthCaption: "Sabit, her öğeyi en geniş değerinde tutar; menü çubuğu hiç kaymaz.",
         showInMenuBar: "Menü çubuğunda göster",
-        hideFromMenuBar: "Menü çubuğundan gizle"
+        hideFromMenuBar: "Menü çubuğundan gizle",
+        combinedWithUsage: "Sıcaklıklar birleştirildiğinde kullanım bloğunun içinde görünür."
     )
 
     static let ru = MenuBarAppearanceStrings(
@@ -215,7 +219,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Монохромный",
         colorful: "Цветной",
         highlightHighValues: "Выделять высокие значения",
-        highlightCaption: "Значения нагрузки окрашиваются в средний и высокий цвета после порогов.",
+        highlightCaption: "Значения нагрузки становятся оранжевыми и красными после среднего и высокого порогов.",
         narrowText: "Узкий текст",
         narrowCaption: "Сжатые буквы, чтобы поместилось больше показателей.",
         itemWidth: "Ширина элементов",
@@ -223,7 +227,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "По значению",
         widthCaption: "Фиксированная держит каждый элемент по самому широкому значению, и строка меню не сдвигается.",
         showInMenuBar: "Показывать в строке меню",
-        hideFromMenuBar: "Скрыть из строки меню"
+        hideFromMenuBar: "Скрыть из строки меню",
+        combinedWithUsage: "Показывается внутри блока нагрузки, пока температуры объединены."
     )
 
     static let es = MenuBarAppearanceStrings(
@@ -255,7 +260,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Monocromo",
         colorful: "Color",
         highlightHighValues: "Resaltar valores altos",
-        highlightCaption: "Los valores de uso toman los colores medio y alto al pasar sus límites.",
+        highlightCaption: "Los valores de uso se pintan de naranja y rojo al pasar los límites medio y alto.",
         narrowText: "Texto estrecho",
         narrowCaption: "Letras condensadas, para que entren más datos.",
         itemWidth: "Ancho de los ítems",
@@ -263,7 +268,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Según el valor",
         widthCaption: "Fijo mantiene cada ítem en su valor más ancho, así la barra de menús no se mueve.",
         showInMenuBar: "Mostrar en la barra de menús",
-        hideFromMenuBar: "Ocultar de la barra de menús"
+        hideFromMenuBar: "Ocultar de la barra de menús",
+        combinedWithUsage: "Se muestra dentro del bloque de uso mientras las temperaturas están juntas."
     )
 
     static let de = MenuBarAppearanceStrings(
@@ -295,7 +301,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Einfarbig",
         colorful: "Farbig",
         highlightHighValues: "Hohe Werte hervorheben",
-        highlightCaption: "Auslastungswerte nehmen über ihren Grenzen die mittlere und hohe Farbe an.",
+        highlightCaption: "Auslastungswerte werden über der mittleren und hohen Grenze orange und rot.",
         narrowText: "Schmale Schrift",
         narrowCaption: "Schmale Buchstaben, damit mehr Werte passen.",
         itemWidth: "Objektbreite",
@@ -303,7 +309,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Nach Wert",
         widthCaption: "Fest hält jedes Objekt auf seinem breitesten Wert, damit die Menüleiste nicht springt.",
         showInMenuBar: "In der Menüleiste zeigen",
-        hideFromMenuBar: "Aus der Menüleiste ausblenden"
+        hideFromMenuBar: "Aus der Menüleiste ausblenden",
+        combinedWithUsage: "Wird im Auslastungsblock angezeigt, solange Temperaturen kombiniert sind."
     )
 
     static let fr = MenuBarAppearanceStrings(
@@ -335,7 +342,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Monochrome",
         colorful: "Couleur",
         highlightHighValues: "Mettre en évidence les valeurs élevées",
-        highlightCaption: "Les valeurs d’utilisation prennent les couleurs moyenne et élevée au-delà de leurs seuils.",
+        highlightCaption: "Les valeurs d’utilisation passent à l’orange et au rouge au-delà des seuils moyen et élevé.",
         narrowText: "Texte étroit",
         narrowCaption: "Lettres condensées, pour afficher plus de mesures.",
         itemWidth: "Largeur des éléments",
@@ -343,7 +350,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Selon la valeur",
         widthCaption: "Fixe garde chaque élément à sa valeur la plus large, pour que la barre des menus ne bouge jamais.",
         showInMenuBar: "Afficher dans la barre des menus",
-        hideFromMenuBar: "Masquer de la barre des menus"
+        hideFromMenuBar: "Masquer de la barre des menus",
+        combinedWithUsage: "Affiché dans le bloc d’utilisation tant que les températures sont combinées."
     )
 
     static let it = MenuBarAppearanceStrings(
@@ -375,7 +383,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Monocromatico",
         colorful: "Colore",
         highlightHighValues: "Evidenzia i valori alti",
-        highlightCaption: "I valori di utilizzo assumono i colori medio e alto oltre le soglie.",
+        highlightCaption: "I valori di utilizzo diventano arancioni e rossi oltre le soglie media e alta.",
         narrowText: "Testo stretto",
         narrowCaption: "Lettere condensate, per far stare più valori.",
         itemWidth: "Larghezza degli elementi",
@@ -383,7 +391,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "In base al valore",
         widthCaption: "Fissa tiene ogni elemento al suo valore più largo, così la barra dei menu non si sposta mai.",
         showInMenuBar: "Mostra nella barra dei menu",
-        hideFromMenuBar: "Nascondi dalla barra dei menu"
+        hideFromMenuBar: "Nascondi dalla barra dei menu",
+        combinedWithUsage: "Mostrato nel blocco di utilizzo finché le temperature sono combinate."
     )
 
     static let ja = MenuBarAppearanceStrings(
@@ -415,7 +424,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "モノクロ",
         colorful: "カラー",
         highlightHighValues: "高い値を強調",
-        highlightCaption: "使用率がしきい値を超えると中・高の色で表示します。",
+        highlightCaption: "使用率が中・高のしきい値を超えるとオレンジと赤で表示します。",
         narrowText: "幅の狭い文字",
         narrowCaption: "文字を詰めて、より多くの項目を表示します。",
         itemWidth: "項目の幅",
@@ -423,7 +432,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "値に合わせる",
         widthCaption: "固定にすると各項目を最大値の幅に保ち、メニューバーがずれません。",
         showInMenuBar: "メニューバーに表示",
-        hideFromMenuBar: "メニューバーから隠す"
+        hideFromMenuBar: "メニューバーから隠す",
+        combinedWithUsage: "温度をまとめている間は、使用率のブロック内に表示されます。"
     )
 
     static let ko = MenuBarAppearanceStrings(
@@ -455,7 +465,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "단색",
         colorful: "컬러",
         highlightHighValues: "높은 값 강조",
-        highlightCaption: "사용량이 한계를 넘으면 중간·높음 색상으로 표시합니다.",
+        highlightCaption: "사용량이 중간·높음 한계를 넘으면 주황색과 빨간색으로 표시합니다.",
         narrowText: "좁은 글자",
         narrowCaption: "더 많은 항목이 들어가도록 글자를 좁힙니다.",
         itemWidth: "항목 너비",
@@ -463,7 +473,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "값에 맞춤",
         widthCaption: "고정은 각 항목을 가장 넓은 값의 너비로 유지해 메뉴 막대가 움직이지 않습니다.",
         showInMenuBar: "메뉴 막대에 표시",
-        hideFromMenuBar: "메뉴 막대에서 숨기기"
+        hideFromMenuBar: "메뉴 막대에서 숨기기",
+        combinedWithUsage: "온도를 합쳐 표시하는 동안 사용량 블록 안에 표시됩니다."
     )
 
     static let zhHans = MenuBarAppearanceStrings(
@@ -495,7 +506,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "单色",
         colorful: "彩色",
         highlightHighValues: "突出显示高值",
-        highlightCaption: "使用率超过阈值时显示为中、高颜色。",
+        highlightCaption: "使用率超过中、高阈值时显示为橙色和红色。",
         narrowText: "窄字体",
         narrowCaption: "压缩字形，以容纳更多读数。",
         itemWidth: "项目宽度",
@@ -503,7 +514,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "随数值",
         widthCaption: "固定会让每个项目保持其最宽数值的宽度，菜单栏不会移动。",
         showInMenuBar: "在菜单栏中显示",
-        hideFromMenuBar: "从菜单栏隐藏"
+        hideFromMenuBar: "从菜单栏隐藏",
+        combinedWithUsage: "合并温度时，显示在使用率块内。"
     )
 
     static let zhTW = MenuBarAppearanceStrings(
@@ -535,7 +547,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "單色",
         colorful: "彩色",
         highlightHighValues: "強調高數值",
-        highlightCaption: "使用率超過門檻時顯示為中、高顏色。",
+        highlightCaption: "使用率超過中、高門檻時顯示為橙色和紅色。",
         narrowText: "窄字體",
         narrowCaption: "壓縮字形，以容納更多讀數。",
         itemWidth: "項目寬度",
@@ -543,7 +555,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "依數值",
         widthCaption: "固定會讓每個項目維持其最寬數值的寬度，選單列不會移動。",
         showInMenuBar: "在選單列中顯示",
-        hideFromMenuBar: "從選單列隱藏"
+        hideFromMenuBar: "從選單列隱藏",
+        combinedWithUsage: "合併溫度時，顯示在使用率區塊內。"
     )
 
     static let zhHK = MenuBarAppearanceStrings(
@@ -575,7 +588,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "單色",
         colorful: "彩色",
         highlightHighValues: "突顯高數值",
-        highlightCaption: "使用率超過界限時顯示為中、高顏色。",
+        highlightCaption: "使用率超過中、高界限時顯示為橙色和紅色。",
         narrowText: "窄字體",
         narrowCaption: "壓縮字形，以容納更多讀數。",
         itemWidth: "項目闊度",
@@ -583,7 +596,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "按數值",
         widthCaption: "固定會令每個項目保持其最闊數值的闊度，選單列不會移動。",
         showInMenuBar: "在選單列中顯示",
-        hideFromMenuBar: "從選單列隱藏"
+        hideFromMenuBar: "從選單列隱藏",
+        combinedWithUsage: "合併溫度時，顯示在使用率區塊內。"
     )
 
     static let sk = MenuBarAppearanceStrings(
@@ -615,7 +629,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Jednofarebné",
         colorful: "Farebné",
         highlightHighValues: "Zvýrazniť vysoké hodnoty",
-        highlightCaption: "Hodnoty využitia dostanú za svojimi hranicami strednú a vysokú farbu.",
+        highlightCaption: "Hodnoty využitia za strednou a vysokou hranicou zoranžovejú a sčervenejú.",
         narrowText: "Úzky text",
         narrowCaption: "Zúžené písmená, aby sa zmestilo viac hodnôt.",
         itemWidth: "Šírka položiek",
@@ -623,7 +637,8 @@ extension MenuBarAppearanceStrings {
         widthFit: "Podľa hodnoty",
         widthCaption: "Pevná drží každú položku na jej najširšej hodnote, takže lišta menu sa nikdy neposúva.",
         showInMenuBar: "Zobraziť na lište menu",
-        hideFromMenuBar: "Skryť z lišty menu"
+        hideFromMenuBar: "Skryť z lišty menu",
+        combinedWithUsage: "Zobrazuje sa v bloku využitia, kým sú teploty spojené."
     )
 
     static let uk = MenuBarAppearanceStrings(
@@ -655,7 +670,7 @@ extension MenuBarAppearanceStrings {
         monochrome: "Монохромний",
         colorful: "Кольоровий",
         highlightHighValues: "Виділяти високі значення",
-        highlightCaption: "Значення навантаження набувають середнього й високого кольору після порогів.",
+        highlightCaption: "Значення навантаження стають помаранчевими й червоними після середнього й високого порогів.",
         narrowText: "Вузький текст",
         narrowCaption: "Стиснуті літери, щоб умістилося більше показників.",
         itemWidth: "Ширина елементів",
@@ -663,6 +678,7 @@ extension MenuBarAppearanceStrings {
         widthFit: "За значенням",
         widthCaption: "Фіксована тримає кожен елемент за найширшим значенням, тож рядок меню не зсувається.",
         showInMenuBar: "Показувати в рядку меню",
-        hideFromMenuBar: "Сховати з рядка меню"
+        hideFromMenuBar: "Сховати з рядка меню",
+        combinedWithUsage: "Показується в блоці навантаження, поки температури об’єднано."
     )
 }

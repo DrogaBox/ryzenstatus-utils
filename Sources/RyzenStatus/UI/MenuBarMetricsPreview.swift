@@ -93,7 +93,10 @@ private final class MenuBarPreviewModel: ObservableObject {
 
     private func reload() {
         let newSettings = MenuBarRenderSettings.current()
-        if newSettings != settings { settings = newSettings }
+        if newSettings != settings {
+            widthMemory.reset()
+            settings = newSettings
+        }
         let newMetrics = MenuBarMetric.enabled(in: .standard)
         if newMetrics != metrics { metrics = newMetrics }
     }
