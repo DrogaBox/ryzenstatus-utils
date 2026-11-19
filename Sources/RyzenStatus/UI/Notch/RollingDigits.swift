@@ -82,14 +82,33 @@ enum RollingDigits {
     /// point is a decimal point unless the locale groups with it and three
     /// digits follow ("1.234,5").
     static func separator(at index: Int, in tokens: [Token], locale: Locale) -> Separator? {
-        guard index >= 1, index + 1 < tokens.count, case .digits = tokens[index - 1],
-              case .digits(let next) = tokens[index + 1], case .text(let text) = tokens[index] else { return nil }
+        guard isSeparator(at: index, in: tokens), case .digits(let next) = tokens[index + 1],
+              case .text(let text) = tokens[index] else { return nil }
+        // The whole number this separator sits in, as the indices of its separators.
+        var first = index, last = index
+        while isSeparator(at: first - 2, in: tokens) { first -= 2 }
+        while isSeparator(at: last + 2, in: tokens) { last += 2 }
+        let marks = stride(from: first, through: last, by: 2).compactMap { i -> String? in
+            if case .text(let mark) = tokens[i] { return mark }; return nil
+        }
+        // Both marks in one number: the last is the decimal point and the
+        // others group ("$1,234.56", "1.234,56"), whatever the locale says.
+        if Set(marks).count > 1 { return index == last ? .decimal : .grouping }
+        // The same mark more than once only groups ("1.234.567").
+        if marks.count > 1 { return .grouping }
         let thousands = next.count == 3
         switch text {
         case ".": return locale.groupingSeparator == "." && thousands ? .grouping : .decimal
         case ",": return locale.decimalSeparator == "," || !thousands ? .decimal : .grouping
         default: return nil
         }
+    }
+
+    /// A lone "." or "," with digits on both sides.
+    private static func isSeparator(at index: Int, in tokens: [Token]) -> Bool {
+        guard index >= 1, index + 1 < tokens.count, case .digits = tokens[index - 1], case .digits = tokens[index + 1],
+              case .text(let text) = tokens[index] else { return false }
+        return text == "." || text == ","
     }
 
     /// The text between the numbers. When it changes, as "…" becoming "45%"
@@ -149,7 +168,13 @@ enum RollingDigits {
         var current = ""
         for (index, token) in tokens.enumerated() {
             switch token {
-            case .digits(let run): current += run
+            case .digits(let run):
+                // A minus right before a number, not between two ("10-20"), makes it negative.
+                if current.isEmpty, index >= 1, case .text(let before) = tokens[index - 1],
+                   before.hasSuffix("-") || before.hasSuffix("−"), before.count > 1 || index == 1 {
+                    current = "-"
+                }
+                current += run
             case .text:
                 switch separator(at: index, in: tokens, locale: locale) {
                 case .decimal: current += "."
@@ -230,9 +255,11 @@ final class RollingDigitsGlyphs {
         return measured
     }
 
-    func width(of text: String, font: NSFont) -> CGFloat {
+    func width(of text: String, font: NSFont) -> CGFloat { ceil(advance(of: text, font: font)) }
+    /// How far `text` moves the pen, unrounded.
+    func advance(of text: String, font: NSFont) -> CGFloat {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
-        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
     }
 
     /// The longest start of `text` that fits `width` with an ellipsis after it.
@@ -297,6 +324,7 @@ struct RollingDigitsText: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.rollingDigitsAnimation) private var hostAnimation
     @Environment(\.rollingDigitsActive) private var active
+    @Environment(\.locale) private var locale
 
     init(_ text: String, style: RollingDigitsStyle, color: Color, countsDown: Bool? = nil,
          duration: TimeInterval = 0.25, minimumScaleFactor: CGFloat = 1,
@@ -314,6 +342,8 @@ struct RollingDigitsText: NSViewRepresentable {
         let view = RollingDigitsView()
         view.configure(style: style, color: NSColor(color), duration: duration, frameRates: frameRates,
                        minimumScaleFactor: minimumScaleFactor, dark: colorScheme == .dark)
+        view.active = active
+        view.locale = locale
         view.show(text, animated: false, countsDown: countsDown)
         return view
     }
@@ -322,6 +352,7 @@ struct RollingDigitsText: NSViewRepresentable {
         view.configure(style: style, color: NSColor(color), duration: duration, frameRates: frameRates,
                        minimumScaleFactor: minimumScaleFactor, dark: colorScheme == .dark)
         view.active = active
+        view.locale = locale
         view.show(text, animated: active && Self.animates(reduceMotion: reduceMotion, transaction: context.transaction,
                                                           host: hostAnimation),
                   countsDown: countsDown)
@@ -523,10 +554,13 @@ final class RollingDigitsView: NSView {
         return (offset, shown.opacity)
     }
 
-    private func width(of slot: RollingDigits.Slot) -> CGFloat {
+    /// The slot's advance, unrounded: slots are placed by their real widths
+    /// and only the whole line is rounded up, so a line of many slots is no
+    /// wider than the same line drawn as one.
+    private func advance(of slot: RollingDigits.Slot) -> CGFloat {
         switch slot.content {
-        case .digit(let digit): return RollingDigitsGlyphs.shared.width(of: String(digit), font: font)
-        case .text(let text): return RollingDigitsGlyphs.shared.width(of: text, font: font)
+        case .digit(let digit): return RollingDigitsGlyphs.shared.advance(of: String(digit), font: font)
+        case .text(let text): return RollingDigitsGlyphs.shared.advance(of: text, font: font)
         }
     }
 
@@ -538,7 +572,7 @@ final class RollingDigitsView: NSView {
         guard newText != text || layers.isEmpty && !newText.isEmpty else { return }
         let old = text
         text = newText
-        let plan = RollingDigits.plan(from: old, to: newText, countsDown: countsDown)
+        let plan = RollingDigits.plan(from: old, to: newText, countsDown: countsDown, locale: locale)
         let animated = requested && visible && !old.isEmpty && duration > 0
         let metrics = RollingDigitsGlyphs.shared.metrics(for: font)
         let height = metrics.lineHeight
@@ -555,7 +589,14 @@ final class RollingDigitsView: NSView {
             // The column is the clip: its glyph slides out inside it, so the
             // leaving digit never crosses its neighbours.
             if animated, let glyph = gone.sublayers?.first {
+                // As for a rolling digit: the older leaving copy goes, and the
+                // glyph leaves from where it is on screen.
+                for older in gone.sublayers?.dropFirst() ?? [] {
+                    older.removeFromSuperlayer()
+                    leavingLayers.removeAll { $0 === older }
+                }
                 let now = Self.presented(glyph)
+                glyph.removeAllAnimations()
                 add(slide(from: now.offset, to: plan.up ? height : -height, fades: true, opacity: now.opacity),
                     to: glyph, key: "leave")
                 leave(gone, after: settling)
@@ -565,9 +606,10 @@ final class RollingDigitsView: NSView {
         }
         var x: CGFloat = 0
         for (slot, change) in zip(plan.slots, plan.changes) {
-            let slotWidth = width(of: slot)
-            let frame = CGRect(x: x, y: 0, width: slotWidth, height: height)
-            x += slotWidth
+            let slotAdvance = advance(of: slot)
+            // The layer is as wide as its image, which is drawn rounded up.
+            let frame = CGRect(x: x, y: 0, width: ceil(slotAdvance), height: height)
+            x += slotAdvance
             let content: String
             switch slot.content {
             case .digit(let digit): content = String(digit)
@@ -623,10 +665,13 @@ final class RollingDigitsView: NSView {
                 }
             }
         }
-        line.frame = CGRect(x: 0, y: 0, width: x, height: height)
+        line.frame = CGRect(x: 0, y: 0, width: ceil(x), height: height)
         CATransaction.commit()
-        let size = CGSize(width: x, height: height)
+        let size = CGSize(width: ceil(x), height: height)
         if size != naturalSize {
+            // A longer line takes its new room from SwiftUI's offer until its
+            // bounds catch up (see `room`).
+            if size.width > naturalSize.width, !naturalSize.equalTo(.zero) { grownFrom = bounds.width }
             naturalSize = size
             invalidateIntrinsicContentSize()
         }
@@ -653,10 +698,17 @@ final class RollingDigitsView: NSView {
         return naturalSize.width > room && room > 0 ? max(minimumScaleFactor, room / naturalSize.width) : 1
     }
 
-    /// The room SwiftUI offered, which decides; the bounds take a later pass
-    /// to catch up with a line that grew. Never offered a width, as under
-    /// .fixedSize(), the line has all the room it needs.
-    private var room: CGFloat { offeredWidth ?? .infinity }
+    /// The line's room: its bounds. Only right after the line grew, while
+    /// SwiftUI has not yet widened the bounds, the width SwiftUI last offered
+    /// stands in, or all the room it needs when it offered none (.fixedSize()),
+    /// so a line that grew never flashes an ellipsis.
+    var room: CGFloat {
+        if let grownFrom, bounds.width == grownFrom { return offeredWidth ?? .infinity }
+        return bounds.width > 0 ? bounds.width : offeredWidth ?? .infinity
+    }
+
+    /// The bounds' width when the line last grew, until they change.
+    private var grownFrom: CGFloat?
 
     private func lineOrigin(fit: CGFloat) -> CGPoint {
         let height = bounds.height > 0 ? bounds.height : naturalSize.height
@@ -665,6 +717,12 @@ final class RollingDigitsView: NSView {
 
     override func layout() {
         super.layout()
+        // Bounds that moved on since the line grew are the truth again, and
+        // the offer that stood in for them is spent.
+        if let grownFrom, bounds.width != grownFrom {
+            self.grownFrom = nil
+            offeredWidth = nil
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Too wide for its room, the line shrinks as minimumScaleFactor lets
@@ -709,10 +767,17 @@ final class RollingDigitsView: NSView {
         offeredWidth = width
     }
 
-    /// False for a copy nobody sees (`rollingDigitsActive`).
+    /// False for a copy nobody sees (`rollingDigitsActive`): a roll under way ends.
     var active = true {
-        didSet { if active != oldValue { needsLayout = true } }
+        didSet {
+            guard active != oldValue else { return }
+            if !active { settle() }
+            needsLayout = true
+        }
     }
+
+    /// The locale the line is written in, for its decimal and grouping marks.
+    var locale = Locale.current
     var isTruncated: Bool { line.isHidden }
     /// The layer the columns sit in, for tests.
     var lineLayer: CALayer { line }

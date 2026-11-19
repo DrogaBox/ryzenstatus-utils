@@ -86,6 +86,16 @@ enum RollingDigitsTests {
                      && RollingDigits.numbers("1.234,5", locale: spanish) == [1234.5]
                      && RollingDigits.numbers("2,0 KB/s", locale: spanish) == [2.0],
                      "a comma or point is a decimal point or groups thousands as the locale and digits say")
+        suite.expect(RollingDigits.numbers("$1,234.56", locale: spanish) == [1234.56]
+                     && RollingDigits.numbers("1.234,56", locale: english) == [1234.56]
+                     && RollingDigits.numbers("1.234.567", locale: english) == [1234567],
+                     "with both marks in a number the last is the decimal point, whatever the locale")
+        suite.expect(RollingDigits.numbers("-10°", locale: english) == [-10]
+                     && RollingDigits.numbers("CPU −3°", locale: english) == [-3]
+                     && RollingDigits.numbers("10-20", locale: english) == [10, 20]
+                     && RollingDigits.plan(from: "-10°", to: "-5°", locale: english).up
+                     && !RollingDigits.plan(from: "-5°", to: "-10°", locale: english).up,
+                     "a minus before a number makes it negative; one between two numbers does not")
         let money = RollingDigits.slots("$1,234.56", locale: english).map(\.identity)
         suite.expect(money == [.text(run: 0), .digit(run: 1, place: 0), .text(run: 2), .digit(run: 3, place: 2),
                                .digit(run: 3, place: 1), .digit(run: 3, place: 0), .text(run: 4),
@@ -124,24 +134,35 @@ enum RollingDigitsTests {
         view.setVisible(true)
         view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
         let natural = view.naturalSize.width
-        view.offer(natural * 0.5)
-        view.layout()
+        func sized(_ width: CGFloat) {
+            view.frame = CGRect(x: 0, y: 0, width: width, height: 28)
+            view.layout()
+        }
+        sized(natural * 0.5)
         suite.expect(view.isTruncated, "too wide even at its smallest, the line ends in an ellipsis as Text does")
-        view.offer(natural * 0.8)
-        view.layout()
-        suite.expect(!view.isTruncated, "a line that fits once shrunk is shrunk, not cut")
-        // SwiftUI probes with nothing and with zero while it lays out; only a real width is the room.
+        sized(natural * 0.8)
+        suite.expect(!view.isTruncated && view.currentFit < 1, "a line that fits once shrunk is shrunk, not cut")
+        // Probes SwiftUI makes while it lays out never move the room: the bounds are the room.
         view.offer(0)
         view.offer(nil)
-        suite.expect(view.offeredWidth == natural * 0.8, "probes for the ideal or smallest size leave the room as it was")
-        view.offer(natural * 0.5)
-        view.offer(natural * 3)
+        view.offer(natural * 0.3)
+        view.offer(natural * 9)
         view.layout()
-        suite.expect(view.offeredWidth == natural * 3 && !view.isTruncated && view.currentFit == 1,
-                     "a wide room after a narrow one lets the line stand whole")
-        view.offer(natural * 0.8)
-        view.frame = CGRect(x: 0, y: 0, width: natural * 0.8, height: 28)
+        suite.expect(view.room == natural * 0.8 && !view.isTruncated, "probes, narrow or wide, leave the bounds the room")
+        sized(natural * 3)
+        suite.expect(view.currentFit == 1 && !view.isTruncated, "a wider box lets a line that was shrunk stand whole")
+        // A line that grows before SwiftUI widens its bounds takes the offered
+        // width, or all it needs, instead of flashing an ellipsis.
+        view.show("12%", animated: false, countsDown: nil)
+        sized(view.naturalSize.width)
+        view.offer(nil)
+        view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
         view.layout()
+        suite.expect(!view.isTruncated && view.currentFit == 1, "a line that just grew is not cut before its bounds catch up")
+        sized(natural * 0.5)
+        suite.expect(view.isTruncated, "once the bounds move, they are the room again")
+        view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
+        sized(natural * 0.8)
         let fit = view.currentFit
         let descent = RollingDigitsGlyphs.shared.metrics(for: style.font()).descent
         let lineHeight = RollingDigitsGlyphs.shared.metrics(for: style.font()).lineHeight
@@ -168,6 +189,7 @@ enum RollingDigitsTests {
         inactive(suite)
         cache(suite)
         shortcutTile(suite)
+        hosted(suite)
     }
 
     private static func rollingView() -> RollingDigitsView {
@@ -195,6 +217,16 @@ enum RollingDigitsTests {
         suite.expect(view.leavingLayers.isEmpty && hundreds?.superlayer == nil,
                      "hidden mid-roll, no leaving digit stays on top of the new one")
 
+        let shrinking = rollingView()
+        shrinking.show("19%", animated: false, countsDown: nil)
+        let tens = shrinking.lineLayer.sublayers?.first
+        shrinking.show("28%", animated: true, countsDown: nil)
+        suite.expect((tens?.sublayers?.count ?? 0) == 2, "the tens roll: their old digit leaves on a copy")
+        shrinking.show("8%", animated: true, countsDown: nil)
+        suite.expect(tens?.superlayer != nil && (tens?.sublayers?.count ?? 0) == 1
+                     && tens?.sublayers?.first?.animation(forKey: "leave") != nil,
+                     "a column that leaves mid-roll drops its older copy and slides its glyph out from where it is")
+
         let again = rollingView()
         again.show("42%", animated: false, countsDown: nil)
         let ones = again.lineLayer.sublayers?[1]
@@ -213,10 +245,16 @@ enum RollingDigitsTests {
 
     /// A copy nobody sees neither rolls nor draws an ellipsis.
     private static func inactive(_ suite: TestSuite) {
+        let rolling = rollingView()
+        rolling.show("42%", animated: false, countsDown: nil)
+        rolling.show("43%", animated: true, countsDown: nil)
+        suite.expect(rolling.leavingLayers.count == 1, "a roll is under way")
+        rolling.active = false
+        suite.expect(rolling.leavingLayers.isEmpty, "turned inactive mid-roll, the roll ends at once")
         let view = rollingView()
         view.active = false
         view.show("↓ 9.6 MB/s", animated: false, countsDown: nil)
-        view.offer(view.naturalSize.width * 0.3)
+        view.frame = CGRect(x: 0, y: 0, width: view.naturalSize.width * 0.3, height: 28)
         view.layout()
         suite.expect(!view.isTruncated, "an unseen copy draws no ellipsis")
         suite.expect(RollingDigitsText.animates(reduceMotion: false, transaction: Transaction(animation: .default),
@@ -242,9 +280,16 @@ enum RollingDigitsTests {
     /// The shortcut tile's longest reading fits its 68 pt line at the 0.7 the
     /// tile allows, since the rolling line scales without respacing.
     private static func shortcutTile(_ suite: TestSuite) {
+        let tile = RollingDigitsView(frame: CGRect(x: 0, y: 0, width: 68, height: 16))
+        tile.configure(style: RollingDigitsStyle(size: 11, weight: .semibold), color: .white, duration: 0.3,
+                       frameRates: RollingDigitsView.defaultFrameRates, minimumScaleFactor: 0.7)
+        tile.show("dom, 10:45 p. m.", animated: false, countsDown: nil)
+        tile.layout()
+        suite.expect(!tile.isTruncated && tile.naturalSize.width * 0.7 <= 68,
+                     "\"dom, 10:45 p. m.\" (\(tile.naturalSize.width) pt laid out as slots) fits 68 pt at 0.7")
         let font = RollingDigitsStyle(size: 11, weight: .semibold).font()
-        let width = RollingDigitsGlyphs.shared.width(of: "dom, 10:45 p. m.", font: font)
-        suite.expect(width * 0.7 <= 68, "\"dom, 10:45 p. m.\" (\(width) pt) fits 68 pt at 0.7")
+        suite.expect(tile.naturalSize.width <= RollingDigitsGlyphs.shared.width(of: "dom, 10:45 p. m.", font: font) + 1,
+                     "slots placed by their real advances are no wider than the line drawn whole")
     }
 
     /// As numericText: a change rolls only inside an animation that is not
@@ -283,6 +328,73 @@ enum RollingDigitsTests {
                                     "NetworkSection.swift", "PowerSection.swift"]
         suite.expect(!numeric.isEmpty && Set(numeric).isSubset(of: allowed),
                      "no island reading draws numericText any more (\(numeric.sorted()))")
+    }
+
+    /// In a real SwiftUI host the bounds SwiftUI gives are the room: a line
+    /// beside a Spacer stands whole, a narrow box shrinks or cuts it, and a
+    /// wider box afterwards gives it back, whatever SwiftUI probed in between.
+    private static func hosted(_ suite: TestSuite) {
+        final class Model: ObservableObject { @Published var width: CGFloat = 300 }
+        struct Row: View {
+            @ObservedObject var model: Model
+            var body: some View {
+                HStack(spacing: 4) {
+                    RollingDigitsText("↓ 9.6 MB/s", style: .rounded(22, .medium), color: .white, minimumScaleFactor: 0.75)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: model.width, height: 30)
+            }
+        }
+        struct Tile: View {
+            var body: some View {
+                VStack(spacing: 1) {
+                    RollingDigitsText("dom, 10:45 p. m.", style: RollingDigitsStyle(size: 11, weight: .semibold),
+                                      color: .white, minimumScaleFactor: 0.7)
+                    ViewThatFits(in: .horizontal) {
+                        Text("Calendario").font(.system(size: 10))
+                        Text("Cal.").font(.system(size: 10))
+                    }
+                }
+                .lineLimit(1)
+                .frame(width: 68, height: 40)
+            }
+        }
+        func rolling(in view: NSView) -> RollingDigitsView? {
+            if let found = view as? RollingDigitsView { return found }
+            return view.subviews.lazy.compactMap { rolling(in: $0) }.first
+        }
+        func settle(_ host: NSView) {
+            for _ in 0..<3 {
+                host.layoutSubtreeIfNeeded()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+            }
+        }
+        let model = Model()
+        let host = NSHostingView(rootView: Row(model: model))
+        host.frame = CGRect(x: 0, y: 0, width: 300, height: 30)
+        settle(host)
+        guard let line = rolling(in: host) else {
+            suite.expect(false, "the hosted line has a RollingDigitsView")
+            return
+        }
+        suite.expect(!line.isTruncated && line.currentFit == 1, "beside a Spacer the line stands whole")
+        model.width = line.naturalSize.width * 0.5
+        host.frame.size.width = model.width
+        settle(host)
+        suite.expect(line.isTruncated, "a box too narrow even shrunk cuts the line")
+        model.width = 300
+        host.frame.size.width = 300
+        settle(host)
+        suite.expect(!line.isTruncated && line.currentFit == 1, "a wider box afterwards gives the line back whole")
+
+        let tile = NSHostingView(rootView: Tile())
+        tile.frame = CGRect(x: 0, y: 0, width: 68, height: 40)
+        settle(tile)
+        if let reading = rolling(in: tile) {
+            suite.expect(!reading.isTruncated, "the shortcut tile's longest reading fits beside its ViewThatFits title")
+        } else {
+            suite.expect(false, "the hosted tile has a RollingDigitsView")
+        }
     }
 
     private static func source(_ path: String) -> String {
