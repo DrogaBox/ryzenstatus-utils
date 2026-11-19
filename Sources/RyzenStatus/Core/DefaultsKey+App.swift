@@ -149,7 +149,7 @@ extension DefaultsKey {
     static let nowPlayingMarqueeSlide = "nowPlayingMarqueeSlide" // slide the text in when the track changes
     static let nowPlayingArtworkSize = "nowPlayingArtworkSize" // popup artwork tile size in pt (120–260)
     static let nowPlayingUnloadWhenHidden = "nowPlayingUnloadWhenHidden" // drop the popup content while the popover is hidden
-    static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify)
+    static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify, 3 kaset, 4 tidal)
     static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
     static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section
     static let nowPlayingArtworkAnimation = "nowPlayingArtworkAnimation" // crossfade when the artwork changes

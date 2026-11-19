@@ -107,6 +107,12 @@ final class NowPlayingService: ObservableObject {
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
+    /// Reads the media session where macOS keeps it from this app (15.4 and
+    /// later). Used only on `queue`; it runs only while polling does.
+    private let sessionReader = NowPlayingSessionReader()
+    /// The last title the session reader delivered, on `queue`, so a TIDAL
+    /// song change is read once more before it is shown.
+    private var lastSessionTitle: String?
     /// Data-keyed fingerprint memoization: the artwork bytes repeat on
     /// every poll of the same track, so comparing them skips the 12×12
     /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
@@ -258,6 +264,10 @@ final class NowPlayingService: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        queue.async { [weak self] in
+            self?.sessionReader.stop()
+            self?.lastSessionTitle = nil
+        }
         stopMarquee()
         pollGeneration += 1
         lastPollStartedAt = 0
@@ -289,6 +299,13 @@ final class NowPlayingService: ObservableObject {
         let gen = pollGeneration
         let provider = NowPlayingProvider(rawValue: UserDefaults.standard
             .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
+
+        if MediaRemoteBridge.readsBlockedBySystem, !provider.isScripted {
+            queue.async { [weak self] in
+                self?.readSession(provider: provider, generation: gen, settled: false)
+            }
+            return
+        }
 
         if MediaRemoteBridge.readsBlockedBySystem {
             NowPlayingAutomation.fetchSnapshot(provider: provider, queue: queue) { [weak self] snapshot in
@@ -340,6 +357,54 @@ final class NowPlayingService: ObservableObject {
                     self.apply(next)
                 }
             }
+        }
+    }
+
+    /// Reads the system session through the session reader, on `queue`. A
+    /// player with a scripting dictionary (Music, Spotify, Kaset) is read
+    /// through it instead, as before, for its extra details; so is everything
+    /// when the session cannot be read. Every other player, TIDAL first among
+    /// them, is shown from the session.
+    private func readSession(provider: NowPlayingProvider, generation gen: Int, settled: Bool) {
+        let reading = sessionReader.read()
+        if !settled, let reading, reading.snapshot.appBundleID == NowPlayingTidal.bundleID,
+           reading.snapshot.hasTrack, let last = lastSessionTitle, reading.snapshot.title != last {
+            queue.asyncAfter(deadline: .now() + NowPlayingTidal.titleSettleDelay) { [weak self] in
+                self?.readSession(provider: provider, generation: gen, settled: true)
+            }
+            return
+        }
+        lastSessionTitle = reading?.snapshot.title
+        if let reading, reading.snapshot.hasTrack,
+           NowPlayingProvider.scripted(for: reading.snapshot.appBundleID) == nil {
+            var next = reading.snapshot
+            if let bundleID = next.appBundleID {
+                if let cached = appNameCache[bundleID] {
+                    next.appName = cached
+                } else {
+                    let name = appName(for: bundleID)
+                    appNameCache[bundleID] = name
+                    next.appName = name
+                }
+            }
+            deliverSessionReading(next, provider: provider, generation: gen)
+            return
+        }
+        guard provider == .auto else {
+            deliverSessionReading(.empty, provider: provider, generation: gen)
+            return
+        }
+        NowPlayingAutomation.fetchSnapshot(provider: .auto, queue: queue) { [weak self] snapshot in
+            var next = snapshot
+            next.sampledAt = Date()
+            self?.deliverSessionReading(next, provider: provider, generation: gen)
+        }
+    }
+
+    private func deliverSessionReading(_ snapshot: NowPlayingSnapshot, provider: NowPlayingProvider, generation gen: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.timer != nil, gen == self.pollGeneration else { return }
+            self.apply(provider.accepts(snapshot.appBundleID) ? snapshot : .empty)
         }
     }
 
@@ -614,6 +679,9 @@ final class NowPlayingService: ObservableObject {
     }
 
     var canSeek: Bool { playback?.canSeek == true }
+
+    /// Whether the menu panel's and the popup's position slider may seek.
+    var snapshotAcceptsSeek: Bool { snapshot.acceptsSeek }
 
     func lacksTrackSkipping(_ command: NowPlayingTransportCommand) -> Bool {
         switch command {

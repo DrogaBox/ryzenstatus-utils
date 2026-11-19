@@ -272,7 +272,9 @@ struct MetricsTests {
                    && !npStrings.providerMusic.isEmpty
                    && !npStrings.providerSpotify.isEmpty
                    && !npStrings.providerKaset.isEmpty
-                   && !npStrings.searchKasetPlaceholder.isEmpty,
+                   && !npStrings.searchKasetPlaceholder.isEmpty
+                   && !npStrings.providerTidal.isEmpty
+                   && !npStrings.searchTidalPlaceholder.isEmpty,
                    "\(language.rawValue) Now Playing strings are localized")
 
             let amdStrings = FeatureStrings.amdPower(language)
@@ -9234,6 +9236,101 @@ struct MetricsTests {
             expect(NowPlayingSearch.resolvedProvider(snapshot: kasetSnap) == .kaset, "NowPlayingSearch resolves Kaset provider")
 
             checks += 28
+        }
+
+        // 7. TIDAL and the media session reader (macOS 15.4+)
+        do {
+            let tidal = NowPlayingProvider.tidal
+            expect(tidal.accepts("com.tidal.desktop"), "TIDAL provider accepts the TIDAL desktop app")
+            expect(!tidal.accepts("com.tidal.desktop.player") && !tidal.accepts("com.spotify.client") && !tidal.accepts(nil),
+                   "TIDAL provider rejects its audio helper, other players and no app")
+            expect(NowPlayingProvider(rawValue: 4) == .tidal, "TIDAL keeps stored provider value 4")
+            expect(!tidal.isScripted && !NowPlayingProvider.auto.isScripted
+                   && NowPlayingProvider.music.isScripted && NowPlayingProvider.spotify.isScripted && NowPlayingProvider.kaset.isScripted,
+                   "Only Music, Spotify and Kaset are read over AppleScript")
+            expect(NowPlayingProvider.scripted(for: "com.tidal.desktop") == nil
+                   && NowPlayingProvider.scripted(for: "com.apple.Music") == .music
+                   && NowPlayingProvider.scripted(for: "com.spotify.client") == .spotify
+                   && NowPlayingProvider.scripted(for: "com.sertacozercan.kaset") == .kaset,
+                   "A session's scripted provider is found by its bundle")
+
+            var tidalSnap = NowPlayingSnapshot()
+            tidalSnap.title = "Sunlight"
+            tidalSnap.appBundleID = "com.tidal.desktop"
+            tidalSnap.duration = 338
+            expect(NowPlayingSearch.resolvedProvider(snapshot: tidalSnap) == .tidal, "NowPlayingSearch resolves a TIDAL session to TIDAL")
+            expect(!tidalSnap.acceptsSeek, "TIDAL ignores seeks, so its position is not a control")
+            expect(NowPlayingPlayback.make(from: tidalSnap, pid: 7, sampledAt: Date())?.canSeek == false,
+                   "Island feed: a TIDAL song is not seekable")
+            var musicSnap = tidalSnap
+            musicSnap.appBundleID = "com.apple.Music"
+            expect(musicSnap.acceptsSeek, "A player that seeks keeps its position control")
+            musicSnap.duration = nil
+            expect(!musicSnap.acceptsSeek, "No duration means no position control")
+            expectEqual(NowPlayingTidal.searchURL(for: "max richter")?.absoluteString ?? "",
+                        "tidal:///search?q=max%20richter", "TIDAL search opens its own search page")
+
+            expect(NowPlayingCommand.seekToPlaybackPosition.rawValue == 24 && NowPlayingCommand.nextTrack.rawValue == 4
+                   && NowPlayingCommand.previousTrack.rawValue == 5 && NowPlayingCommand.togglePlayPause.rawValue == 2,
+                   "MediaRemote commands: seek is 24 (20 is RateTrack)")
+
+            // Playing state: TIDAL sends a rate and no "is playing" key.
+            expect(NowPlayingSessionReading.isPlaying(flag: nil, rate: 1), "No playing key: a running rate is playing")
+            expect(!NowPlayingSessionReading.isPlaying(flag: nil, rate: 0) && !NowPlayingSessionReading.isPlaying(flag: nil, rate: nil),
+                   "No playing key: a stopped or missing rate is paused")
+            expect(!NowPlayingSessionReading.isPlaying(flag: true, rate: 0) && NowPlayingSessionReading.isPlaying(flag: true, rate: nil)
+                   && !NowPlayingSessionReading.isPlaying(flag: false, rate: 1),
+                   "A playing key wins, held back by a stopped rate")
+
+            // The session keeps the elapsed time of the last state change.
+            let stamp = Date(timeIntervalSince1970: 1_000)
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 338,
+                                                         now: stamp.addingTimeInterval(162)) ?? -1, 212,
+                        "Session elapsed moves on from its timestamp while playing")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: false, duration: 338,
+                                                         now: stamp.addingTimeInterval(162)) ?? -1, 50,
+                        "Session elapsed stays put while paused")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 100,
+                                                         now: stamp.addingTimeInterval(500)) ?? -1, 100,
+                        "Session elapsed is clamped to the duration")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 338,
+                                                         now: stamp.addingTimeInterval(-30)) ?? -1, 50,
+                        "A timestamp in the future does not move the playhead back")
+            expect(NowPlayingSessionReading.elapsed(nil, at: stamp, rate: 1, isPlaying: true, duration: 338, now: stamp) == nil
+                   && NowPlayingSessionReading.elapsed(-.infinity, at: stamp, rate: 1, isPlaying: true, duration: 338, now: stamp) == nil,
+                   "Missing or invalid elapsed time stays unknown")
+
+            // A reader line, as the script prints it for TIDAL on macOS 26.
+            let line = #"{"seq":3,"playing":1,"bundle":"com.tidal.desktop","pid":12262,"title":" Richter: Sunlight ","artist":"Louisa Fuller","album":"Voyager","elapsed":50.648,"duration":338.24,"rate":1,"timestamp":1795062276}"#
+            let readAt = Date(timeIntervalSince1970: 1_795_062_286)
+            let parsed = NowPlayingSessionReading.parse(line: Data(line.utf8), now: readAt)
+            expect(parsed?.sequence == 3 && parsed?.pid == 12262, "Reader line: sequence and player pid")
+            expect(parsed?.snapshot.title == "Richter: Sunlight" && parsed?.snapshot.artist == "Louisa Fuller"
+                   && parsed?.snapshot.album == "Voyager" && parsed?.snapshot.appBundleID == "com.tidal.desktop",
+                   "Reader line: trimmed song fields and the owning app")
+            expect(parsed?.snapshot.isPlaying == true && parsed?.snapshot.sampledAt == readAt, "Reader line: playing, sampled now")
+            expectClose(parsed?.snapshot.elapsed ?? -1, 60.648, "Reader line: elapsed at the time of reading", tol: 0.001)
+            expectClose(parsed?.snapshot.duration ?? -1, 338.24, "Reader line: duration")
+            let paused = NowPlayingSessionReading.parse(line: Data(#"{"seq":4,"playing":0,"bundle":"com.tidal.desktop","title":"Sunlight","elapsed":102.354,"rate":0,"duration":0}"#.utf8), now: readAt)
+            expect(paused?.snapshot.isPlaying == false && paused?.snapshot.duration == nil && paused?.pid == nil,
+                   "Reader line: paused, a zero duration is no duration, no pid")
+            let nothing = NowPlayingSessionReading.parse(line: Data(#"{"seq":5,"playing":0}"#.utf8))
+            expect(nothing?.snapshot.hasTrack == false && nothing?.sequence == 5, "Reader line: nothing playing is an empty reading")
+            expect(NowPlayingSessionReading.parse(line: Data("not json".utf8)) == nil
+                   && NowPlayingSessionReading.parse(line: Data(#"{"title":"x"}"#.utf8)) == nil
+                   && NowPlayingSessionReading.parse(line: Data(#"{"seq":"1","title":"x"}"#.utf8)) == nil,
+                   "Reader line: malformed or unnumbered lines are dropped")
+            expect(NowPlayingSessionReader.script.contains("MRNowPlayingRequest")
+                   && NowPlayingSessionReader.script.contains("if (!received) $.exit(0);"),
+                   "Reader script reads the session and ends with its input")
+
+            // The music app opened when nothing plays.
+            let installed: Set<String> = ["com.tidal.desktop", "com.apple.Music"]
+            expect(NowPlayingPreferredPlayer.known.contains("com.tidal.desktop"), "TIDAL is a known music app")
+            expect(NowPlayingPreferredPlayer.resolve(choice: "", lastPlayed: nil, isInstalled: { installed.contains($0) }) == "com.tidal.desktop",
+                   "Without a choice, an installed TIDAL comes before Apple Music")
+            expect(NowPlayingPreferredPlayer.resolve(choice: "", lastPlayed: "com.apple.Music", isInstalled: { installed.contains($0) }) == "com.apple.Music",
+                   "The app that played last still wins over TIDAL")
         }
 
         // MARK: Now Playing island feed (playback mapping, song changes, timed lyrics, scripting)
