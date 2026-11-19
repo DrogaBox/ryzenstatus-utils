@@ -122,6 +122,9 @@ final class NowPlayingService: ObservableObject {
     /// The newest polling run `stopPolling` ended, on `queue`: a delayed
     /// reading of that run or an older one does nothing.
     private var retiredGeneration = Int.min
+    /// The TIDAL reading waiting for its new song to settle, on `queue`.
+    /// Every stop of the reader cancels it.
+    private var pendingSettle: DispatchWorkItem?
     /// Data-keyed fingerprint memoization: the artwork bytes repeat on
     /// every poll of the same track, so comparing them skips the 12×12
     /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
@@ -274,6 +277,9 @@ final class NowPlayingService: ObservableObject {
         timer?.invalidate()
         timer = nil
         let retired = pollGeneration
+        // The reader may be waiting on `queue` for a reply: end its script
+        // now, so quitting never waits behind it.
+        sessionReader.terminateNow()
         queue.async { [weak self] in
             guard let self else { return }
             self.retiredGeneration = max(self.retiredGeneration, retired)
@@ -381,12 +387,16 @@ final class NowPlayingService: ObservableObject {
     private func readSession(provider: NowPlayingProvider, generation gen: Int, settled: Bool) {
         // A delayed reading must not start a new reader for a run that ended.
         guard gen > retiredGeneration else { return }
+        if settled { pendingSettle = nil }
         let reading = sessionReader.read()
         if !settled, let reading, reading.snapshot.appBundleID == NowPlayingTidal.bundleID,
            reading.snapshot.hasTrack, let last = lastSessionTitle, reading.snapshot.title != last {
-            queue.asyncAfter(deadline: .now() + NowPlayingTidal.titleSettleDelay) { [weak self] in
+            pendingSettle?.cancel()
+            let settle = DispatchWorkItem { [weak self] in
                 self?.readSession(provider: provider, generation: gen, settled: true)
             }
+            pendingSettle = settle
+            queue.asyncAfter(deadline: .now() + NowPlayingTidal.titleSettleDelay, execute: settle)
             return
         }
         lastSessionTitle = reading?.snapshot.title
@@ -453,8 +463,9 @@ final class NowPlayingService: ObservableObject {
     private func requestCover(for reading: NowPlayingSnapshot, key: String, generation gen: Int) {
         coverQueue.async { [weak self] in
             guard let self else { return }
-            // A song skipped while earlier covers were read costs no launch.
-            let current = self.queue.sync { self.sessionCover?.key == key }
+            // A song skipped while earlier covers were read, or one whose
+            // first try came back late with its cover, costs no launch.
+            let current = self.queue.sync { self.sessionCover?.key == key && self.sessionCover?.data == nil }
             guard current, self.coverReader.isReady() else { return }
             let cover = self.coverReader.read()
             let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
@@ -476,6 +487,8 @@ final class NowPlayingService: ObservableObject {
     /// Ends the session reader and forgets its song, on `queue`. Polling
     /// starts it again when it needs it.
     private func stopSessionReading() {
+        pendingSettle?.cancel()
+        pendingSettle = nil
         sessionReader.stop()
         lastSessionTitle = nil
         sessionCover = nil

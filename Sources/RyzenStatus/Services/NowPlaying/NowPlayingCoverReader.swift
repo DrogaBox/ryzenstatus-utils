@@ -78,8 +78,27 @@ final class NowPlayingCoverReader {
     private let libraryURL: URL?
     private let frameworksURL: URL?
     private var backoff = NowPlayingCoverBackoff()
-    /// The library's signature is checked once per run.
-    private var verifiedLibrary = false
+    /// The file whose signature was last found good. A file that changed
+    /// since (other inode, size or modification time) is checked again.
+    private var verifiedLibrary: FileIdentity?
+
+    struct FileIdentity: Equatable {
+        var device: Int64
+        var inode: UInt64
+        var size: Int64
+        var modifiedSeconds: Int
+        var modifiedNanoseconds: Int
+
+        init?(path: String) {
+            var info = stat()
+            guard stat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+            device = Int64(info.st_dev)
+            inode = UInt64(info.st_ino)
+            size = Int64(info.st_size)
+            modifiedSeconds = Int(info.st_mtimespec.tv_sec)
+            modifiedNanoseconds = Int(info.st_mtimespec.tv_nsec)
+        }
+    }
 
     var gaveUp: Bool { backoff.stopped }
 
@@ -104,19 +123,26 @@ final class NowPlayingCoverReader {
             note(.unavailable, "\(Self.libraryName) is not in the app bundle", at: uptime)
             return nil
         }
-        if !verifiedLibrary {
-            guard Self.isInside(libraryURL, frameworks: frameworksURL) else {
-                note(.unavailable, "\(Self.libraryName) is not inside the app's Frameworks folder", at: uptime)
-                return nil
-            }
-            guard Self.isSignedLikeThisApp(libraryURL) else {
+        // One resolved path is checked and given to perl.
+        let library = libraryURL.resolvingSymlinksInPath().standardizedFileURL
+        guard Self.isInside(library, frameworks: frameworksURL) else {
+            note(.unavailable, "\(Self.libraryName) is not inside the app's Frameworks folder", at: uptime)
+            return nil
+        }
+        guard let identity = FileIdentity(path: library.path) else {
+            note(.unavailable, "\(Self.libraryName) is not a regular file", at: uptime)
+            return nil
+        }
+        if identity != verifiedLibrary {
+            guard Self.isSignedLikeThisApp(library) else {
+                verifiedLibrary = nil
                 note(.unavailable, "\(Self.libraryName) fails its code signature check", at: uptime)
                 return nil
             }
-            verifiedLibrary = true
+            verifiedLibrary = identity
         }
         let result = BoundedProcessRunner.run(
-            "/usr/bin/perl", ["-e", Self.loader, libraryURL.resolvingSymlinksInPath().path],
+            "/usr/bin/perl", ["-e", Self.loader, library.path],
             timeout: Self.timeout, maxOutputBytes: Self.maximumOutputBytes,
             // Nothing from the app's environment (PERL5LIB, PERL5OPT) reaches perl.
             environment: NowPlayingSessionReader.childEnvironment)
@@ -153,14 +179,18 @@ final class NowPlayingCoverReader {
         return !file.dropFirst(folder.count + 1).contains("/")
     }
 
-    /// The library's own signature is intact, and when this app is signed by
-    /// a team the library is signed by the same team. Ad-hoc builds have no
-    /// team to compare, so they get the integrity check only.
+    /// The library's own signature is intact in every architecture, and when
+    /// this app is signed by a team the library is signed by the same team.
+    /// Every slice counts: perl runs natively (arm64 on Apple silicon) while
+    /// the app may run under Rosetta, and without the flag only the slice of
+    /// the app's own architecture is checked. Ad-hoc builds have no team to
+    /// compare, so they get the integrity check only.
     static func isSignedLikeThisApp(_ library: URL) -> Bool {
         var staticCode: SecStaticCode?
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures)
         guard SecStaticCodeCreateWithPath(library as CFURL, [], &staticCode) == errSecSuccess,
               let staticCode,
-              SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSStrictValidate), nil) == errSecSuccess
+              SecStaticCodeCheckValidity(staticCode, flags, nil) == errSecSuccess
         else { return false }
         guard let appTeam = runningAppTeamIdentifier() else { return true }
         return teamIdentifier(of: staticCode) == appTeam

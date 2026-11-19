@@ -9391,6 +9391,15 @@ struct MetricsTests {
                 let bundleSign = body.firstIndex(where: { $0.contains("--sign \"$devid\" \"$bundle\"") })
                 expect(libraryLoop != nil && bundleSign != nil && libraryLoop! < bundleSign!,
                        "build.sh --install signs the libraries again before the installed bundle")
+                if let libraryLoop, let loopEnd = body[libraryLoop...].firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "done" }) {
+                    let loop = body[libraryLoop...loopEnd].joined(separator: "\n")
+                    expect(loop.contains("--sign \"$devid\" \"$library\"")
+                           && loop.contains("--sign \"$LEGACY_IDENTITY\" \"$library\"")
+                           && loop.contains("--sign - \"$library\""),
+                           "build.sh --install signs the libraries with Developer ID, the legacy identity or ad-hoc")
+                } else {
+                    expect(false, "build.sh --install keeps its library signing loop")
+                }
             } else {
                 expect(false, "build.sh keeps finalize_installed_bundle_after_child")
             }
@@ -9429,6 +9438,9 @@ struct MetricsTests {
                    "Reader line: quotes, newlines, accents and emoji survive")
             expect(escaped?.snapshot.elapsed == nil && escaped?.snapshot.duration == nil && escaped?.snapshot.isPlaying == true,
                    "Reader line: numbers sent as text are unknown, the playing key still counts")
+            let textRate = NowPlayingSessionReading.parse(line: Data(#"{"seq":10,"title":"T","rate":"1"}"#.utf8), now: readAt)
+            expect(textRate != nil && textRate?.snapshot.isPlaying == false,
+                   "Reader line: a rate sent as text, with no playing key, is not playing")
 
             // Reader health: three failures in a row rest it for a minute.
             var health = NowPlayingReaderHealth()
@@ -9489,6 +9501,41 @@ struct MetricsTests {
                    && !NowPlayingCoverReader.isInside(inside, frameworks: nil),
                    "Cover library: subfolders, parent paths and no Frameworks folder are refused")
             expect(!NowPlayingCoverReader.isSignedLikeThisApp(inside), "Cover library: an unsigned file fails the signature check")
+
+            // A signed library passes; one whose other slice was changed does
+            // not (perl may load a slice the app does not run).
+            let signedCopy = frameworks.appendingPathComponent("Signed.dylib")
+            try? FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: signedCopy)
+            let signer = Process()
+            signer.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            signer.arguments = ["--force", "--sign", "-", signedCopy.path]
+            signer.standardOutput = FileHandle.nullDevice
+            signer.standardError = FileHandle.nullDevice
+            let signed = (try? signer.run()) != nil && { signer.waitUntilExit(); return signer.terminationStatus == 0 }()
+            expect(signed && NowPlayingCoverReader.isSignedLikeThisApp(signedCopy),
+                   "Cover library: an ad-hoc signed universal file passes the signature check")
+            if signed, var bytes = try? Data(contentsOf: signedCopy), bytes.count > 8,
+               bytes[0] == 0xCA, bytes[1] == 0xFE, bytes[2] == 0xBA, bytes[3] == 0xBE {
+                func word(_ at: Int) -> Int { bytes[at..<at + 4].reduce(0) { $0 << 8 | Int($1) } }
+                #if arch(x86_64)
+                let otherCPU = 0x0100_000C   // arm64
+                #else
+                let otherCPU = 0x0100_0007   // x86_64
+                #endif
+                let slices = (0..<word(4)).map { 8 + 20 * $0 }
+                if let slice = slices.first(where: { word($0) == otherCPU }) {
+                    let changed = word(slice + 8) + 0x1000
+                    bytes[changed] ^= 0xFF
+                    let tampered = frameworks.appendingPathComponent("Tampered.dylib")
+                    try? bytes.write(to: tampered)
+                    expect(!NowPlayingCoverReader.isSignedLikeThisApp(tampered),
+                           "Cover library: a change in the slice the app does not run fails the signature check")
+                } else {
+                    expect(false, "/usr/bin/true carries both architectures")
+                }
+            } else {
+                expect(false, "/usr/bin/true is a universal file that codesign signs")
+            }
             let wrongPlace = NowPlayingCoverReader(libraryURL: outsideFile, frameworksURL: frameworks)
             expect(wrongPlace.read() == nil && wrongPlace.gaveUp, "Cover library: perl is never started for a library outside Frameworks")
             try? FileManager.default.removeItem(at: frameworks.deletingLastPathComponent())

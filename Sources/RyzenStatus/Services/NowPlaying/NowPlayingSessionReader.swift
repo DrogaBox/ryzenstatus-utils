@@ -99,7 +99,8 @@ struct NowPlayingReaderHealth: Equatable {
 /// callback, which a script cannot pass), so players read here show their app
 /// icon in place of a cover.
 ///
-/// Not thread-safe: every call runs on the caller's serial queue.
+/// Not thread-safe: every call runs on the caller's serial queue, except
+/// `terminateNow`.
 final class NowPlayingSessionReader {
     /// A long-lived script keeps a little memory per reading; a fresh process
     /// after this many readings (about ten minutes at one every two seconds)
@@ -119,6 +120,9 @@ final class NowPlayingSessionReader {
     private var sequence = 0
     private var served = 0
     private var health = NowPlayingReaderHealth()
+    /// The running script, for `terminateNow` from another thread.
+    private let liveLock = NSLock()
+    private var live: Process?
 
     deinit { stop() }
 
@@ -143,6 +147,16 @@ final class NowPlayingSessionReader {
         return reading
     }
 
+    /// Sends the running script SIGTERM at once, from any thread, without
+    /// waiting for a read in progress on the caller's queue. That read then
+    /// fails, and `stop` cleans up as usual.
+    func terminateNow() {
+        liveLock.lock()
+        let running = live
+        liveLock.unlock()
+        if let running, running.isRunning { running.terminate() }
+    }
+
     /// Ends the script. A script that does not leave on SIGTERM (stuck in a
     /// media daemon call) is killed half a second later.
     func stop() {
@@ -155,6 +169,7 @@ final class NowPlayingSessionReader {
         }
         try? requests?.close()
         try? replies?.close()
+        setLive(nil)
         process = nil
         requests = nil
         replies = nil
@@ -178,11 +193,18 @@ final class NowPlayingSessionReader {
         try? input.fileHandleForReading.close()
         try? output.fileHandleForWriting.close()
         process = child
+        setLive(child)
         requests = input.fileHandleForWriting
         replies = output.fileHandleForReading
         buffer.removeAll()
         served = 0
         return true
+    }
+
+    private func setLive(_ child: Process?) {
+        liveLock.lock()
+        live = child
+        liveLock.unlock()
     }
 
     private func send(_ line: String) -> Bool {
