@@ -220,7 +220,8 @@ struct ShortcutsSettings: View {
                          showsFeatureContext: Bool = true,
                          reservesClearButtonSpace: Bool = false) -> some View {
         let title = role.title(l10n.s)
-        let featureTitle = role.feature.hubTitle(l10n.s, hub: hub)
+        // A role of the app itself has no feature to name beside it.
+        let featureTitle = role.isAlwaysAvailable ? title : role.feature.hubTitle(l10n.s, hub: hub)
         let active = hasAssignedShortcut(role) && role.requiredEnableKeys.allSatisfy {
             UserDefaults.standard.bool(forKey: $0)
         }
@@ -229,6 +230,7 @@ struct ShortcutsSettings: View {
             isEnabled: !role.isKeyboardBrightness || keyboardBrightnessShortcutsEnabled,
             label: title,
             symbolName: role == .screenshotScrolling ? ScreenCaptureTool.scrolling.systemImageName
+                : role == .monitorWindow ? MonitorWindowShortcut.symbolName
                 : role.isKeyboardBrightness ? "keyboard" : role.feature.symbolName,
             contextLabel: showsFeatureContext && title != featureTitle ? featureTitle : nil,
             statusText: active ? text.active : text.inactive,
@@ -242,7 +244,7 @@ struct ShortcutsSettings: View {
                 return WindowLayoutService.shared.shortcutConflictTitle(shortcut, excluding: nil)
             },
             onChange: {
-                FeatureRuntime.shared.sync(role.availabilityFeatures)
+                role.syncRegistration()
             }
         )
     }

@@ -266,6 +266,12 @@ struct GlobalShortcut: Equatable, Hashable {
     // control-option-command layer.
     static let cleaningModeDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_B),
                                                     modifiers: [.control, .option, .command])
+    // Control-Shift-Escape, the key Windows opens Task Manager with, so the
+    // hand that knows it there finds the Monitor here. macOS 26 keeps Escape
+    // for Force Quit (Command-Option and Command-Option-Shift), Option and
+    // Command alone; Control-Shift is free in the WindowServer table.
+    static let monitorWindowDefault = GlobalShortcut(keyCode: Int64(kVK_Escape),
+                                                     modifiers: [.control, .shift])
     // L for library (S already belongs to the sound output switcher), on the
     // same free control-option-command layer.
     static let snippetLibraryDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_L),
@@ -786,6 +792,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case nowPlayingDetached
     case notch
     case cleaningMode
+    case monitorWindow
 
     var id: String { storageKey }
 
@@ -829,6 +836,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
         case .notch: return DefaultsKey.notchShortcut
         case .cleaningMode: return DefaultsKey.cleaningModeShortcut
+        case .monitorWindow: return DefaultsKey.monitorWindowShortcut
         }
     }
 
@@ -872,6 +880,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingDetached: return .nowPlayingDetachedDefault
         case .notch: return .notchDefault
         case .cleaningMode: return .cleaningModeDefault
+        case .monitorWindow: return .monitorWindowDefault
         }
     }
 
@@ -959,6 +968,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
         case .notch: return FeatureStrings.notch(L10n.shared.language).title
         case .cleaningMode: return strings.cleaningMenuItem
+        case .monitorWindow: return MonitorWindowStrings.localized(L10n.shared.language).openMonitor
         }
     }
 
@@ -1036,6 +1046,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
                                           DefaultsKey.nowPlayingDetachedShortcutEnabled]
         case .notch: return [DefaultsKey.notchEnabled, DefaultsKey.notchShortcutEnabled]
         case .cleaningMode: return [DefaultsKey.cleaningModeShortcutEnabled]
+        case .monitorWindow: return [DefaultsKey.monitorWindowShortcutEnabled]
         }
     }
 
@@ -1071,6 +1082,11 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
         case .notch: return .notch
         case .cleaningMode: return .cleaningMode
+        // The Monitor window has no hub switch of its own: it is always
+        // there. Its shortcut is listed with the monitor's features, under
+        // the first of them, and `isAlwaysAvailable` keeps it from following
+        // that feature's switch.
+        case .monitorWindow: return .monitorCPU
         }
     }
 
@@ -1106,12 +1122,18 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     var availabilityFeatures: [AppFeature] {
         switch self {
         case .recentCaptures: return [.screenshot, .screenRecorder]
+        // No hub feature can take the Monitor window away.
+        case .monitorWindow: return []
         default: return [feature]
         }
     }
 
+    /// Roles that belong to the app itself rather than to a hub feature, so
+    /// they stay registered and listed whatever the hub has switched off.
+    var isAlwaysAvailable: Bool { self == .monitorWindow }
+
     func isAvailable(using isAvailable: (AppFeature) -> Bool) -> Bool {
-        availabilityFeatures.contains(where: isAvailable)
+        isAlwaysAvailable || availabilityFeatures.contains(where: isAvailable)
     }
 
     /// The features whose own shortcuts have to go quiet while the user is
@@ -1121,7 +1143,10 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     /// plain `FeatureRuntime.sync` of this same list.
     static var featuresToSilenceWhileRecording: [AppFeature] {
         var seen: Set<AppFeature> = []
-        var features = allCases.compactMap { seen.insert($0.feature).inserted ? $0.feature : nil }
+        // An always-available role has no feature to re-sync; ShortcutCapture
+        // gives its key back itself.
+        var features = allCases.filter { !$0.isAlwaysAvailable }
+            .compactMap { seen.insert($0.feature).inserted ? $0.feature : nil }
         // Window layout keeps one shortcut per action instead of a role, so it
         // is the one holder of global keys the list above cannot reach.
         if seen.insert(.windowLayout).inserted { features.append(.windowLayout) }

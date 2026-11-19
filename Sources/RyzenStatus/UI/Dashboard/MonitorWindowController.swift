@@ -173,8 +173,9 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
     func show(section: MonitorSection? = nil) {
         if let window, let state {
             if let section, section.isAvailable { state.section = section }
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            // The global shortcut brings the window back from the Dock too.
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            bringToFront(window)
             // The same read as a new window: occlusion notifications report
             // changes, so a state that missed one is set right here too.
             state.setVisible(window.occlusionState.contains(.visible))
@@ -228,8 +229,7 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
 
         self.window = window
         self.state = state
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        bringToFront(window)
         // Only occlusion says whether anyone can see it: a window opened
         // behind another one starts hidden, and the notification above
         // reports every later change.
@@ -237,6 +237,15 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
     }
 
     private static let frameName = "RyzenStatusMonitorWindow"
+
+    /// Makes the window key with the app in front. From the global shortcut,
+    /// with another app in front, this is enough on macOS 26: the app becomes
+    /// frontmost and the window takes the keyboard (checked 2026-11-19 with
+    /// Finder in front, then ⌘2 switching the section).
+    private func bringToFront(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     // MARK: View menu
 
@@ -380,19 +389,42 @@ struct MonitorWindowView: View {
 
 /// The Settings page for the Dashboard row: the Dashboard lives in its own
 /// window (HIG Settings: the settings window holds settings), so the page
-/// offers the button that opens it, without taking focus on its own.
+/// offers the button that opens it, without taking focus on its own, and the
+/// global shortcut that opens it from any app. The section follows the
+/// quick tools' layout: action, caption, shortcut switch, recorder.
 struct MonitorLauncherPage: View {
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var shortcut = MonitorWindowShortcut.shared
+    @AppStorage(DefaultsKey.monitorWindowShortcutEnabled) private var shortcutEnabled = true
 
     var body: some View {
         let strings = MonitorWindowStrings.localized(l10n.language)
-        ContentUnavailableView {
-            Label(strings.windowTitle, systemImage: "gauge.with.dots.needle.33percent")
-        } description: {
-            Text(strings.openMonitorCaption)
-        } actions: {
-            Button(strings.openMonitor) { MonitorWindowController.shared.show() }
-                .buttonStyle(.borderedProminent)
+        Form {
+            Section {
+                Button {
+                    MonitorWindowController.shared.show()
+                } label: {
+                    Label(strings.openMonitor, systemImage: MonitorWindowShortcut.symbolName)
+                }
+                Text(strings.openMonitorCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
+                    .onChange(of: shortcutEnabled) { _, _ in
+                        MonitorWindowShortcut.shared.syncWithPreferences()
+                    }
+                ShortcutPreferenceRow(role: .monitorWindow, isEnabled: shortcutEnabled) {
+                    MonitorWindowShortcut.shared.syncWithPreferences()
+                }
+                if shortcutEnabled, shortcut.registrationFailed {
+                    Text(l10n.s.shortcutUnavailable)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(strings.windowTitle)
+            }
         }
+        .formStyle(.grouped)
     }
 }

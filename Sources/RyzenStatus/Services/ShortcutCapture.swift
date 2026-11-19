@@ -41,5 +41,8 @@ enum ShortcutCapture {
         isCapturing = false
         AppSwitcher.shared.setCapturingShortcut(false)
         FeatureRuntime.shared.sync(GlobalShortcutRole.featuresToSilenceWhileRecording)
+        // `begin` released it with every quick tool key, and no feature
+        // binding owns it to give it back.
+        MainActor.assumeIsolated { MonitorWindowShortcut.shared.syncWithPreferences() }
     }
 }
