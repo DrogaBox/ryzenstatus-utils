@@ -153,7 +153,7 @@ struct ProcessorSection: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     Text(String(format: strings.activeCoresFormat,
                                 present.filter { !$0.isSleeping }.count, present.count))
                         .font(.callout)
@@ -163,7 +163,9 @@ struct ProcessorSection: View {
                     Toggle("C0", isOn: $showsC0).help(dash.pmC0Help)
                     Toggle("CC6", isOn: $showsCC6).help(dash.pmCC6Help)
                 }
-                .toggleStyle(.button)
+                // Column switches, not actions: checkboxes, as in Activity
+                // Monitor's column choices.
+                .toggleStyle(.checkbox)
                 .controlSize(.small)
                 coreGrid(present)
                 if present.contains(where: \.isSleeping) {
