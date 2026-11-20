@@ -104,8 +104,12 @@ final class MonitorWindowState: ObservableObject {
     /// The process search, kept here so it survives a trip to another
     /// section, as it does in Activity Monitor's tabs.
     @Published var processSearch = ""
+    /// The process table's sort order and selection, kept here for the same
+    /// reason: the table's own state goes away with the section.
+    @Published var processSortOrder = [KeyPathComparator(\ProcessTableRow.cpu, order: .reverse)]
+    @Published var processSelection: pid_t?
 
-    /// Menu commands for the process table, which owns the selection.
+    /// Menu commands for the process table, which acts on the selection.
     enum Command { case inspect, terminate }
     let commands = PassthroughSubject<Command, Never>()
     /// Set by the process table, read when the View menu validates.
@@ -283,22 +287,21 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
 
     @objc private func terminateSelection(_ sender: NSMenuItem) { state?.commands.send(.terminate) }
 
-    /// AppKit calls this on the main thread. Cleaning up right here, not in
-    /// a later task, keeps a window reopened in the same turn from being
-    /// forgotten by the cleanup of the one that closed.
-    nonisolated func windowWillClose(_ notification: Notification) {
-        let closing = (notification.object as AnyObject?).map(ObjectIdentifier.init)
-        MainActor.assumeIsolated {
-            guard let window = self.window, ObjectIdentifier(window) == closing else { return }
-            if let occlusionObserver = self.occlusionObserver {
-                NotificationCenter.default.removeObserver(occlusionObserver)
-            }
-            self.occlusionObserver = nil
-            self.titleSubscription = nil
-            self.state?.setVisible(false)
-            self.state = nil
-            self.window = nil
+    /// The SDK marks this delegate method main-actor (`NS_SWIFT_UI_ACTOR` in
+    /// NSWindow.h), so it is a plain method of this main-actor class.
+    /// Cleaning up right here, not in a later task, keeps a window reopened
+    /// in the same turn from being forgotten by the cleanup of the one that
+    /// closed.
+    func windowWillClose(_ notification: Notification) {
+        guard let window, notification.object as AnyObject? === window else { return }
+        if let occlusionObserver {
+            NotificationCenter.default.removeObserver(occlusionObserver)
         }
+        occlusionObserver = nil
+        titleSubscription = nil
+        state?.setVisible(false)
+        state = nil
+        self.window = nil
     }
 }
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import Combine
+import os
 import SwiftUI
 
 /// One row of the process table: an app with its helpers summed in, the way
@@ -29,8 +30,9 @@ struct ProcessTableRow: Identifiable, Equatable {
 final class ProcessesFeed: ObservableObject {
     @Published private(set) var rows: [ProcessTableRow] = []
     @Published private(set) var loaded = false
-    @Published var sortOrder = [KeyPathComparator(\ProcessTableRow.cpu, order: .reverse)] {
-        didSet { rebuild() }
+    /// Mirrors the window state's sort order, which outlives this feed.
+    var sortOrder = [KeyPathComparator(\ProcessTableRow.cpu, order: .reverse)] {
+        didSet { if sortOrder != oldValue { rebuild() } }
     }
     @Published var search = "" {
         didSet { if search != oldValue { rebuild() } }
@@ -175,7 +177,6 @@ struct ProcessesSection: View {
     @StateObject private var feed = ProcessesFeed()
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var runtime = FeatureRuntime.shared
-    @State private var selection: pid_t?
     @State private var killRequest: ProcessKillRequest?
     @State private var killUnavailable = false
     @State private var processGone = false
@@ -205,7 +206,8 @@ struct ProcessesSection: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
             Divider()
-            Table(feed.rows, selection: $selection, sortOrder: $feed.sortOrder, columnCustomization: $columns) {
+            Table(feed.rows, selection: $state.processSelection, sortOrder: $state.processSortOrder,
+                  columnCustomization: $columns) {
                 TableColumn(suite.processColumn, value: \.name) { row in
                     HStack(spacing: 6) {
                         Image(nsImage: ResponsibleProcess.icon(for: row.pid, pointSize: 16))
@@ -272,7 +274,7 @@ struct ProcessesSection: View {
             .overlay {
                 if !feed.loaded {
                     ProgressView(dash.loadingProcesses).controlSize(.small)
-                } else if feed.sortOrder.first?.keyPath == \ProcessTableRow.gpuSortValue,
+                } else if state.processSortOrder.first?.keyPath == \ProcessTableRow.gpuSortValue,
                           !feed.rows.isEmpty, feed.rows.allSatisfy({ ($0.gpu ?? 0) == 0 }),
                           ProcessUsageService.shared.hasGPUDeltaSample {
                     // A driver that bills GPU time to no process says so,
@@ -339,6 +341,7 @@ struct ProcessesSection: View {
         .onAppear {
             loadColumns()
             feed.search = state.processSearch
+            feed.sortOrder = state.processSortOrder
             feed.setActive(state.isVisible)
             publishSelection()
         }
@@ -349,7 +352,8 @@ struct ProcessesSection: View {
         }
         .onChange(of: state.isVisible) { _, visible in feed.setActive(visible) }
         .onChange(of: state.processSearch) { _, search in feed.search = search }
-        .onChange(of: selection) { _, _ in publishSelection() }
+        .onChange(of: state.processSortOrder) { _, order in feed.sortOrder = order }
+        .onChange(of: state.processSelection) { _, _ in publishSelection() }
         .onChange(of: feed.rows) { _, _ in publishSelection() }
         .onReceive(state.commands) { command in
             guard let row = selectedRow else { return }
@@ -371,7 +375,7 @@ struct ProcessesSection: View {
     }
 
     private var selectedRow: ProcessTableRow? {
-        selection.flatMap { pid in feed.rows.first { $0.pid == pid } }
+        state.processSelection.flatMap { pid in feed.rows.first { $0.pid == pid } }
     }
 
     private func row(_ pids: Set<pid_t>) -> ProcessTableRow? {
@@ -420,10 +424,32 @@ struct ProcessesSection: View {
     }
 
     private func loadColumns() {
-        if let saved = try? JSONDecoder().decode(TableColumnCustomization<ProcessTableRow>.self, from: columnData) {
-            columns = saved
+        let restored = Self.restoredColumns(from: columnData)
+        columns = restored.columns
+        if let failure = restored.failure, !Self.loggedColumnFailure {
+            Self.loggedColumnFailure = true
+            Self.log.error("saved process columns do not decode, using the default layout: \(String(describing: failure), privacy: .public)")
         }
         applyEnergyGate()
+    }
+
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ryzenstatus",
+                                    category: "monitor")
+    /// The section reappears on every trip back, so a layout that does not
+    /// decode is logged once per launch, not on every visit.
+    @MainActor private static var loggedColumnFailure = false
+
+    /// The saved column layout, or the default one when nothing is saved or
+    /// the saved data no longer decodes (a row type that changed since a
+    /// layout was saved). `failure` is the decode error, nil otherwise.
+    nonisolated static func restoredColumns(from data: Data)
+        -> (columns: TableColumnCustomization<ProcessTableRow>, failure: Error?) {
+        guard !data.isEmpty else { return (TableColumnCustomization(), nil) }
+        do {
+            return (try JSONDecoder().decode(TableColumnCustomization<ProcessTableRow>.self, from: data), nil)
+        } catch {
+            return (TableColumnCustomization(), error)
+        }
     }
 
     /// The energy estimate shows only while its feature is on, as the Energy

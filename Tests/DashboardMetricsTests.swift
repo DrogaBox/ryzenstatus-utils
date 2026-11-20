@@ -4,6 +4,7 @@
 import AppKit
 import Foundation
 import IOKit
+import SwiftUI
 
 /// The dashboards and metrics services: which samples count, which pages
 /// keep sampling, how process rows and adapter rates are read, which
@@ -227,6 +228,19 @@ enum DashboardMetricsTests {
         suite.expect(back.hide == false && !back.hiddenByGate, "the feature coming back restores what the gate hid")
         let kept = ProcessesSection.energyGate(available: true, hidden: true, hiddenByGate: false)
         suite.expect(kept.hide == nil, "with the feature on, the user's own hide is left alone")
+
+        let unsaved = ProcessesSection.restoredColumns(from: Data())
+        suite.expect(unsaved.failure == nil && unsaved.columns == TableColumnCustomization<ProcessTableRow>(),
+                     "with no saved layout the table opens on the default columns, and nothing is logged")
+        let stale = ProcessesSection.restoredColumns(from: Data("not a layout".utf8))
+        suite.expect(stale.failure != nil && stale.columns == TableColumnCustomization<ProcessTableRow>(),
+                     "a saved layout that no longer decodes falls back to the default and reports the failure")
+        var customized = TableColumnCustomization<ProcessTableRow>()
+        customized[visibility: "gpu"] = .hidden
+        let saved = (try? JSONEncoder().encode(customized)) ?? Data()
+        let restored = ProcessesSection.restoredColumns(from: saved)
+        suite.expect(restored.failure == nil && restored.columns == customized,
+                     "a saved layout comes back as it was saved")
 
         let cpu = [ProcessUsage(pid: 1, name: "Busy", value: 40), ProcessUsage(pid: 2, name: "helper", value: 0)]
         let memory = [ProcessUsage(pid: 2, name: "helper", value: 900), ProcessUsage(pid: 1, name: "Busy", value: 100)]
@@ -475,6 +489,10 @@ enum DashboardMetricsTests {
         suite.expect(!processes.contains("SIGTERM") && processes.contains("KillProcessService.shared.kill(")
                      && processes.contains("startedAt: request.startedAt"),
                      "the process table's kill goes through KillProcessService, to the start time read on request")
+        suite.expect(processes.contains("selection: $state.processSelection, sortOrder: $state.processSortOrder")
+                     && processes.contains("feed.sortOrder = state.processSortOrder")
+                     && !processes.contains("@State private var selection"),
+                     "the table's sort order and selection live in the window state, so a trip to another section keeps them")
         let inspector = source("Sources/RyzenStatus/UI/MenuPanel/ProcessDetailSheet.swift", suite)
         suite.expect(inspector.contains("knownStartedAt ?? ProcessKillRequest.current(pid: row.pid, name: row.name)?.startedAt")
                      && processes.contains("startedAt: checked.startedAt"),
