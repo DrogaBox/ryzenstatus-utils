@@ -333,18 +333,6 @@ enum RollingDigitsTests {
     /// colour scheme it is drawn in does.
     private static func quiet(_ suite: TestSuite) {
         let view = rollingView()
-        view.show("42%", animated: false, countsDown: nil)
-        let columns = view.lineLayer.sublayers ?? []
-        let glyphs = columns.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } }
-        let redraws = view.redraws
-        view.show("42%", animated: true, countsDown: nil)
-        let columnsAfter = view.lineLayer.sublayers ?? []
-        suite.expect(columnsAfter.count == columns.count && zip(columns, columnsAfter).allSatisfy { $0 === $1 }
-                     && zip(glyphs, columnsAfter.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } })
-                        .allSatisfy { $0 === $1 }
-                     && view.redraws == redraws,
-                     "the same text again keeps every column and glyph and draws nothing")
-
         // SwiftUI hands over a new NSColor on every update; a dynamic one is
         // equal only to itself.
         func dynamic() -> NSColor {
@@ -355,6 +343,24 @@ enum RollingDigitsTests {
             view.configure(style: style, color: color, duration: 0.25, frameRates: RollingDigitsView.defaultFrameRates,
                            minimumScaleFactor: 1, dark: dark)
         }
+
+        // One SwiftUI update as the island sends it: configure with a new
+        // colour object, then the same text.
+        configure(dynamic(), dark: true)
+        view.show("42%", animated: false, countsDown: nil)
+        let columns = view.lineLayer.sublayers ?? []
+        let glyphs = columns.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } }
+        let redraws = view.redraws
+        configure(dynamic(), dark: true)
+        view.show("42%", animated: true, countsDown: nil)
+        let columnsAfter = view.lineLayer.sublayers ?? []
+        suite.expect(!columns.isEmpty && columnsAfter.count == columns.count
+                     && zip(columns, columnsAfter).allSatisfy { $0 === $1 }
+                     && zip(glyphs, columnsAfter.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } })
+                        .allSatisfy { $0 === $1 }
+                     && view.redraws == redraws,
+                     "an update with a new colour object and the same text keeps every column and glyph and draws nothing")
+
         configure(dynamic(), dark: true)
         let dynamicRedraws = view.redraws
         configure(dynamic(), dark: true)
@@ -376,6 +382,29 @@ enum RollingDigitsTests {
         suite.expect(RollingDigitsGlyphs.key("4", font: font, color: srgb, scale: 2)
                      != RollingDigitsGlyphs.key("4", font: font, color: p3, scale: 2),
                      "the same components in another colour space are another image")
+
+        // A pattern's only component is its alpha, so by components alone
+        // every pattern would share one cached image.
+        var callbacks = CGPatternCallbacks(version: 0, drawPattern: { _, context in
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }, releaseInfo: nil)
+        func pattern() -> CGColor? {
+            guard let tile = CGPattern(info: nil, bounds: CGRect(x: 0, y: 0, width: 2, height: 2), matrix: .identity,
+                                       xStep: 2, yStep: 2, tiling: .constantSpacing, isColored: true,
+                                       callbacks: &callbacks),
+                  let space = CGColorSpace(patternBaseSpace: nil) else { return nil }
+            return CGColor(patternSpace: space, pattern: tile, components: [1])
+        }
+        if let first = pattern(), let second = pattern() {
+            suite.expect(RollingDigitsGlyphs.key("4", font: font, color: first, scale: 2) == nil,
+                         "a pattern colour has no cache name")
+            let glyphs = RollingDigitsGlyphs()
+            suite.expect(glyphs.image("4", font: font, color: first, scale: 2)
+                         !== glyphs.image("4", font: font, color: second, scale: 2),
+                         "two pattern colours never share one cached image")
+        } else {
+            suite.expect(false, "a pattern colour can be made for the test")
+        }
     }
 
     /// The shortcut tile's longest reading fits its 68 pt line at the 0.7 the

@@ -309,10 +309,12 @@ final class RollingDigitsGlyphs {
     }
 
     /// The cache's name for a drawing. The colour goes in by its space and
-    /// components; one with no components, such as a pattern, has no name
-    /// and is drawn as it comes, so two such colours never share an image.
+    /// components. A pattern has no name: its only component is its alpha
+    /// and its space has no name either, so by those every pattern would read
+    /// the same. It is drawn as it comes, as is a colour with no components,
+    /// so two such colours never share an image.
     static func key(_ text: String, font: NSFont, color: CGColor, scale: CGFloat) -> NSString? {
-        guard let components = color.components else { return nil }
+        guard color.pattern == nil, let components = color.components else { return nil }
         let space = color.colorSpace?.name.map { $0 as String } ?? "?"
         let values = components.map { String(format: "%.3f", $0) }.joined(separator: ",")
         return "\(text)|\(font.fontName)|\(font.pointSize)|\(space)|\(values)|\(scale)" as NSString
