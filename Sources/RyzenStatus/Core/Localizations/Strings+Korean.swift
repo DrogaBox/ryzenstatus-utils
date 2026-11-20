@@ -95,7 +95,6 @@ extension Strings {
         istatsUser: "사용자",
         istatsSystem: "시스템",
         istatsAppMemory: "앱",
-        istatsWiredMemory: "고정",
         istatsCompressedMemory: "압축됨",
         istatsFreeMemory: "여유",
 
