@@ -57,8 +57,8 @@ struct NowPlayingCoverBackoff: Equatable {
 ///
 /// It runs for a new song, never per poll. Failures write one log line and
 /// back off (`NowPlayingCoverBackoff`); a library that does not load, or a
-/// perl that cannot start, ends covers for the run. Players then show their
-/// app icon.
+/// perl that fails to start twice in a row, ends covers for the run. Players
+/// then show their app icon.
 ///
 /// Not thread-safe: every call runs on the caller's serial queue.
 final class NowPlayingCoverReader {
@@ -83,6 +83,9 @@ final class NowPlayingCoverReader {
     /// The file whose signature was last found good. A file that changed
     /// since (other inode, size or modification time) is checked again.
     private var verifiedLibrary: FileIdentity?
+    /// The last helper run could not start (status -1, no output, no
+    /// timeout). One such run may pass; two in a row end covers for the run.
+    private var lastRunDidNotStart = false
 
     struct FileIdentity: Equatable {
         var device: Int64
@@ -114,6 +117,10 @@ final class NowPlayingCoverReader {
     func isReady(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         backoff.allows(at: uptime)
     }
+
+    /// The uptime from which a read may run again: infinity once covers are
+    /// off for the run.
+    var readyAt: TimeInterval { backoff.stopped ? .infinity : backoff.restingUntil }
 
     func clearRest() { backoff.clearRest() }
 
@@ -154,13 +161,16 @@ final class NowPlayingCoverReader {
             timeout: Self.timeout, maxOutputBytes: Self.maximumOutputBytes,
             // Nothing from the app's environment (PERL5LIB, PERL5OPT) reaches perl.
             environment: NowPlayingSessionReader.childEnvironment)
+        let didNotStart = Self.didNotStart(status: result.status, timedOut: result.timedOut, output: result.output)
+        defer { lastRunDidNotStart = didNotStart }
         if result.status == 0, let cover = Self.parse(result.output) {
             _ = backoff.record(.success, at: uptime)
             return cover
         }
         let detail = String(decoding: result.output.prefix(300), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let outcome = Self.outcome(status: result.status, timedOut: result.timedOut, output: result.output)
+        let outcome = Self.outcome(status: result.status, timedOut: result.timedOut, output: result.output,
+                                   didNotStartBefore: lastRunDidNotStart)
         let what = result.timedOut ? "timed out" : (result.status == -1 ? "could not start" : "exited \(result.status)")
         note(outcome, "perl helper \(what) \(detail)", at: uptime)
         return nil
@@ -168,13 +178,24 @@ final class NowPlayingCoverReader {
 
     static let perlPath = "/usr/bin/perl"
 
+    /// A run that never started: `BoundedProcessRunner` gives status -1 with
+    /// no output and no timeout when `Process.run()` throws.
+    static func didNotStart(status: Int32, timedOut: Bool, output: Data) -> Bool {
+        status == -1 && !timedOut && output.isEmpty
+    }
+
     /// What a failed helper run means. The loader exits 2 or 3 when the
-    /// library does not load; a perl that could not be started at all (status
-    /// -1 with no output and no timeout) will not start next time either.
-    /// Anything else may pass, such as a timeout right after wake.
-    static func outcome(status: Int32, timedOut: Bool, output: Data) -> NowPlayingCoverBackoff.Outcome {
+    /// library does not load. A perl that could not be started may be a
+    /// passing problem (no free descriptors, memory), so one such run only
+    /// counts as a failure; a second one in a row means it will not start,
+    /// and covers end for the run. Anything else may pass, such as a timeout
+    /// right after wake.
+    static func outcome(status: Int32, timedOut: Bool, output: Data,
+                        didNotStartBefore: Bool = false) -> NowPlayingCoverBackoff.Outcome {
         if status == 2 || status == 3 { return .unavailable }
-        if status == -1, !timedOut, output.isEmpty { return .unavailable }
+        if didNotStart(status: status, timedOut: timedOut, output: output) {
+            return didNotStartBefore ? .unavailable : .transientFailure
+        }
         return .transientFailure
     }
 

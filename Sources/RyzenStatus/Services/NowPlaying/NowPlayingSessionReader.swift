@@ -302,6 +302,11 @@ final class NowPlayingSessionReader {
     /// the request's number. Readings run from the run loop, so the objects of
     /// each one are released with it. End of input ends the script, so a
     /// reader whose app quit or crashed does not stay behind.
+    ///
+    /// A request class that did not load answers with an error. JXA hands a
+    /// nil class back as an object whose `isNil()` is true (checked with
+    /// `osascript` on macOS 26); anything else that is not a usable class
+    /// (undefined, or a value that throws) counts as unavailable too.
     static let script = #"""
     ObjC.import("Foundation");
     ObjC.import("stdlib");
@@ -321,7 +326,9 @@ final class NowPlayingSessionReader {
     }
     function session(sequence) {
         const out = { seq: sequence };
-        if (requests.isNil()) return { seq: sequence, error: "MediaRemote unavailable" };
+        let available = false;
+        try { available = !!requests && !requests.isNil(); } catch (error) { available = false; }
+        if (!available) return { seq: sequence, error: "MediaRemote unavailable" };
         out.playing = requests.localIsPlaying;
         const path = requests.localNowPlayingPlayerPath;
         if (!path.isNil() && !path.client.isNil()) {

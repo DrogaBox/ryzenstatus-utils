@@ -119,6 +119,10 @@ final class NowPlayingService: ObservableObject {
     private let coverReader = NowPlayingCoverReader()
     /// The song the cover was asked for and what came back, on `queue`.
     private var sessionCover: NowPlayingSessionCover?
+    /// The cover reader's `readyAt` as the last skipped request saw it, on
+    /// `queue`: while covers rest or are off, polls do not ask the cover
+    /// queue again before then.
+    private var coversReadyAt: TimeInterval = 0
     /// The polling runs `stopPolling` ended, marked before it leaves the main
     /// thread: a reading of such a run, even one already queued, does nothing.
     private let retiredRuns = NowPlayingRetiredRuns()
@@ -317,7 +321,7 @@ final class NowPlayingService: ObservableObject {
 
         if MediaRemoteBridge.readsBlockedBySystem, !provider.isScripted {
             queue.async { [weak self] in
-                self?.readSession(provider: provider, generation: gen, settled: false)
+                self?.readSession(provider: provider, generation: gen)
             }
             return
         }
@@ -382,16 +386,22 @@ final class NowPlayingService: ObservableObject {
     /// through it instead, as before, for its extra details; so is everything
     /// when the session cannot be read. Every other player, TIDAL first among
     /// them, is shown from the session.
-    private func readSession(provider: NowPlayingProvider, generation gen: Int, settled: Bool) {
+    ///
+    /// `trigger` is the TIDAL reading a settle re-read was scheduled for. If
+    /// the re-read fails (reader resting, a timeout), that reading is shown
+    /// instead of nothing.
+    private func readSession(provider: NowPlayingProvider, generation gen: Int,
+                             settling trigger: NowPlayingSessionReading? = nil) {
         // A delayed reading must not start a new reader for a run that ended.
         guard !retiredRuns.isRetired(gen) else { return }
+        let settled = trigger != nil
         if settled { pendingSettle = nil }
-        let reading = sessionReader.read()
+        let reading = sessionReader.read() ?? trigger
         if !settled, let reading,
            NowPlayingTidal.shouldSettle(reading.snapshot, lastTitle: lastSessionTitle) {
             pendingSettle?.cancel()
             let settle = DispatchWorkItem { [weak self] in
-                self?.readSession(provider: provider, generation: gen, settled: true)
+                self?.readSession(provider: provider, generation: gen, settling: reading)
             }
             pendingSettle = settle
             queue.asyncAfter(deadline: .now() + NowPlayingTidal.titleSettleDelay, execute: settle)
@@ -448,7 +458,8 @@ final class NowPlayingService: ObservableObject {
         var cover = NowPlayingSessionCover(key: key, askedAt: uptime)
         if let current = sessionCover, current.key == key { cover = current }
         next.artworkData = cover.data
-        guard cover.shouldAsk(at: uptime) else {
+        // While covers rest or are off, the cover queue would only skip.
+        guard cover.shouldAsk(at: uptime), uptime >= coversReadyAt else {
             sessionCover = cover
             return
         }
@@ -468,8 +479,11 @@ final class NowPlayingService: ObservableObject {
             guard current else { return }
             guard self.coverReader.isReady() else {
                 let coversOff = self.coverReader.gaveUp
+                let readyAt = self.coverReader.readyAt
                 self.queue.async { [weak self] in
-                    guard let self, self.sessionCover?.key == key else { return }
+                    guard let self else { return }
+                    self.coversReadyAt = readyAt
+                    guard self.sessionCover?.key == key else { return }
                     self.sessionCover?.recordSkip(coversOff: coversOff)
                 }
                 return
@@ -719,7 +733,14 @@ final class NowPlayingService: ObservableObject {
         NowPlayingAnimatedArtworkCenter.shared.clearCache()
         NowPlayingThemeEngine.clearCache()
         queue.async { [weak self] in self?.sessionCover = nil }
-        coverQueue.async { [weak self] in self?.coverReader.clearRest() }
+        coverQueue.async { [weak self] in
+            guard let self else { return }
+            self.coverReader.clearRest()
+            // After any skip already sent from this queue, so its old time
+            // does not land on top of this one.
+            let readyAt = self.coverReader.readyAt
+            self.queue.async { [weak self] in self?.coversReadyAt = readyAt }
+        }
     }
 
     /// Brings the app that owns the current session to the front, so the

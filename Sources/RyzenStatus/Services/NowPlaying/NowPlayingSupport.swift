@@ -562,9 +562,11 @@ enum NowPlayingSearch {
     }
 
     /// Opens TIDAL's own search page, launching TIDAL when it is closed, or
-    /// TIDAL's web player when the app is not installed.
+    /// TIDAL's web player when the app is not installed or no app on this Mac
+    /// handles `tidal:` links.
     private static func openTidalSearch(query: String) {
         if let url = NowPlayingTidal.searchURL(for: query),
+           NSWorkspace.shared.urlForApplication(toOpen: url) != nil,
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingTidal.bundleID) {
             // TIDAL installed but not opening its scheme (a broken or half
             // finished install) falls back to the web player too.

@@ -9375,8 +9375,11 @@ struct MetricsTests {
             expect(NowPlayingCoverReader.key(for: renamed) != NowPlayingCoverReader.key(for: onScreen),
                    "A new song or album asks for its cover")
             let missing = NowPlayingCoverReader(libraryURL: URL(fileURLWithPath: "/nonexistent/NowPlayingCover.dylib"))
+            let readyBefore = missing.readyAt
             expect(missing.read() == nil && missing.gaveUp && missing.read() == nil,
                    "Without the helper, covers stop at once and are not asked again")
+            expect(readyBefore == 0 && missing.readyAt == .infinity,
+                   "Covers off for the run are never ready again, so polls stop asking the cover queue")
             expect(NowPlayingCoverReader.loader.contains("dl_load_file") && NowPlayingCoverReader.loader.contains("exit 2")
                    && NowPlayingCoverReader.loader.contains("ryzenstatus_now_playing_cover"),
                    "Cover loader loads the library and names its entry point")
@@ -9550,9 +9553,15 @@ struct MetricsTests {
             expect(NowPlayingSessionReader.script.contains(#"error: "MediaRemote unavailable""#),
                    "The reader script answers with an error when MediaRemote does not load")
 
-            // A perl that cannot start ends covers like a missing library.
-            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data()) == .unavailable,
-                   "Cover helper: a perl that cannot start turns covers off for the run")
+            // A perl that cannot start twice in a row ends covers like a
+            // missing library; once may be a passing problem.
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data()) == .transientFailure,
+                   "Cover helper: one perl that cannot start only counts as a failure")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data(), didNotStartBefore: true) == .unavailable,
+                   "Cover helper: a perl that cannot start twice in a row turns covers off for the run")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data(), didNotStartBefore: true) == .transientFailure
+                   && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data(), didNotStartBefore: true) == .transientFailure,
+                   "Cover helper: after a failed start, a timeout or another exit only rests covers")
             expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data()) == .transientFailure
                    && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data("x".utf8)) == .transientFailure,
                    "Cover helper: a timeout or another exit only rests covers")
