@@ -301,6 +301,9 @@ enum GPUControlPageTests {
         suite.expect(note(.timedOut)?.kextText == GPUControlReply.timeout.kextText, "timeout with the kext's words")
         suite.expect(note(.lost)?.isProblem == false && note(.backAfterWake)?.sentence == s.backAfterWake,
                      "lost and back after the wake: information, not errors")
+        suite.expect(note(.backToStartUp) == GPUControlPageNote(sentence: s.backToStartUp, kextText: nil, isProblem: false)
+                        && note(.alreadyAtStartUp) == GPUControlPageNote(sentence: s.alreadyAtStartUp, kextText: nil, isProblem: false),
+                     "the way back, taken or with nothing to give back: one sentence, information")
         suite.expect(note(nil, activity: .afterWake(.power(watts: 220)))?.sentence == String(format: s.reaskingFormat, 220),
                      "after a wake with remembering: asking again, never shown as held")
         suite.expect(note(nil) == nil, "nothing happened: no note")
@@ -612,7 +615,7 @@ enum GPUControlPageTests {
             return pattern?.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } } ?? []
         }
         let english = GPUControlPageStrings.enUS.all
-        suite.expect(english.count == 76, "76 texts")
+        suite.expect(english.count == 78, "78 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlPage(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },

@@ -136,6 +136,8 @@ struct GPUControlPageNote: Equatable {
         case .notConfirmed?: return GPUControlPageNote(sentence: s.notConfirmed, kextText: nil, isProblem: true)
         case .lost?: return GPUControlPageNote(sentence: s.lost, kextText: nil, isProblem: false)
         case .backAfterWake?: return GPUControlPageNote(sentence: s.backAfterWake, kextText: nil, isProblem: false)
+        case .backToStartUp?: return GPUControlPageNote(sentence: s.backToStartUp, kextText: nil, isProblem: false)
+        case .alreadyAtStartUp?: return GPUControlPageNote(sentence: s.alreadyAtStartUp, kextText: nil, isProblem: false)
         case nil: return nil
         }
     }
