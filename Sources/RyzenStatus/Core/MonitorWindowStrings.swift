@@ -139,7 +139,7 @@ struct MonitorWindowStrings {
                         hubEnergyTitle: "Энергопотребление", hubEnergyDescription: "Оценка энергопотребления каждого приложения по его доле ЦП и ГП.",
                         hubNetworkTitle: "Сведения о сети", hubNetworkDescription: "Каждый сетевой адаптер с адресом, состоянием и текущим трафиком.")
         case .es:
-            return Self(windowTitle: "Monitor de RyzenStatus", summary: "Resumen", processes: "Procesos",
+            return Self(windowTitle: "Monitor de RyzenStatus", summary: "Visión general", processes: "Procesos",
                         processor: "Procesador", network: "Red", history: "Historial", diagnostics: "Diagnóstico",
                         section: "Sección", cores: "Núcleos", activeCoresFormat: "%d de %d activos",
                         pptLimitFormat: "Límite PPT: %@", voltage: "Voltaje", openMonitor: "Abrir Monitor",
@@ -148,7 +148,7 @@ struct MonitorWindowStrings {
                         statusUp: "Activa", statusDown: "Inactiva", metric: "Métrica",
                         cpuTemperature: "Temperatura de la CPU", gpuTemperature: "Temperatura de la GPU",
                         systemPower: "Consumo del sistema", averagePeakFormat: "Promedio %@, pico %@",
-                        noHistory: "No hay datos para este período",
+                        noHistory: "No hay datos para este periodo",
                         severityCritical: "Crítico", severityWarning: "Advertencia", severityInfo: "Información", viewMenu: "Visualización",
                         gpuColumn: "GPU %", chartTime: "Hora",
                         killUnavailable: "Esta app no se puede terminar ahora. Puede que se haya cerrado o reiniciado.",
