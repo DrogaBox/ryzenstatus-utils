@@ -58,6 +58,8 @@ struct GPUControlStatus: Equatable {
     var profileSet: Int?
     var power: Watch?
     var powerWatch: PowerWatch?
+    /// The write path (0.5.0 and later), nil for a kext without it.
+    var writing: Writing?
 
     /// Nil for a kext without the GPU control (0.2.0 and older).
     static func parse(_ properties: [String: Any]) -> GPUControlStatus? {
@@ -68,7 +70,8 @@ struct GPUControlStatus: Equatable {
             profile: text(properties["Profile"]).map(Profile.parse),
             profileSet: integer(properties["ProfileSet"]),
             power: text(properties["Power"]).map(Watch.parse),
-            powerWatch: watch)
+            powerWatch: watch,
+            writing: Writing.parse(properties))
     }
 
     /// The kext's text, trimmed; an empty or blank one counts as absent so it
@@ -103,7 +106,7 @@ struct GPUControlStatus: Equatable {
 
     /// `text` is `word` alone or `word` followed by ":" or a space, so a
     /// longer word that merely starts the same ("setting") does not match.
-    fileprivate static func starts(_ text: String, with word: String) -> Bool {
+    static func starts(_ text: String, with word: String) -> Bool {
         text == word || text.hasPrefix(word + ":") || text.hasPrefix(word + " ")
     }
 
@@ -114,7 +117,7 @@ struct GPUControlStatus: Equatable {
     }
 
     /// What follows "off:", "refused:" or "not set:", nil when nothing does.
-    fileprivate static func reason(_ text: String, after prefix: String) -> String? {
+    static func reason(_ text: String, after prefix: String) -> String? {
         let rest = text.dropFirst(prefix.count).drop { $0 == ":" || $0 == " " }
         let trimmed = rest.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
