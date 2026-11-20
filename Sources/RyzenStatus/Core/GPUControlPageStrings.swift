@@ -53,7 +53,8 @@ struct GPUControlPageStrings {
     let copy: String
     let copied: String
     let notInstalled: String
-    let unsafeTool: String
+    /// %@ = why the button is not offered, one of the `unsafe…` sentences.
+    let unsafeToolFormat: String
     let armFailed: String
     // Remembering.
     let rememberToggle: String
@@ -88,6 +89,7 @@ struct GPUControlPageStrings {
     let unsafeNotPlain: String
     let unsafeNotRoot: String
     let unsafeWritable: String
+    let unsafeSetID: String
     let unsafeACL: String
     let unsafeUnreadable: String
     let unsafeSignature: String
@@ -99,6 +101,11 @@ struct GPUControlPageStrings {
     let zeroRpmItem: String
     /// %d = MHz.
     let gfxItemFormat: String
+    /// Between the held settings, and before the last one: "a, b and c".
+    let listSeparator: String
+    let listLastSeparator: String
+    /// An OD8 hold in the panel row, where the whole list does not fit.
+    let heldOD8Short: String
 
     /// Why the arm button is not offered.
     func sentence(_ reason: GPUControlArmTool.UnsafeReason) -> String {
@@ -106,6 +113,7 @@ struct GPUControlPageStrings {
         case .notPlain: return unsafeNotPlain
         case .notRoot: return unsafeNotRoot
         case .writable: return unsafeWritable
+        case .setID: return unsafeSetID
         case .accessControlList: return unsafeACL
         case .unreadable: return unsafeUnreadable
         case .signature: return unsafeSignature
@@ -113,13 +121,17 @@ struct GPUControlPageStrings {
         }
     }
 
-    /// What an OD8 hold is, in words: "a fan curve, a GFX maximum of 2300 MHz".
+    /// What an OD8 hold is, in words: "a fan curve and a GFX maximum of 2300 MHz".
     func od8Held(_ want: GPUControlOD8Want) -> String {
         var items: [String] = []
         if want.curve != nil { items.append(fanCurveItem) }
         if want.zeroRpmOff { items.append(zeroRpmItem) }
         if let mhz = want.gfxMaxMHz { items.append(String(format: gfxItemFormat, mhz)) }
-        return String(format: heldOD8Format, items.joined(separator: ", "))
+        // One sentence in every language: the last item joins with the
+        // language's "and".
+        let text = items.count < 2 ? items.joined()
+            : items.dropLast().joined(separator: listSeparator) + listLastSeparator + items[items.count - 1]
+        return String(format: heldOD8Format, text)
     }
 
     /// The translated sentence of one group.
@@ -148,11 +160,12 @@ struct GPUControlPageStrings {
          sleeping, heldByOther, applying, heldPowerFormat, reaskingFormat, otherVersionFormat, connectionLost,
          readyWarning, restartMac, lost, backAfterWake, od8NotRead, liveLabel, liveFormat, powerLabel, bootFormat,
          wattsFormat, backToBoot, exclusiveNote, powerFooter, armClosed, openWriting, armPrompt, runInTerminal,
-         copy, copied, notInstalled, unsafeTool, armFailed, rememberToggle, rememberFooter, changes, reverts,
+         copy, copied, notInstalled, unsafeToolFormat, armFailed, rememberToggle, rememberFooter, changes, reverts,
          kextVersion, channel, panelLabel, notAllowed, busy, notReady, off, closedGroup, needsAdministrator,
          otherVersion, unconfirmed, notOwner, settingMissing, offNotAsExpected, offChangeUnconfirmed,
          offDriverStopped, offWatchdog, gaveUpFormat, timedOut, notConfirmed,
-         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat]
+         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat,
+         listSeparator, listLastSeparator, unsafeSetID, heldOD8Short]
     }
 }
 
@@ -214,7 +227,7 @@ extension GPUControlPageStrings {
         copy: "Copy",
         copied: "Copied",
         notInstalled: "gpucontrol is not installed in /usr/local/bin. DrogaBoxGPU installs it with “sudo install/sensors.sh tools”.",
-        unsafeTool: "The button needs gpucontrol and every folder above it to belong to root alone:",
+        unsafeToolFormat: "The button needs gpucontrol and every folder above it to belong to root alone. %@",
         armFailed: "Writing did not open.",
         rememberToggle: "Remember after launch and wake",
         rememberFooter: "Only what RyzenStatus held, and only if writing is open. Never asks for a password.",
@@ -242,15 +255,19 @@ extension GPUControlPageStrings {
         notConfirmed: "The kext did not confirm the change; nothing is held.",
         unsafeNotPlain: "Not a plain file or folder.",
         unsafeNotRoot: "It does not belong to root.",
-        unsafeWritable: "Others than root can change it.",
+        unsafeWritable: "Anyone other than root can change it.",
+        unsafeSetID: "It has the setuid or setgid bit set.",
         unsafeACL: "It has an access control list.",
         unsafeUnreadable: "It cannot be read.",
         unsafeSignature: "Its signature is missing, or it was changed after it was signed.",
         unsafeOtherProgram: "It is another program, not DrogaBoxGPU’s gpucontrol.",
         heldOD8Format: "RyzenStatus is holding %@",
         fanCurveItem: "a fan curve",
-        zeroRpmItem: "the fan always on",
-        gfxItemFormat: "a GFX maximum of %d MHz")
+        zeroRpmItem: "the fan always running",
+        gfxItemFormat: "a GFX maximum of %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " and ",
+        heldOD8Short: "RyzenStatus is holding OD8 settings")
 
     static let es = GPUControlPageStrings(
         stateSection: "Estado",
@@ -288,7 +305,7 @@ extension GPUControlPageStrings {
         copy: "Copiar",
         copied: "Copiado",
         notInstalled: "gpucontrol no está instalado en /usr/local/bin. DrogaBoxGPU lo instala con «sudo install/sensors.sh tools».",
-        unsafeTool: "El botón necesita que gpucontrol y cada carpeta por encima sean solo de root:",
+        unsafeToolFormat: "El botón necesita que gpucontrol y cada carpeta por encima sean solo de root. %@",
         armFailed: "La escritura no se abrió.",
         rememberToggle: "Recordar al abrir y al despertar",
         rememberFooter: "Solo lo que RyzenStatus mantenía, y solo si la escritura está abierta. Nunca pide contraseña.",
@@ -316,7 +333,8 @@ extension GPUControlPageStrings {
         notConfirmed: "El kext no confirmó el cambio; no se mantiene nada.",
         unsafeNotPlain: "No es un archivo ni una carpeta común.",
         unsafeNotRoot: "No pertenece a root.",
-        unsafeWritable: "Otros además de root pueden modificarlo.",
+        unsafeWritable: "Puede modificarlo alguien que no sea root.",
+        unsafeSetID: "Tiene activado el bit setuid o setgid.",
         unsafeACL: "Tiene una lista de control de acceso.",
         unsafeUnreadable: "No se puede leer.",
         unsafeSignature: "No tiene firma o se modificó después de firmarlo.",
@@ -324,7 +342,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus mantiene %@",
         fanCurveItem: "una curva de ventilador",
         zeroRpmItem: "el ventilador siempre girando",
-        gfxItemFormat: "un reloj GFX máximo de %d MHz")
+        gfxItemFormat: "un reloj GFX máximo de %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " y ",
+        heldOD8Short: "RyzenStatus mantiene ajustes OD8")
 
     static let ptBR = GPUControlPageStrings(
         stateSection: "Estado",
@@ -353,7 +374,7 @@ extension GPUControlPageStrings {
         bootFormat: "Inicialização (%d W)",
         wattsFormat: "%d W",
         backToBoot: "Voltar aos valores de inicialização",
-        exclusiveNote: "O kext mantém uma coisa por vez: um limite de potência e ajustes de ventoinha ou clock nunca ficam juntos.",
+        exclusiveNote: "O kext mantém uma coisa por vez: um limite de energia e ajustes de ventoinha ou clock nunca ficam juntos.",
         powerFooter: "Aplica ao escolher. Só limites menores, até 200 W; o kext verifica cada pedido e volta sozinho se o RyzenStatus fechar ou parar de responder.",
         armClosed: "Um administrador a abre até o Mac reiniciar.",
         openWriting: "Abrir a escrita…",
@@ -362,7 +383,7 @@ extension GPUControlPageStrings {
         copy: "Copiar",
         copied: "Copiado",
         notInstalled: "O gpucontrol não está instalado em /usr/local/bin. O DrogaBoxGPU o instala com “sudo install/sensors.sh tools”.",
-        unsafeTool: "O botão exige que o gpucontrol e cada pasta acima dele sejam só do root:",
+        unsafeToolFormat: "O botão exige que o gpucontrol e cada pasta acima dele sejam só do root. %@",
         armFailed: "A escrita não foi aberta.",
         rememberToggle: "Lembrar ao abrir e ao despertar",
         rememberFooter: "Somente o que o RyzenStatus mantinha, e só se a escrita estiver aberta. Nunca pede senha.",
@@ -391,6 +412,7 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Não é um arquivo nem uma pasta comum.",
         unsafeNotRoot: "Não pertence ao root.",
         unsafeWritable: "Outros além do root podem alterá-lo.",
+        unsafeSetID: "Tem o bit setuid ou setgid ativado.",
         unsafeACL: "Tem uma lista de controle de acesso.",
         unsafeUnreadable: "Não pode ser lido.",
         unsafeSignature: "Não tem assinatura ou foi alterado depois de assinado.",
@@ -398,7 +420,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "O RyzenStatus está mantendo %@",
         fanCurveItem: "uma curva de ventoinha",
         zeroRpmItem: "a ventoinha sempre girando",
-        gfxItemFormat: "um clock GFX máximo de %d MHz")
+        gfxItemFormat: "um clock GFX máximo de %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " e ",
+        heldOD8Short: "O RyzenStatus está mantendo ajustes OD8")
 
     static let tr = GPUControlPageStrings(
         stateSection: "Durum",
@@ -416,7 +441,7 @@ extension GPUControlPageStrings {
         reaskingFormat: "Başlangıç değerlerine dönüldü; %d W yeniden isteniyor…",
         otherVersionFormat: "Kext kanalın %d sürümünü, uygulama %d sürümünü konuşuyor. Birini güncelleyin.",
         connectionLost: "Kext ile bağlantı kapandı ve kext başlangıç değerlerine döndü. Denetimi kullanmak için RyzenStatus'u yeniden açın.",
-        readyWarning: "Yazma yeniden başlatılana kadar açık: bu kullanıcının herhangi bir programı limiti düşürebilir.",
+        readyWarning: "Yazma yeniden başlatılana kadar açık: bu kullanıcının herhangi bir programı sınırı düşürebilir.",
         restartMac: "Kartın fabrika değerlerine döndüğü doğrulanamadı. Mac'i yeniden başlatın.",
         lost: "Kext başlangıç değerlerine döndü.",
         backAfterWake: "Uyanmadan sonra kext başlangıç değerlerine döndü.",
@@ -427,7 +452,7 @@ extension GPUControlPageStrings {
         bootFormat: "Başlangıç (%d W)",
         wattsFormat: "%d W",
         backToBoot: "Başlangıç değerlerine dön",
-        exclusiveNote: "Kext aynı anda tek bir şey tutar: güç limiti ile fan veya saat ayarları asla birlikte tutulmaz.",
+        exclusiveNote: "Kext aynı anda tek bir şey tutar: güç sınırı ile fan veya saat ayarları asla birlikte tutulmaz.",
         powerFooter: "Seçildiğinde uygulanır. Yalnızca daha düşük limitler, 200 W'a kadar; kext her isteği denetler ve RyzenStatus kapanırsa veya yanıt vermezse kendiliğinden geri döner.",
         armClosed: "Bir yönetici onu Mac yeniden başlatılana kadar açar.",
         openWriting: "Yazmayı aç…",
@@ -436,7 +461,7 @@ extension GPUControlPageStrings {
         copy: "Kopyala",
         copied: "Kopyalandı",
         notInstalled: "gpucontrol /usr/local/bin içinde yüklü değil. DrogaBoxGPU onu “sudo install/sensors.sh tools” ile yükler.",
-        unsafeTool: "Düğme, gpucontrol'ün ve üstündeki her klasörün yalnızca root'a ait olmasını gerektirir:",
+        unsafeToolFormat: "Düğme, gpucontrol'ün ve üstündeki her klasörün yalnızca root'a ait olmasını gerektirir. %@",
         armFailed: "Yazma açılmadı.",
         rememberToggle: "Açılışta ve uyanmada hatırla",
         rememberFooter: "Yalnızca RyzenStatus'un tuttuğu, ve yalnızca yazma açıksa. Asla parola sormaz.",
@@ -444,7 +469,7 @@ extension GPUControlPageStrings {
         reverts: "Yeniden başlatmadan beri geri dönüş",
         kextVersion: "Kext",
         channel: "Kanal",
-        panelLabel: "GPU limiti",
+        panelLabel: "GPU sınırı",
         notAllowed: "Değer izinli değil.",
         busy: "Kext meşgul; kısa süre sonra tekrar deneyin.",
         notReady: "Henüz hazır değil; Mac hâlâ uyanıyor olabilir veya kart açılıştan beri değişti.",
@@ -465,6 +490,7 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Sıradan bir dosya veya klasör değil.",
         unsafeNotRoot: "root'a ait değil.",
         unsafeWritable: "root dışındakiler de değiştirebilir.",
+        unsafeSetID: "setuid veya setgid biti açık.",
         unsafeACL: "Bir erişim denetim listesi var.",
         unsafeUnreadable: "Okunamıyor.",
         unsafeSignature: "İmzası yok veya imzalandıktan sonra değiştirilmiş.",
@@ -472,7 +498,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus şunu tutuyor: %@",
         fanCurveItem: "bir fan eğrisi",
         zeroRpmItem: "her zaman dönen fan",
-        gfxItemFormat: "%d MHz maks. GFX saati")
+        gfxItemFormat: "%d MHz maks. GFX saati",
+        listSeparator: ", ",
+        listLastSeparator: " ve ",
+        heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor")
 
     static let ru = GPUControlPageStrings(
         stateSection: "Состояние",
@@ -501,7 +530,7 @@ extension GPUControlPageStrings {
         bootFormat: "При загрузке (%d Вт)",
         wattsFormat: "%d Вт",
         backToBoot: "Вернуть значения загрузки",
-        exclusiveNote: "Kext удерживает только одно за раз: ограничение мощности и настройки вентилятора или частоты никогда не удерживаются вместе.",
+        exclusiveNote: "Kext удерживает только одно за раз: лимит мощности и настройки вентилятора или частоты никогда не удерживаются вместе.",
         powerFooter: "Применяется при выборе. Только более низкие лимиты, до 200 Вт; kext проверяет каждый запрос и сам возвращается, если RyzenStatus закроется или перестанет отвечать.",
         armClosed: "Администратор открывает её до перезапуска Mac.",
         openWriting: "Открыть запись…",
@@ -510,7 +539,7 @@ extension GPUControlPageStrings {
         copy: "Копировать",
         copied: "Скопировано",
         notInstalled: "gpucontrol не установлен в /usr/local/bin. DrogaBoxGPU устанавливает его командой «sudo install/sensors.sh tools».",
-        unsafeTool: "Кнопке нужно, чтобы gpucontrol и каждая папка над ним принадлежали только root:",
+        unsafeToolFormat: "Кнопке нужно, чтобы gpucontrol и каждая папка над ним принадлежали только root. %@",
         armFailed: "Запись не открылась.",
         rememberToggle: "Запоминать при запуске и пробуждении",
         rememberFooter: "Только то, что удерживал RyzenStatus, и только если запись открыта. Никогда не просит пароль.",
@@ -539,14 +568,18 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Это не обычный файл или папка.",
         unsafeNotRoot: "Не принадлежит root.",
         unsafeWritable: "Изменить его может не только root.",
+        unsafeSetID: "У него установлен бит setuid или setgid.",
         unsafeACL: "У него есть список управления доступом.",
         unsafeUnreadable: "Его нельзя прочитать.",
         unsafeSignature: "Подписи нет, или файл изменён после подписи.",
         unsafeOtherProgram: "Это другая программа, а не gpucontrol из DrogaBoxGPU.",
         heldOD8Format: "RyzenStatus удерживает: %@",
         fanCurveItem: "кривую вентилятора",
-        zeroRpmItem: "вентилятор, который всегда вращается",
-        gfxItemFormat: "макс. частоту GFX %d МГц")
+        zeroRpmItem: "постоянное вращение вентилятора",
+        gfxItemFormat: "макс. частоту GFX %d МГц",
+        listSeparator: ", ",
+        listLastSeparator: " и ",
+        heldOD8Short: "RyzenStatus удерживает настройки OD8")
 
     static let sk = GPUControlPageStrings(
         stateSection: "Stav",
@@ -575,7 +608,7 @@ extension GPUControlPageStrings {
         bootFormat: "Štartovacia hodnota (%d W)",
         wattsFormat: "%d W",
         backToBoot: "Späť na štartovacie hodnoty",
-        exclusiveNote: "Kext drží naraz len jednu vec: limit výkonu a nastavenia ventilátora alebo taktu sa nikdy nedržia spolu.",
+        exclusiveNote: "Kext drží naraz len jednu vec: limit príkonu a nastavenia ventilátora alebo taktu sa nikdy nedržia spolu.",
         powerFooter: "Použije sa pri výbere. Len nižšie limity, až po 200 W; kext kontroluje každú požiadavku a sám sa vráti, ak sa RyzenStatus zatvorí alebo prestane odpovedať.",
         armClosed: "Správca ho otvorí do reštartu Macu.",
         openWriting: "Otvoriť zápis…",
@@ -584,7 +617,7 @@ extension GPUControlPageStrings {
         copy: "Kopírovať",
         copied: "Skopírované",
         notInstalled: "gpucontrol nie je nainštalovaný v /usr/local/bin. DrogaBoxGPU ho inštaluje príkazom „sudo install/sensors.sh tools“.",
-        unsafeTool: "Tlačidlo vyžaduje, aby gpucontrol a každý priečinok nad ním patrili iba rootovi:",
+        unsafeToolFormat: "Tlačidlo vyžaduje, aby gpucontrol a každý priečinok nad ním patrili iba rootovi. %@",
         armFailed: "Zápis sa neotvoril.",
         rememberToggle: "Pamätať pri spustení a prebudení",
         rememberFooter: "Len to, čo RyzenStatus držal, a len ak je zápis otvorený. Nikdy sa nepýta na heslo.",
@@ -613,6 +646,7 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Nie je to obyčajný súbor ani priečinok.",
         unsafeNotRoot: "Nepatrí rootovi.",
         unsafeWritable: "Môžu ho meniť aj iní než root.",
+        unsafeSetID: "Má nastavený bit setuid alebo setgid.",
         unsafeACL: "Má zoznam riadenia prístupu.",
         unsafeUnreadable: "Nedá sa prečítať.",
         unsafeSignature: "Nemá podpis alebo sa zmenil po podpísaní.",
@@ -620,7 +654,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus drží: %@",
         fanCurveItem: "krivku ventilátora",
         zeroRpmItem: "ventilátor stále v chode",
-        gfxItemFormat: "maximálny takt GFX %d MHz")
+        gfxItemFormat: "maximálny takt GFX %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " a ",
+        heldOD8Short: "RyzenStatus drží nastavenia OD8")
 
     static let de = GPUControlPageStrings(
         stateSection: "Status",
@@ -658,7 +695,7 @@ extension GPUControlPageStrings {
         copy: "Kopieren",
         copied: "Kopiert",
         notInstalled: "gpucontrol ist nicht in /usr/local/bin installiert. DrogaBoxGPU installiert es mit „sudo install/sensors.sh tools“.",
-        unsafeTool: "Die Schaltfläche braucht gpucontrol und jeden Ordner darüber ausschließlich im Besitz von root:",
+        unsafeToolFormat: "Für die Schaltfläche müssen gpucontrol und jeder Ordner darüber ausschließlich root gehören. %@",
         armFailed: "Schreiben wurde nicht geöffnet.",
         rememberToggle: "Beim Start und Aufwachen merken",
         rememberFooter: "Nur, was RyzenStatus hielt, und nur, wenn Schreiben offen ist. Fragt nie nach einem Passwort.",
@@ -685,16 +722,20 @@ extension GPUControlPageStrings {
         timedOut: "Keine Antwort in 5 s; nichts wird gehalten.",
         notConfirmed: "Der Kext hat die Änderung nicht bestätigt; nichts wird gehalten.",
         unsafeNotPlain: "Keine normale Datei und kein normaler Ordner.",
-        unsafeNotRoot: "Gehört nicht root.",
+        unsafeNotRoot: "Es gehört nicht root.",
         unsafeWritable: "Auch andere als root können es ändern.",
+        unsafeSetID: "Das setuid- oder setgid-Bit ist gesetzt.",
         unsafeACL: "Es hat eine Zugriffssteuerungsliste.",
         unsafeUnreadable: "Es kann nicht gelesen werden.",
         unsafeSignature: "Die Signatur fehlt, oder es wurde nach dem Signieren geändert.",
         unsafeOtherProgram: "Es ist ein anderes Programm, nicht gpucontrol von DrogaBoxGPU.",
         heldOD8Format: "RyzenStatus hält %@",
         fanCurveItem: "eine Lüfterkurve",
-        zeroRpmItem: "den Lüfter immer an",
-        gfxItemFormat: "einen maximalen GFX-Takt von %d MHz")
+        zeroRpmItem: "den Dauerlauf des Lüfters",
+        gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " und ",
+        heldOD8Short: "RyzenStatus hält OD8-Einstellungen")
 
     static let fr = GPUControlPageStrings(
         stateSection: "État",
@@ -732,7 +773,7 @@ extension GPUControlPageStrings {
         copy: "Copier",
         copied: "Copié",
         notInstalled: "gpucontrol n’est pas installé dans /usr/local/bin. DrogaBoxGPU l’installe avec « sudo install/sensors.sh tools ».",
-        unsafeTool: "Le bouton exige que gpucontrol et chaque dossier au-dessus appartiennent à root seul :",
+        unsafeToolFormat: "Le bouton exige que gpucontrol et chaque dossier au-dessus appartiennent à root seul. %@",
         armFailed: "L’écriture ne s’est pas ouverte.",
         rememberToggle: "Mémoriser à l’ouverture et au réveil",
         rememberFooter: "Seulement ce que RyzenStatus maintenait, et seulement si l’écriture est ouverte. Ne demande jamais de mot de passe.",
@@ -758,9 +799,10 @@ extension GPUControlPageStrings {
         gaveUpFormat: "Non accepté en une minute. %@",
         timedOut: "Pas de réponse en 5 s ; rien n’est maintenu.",
         notConfirmed: "Le kext n’a pas confirmé le changement ; rien n’est maintenu.",
-        unsafeNotPlain: "Ce n’est pas un fichier ni un dossier ordinaire.",
-        unsafeNotRoot: "N’appartient pas à root.",
+        unsafeNotPlain: "Ce n’est ni un fichier ni un dossier ordinaire.",
+        unsafeNotRoot: "Il n’appartient pas à root.",
         unsafeWritable: "D’autres que root peuvent le modifier.",
+        unsafeSetID: "Le bit setuid ou setgid est activé.",
         unsafeACL: "Il a une liste de contrôle d’accès.",
         unsafeUnreadable: "Il ne peut pas être lu.",
         unsafeSignature: "Sa signature manque, ou il a été modifié après la signature.",
@@ -768,7 +810,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus maintient %@",
         fanCurveItem: "une courbe de ventilateur",
         zeroRpmItem: "le ventilateur toujours en marche",
-        gfxItemFormat: "une fréquence GFX max de %d MHz")
+        gfxItemFormat: "une fréquence GFX max de %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " et ",
+        heldOD8Short: "RyzenStatus maintient des réglages OD8")
 
     static let it = GPUControlPageStrings(
         stateSection: "Stato",
@@ -806,7 +851,7 @@ extension GPUControlPageStrings {
         copy: "Copia",
         copied: "Copiato",
         notInstalled: "gpucontrol non è installato in /usr/local/bin. DrogaBoxGPU lo installa con «sudo install/sensors.sh tools».",
-        unsafeTool: "Il pulsante richiede che gpucontrol e ogni cartella sopra di esso appartengano solo a root:",
+        unsafeToolFormat: "Il pulsante richiede che gpucontrol e ogni cartella sopra di esso appartengano solo a root. %@",
         armFailed: "La scrittura non si è aperta.",
         rememberToggle: "Ricorda all’apertura e al risveglio",
         rememberFooter: "Solo ciò che RyzenStatus manteneva, e solo se la scrittura è aperta. Non chiede mai una password.",
@@ -835,6 +880,7 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Non è un file né una cartella normale.",
         unsafeNotRoot: "Non appartiene a root.",
         unsafeWritable: "Anche altri oltre a root possono modificarlo.",
+        unsafeSetID: "Ha il bit setuid o setgid attivo.",
         unsafeACL: "Ha un elenco di controllo degli accessi.",
         unsafeUnreadable: "Non può essere letto.",
         unsafeSignature: "Manca la firma, o è stato modificato dopo la firma.",
@@ -842,7 +888,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus mantiene %@",
         fanCurveItem: "una curva della ventola",
         zeroRpmItem: "la ventola sempre in rotazione",
-        gfxItemFormat: "un clock GFX massimo di %d MHz")
+        gfxItemFormat: "un clock GFX massimo di %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " e ",
+        heldOD8Short: "RyzenStatus mantiene impostazioni OD8")
 
     static let ja = GPUControlPageStrings(
         stateSection: "状態",
@@ -880,7 +929,7 @@ extension GPUControlPageStrings {
         copy: "コピー",
         copied: "コピーしました",
         notInstalled: "gpucontrol が /usr/local/bin にインストールされていません。DrogaBoxGPU は「sudo install/sensors.sh tools」でインストールします。",
-        unsafeTool: "このボタンには、gpucontrol とその上のすべてのフォルダが root だけの所有である必要があります:",
+        unsafeToolFormat: "このボタンには、gpucontrol とその上のすべてのフォルダが root だけの所有である必要があります。%@",
         armFailed: "書き込みは開きませんでした。",
         rememberToggle: "起動時とスリープ解除時に覚える",
         rememberFooter: "RyzenStatus が保持していたものだけを、書き込みが開いているときだけ。パスワードを求めることはありません。",
@@ -909,6 +958,7 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "通常のファイルまたはフォルダではありません。",
         unsafeNotRoot: "root の所有ではありません。",
         unsafeWritable: "root 以外も変更できます。",
+        unsafeSetID: "setuid または setgid ビットが設定されています。",
         unsafeACL: "アクセス制御リストがあります。",
         unsafeUnreadable: "読み取れません。",
         unsafeSignature: "署名がないか、署名後に変更されています。",
@@ -916,7 +966,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus が保持中: %@",
         fanCurveItem: "ファンカーブ",
         zeroRpmItem: "常に回るファン",
-        gfxItemFormat: "GFX 最大クロック %d MHz")
+        gfxItemFormat: "GFX 最大クロック %d MHz",
+        listSeparator: "、",
+        listLastSeparator: "と",
+        heldOD8Short: "RyzenStatus が OD8 設定を保持中")
 
     static let ko = GPUControlPageStrings(
         stateSection: "상태",
@@ -934,7 +987,7 @@ extension GPUControlPageStrings {
         reaskingFormat: "시동 값으로 돌아갔습니다. %d W를 다시 요청하는 중…",
         otherVersionFormat: "kext는 채널 버전 %d, 앱은 버전 %d를 사용합니다. 둘 중 하나를 업데이트하십시오.",
         connectionLost: "kext와의 연결이 닫혀 kext가 시동 값으로 돌아갔습니다. 제어를 사용하려면 RyzenStatus를 다시 여십시오.",
-        readyWarning: "재시동할 때까지 쓰기가 열려 있습니다. 이 사용자의 어떤 프로그램이든 제한을 낮출 수 있습니다.",
+        readyWarning: "재시동할 때까지 쓰기가 열려 있습니다. 이 사용자의 어떤 프로그램이든 한도를 낮출 수 있습니다.",
         restartMac: "카드가 공장 값으로 돌아간 것을 확인할 수 없습니다. Mac을 재시동하십시오.",
         lost: "kext가 시동 값으로 돌아갔습니다.",
         backAfterWake: "깨어난 후 kext가 시동 값으로 돌아갔습니다.",
@@ -945,8 +998,8 @@ extension GPUControlPageStrings {
         bootFormat: "시동 값(%d W)",
         wattsFormat: "%d W",
         backToBoot: "시동 값으로 돌아가기",
-        exclusiveNote: "kext는 한 번에 하나만 유지합니다. 전력 제한과 팬 또는 클록 설정은 함께 유지되지 않습니다.",
-        powerFooter: "선택하면 적용됩니다. 200 W까지 더 낮은 제한만 가능하며, kext는 모든 요청을 확인하고 RyzenStatus가 종료되거나 응답하지 않으면 스스로 돌아갑니다.",
+        exclusiveNote: "kext는 한 번에 하나만 유지합니다. 전력 한도와 팬 또는 클록 설정은 함께 유지되지 않습니다.",
+        powerFooter: "선택하면 적용됩니다. 200 W까지 더 낮은 한도만 가능하며, kext는 모든 요청을 확인하고 RyzenStatus가 종료되거나 응답하지 않으면 스스로 돌아갑니다.",
         armClosed: "관리자가 Mac을 재시동할 때까지 엽니다.",
         openWriting: "쓰기 열기…",
         armPrompt: "RyzenStatus가 Mac을 재시동할 때까지 GPU 제어 쓰기를 열려고 합니다.",
@@ -954,7 +1007,7 @@ extension GPUControlPageStrings {
         copy: "복사",
         copied: "복사됨",
         notInstalled: "gpucontrol이 /usr/local/bin에 설치되어 있지 않습니다. DrogaBoxGPU는 “sudo install/sensors.sh tools”로 설치합니다.",
-        unsafeTool: "이 버튼을 쓰려면 gpucontrol과 상위의 모든 폴더가 root만의 소유여야 합니다:",
+        unsafeToolFormat: "이 버튼을 쓰려면 gpucontrol과 상위의 모든 폴더가 root만의 소유여야 합니다. %@",
         armFailed: "쓰기가 열리지 않았습니다.",
         rememberToggle: "실행할 때와 깨어날 때 기억",
         rememberFooter: "RyzenStatus가 유지하던 것만, 쓰기가 열려 있을 때만. 암호를 묻지 않습니다.",
@@ -962,7 +1015,7 @@ extension GPUControlPageStrings {
         reverts: "재시동 이후 복원",
         kextVersion: "Kext",
         channel: "채널",
-        panelLabel: "GPU 제한",
+        panelLabel: "GPU 한도",
         notAllowed: "허용되지 않는 값입니다.",
         busy: "kext가 사용 중입니다. 잠시 후 다시 시도하십시오.",
         notReady: "아직 준비되지 않았습니다. Mac이 아직 깨어나는 중이거나 시동 이후 카드가 바뀌었을 수 있습니다.",
@@ -976,13 +1029,14 @@ extension GPUControlPageStrings {
         offNotAsExpected: "꺼짐: 드라이버, 카드 또는 시작이 예상과 다릅니다.",
         offChangeUnconfirmed: "꺼짐: 변경 사항을 확인할 수 없습니다. Mac을 재시동하십시오.",
         offDriverStopped: "GPU 드라이버가 멈췄거나 Mac이 종료 중입니다.",
-        offWatchdog: "꺼짐: 팬 감시가 기본 팬 제어로 되돌렸습니다.",
+        offWatchdog: "꺼짐: 팬 감시가 기본 팬으로 되돌렸습니다.",
         gaveUpFormat: "1분 안에 받아들여지지 않았습니다. %@",
         timedOut: "5초 안에 응답이 없습니다. 아무것도 유지하지 않습니다.",
         notConfirmed: "kext가 변경을 확인하지 않았습니다. 아무것도 유지하지 않습니다.",
         unsafeNotPlain: "일반 파일이나 폴더가 아닙니다.",
         unsafeNotRoot: "root 소유가 아닙니다.",
         unsafeWritable: "root 외의 사용자도 바꿀 수 있습니다.",
+        unsafeSetID: "setuid 또는 setgid 비트가 설정되어 있습니다.",
         unsafeACL: "접근 제어 목록이 있습니다.",
         unsafeUnreadable: "읽을 수 없습니다.",
         unsafeSignature: "서명이 없거나 서명 후 변경되었습니다.",
@@ -990,7 +1044,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus가 유지 중: %@",
         fanCurveItem: "팬 곡선",
         zeroRpmItem: "항상 도는 팬",
-        gfxItemFormat: "최대 GFX 클록 %d MHz")
+        gfxItemFormat: "최대 GFX 클록 %d MHz",
+        listSeparator: ", ",
+        listLastSeparator: " 및 ",
+        heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중")
 
     static let zhHans = GPUControlPageStrings(
         stateSection: "状态",
@@ -1028,10 +1085,10 @@ extension GPUControlPageStrings {
         copy: "拷贝",
         copied: "已拷贝",
         notInstalled: "gpucontrol 未安装在 /usr/local/bin。DrogaBoxGPU 使用“sudo install/sensors.sh tools”安装它。",
-        unsafeTool: "此按钮要求 gpucontrol 及上层的每个文件夹都只归 root 所有：",
+        unsafeToolFormat: "此按钮要求 gpucontrol 及上层的每个文件夹都只归 root 所有。%@",
         armFailed: "写入未打开。",
         rememberToggle: "打开时和唤醒时记住",
-        rememberFooter: "仅限 RyzenStatus 保持的内容，且仅在写入打开时。绝不询问密码。",
+        rememberFooter: "仅限 RyzenStatus 维持的内容，且仅在写入打开时。绝不询问密码。",
         changes: "重新启动以来的更改",
         reverts: "重新启动以来的回退次数",
         kextVersion: "Kext",
@@ -1050,13 +1107,14 @@ extension GPUControlPageStrings {
         offNotAsExpected: "关闭：驱动程序、显卡或启动与预期不符。",
         offChangeUnconfirmed: "关闭：无法确认更改。请重新启动 Mac。",
         offDriverStopped: "GPU 驱动程序已停止，或 Mac 正在关机。",
-        offWatchdog: "关闭：风扇监控已恢复出厂风扇控制。",
+        offWatchdog: "关闭：风扇监控已恢复出厂风扇。",
         gaveUpFormat: "一分钟内未被接受。%@",
         timedOut: "5 秒内无响应；未持有任何项目。",
         notConfirmed: "kext 未确认更改；未持有任何项目。",
         unsafeNotPlain: "不是普通文件或文件夹。",
         unsafeNotRoot: "不归 root 所有。",
         unsafeWritable: "root 以外的用户也可以更改它。",
+        unsafeSetID: "它设置了 setuid 或 setgid 位。",
         unsafeACL: "它有访问控制列表。",
         unsafeUnreadable: "无法读取。",
         unsafeSignature: "缺少签名，或签名后被更改过。",
@@ -1064,7 +1122,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus 正在维持：%@",
         fanCurveItem: "风扇曲线",
         zeroRpmItem: "始终转动的风扇",
-        gfxItemFormat: "GFX 最大时钟 %d MHz")
+        gfxItemFormat: "GFX 最大时钟 %d MHz",
+        listSeparator: "、",
+        listLastSeparator: "和",
+        heldOD8Short: "RyzenStatus 正在维持 OD8 设置")
 
     static let zhTW = GPUControlPageStrings(
         stateSection: "狀態",
@@ -1102,10 +1163,10 @@ extension GPUControlPageStrings {
         copy: "拷貝",
         copied: "已拷貝",
         notInstalled: "gpucontrol 未安裝在 /usr/local/bin。DrogaBoxGPU 使用「sudo install/sensors.sh tools」安裝它。",
-        unsafeTool: "此按鈕要求 gpucontrol 及上層的每個檔案夾都只屬於 root：",
+        unsafeToolFormat: "此按鈕要求 gpucontrol 及上層的每個檔案夾都只屬於 root。%@",
         armFailed: "寫入未開啟。",
         rememberToggle: "打開時和喚醒時記住",
-        rememberFooter: "僅限 RyzenStatus 保持的內容，且僅在寫入開啟時。絕不詢問密碼。",
+        rememberFooter: "僅限 RyzenStatus 維持的內容，且僅在寫入開啟時。絕不詢問密碼。",
         changes: "重新啟動以來的變更",
         reverts: "重新啟動以來的回退次數",
         kextVersion: "Kext",
@@ -1124,13 +1185,14 @@ extension GPUControlPageStrings {
         offNotAsExpected: "關閉：驅動程式、顯示卡或啟動與預期不符。",
         offChangeUnconfirmed: "關閉：無法確認變更。請重新啟動 Mac。",
         offDriverStopped: "GPU 驅動程式已停止，或 Mac 正在關機。",
-        offWatchdog: "關閉：風扇監控已恢復原廠風扇控制。",
+        offWatchdog: "關閉：風扇監控已恢復原廠風扇。",
         gaveUpFormat: "一分鐘內未被接受。%@",
         timedOut: "5 秒內沒有回應；未持有任何項目。",
         notConfirmed: "kext 未確認變更；未持有任何項目。",
         unsafeNotPlain: "不是一般檔案或檔案夾。",
         unsafeNotRoot: "不屬於 root。",
         unsafeWritable: "root 以外的使用者也可以更改它。",
+        unsafeSetID: "它設定了 setuid 或 setgid 位元。",
         unsafeACL: "它有存取控制列表。",
         unsafeUnreadable: "無法讀取。",
         unsafeSignature: "缺少簽名，或簽名後被更改過。",
@@ -1138,7 +1200,10 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus 正在維持：%@",
         fanCurveItem: "風扇曲線",
         zeroRpmItem: "始終轉動的風扇",
-        gfxItemFormat: "GFX 最大時脈 %d MHz")
+        gfxItemFormat: "GFX 最大時脈 %d MHz",
+        listSeparator: "、",
+        listLastSeparator: "和",
+        heldOD8Short: "RyzenStatus 正在維持 OD8 設定")
 
     static let uk = GPUControlPageStrings(
         stateSection: "Стан",
@@ -1167,7 +1232,7 @@ extension GPUControlPageStrings {
         bootFormat: "Під час завантаження (%d Вт)",
         wattsFormat: "%d Вт",
         backToBoot: "Повернути значення завантаження",
-        exclusiveNote: "Kext утримує лише одне за раз: обмеження потужності й налаштування вентилятора чи частоти ніколи не утримуються разом.",
+        exclusiveNote: "Kext утримує лише одне за раз: ліміт потужності й налаштування вентилятора чи частоти ніколи не утримуються разом.",
         powerFooter: "Застосовується під час вибору. Лише нижчі ліміти, до 200 Вт; kext перевіряє кожен запит і сам повертається, якщо RyzenStatus закриється або перестане відповідати.",
         armClosed: "Адміністратор відкриває його до перезапуску Mac.",
         openWriting: "Відкрити запис…",
@@ -1176,7 +1241,7 @@ extension GPUControlPageStrings {
         copy: "Копіювати",
         copied: "Скопійовано",
         notInstalled: "gpucontrol не встановлено в /usr/local/bin. DrogaBoxGPU встановлює його командою «sudo install/sensors.sh tools».",
-        unsafeTool: "Кнопці потрібно, щоб gpucontrol і кожна тека над ним належали лише root:",
+        unsafeToolFormat: "Кнопці потрібно, щоб gpucontrol і кожна тека над ним належали лише root. %@",
         armFailed: "Запис не відкрився.",
         rememberToggle: "Пам’ятати під час запуску й пробудження",
         rememberFooter: "Лише те, що утримував RyzenStatus, і лише якщо запис відкрито. Ніколи не питає пароль.",
@@ -1205,12 +1270,16 @@ extension GPUControlPageStrings {
         unsafeNotPlain: "Це не звичайний файл чи тека.",
         unsafeNotRoot: "Не належить root.",
         unsafeWritable: "Змінювати його може не лише root.",
+        unsafeSetID: "У нього встановлено біт setuid або setgid.",
         unsafeACL: "Має список керування доступом.",
         unsafeUnreadable: "Його не можна прочитати.",
         unsafeSignature: "Підпису немає, або файл змінено після підпису.",
         unsafeOtherProgram: "Це інша програма, не gpucontrol із DrogaBoxGPU.",
         heldOD8Format: "RyzenStatus утримує: %@",
         fanCurveItem: "криву вентилятора",
-        zeroRpmItem: "вентилятор, що завжди обертається",
-        gfxItemFormat: "макс. частоту GFX %d МГц")
+        zeroRpmItem: "постійне обертання вентилятора",
+        gfxItemFormat: "макс. частоту GFX %d МГц",
+        listSeparator: ", ",
+        listLastSeparator: " і ",
+        heldOD8Short: "RyzenStatus утримує налаштування OD8")
 }

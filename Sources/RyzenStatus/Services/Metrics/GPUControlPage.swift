@@ -251,6 +251,8 @@ enum GPUControlArmTool {
         case notPlain
         case notRoot
         case writable
+        /// The file runs as its owner or group (setuid, setgid).
+        case setID
         case accessControlList
         case unreadable
         case signature
@@ -308,9 +310,13 @@ enum GPUControlArmTool {
         guard file.kind == .regular else { return Problem(reason: .notPlain, path: path) }
         guard file.uid == owner else { return Problem(reason: .notRoot, path: path) }
         // No group or other write (the installer's rule); no setuid or setgid
-        // either, which the installer never sets.
-        guard file.permissions & 0o6022 == 0 else {
+        // either, which the installer never sets. Each has its own sentence:
+        // nobody but root can change a 4755 file.
+        guard file.permissions & 0o022 == 0 else {
             return Problem(reason: .writable, path: path, detail: "mode " + String(file.permissions, radix: 8))
+        }
+        guard file.permissions & 0o6000 == 0 else {
+            return Problem(reason: .setID, path: path, detail: "mode " + String(file.permissions, radix: 8))
         }
         guard !file.hasACL else { return Problem(reason: .accessControlList, path: path) }
         var folder = (path as NSString).deletingLastPathComponent

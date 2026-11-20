@@ -48,10 +48,26 @@ enum GPUControlPageTests {
         let curve = GPUControlOD8Want(curve: GPUControlChannelTests.testedCurve, zeroRpmOff: true)
         let held = GPUControlPageInput(facts: facts, state: .heldByApp(.od8(curve)), snapshot: GPUControlSnapshot())
         suite.expect(held.stateTitle(s, short: false)
-                        == "RyzenStatus mantiene una curva de ventilador, el ventilador siempre girando",
-                     "a held curve and zero RPM off, in words")
+                        == "RyzenStatus mantiene una curva de ventilador y el ventilador siempre girando",
+                     "a held curve and zero RPM off, in one sentence")
+        let all = GPUControlOD8Want(curve: GPUControlChannelTests.testedCurve, zeroRpmOff: true, gfxMaxMHz: 2_300)
+        suite.expect(GPUControlPageStrings.enUS.od8Held(all)
+                        == "RyzenStatus is holding a fan curve, the fan always running and a GFX maximum of 2300 MHz",
+                     "three held settings: commas, then the language's \"and\"")
+        suite.expect(GPUControlPageStrings.ja.od8Held(curve) == "RyzenStatus が保持中: ファンカーブと常に回るファン",
+                     "Japanese joins with と, not an English comma")
+        suite.expect(GPUControlPageStrings.zhHans.od8Held(all) == "RyzenStatus 正在维持：风扇曲线、始终转动的风扇和GFX 最大时钟 2300 MHz",
+                     "Chinese: 、 between the items, 和 before the last")
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a GFX maximum of 2300 MHz", "a held clock, in words")
+        // The panel row has two caption lines: a short title, not the list.
+        let heldAll = GPUControlPageInput(facts: facts, state: .heldByApp(.od8(all)), snapshot: GPUControlSnapshot())
+        for language in AppLanguage.allCases {
+            let t = FeatureStrings.gpuControlPage(language)
+            let short = heldAll.stateTitle(t, short: true)
+            suite.expect(short == t.heldOD8Short && short.count <= 40 && short.count < heldAll.stateTitle(t, short: false).count,
+                         "\(language.rawValue): an OD8 hold in the panel row is short (\(short.count))")
+        }
         // The channel version is an argument, not a "2" in the text.
         let other = GPUControlPageInput(facts: facts, state: .otherVersion(1), snapshot: nil)
         suite.expect(other.stateTitle(GPUControlPageStrings.enUS, short: false)
@@ -61,6 +77,9 @@ enum GPUControlPageTests {
         let changelog = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath + "/CHANGELOG.md",
                                      encoding: .utf8)) ?? ""
         suite.expect(!changelog.contains("## [Unreleased]"), "no invented changelog heading")
+        let firstRelease = changelog.range(of: "\n## [")?.lowerBound ?? changelog.startIndex
+        suite.expect(changelog[..<firstRelease].contains("GPU power limit"),
+                     "the GPU control page has its paragraph above the first release")
         // The page source: the status header, the remember section apart.
         let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
                                 + "/Sources/RyzenStatus/UI/Settings/GPUControlSettingsView.swift", encoding: .utf8)) ?? ""
@@ -336,6 +355,31 @@ enum GPUControlPageTests {
                      "a broken signature: no button")
         suite.expect(availability(safe, signature: { _ in "com.example.gpucontrol" })
                         == .unsafe(.otherProgram, path: Tool.installedPath), "another identifier: no button")
+        // Setuid or setgid is its own reason: nobody but root can change a
+        // 4755 file, so "anyone other than root can change it" would be wrong.
+        let setIDModes: [(UInt16, String)] = [(0o4755, "setuid"), (0o2755, "setgid"), (0o6755, "both")]
+        for (mode, why) in setIDModes {
+            var table = safe
+            table[Tool.installedPath] = Tool.FileInfo(kind: .regular, uid: 0, permissions: mode)
+            suite.expect(availability(table) == .unsafe(.setID, path: Tool.installedPath), "\(why): the setuid/setgid reason")
+        }
+        var groupWrite = safe
+        groupWrite[Tool.installedPath] = Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o4775)
+        suite.expect(availability(groupWrite) == .unsafe(.writable, path: Tool.installedPath),
+                     "setuid and group write: the write comes first")
+        suite.expect(GPUControlPageStrings.enUS.sentence(.setID) == "It has the setuid or setgid bit set."
+                        && GPUControlPageStrings.enUS.sentence(.writable) == "Anyone other than root can change it.",
+                     "the two English sentences")
+        // The rule and the reason read as two sentences, in every language.
+        suite.expect(String(format: GPUControlPageStrings.enUS.unsafeToolFormat, GPUControlPageStrings.enUS.sentence(.notRoot))
+                        == "The button needs gpucontrol and every folder above it to belong to root alone. It does not belong to root.",
+                     "the rule, a full stop, then the reason")
+        for language in AppLanguage.allCases {
+            let t = FeatureStrings.gpuControlPage(language)
+            let text = String(format: t.unsafeToolFormat, t.sentence(.notRoot))
+            suite.expect(!text.contains(":") && !text.contains("：") && text.hasSuffix(t.sentence(.notRoot)),
+                         "\(language.rawValue): no colon before the reason")
+        }
         var userBin = safe
         userBin["/usr/local/bin"] = Tool.FileInfo(kind: .directory, uid: 501, permissions: 0o755)
         suite.expect(availability(userBin) == .unsafe(.notRoot, path: "/usr/local/bin"),
@@ -561,7 +605,7 @@ enum GPUControlPageTests {
             return pattern?.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } } ?? []
         }
         let english = GPUControlPageStrings.enUS.all
-        suite.expect(english.count == 72, "72 texts")
+        suite.expect(english.count == 76, "76 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlPage(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },

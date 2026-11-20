@@ -89,7 +89,8 @@ extension GPUControlPageInput {
         case .sleeping?: return s.sleeping
         case .heldByOther?: return s.heldByOther
         case .heldByApp(.power(let watts))?: return String(format: s.heldPowerFormat, Int(watts))
-        case .heldByApp(.od8(let want))?: return s.od8Held(want)
+        // The whole list does not fit the panel row's two lines.
+        case .heldByApp(.od8(let want))?: return short ? s.heldOD8Short : s.od8Held(want)
         case .heldByApp(.startUp)?: return s.ready
         case .connectionLost?: return short ? s.lost : s.connectionLost
         case .otherVersion(let version)?:
@@ -338,7 +339,9 @@ struct GPUControlPageContent: View {
                 }
             case .unsafe(let reason, let path):
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(s.unsafeTool + " " + s.sentence(reason))
+                    // One sentence for the rule, then the reason: each
+                    // language joins them its own way (no space after 。).
+                    Text(String(format: s.unsafeToolFormat, s.sentence(reason)))
                         .font(.caption)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(path)
