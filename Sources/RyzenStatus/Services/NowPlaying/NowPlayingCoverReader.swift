@@ -56,7 +56,9 @@ struct NowPlayingCoverBackoff: Equatable {
 /// daemon trusts, and prints it.
 ///
 /// It runs for a new song, never per poll. Failures write one log line and
-/// back off (`NowPlayingCoverBackoff`); players then show their app icon.
+/// back off (`NowPlayingCoverBackoff`); a library that does not load, or a
+/// perl that cannot start, ends covers for the run. Players then show their
+/// app icon.
 ///
 /// Not thread-safe: every call runs on the caller's serial queue.
 final class NowPlayingCoverReader {
@@ -141,8 +143,14 @@ final class NowPlayingCoverReader {
             }
             verifiedLibrary = identity
         }
+        // A Mac without a perl it may start gets no covers, like a missing
+        // library, instead of failing and resting once per song.
+        guard FileManager.default.isExecutableFile(atPath: Self.perlPath) else {
+            note(.unavailable, "\(Self.perlPath) is not there or cannot be run", at: uptime)
+            return nil
+        }
         let result = BoundedProcessRunner.run(
-            "/usr/bin/perl", ["-e", Self.loader, library.path],
+            Self.perlPath, ["-e", Self.loader, library.path],
             timeout: Self.timeout, maxOutputBytes: Self.maximumOutputBytes,
             // Nothing from the app's environment (PERL5LIB, PERL5OPT) reaches perl.
             environment: NowPlayingSessionReader.childEnvironment)
@@ -152,10 +160,22 @@ final class NowPlayingCoverReader {
         }
         let detail = String(decoding: result.output.prefix(300), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        // The loader exits 2 or 3 when the library does not load.
-        let outcome: NowPlayingCoverBackoff.Outcome = (result.status == 2 || result.status == 3) ? .unavailable : .transientFailure
-        note(outcome, "perl helper \(result.timedOut ? "timed out" : "exited \(result.status)") \(detail)", at: uptime)
+        let outcome = Self.outcome(status: result.status, timedOut: result.timedOut, output: result.output)
+        let what = result.timedOut ? "timed out" : (result.status == -1 ? "could not start" : "exited \(result.status)")
+        note(outcome, "perl helper \(what) \(detail)", at: uptime)
         return nil
+    }
+
+    static let perlPath = "/usr/bin/perl"
+
+    /// What a failed helper run means. The loader exits 2 or 3 when the
+    /// library does not load; a perl that could not be started at all (status
+    /// -1 with no output and no timeout) will not start next time either.
+    /// Anything else may pass, such as a timeout right after wake.
+    static func outcome(status: Int32, timedOut: Bool, output: Data) -> NowPlayingCoverBackoff.Outcome {
+        if status == 2 || status == 3 { return .unavailable }
+        if status == -1, !timedOut, output.isEmpty { return .unavailable }
+        return .transientFailure
     }
 
     private func note(_ outcome: NowPlayingCoverBackoff.Outcome, _ reason: String, at uptime: TimeInterval) {
@@ -229,10 +249,12 @@ final class NowPlayingCoverReader {
     }
 
     /// The cover belongs to the song on screen: same player and title, so a
-    /// cover read at a track change never lands on the next song.
+    /// cover read at a track change never lands on the next song. A cover
+    /// that names its player is refused for a reading that names none, since
+    /// nothing says it is the same player.
     static func cover(_ cover: Cover, belongsTo snapshot: NowPlayingSnapshot) -> Bool {
         guard let title = cover.title, title == snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-        if let bundle = cover.bundleID, let owner = snapshot.appBundleID, bundle != owner { return false }
+        if let bundle = cover.bundleID, bundle != snapshot.appBundleID { return false }
         return true
     }
 
@@ -256,17 +278,40 @@ final class NowPlayingCoverReader {
 
 /// One song's cover in the service: what came back, and whether to ask again.
 /// A song whose cover is not ready yet (TIDAL can still be downloading it) is
-/// asked once more a few seconds later; never more.
+/// asked once more a few seconds later; never more. Only a read that ran
+/// counts as a try: a request made while covers rest costs the song nothing,
+/// and a later poll asks again once the rest is over.
 struct NowPlayingSessionCover: Equatable {
     static let attempts = 2
     static let retryDelay: TimeInterval = 3
 
     let key: String
     var data: Data?
-    var tries: Int
+    /// Reads that ran for this song.
+    var tries = 0
+    /// When the last read ran (or the song was first seen, before any).
     var askedAt: TimeInterval
+    /// A request is waiting on the cover queue; no second one is sent.
+    var pending = false
 
-    func shouldAskAgain(at uptime: TimeInterval) -> Bool {
-        data == nil && tries < Self.attempts && uptime - askedAt >= Self.retryDelay
+    /// Whether a poll should send a request for this song now.
+    func shouldAsk(at uptime: TimeInterval) -> Bool {
+        guard data == nil, !pending, tries < Self.attempts else { return false }
+        return tries == 0 || uptime - askedAt >= Self.retryDelay
+    }
+
+    /// A read ran at `uptime`; `data` is what it brought back.
+    mutating func recordRead(at uptime: TimeInterval, data: Data?) {
+        pending = false
+        tries += 1
+        askedAt = uptime
+        if let data { self.data = data }
+    }
+
+    /// The request did not read: covers rest (asked again later) or are off
+    /// for the run (never asked again).
+    mutating func recordSkip(coversOff: Bool) {
+        pending = false
+        if coversOff { tries = Self.attempts }
     }
 }

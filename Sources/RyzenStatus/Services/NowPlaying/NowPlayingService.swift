@@ -119,9 +119,9 @@ final class NowPlayingService: ObservableObject {
     private let coverReader = NowPlayingCoverReader()
     /// The song the cover was asked for and what came back, on `queue`.
     private var sessionCover: NowPlayingSessionCover?
-    /// The newest polling run `stopPolling` ended, on `queue`: a delayed
-    /// reading of that run or an older one does nothing.
-    private var retiredGeneration = Int.min
+    /// The polling runs `stopPolling` ended, marked before it leaves the main
+    /// thread: a reading of such a run, even one already queued, does nothing.
+    private let retiredRuns = NowPlayingRetiredRuns()
     /// The TIDAL reading waiting for its new song to settle, on `queue`.
     /// Every stop of the reader cancels it.
     private var pendingSettle: DispatchWorkItem?
@@ -276,15 +276,13 @@ final class NowPlayingService: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
-        let retired = pollGeneration
+        // Retired before anything is queued, so a reading already waiting on
+        // `queue` starts no reader for this run.
+        retiredRuns.retire(pollGeneration)
         // The reader may be waiting on `queue` for a reply: end its script
         // now, so quitting never waits behind it.
         sessionReader.terminateNow()
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.retiredGeneration = max(self.retiredGeneration, retired)
-            self.stopSessionReading()
-        }
+        queue.async { [weak self] in self?.stopSessionReading() }
         stopMarquee()
         pollGeneration += 1
         lastPollStartedAt = 0
@@ -386,11 +384,11 @@ final class NowPlayingService: ObservableObject {
     /// them, is shown from the session.
     private func readSession(provider: NowPlayingProvider, generation gen: Int, settled: Bool) {
         // A delayed reading must not start a new reader for a run that ended.
-        guard gen > retiredGeneration else { return }
+        guard !retiredRuns.isRetired(gen) else { return }
         if settled { pendingSettle = nil }
         let reading = sessionReader.read()
-        if !settled, let reading, reading.snapshot.appBundleID == NowPlayingTidal.bundleID,
-           reading.snapshot.hasTrack, let last = lastSessionTitle, reading.snapshot.title != last {
+        if !settled, let reading,
+           NowPlayingTidal.shouldSettle(reading.snapshot, lastTitle: lastSessionTitle) {
             pendingSettle?.cancel()
             let settle = DispatchWorkItem { [weak self] in
                 self?.readSession(provider: provider, generation: gen, settled: true)
@@ -443,18 +441,19 @@ final class NowPlayingService: ObservableObject {
 
     /// Puts the song's cover on a session reading, on `queue`. A new song is
     /// asked for once; a song whose cover was not ready is asked once more.
+    /// A try counts only when the helper ran (see `NowPlayingSessionCover`).
     private func attachCover(to next: inout NowPlayingSnapshot, generation gen: Int) {
         let key = NowPlayingCoverReader.key(for: next)
         let uptime = ProcessInfo.processInfo.systemUptime
-        if var cover = sessionCover, cover.key == key {
-            next.artworkData = cover.data
-            guard cover.shouldAskAgain(at: uptime) else { return }
-            cover.tries += 1
-            cover.askedAt = uptime
+        var cover = NowPlayingSessionCover(key: key, askedAt: uptime)
+        if let current = sessionCover, current.key == key { cover = current }
+        next.artworkData = cover.data
+        guard cover.shouldAsk(at: uptime) else {
             sessionCover = cover
-        } else {
-            sessionCover = NowPlayingSessionCover(key: key, data: nil, tries: 1, askedAt: uptime)
+            return
         }
+        cover.pending = true
+        sessionCover = cover
         requestCover(for: next, key: key, generation: gen)
     }
 
@@ -466,12 +465,22 @@ final class NowPlayingService: ObservableObject {
             // A song skipped while earlier covers were read, or one whose
             // first try came back late with its cover, costs no launch.
             let current = self.queue.sync { self.sessionCover?.key == key && self.sessionCover?.data == nil }
-            guard current, self.coverReader.isReady() else { return }
+            guard current else { return }
+            guard self.coverReader.isReady() else {
+                let coversOff = self.coverReader.gaveUp
+                self.queue.async { [weak self] in
+                    guard let self, self.sessionCover?.key == key else { return }
+                    self.sessionCover?.recordSkip(coversOff: coversOff)
+                }
+                return
+            }
+            let startedAt = ProcessInfo.processInfo.systemUptime
             let cover = self.coverReader.read()
             let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
             self.queue.async { [weak self] in
-                guard let self, self.sessionCover?.key == key, let data else { return }
-                self.sessionCover?.data = data
+                guard let self, self.sessionCover?.key == key else { return }
+                self.sessionCover?.recordRead(at: startedAt, data: data)
+                guard let data else { return }
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.timer != nil, gen == self.pollGeneration,
                           NowPlayingCoverReader.key(for: self.snapshot) == key,

@@ -269,6 +269,13 @@ enum NowPlayingTidal {
     /// before it is shown (the delay ungive/mediaremote-adapter uses for it).
     static let titleSettleDelay: TimeInterval = 1.0
 
+    /// Whether a TIDAL reading is read again before it is shown: its title is
+    /// new, the first song the reader sees included (at start, after a stop,
+    /// or after a reading without a song).
+    static func shouldSettle(_ reading: NowPlayingSnapshot, lastTitle: String?) -> Bool {
+        reading.appBundleID == bundleID && reading.hasTrack && reading.title != lastTitle
+    }
+
     /// TIDAL opens `tidal://<path>` as a page of its own web client.
     static func searchURL(for query: String) -> URL? {
         var components = URLComponents()
@@ -559,7 +566,12 @@ enum NowPlayingSearch {
     private static func openTidalSearch(query: String) {
         if let url = NowPlayingTidal.searchURL(for: query),
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingTidal.bundleID) {
-            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+            // TIDAL installed but not opening its scheme (a broken or half
+            // finished install) falls back to the web player too.
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                guard error != nil, let webURL = NowPlayingTidal.webSearchURL(for: query) else { return }
+                DispatchQueue.main.async { NSWorkspace.shared.open(webURL) }
+            }
             return
         }
         guard let webURL = NowPlayingTidal.webSearchURL(for: query) else { return }

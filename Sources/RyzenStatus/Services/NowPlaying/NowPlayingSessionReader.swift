@@ -3,12 +3,16 @@
 
 import Darwin
 import Foundation
+import os
 
 /// One reading of the system media session, as the session reader sends it.
 struct NowPlayingSessionReading: Equatable {
     var sequence: Int
     var snapshot: NowPlayingSnapshot
     var pid: Int32?
+    /// The script answered that it cannot reach the session (MediaRemote or
+    /// its request class did not load). The reader counts it as a failure.
+    var unavailable = false
 
     /// Players that send no "is playing" key (TIDAL) are playing while their
     /// rate is above zero. A player that sends the key but no rate keeps the
@@ -37,6 +41,9 @@ struct NowPlayingSessionReading: Equatable {
         guard line.count <= 64 * 1_024,
               let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let sequence = (object["seq"] as? NSNumber)?.intValue else { return nil }
+        if object["error"] is String {
+            return NowPlayingSessionReading(sequence: sequence, snapshot: NowPlayingSnapshot(), pid: nil, unavailable: true)
+        }
         func text(_ key: String, limit: Int = 1_024) -> String? {
             guard let value = object[key] as? String else { return nil }
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,6 +96,26 @@ struct NowPlayingReaderHealth: Equatable {
     }
 }
 
+/// The newest polling run that ended, readable from any thread. The run is
+/// retired the moment it stops, so work already queued for it sees that
+/// before it starts a reader.
+final class NowPlayingRetiredRuns: @unchecked Sendable {
+    private let lock = NSLock()
+    private var newest = Int.min
+
+    func retire(_ generation: Int) {
+        lock.lock()
+        newest = max(newest, generation)
+        lock.unlock()
+    }
+
+    func isRetired(_ generation: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation <= newest
+    }
+}
+
 /// Reads the system media session on macOS 15.4 and later, where the media
 /// daemon answers only processes it trusts and returns nothing to this app.
 /// Apple's own `osascript` is one of them: a small JavaScript for Automation
@@ -120,6 +147,9 @@ final class NowPlayingSessionReader {
     private var sequence = 0
     private var served = 0
     private var health = NowPlayingReaderHealth()
+    private var loggedUnavailable = false
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ryzenstatus",
+                                    category: "NowPlayingSession")
     /// The running script, for `terminateNow` from another thread.
     private let liveLock = NSLock()
     private var live: Process?
@@ -140,6 +170,18 @@ final class NowPlayingSessionReader {
         guard send("\(sequence)\n"), let reading = receive(sequence, timeout: timeout, now: now()) else {
             stop()
             health.recordFailure(at: ProcessInfo.processInfo.systemUptime)
+            return nil
+        }
+        if reading.unavailable {
+            // The route is gone (a later macOS may refuse the script too): no
+            // script stays open for it, it rests like any failure, and the
+            // first time is logged.
+            stop()
+            health.recordFailure(at: ProcessInfo.processInfo.systemUptime)
+            if !loggedUnavailable {
+                loggedUnavailable = true
+                Self.log.notice("Now Playing session reader: MediaRemote is not available to osascript; using AppleScript players")
+            }
             return nil
         }
         served += 1
@@ -279,7 +321,7 @@ final class NowPlayingSessionReader {
     }
     function session(sequence) {
         const out = { seq: sequence };
-        if (requests.isNil()) return out;
+        if (requests.isNil()) return { seq: sequence, error: "MediaRemote unavailable" };
         out.playing = requests.localIsPlaying;
         const path = requests.localNowPlayingPlayerPath;
         if (!path.isNil() && !path.client.isNil()) {

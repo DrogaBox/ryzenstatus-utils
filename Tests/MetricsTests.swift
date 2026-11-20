@@ -9356,6 +9356,14 @@ struct MetricsTests {
                 var otherApp = onScreen
                 otherApp.appBundleID = "com.google.Chrome"
                 expect(!NowPlayingCoverReader.cover(cover, belongsTo: otherApp), "A cover from another player is not used")
+                var noPlayer = onScreen
+                noPlayer.appBundleID = nil
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: noPlayer),
+                       "A cover that names its player is not used for a reading that names none")
+                var unnamed = cover
+                unnamed.bundleID = nil
+                expect(NowPlayingCoverReader.cover(unnamed, belongsTo: onScreen),
+                       "A cover without a player still matches by title")
             }
             var pausedSong = onScreen
             pausedSong.isPlaying = false
@@ -9374,7 +9382,9 @@ struct MetricsTests {
                    "Cover loader loads the library and names its entry point")
             // build.sh: the helper is built and bundled, and every signature of
             // a bundle is preceded by its libraries' signatures.
-            let buildScript = (try? String(contentsOfFile: "build.sh", encoding: .utf8)) ?? ""
+            // Paths from this file, so the checks hold from any directory.
+            let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            let buildScript = (try? String(contentsOf: repoRoot.appendingPathComponent("build.sh"), encoding: .utf8)) ?? ""
             let buildLines = buildScript.components(separatedBy: "\n")
             expect(buildScript.contains("Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib")
                    && buildScript.contains("cp build/NowPlayingCover.dylib \"$STAGE/Contents/Frameworks/NowPlayingCover.dylib\"")
@@ -9403,7 +9413,7 @@ struct MetricsTests {
             } else {
                 expect(false, "build.sh keeps finalize_installed_bundle_after_child")
             }
-            let helperSource = (try? String(contentsOfFile: "Sources/NowPlayingCover/NowPlayingCover.m", encoding: .utf8)) ?? ""
+            let helperSource = (try? String(contentsOf: repoRoot.appendingPathComponent("Sources/NowPlayingCover/NowPlayingCover.m"), encoding: .utf8)) ?? ""
             expect(helperSource.contains("void ryzenstatus_now_playing_cover(void *interpreter, void *sub)"),
                    "The cover helper exports the entry point the loader calls")
 
@@ -9474,14 +9484,81 @@ struct MetricsTests {
             expect(!backoff.allows(at: 20_000), "Cover backoff: clearing the cache does not bring back a library that cannot load")
 
             // A song's cover is asked once more if it was not ready, never more.
-            var songCover = NowPlayingSessionCover(key: "k", data: nil, tries: 1, askedAt: 50)
-            expect(!songCover.shouldAskAgain(at: 52) && songCover.shouldAskAgain(at: 53),
+            var songCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            expect(songCover.shouldAsk(at: 50), "Song cover: a new song is asked for at once")
+            songCover.pending = true
+            expect(!songCover.shouldAsk(at: 60), "Song cover: no second request while one waits")
+            songCover.recordRead(at: 50, data: nil)
+            expect(songCover.tries == 1 && !songCover.pending, "Song cover: a read that ran counts as a try")
+            expect(!songCover.shouldAsk(at: 52) && songCover.shouldAsk(at: 53),
                    "Song cover: a missing cover is asked again after 3 s")
-            songCover.tries = 2
-            expect(!songCover.shouldAskAgain(at: 100), "Song cover: never a third time")
-            songCover.tries = 1
-            songCover.data = Data([1])
-            expect(!songCover.shouldAskAgain(at: 100), "Song cover: a cover in hand is not asked for again")
+            songCover.recordRead(at: 53, data: nil)
+            expect(!songCover.shouldAsk(at: 100), "Song cover: never a third time")
+            var cachedCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            cachedCover.recordRead(at: 50, data: Data([1]))
+            expect(!cachedCover.shouldAsk(at: 100) && cachedCover.data == Data([1]),
+                   "Song cover: a cover in hand is not asked for again")
+            // Covers resting: the request reads nothing and costs the song no try.
+            var restingCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            restingCover.pending = true
+            restingCover.recordSkip(coversOff: false)
+            restingCover.pending = true
+            restingCover.recordSkip(coversOff: false)
+            expect(restingCover.tries == 0 && restingCover.shouldAsk(at: 52),
+                   "Song cover: requests made while covers rest keep both tries for later")
+            restingCover.recordRead(at: 400, data: nil)
+            expect(!restingCover.shouldAsk(at: 402) && restingCover.shouldAsk(at: 403),
+                   "Song cover: after the rest, the first real read still leaves the retry")
+            var offCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            offCover.recordSkip(coversOff: true)
+            expect(!offCover.shouldAsk(at: 1_000), "Song cover: with covers off for the run, the song is not asked again")
+
+            // A stopped run is retired at once, for work already queued.
+            let retiredRuns = NowPlayingRetiredRuns()
+            expect(!retiredRuns.isRetired(1), "Retired runs: nothing is retired at first")
+            retiredRuns.retire(3)
+            expect(retiredRuns.isRetired(3) && retiredRuns.isRetired(2) && !retiredRuns.isRetired(4),
+                   "Retired runs: a stopped run and older ones are retired, the next one is not")
+            retiredRuns.retire(1)
+            expect(retiredRuns.isRetired(3), "Retired runs: an older stop never brings a run back")
+
+            // TIDAL readings settle for a new title, the first one included.
+            var settling = NowPlayingSnapshot()
+            settling.title = "Sunlight"
+            settling.appBundleID = NowPlayingTidal.bundleID
+            expect(NowPlayingTidal.shouldSettle(settling, lastTitle: nil),
+                   "TIDAL settle: the first song the reader sees is read again before it shows")
+            expect(NowPlayingTidal.shouldSettle(settling, lastTitle: "Other")
+                   && !NowPlayingTidal.shouldSettle(settling, lastTitle: "Sunlight"),
+                   "TIDAL settle: a new title settles, the same title does not")
+            var otherPlayer = settling
+            otherPlayer.appBundleID = "com.google.Chrome"
+            var noSong = settling
+            noSong.title = nil
+            expect(!NowPlayingTidal.shouldSettle(otherPlayer, lastTitle: nil) && !NowPlayingTidal.shouldSettle(noSong, lastTitle: nil),
+                   "TIDAL settle: other players and readings without a song show at once")
+
+            // A reader that cannot reach MediaRemote says so, and that counts as a failure.
+            let unavailableLine = NowPlayingSessionReading.parse(line: Data(#"{"seq":11,"error":"MediaRemote unavailable"}"#.utf8), now: readAt)
+            expect(unavailableLine?.unavailable == true && unavailableLine?.sequence == 11 && unavailableLine?.snapshot.hasTrack == false,
+                   "Reader line: an error reply is an unavailable reading")
+            var unavailableReplies = Data((#"{"seq":12,"error":"MediaRemote unavailable"}"# + "\n").utf8)
+            expect(NowPlayingSessionReader.takeReply(to: 12, from: &unavailableReplies, now: readAt)?.unavailable == true,
+                   "Reader replies: an error reply answers its request at once")
+            expect(NowPlayingSessionReading.parse(line: Data(#"{"seq":13,"title":"T"}"#.utf8), now: readAt)?.unavailable == false,
+                   "Reader line: an ordinary reading is not unavailable")
+            expect(NowPlayingSessionReader.script.contains(#"error: "MediaRemote unavailable""#),
+                   "The reader script answers with an error when MediaRemote does not load")
+
+            // A perl that cannot start ends covers like a missing library.
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data()) == .unavailable,
+                   "Cover helper: a perl that cannot start turns covers off for the run")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data()) == .transientFailure
+                   && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data("x".utf8)) == .transientFailure,
+                   "Cover helper: a timeout or another exit only rests covers")
+            expect(NowPlayingCoverReader.outcome(status: 2, timedOut: false, output: Data()) == .unavailable
+                   && NowPlayingCoverReader.outcome(status: 3, timedOut: false, output: Data()) == .unavailable,
+                   "Cover helper: a library that does not load turns covers off")
 
             // The library perl loads must sit directly in the app's Frameworks.
             let frameworks = FileManager.default.temporaryDirectory
