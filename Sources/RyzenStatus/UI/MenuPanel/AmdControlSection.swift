@@ -462,6 +462,10 @@ struct AmdControlSection: View {
                                 .toggleStyle(SwitchToggleStyle(tint: .purple))
                                 .disabled(gaming.isActive)
                         }
+
+                        // The GPU power limit, only with GPUSensors.kext's
+                        // write path.
+                        GPUControlPanelRow()
                     }
                 }
             }
