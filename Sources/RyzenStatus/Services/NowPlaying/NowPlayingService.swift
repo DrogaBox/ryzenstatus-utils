@@ -484,29 +484,22 @@ final class NowPlayingService: ObservableObject {
             // first try came back late with its cover, costs no launch.
             let current = self.queue.sync { self.sessionCover?.key == key && self.sessionCover?.data == nil }
             guard current else { return }
-            guard self.coverReader.isReady() else {
-                let coversOff = self.coverReader.gaveUp
-                let readyAt = self.coverReader.readyAt
-                self.queue.async { [weak self] in
-                    guard let self else { return }
-                    self.coversReadyAt = readyAt
-                    guard self.sessionCover?.key == key else { return }
-                    self.sessionCover?.recordSkip(coversOff: coversOff)
-                }
-                return
-            }
-            let startedAt = ProcessInfo.processInfo.systemUptime
-            let cover = self.coverReader.read()
-            let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
-            // A read that started a rest or turned covers off says so at once,
-            // so the next poll does not hop here only to be skipped.
-            let readyAt = self.coverReader.readyAt
+            let attempt = Self.attemptCover(with: self.coverReader, for: reading)
             self.queue.async { [weak self] in
                 guard let self else { return }
-                self.coversReadyAt = readyAt
+                // Reader-wide, so before the same-song check.
+                self.coversReadyAt = attempt.readyAt
                 guard self.sessionCover?.key == key else { return }
-                self.sessionCover?.recordRead(at: startedAt, data: data)
-                guard let data else { return }
+                let data: Data
+                switch attempt.result {
+                case .skipped(let coversOff):
+                    self.sessionCover?.recordSkip(coversOff: coversOff)
+                    return
+                case .read(let startedAt, let read):
+                    self.sessionCover?.recordRead(at: startedAt, data: read)
+                    guard let read else { return }
+                    data = read
+                }
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.timer != nil, gen == self.pollGeneration,
                           NowPlayingCoverReader.key(for: self.snapshot) == key,
@@ -517,6 +510,32 @@ final class NowPlayingService: ObservableObject {
                 }
             }
         }
+    }
+
+    /// What one turn on the cover queue found, handed to the poll queue
+    /// whole. `readyAt` is the reader's after the turn, a read included: a
+    /// read that started a rest or turned covers off says so at once, so the
+    /// next poll does not hop to the cover queue only to be skipped.
+    struct CoverAttempt {
+        enum Result {
+            case skipped(coversOff: Bool)
+            case read(startedAt: TimeInterval, data: Data?)
+        }
+        var result: Result
+        var readyAt: TimeInterval
+    }
+
+    /// One cover request, on the cover queue: skipped while covers rest or
+    /// are off, otherwise one helper run whose cover counts only if it
+    /// belongs to `reading`.
+    static func attemptCover(with reader: NowPlayingCoverReader, for reading: NowPlayingSnapshot) -> CoverAttempt {
+        guard reader.isReady() else {
+            return CoverAttempt(result: .skipped(coversOff: reader.gaveUp), readyAt: reader.readyAt)
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let cover = reader.read()
+        let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
+        return CoverAttempt(result: .read(startedAt: startedAt, data: data), readyAt: reader.readyAt)
     }
 
     /// Ends the session reader and forgets its song, on `queue`. Polling

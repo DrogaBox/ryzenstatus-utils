@@ -9374,6 +9374,29 @@ struct MetricsTests {
             renamed.album = "Voyager (Deluxe)"
             expect(NowPlayingCoverReader.key(for: renamed) != NowPlayingCoverReader.key(for: onScreen),
                    "A new song or album asks for its cover")
+            // N11: the turn on the cover queue hands the reader's readyAt to
+            // the poll queue after a read too, not only after a skip. A
+            // missing helper turns covers off inside the read, no perl run.
+            let turnedOff = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            let read = NowPlayingService.attemptCover(with: turnedOff, for: onScreen)
+            if case .read(_, let data) = read.result {
+                expect(data == nil && read.readyAt == .infinity,
+                       "Cover turn: a read that turns covers off hands that on at once, so the next poll does not hop to the cover queue")
+            } else {
+                expect(false, "Cover turn: a ready reader runs the read")
+            }
+            let skipped = NowPlayingService.attemptCover(with: turnedOff, for: onScreen)
+            if case .skipped(let coversOff) = skipped.result {
+                expect(coversOff && skipped.readyAt == .infinity, "Cover turn: covers off are skipped and say so")
+            } else {
+                expect(false, "Cover turn: covers off are skipped without a read")
+            }
+            let service = (try? String(contentsOfFile: "Sources/RyzenStatus/Services/NowPlaying/NowPlayingService.swift",
+                                       encoding: .utf8)) ?? ""
+            let handOff = service.range(of: "self.coversReadyAt = attempt.readyAt")
+            let sameSong = service.range(of: "guard self.sessionCover?.key == key else { return }\n                let data: Data")
+            expect(handOff != nil && sameSong != nil && handOff!.lowerBound < sameSong!.lowerBound,
+                   "Cover turn: the poll queue takes readyAt from every turn, before the same-song check")
             let missing = NowPlayingCoverReader(libraryURL: URL(fileURLWithPath: "/nonexistent/NowPlayingCover.dylib"))
             let readyBefore = missing.readyAt
             expect(missing.read() == nil && missing.gaveUp && missing.read() == nil,
