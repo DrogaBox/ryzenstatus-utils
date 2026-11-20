@@ -265,8 +265,9 @@ struct GPUSensorsRow: Equatable, Identifiable {
 /// registry themselves. Reads are shared: callers within `cacheLifetime` of
 /// each other (the system monitor and the Sensors page) get the same copy.
 ///
-/// `@unchecked Sendable`: `service`, `present`, `cached`, `cachedControl` and
-/// `cachedAt` are guarded by `lock`; `reading`, `control`, `isPresent`,
+/// `@unchecked Sendable`: `service`, `present`, `cached`, `cachedControl`,
+/// `cachedAt` and `readInFlight` are guarded by `lock` (the registry read
+/// itself runs outside it); `reading`, `control`, `isPresent`,
 /// `clients`, `timer` and the notification state are main thread only.
 final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     static let shared = GPUSensorsService()
@@ -290,6 +291,8 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     private var cached: GPUSensorsReading?
     private var cachedControl: GPUControlStatus?
     private var cachedAt: TimeInterval = -.infinity
+    /// A registry read is out (`refreshIfStale`); no second one starts.
+    private var readInFlight = false
 
     private let queue = DispatchQueue(label: "ryzenstatus.gpusensors", qos: .utility)
     private var notifyPort: IONotificationPortRef?
@@ -339,10 +342,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         // `-gpuSensorsOff YES` shows a debug build as a Mac without the kext.
         if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return nil }
         #endif
+        refreshIfStale(now: now)
         lock.lock()
         defer { lock.unlock() }
         guard service != 0 else { return nil }
-        refreshLocked(now: now)
         // A cached copy ages too: past the driver's 5 s it is no reading.
         guard let cached, cached.isCurrent(at: now) else { return nil }
         return cached
@@ -353,19 +356,40 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return nil }
         #endif
+        refreshIfStale(now: now)
         lock.lock()
         defer { lock.unlock() }
         guard service != 0 else { return nil }
-        refreshLocked(now: now)
         return cachedControl
     }
-    /// `lock` held. One registry read per `cacheLifetime` feeds both values.
-    private func refreshLocked(now: TimeInterval) {
-        guard now - cachedAt >= Self.cacheLifetime else { return }
-        let properties = Self.properties(of: service)
-        cached = properties.flatMap { GPUSensorsReading.parse($0, now: now) }
-        cachedControl = properties.flatMap(GPUControlStatus.parse)
-        cachedAt = now
+    /// One registry read per `cacheLifetime` feeds both values. The read
+    /// runs outside `lock`, so a caller on the main thread never waits
+    /// behind the timer's read: the one caller that finds the copy stale
+    /// reads, and everyone else meanwhile gets the copy there is.
+    private func refreshIfStale(now: TimeInterval) {
+        lock.lock()
+        guard service != 0, !readInFlight, now - cachedAt >= Self.cacheLifetime else {
+            lock.unlock()
+            return
+        }
+        readInFlight = true
+        let entry = service
+        // The service may vanish during the read: keep the handle alive.
+        IOObjectRetain(entry)
+        lock.unlock()
+        let properties = Self.properties(of: entry)
+        let nextReading = properties.flatMap { GPUSensorsReading.parse($0, now: now) }
+        let nextControl = properties.flatMap(GPUControlStatus.parse)
+        lock.lock()
+        readInFlight = false
+        // Gone or replaced while reading: that read is not this service's.
+        if service == entry {
+            cached = nextReading
+            cachedControl = nextControl
+            cachedAt = now
+        }
+        lock.unlock()
+        IOObjectRelease(entry)
     }
 
     /// Thread-safe, no registry access.
