@@ -115,11 +115,11 @@ extension GPUControlFanStrings {
         curveToggle: "Curva personalizada",
         zeroRpmToggle: "Ventilador siempre girando",
         pointFormat: "Punto %d",
-        pointTempFormat: "Punto %d, temperatura, °C",
-        pointSpeedFormat: "Punto %d, velocidad, porcentaje",
+        pointTempFormat: "Temperatura del punto %d, °C",
+        pointSpeedFormat: "Velocidad del punto %d, porcentaje",
         stepTempFormat: "Paso de temperatura del punto %d",
         stepSpeedFormat: "Paso de velocidad del punto %d",
-        chartLabelFormat: "Curva del ventilador. Curva de fábrica en trazos, borrador en línea llena con cinco puntos, 100%% a %d °C.",
+        chartLabelFormat: "Curva del ventilador. En trazos, la curva de fábrica; en línea llena, la curva en edición, con cinco puntos; 100%% a %d °C.",
         limitFormat: "100%% a %d °C",
         curveOK: "El kext la aceptaría.",
         curveFailFormat: "Punto %d: %@",
@@ -132,9 +132,9 @@ extension GPUControlFanStrings {
         backToStock: "Volver a los valores de fábrica",
         footerFormat: "Con cualquier curva aceptada el ventilador llega al 100%% a %d °C. El primer punto tiene que estar a 30 °C o menos; ningún punto puede dar menos aire que la de fábrica.",
         notePowerHeld: "Hay un límite de potencia puesto. Al aplicar la curva, primero el límite vuelve a su valor de arranque: el kext nunca mantiene las dos cosas.",
-        noteCurveHeld: "Hay un ajuste del ventilador puesto. Al elegir un límite de potencia, primero el ventilador vuelve a fábrica: el kext nunca mantiene las dos cosas.",
+        noteCurveHeld: "Hay un ajuste del ventilador puesto. Al elegir un límite de potencia, primero el ventilador vuelve a los valores de fábrica: el kext nunca mantiene las dos cosas.",
         notChecked: "No comprobado con esta versión del kext.",
-        chartKey: "En trazos, la curva de fábrica; en línea llena, el borrador.")
+        chartKey: "En trazos, la curva de fábrica; en línea llena, la curva en edición.")
 
     static let ptBR = GPUControlFanStrings(
         section: "Ventoinha",
@@ -441,7 +441,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "остання точка має бути 100%% за %d °C або нижче.",
         ruleCooling: "вона дає менше повітря, ніж заводська крива.",
         apply: "Застосувати криву",
-        backToStock: "Повернути заводські налаштування",
+        backToStock: "До заводських значень",
         footerFormat: "З будь-якою прийнятою кривою вентилятор досягає 100%% за %d °C. Перша точка має бути за 30 °C або нижче; жодна точка не може давати менше повітря, ніж заводська крива.",
         notePowerHeld: "Утримується ліміт потужності. Застосування кривої спершу поверне ліміт до значення завантаження: kext ніколи не утримує обидва.",
         noteCurveHeld: "Утримується налаштування вентилятора. Вибір ліміту потужності спершу поверне вентилятор до заводських значень: kext ніколи не утримує обидва.",
