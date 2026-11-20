@@ -17,6 +17,23 @@ enum UpdateInstallerSupport {
         return trimmed
     }
 
+    /// File name of the app bundle at the root of a release DMG.
+    static let dmgAppBundleName = "RyzenStatus.app"
+
+    /// The installer's choice of what to copy out of the mounted DMG ($MNT):
+    /// `RyzenStatus.app` by exact name at the root, or nothing (SRC empty,
+    /// reported as fail-no-app-in-dmg). Release DMGs also carry other content
+    /// (a GPU installer app in a subfolder, `Kexts/`); picking "the first
+    /// .app" depends on directory order and could copy the installer. Nothing
+    /// else in the DMG is read or copied. A symlink in that place is refused
+    /// so the copy cannot be redirected outside the image.
+    static let appSelectionScript = """
+        SRC=""
+        if [ -d "$MNT/\(dmgAppBundleName)" ] && [ ! -L "$MNT/\(dmgAppBundleName)" ]; then
+            SRC="$MNT/\(dmgAppBundleName)"
+        fi
+        """
+
     /// The installer: waits for the app to exit, mounts the DMG, stages a
     /// copy of the new bundle, verifies its signature, swaps it in and
     /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
@@ -73,14 +90,14 @@ enum UpdateInstallerSupport {
             cleanup_script
             exit 1
         fi
-        SRC="$(/usr/bin/find "$MNT" -maxdepth 1 -name '*.app' -print -quit)"
+        \(appSelectionScript)
         LAUNCH="$APP"
         if [ -z "$SRC" ]; then
             note fail-no-app-in-dmg
         else
-            # Install under the name the DMG ships, in the same folder. A rebrand
-            # changes the bundle filename, so this renames it on disk too; a plain
-            # update keeps the same name and replaces it in place.
+            # Install under the bundle name the DMG ships, in the same folder.
+            # When the installed copy carries another name it is renamed on
+            # disk; a plain update keeps the same name and replaces it in place.
             DIR="$(/usr/bin/dirname "$APP")"
             NAME="$(/usr/bin/basename "$SRC")"
             DEST="$DIR/$NAME"
