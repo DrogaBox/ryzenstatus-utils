@@ -40,6 +40,12 @@ struct GPUControlFanSection: View {
         return draft.want.curve != heldOD8.curve || draft.want.zeroRpmOff != heldOD8.zeroRpmOff
     }
 
+    /// "Buttons": the title says what the button does. A stock draft over a
+    /// held fan state gives that state back, so it says so.
+    private var applyTitle: String {
+        draft.givesBack(heldOD8) ? strings.backToBoot : fan.apply
+    }
+
     var body: some View {
         Section {
             // "Toggles", macOS: within a grouped form, a mini switch per row;
@@ -58,7 +64,16 @@ struct GPUControlFanSection: View {
                 ForEach(0..<GPUControlWire.fanCurvePoints, id: \.self) { k in
                     pointRow(k)
                 }
-                chart
+                VStack(alignment: .leading, spacing: 4) {
+                    chart
+                    // "Charts": name the lines on screen too, not only for
+                    // VoiceOver (the chart's label says the same).
+                    Text(fan.chartKey)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityHidden(true)
+                }
             }
             previewRow
             if case .heldByApp(.power)? = input.state {
@@ -83,7 +98,7 @@ struct GPUControlFanSection: View {
                 Spacer()
                 // "Entering data": enable the button only with valid data;
                 // "Buttons": the editor's one action, prominent.
-                Button(fan.apply) { apply(draft) }
+                Button(applyTitle) { apply(draft) }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }

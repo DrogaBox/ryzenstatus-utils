@@ -36,6 +36,16 @@ enum GPUControlCurveRules {
     /// any other build the preview says so and does not decide.
     static let checkedVersions: Set<String> = ["REL-072-2026-11-19"]
 
+    /// The kext build is one this copy was checked against. Neither the
+    /// editor nor a remembered fan state sends anything to another build.
+    static func isChecked(_ version: String?) -> Bool {
+        version.map(checkedVersions.contains) ?? false
+    }
+
+    /// The 100 % temperature on the card here, for a table without a usable
+    /// target (the preview refuses such a table anyway).
+    static let cardLimitC = 48
+
     /// `od8Name`: the published setting names by entry id.
     static let names = [
         "GfxMaxMHz", "GfxMinMHz", "GfxPoint1MHz", "GfxPoint1mV", "GfxPoint2MHz", "GfxPoint2mV", "GfxPoint3MHz",
@@ -91,8 +101,14 @@ enum GPUControlCurveRules {
         }
 
         /// The temperature by which an accepted curve is at 100 %: the
-        /// target minus the 22 C gap (48 C on the card here).
-        var limitC: Int { first[GPUControlCurveRules.targetTemp].def - GPUControlCurveRules.sensorGapC }
+        /// target minus the 22 C gap (48 C on the card here). A target
+        /// outside 40 to 100 C (or none published) is one the kext refuses;
+        /// the chart and the footer then keep the card's 48 C.
+        var limitC: Int {
+            let target = first[GPUControlCurveRules.targetTemp].def
+            return (40...100).contains(target) ? target - GPUControlCurveRules.sensorGapC
+                : GPUControlCurveRules.cardLimitC
+        }
     }
 
     struct Result: Equatable, Sendable {
@@ -203,9 +219,7 @@ enum GPUControlCurvePreview: Equatable, Sendable {
     static func make(want: GPUControlOD8Want, writing: GPUControlStatus.Writing?) -> GPUControlCurvePreview {
         guard let writing, writing.od8Read == .read, let table = writing.od8,
               let state = GPUControlCurveRules.State(table: table) else { return .unavailable }
-        guard let version = writing.kextVersion, GPUControlCurveRules.checkedVersions.contains(version) else {
-            return .notChecked
-        }
+        guard GPUControlCurveRules.isChecked(writing.kextVersion) else { return .notChecked }
         let result = GPUControlCurveRules.check(want, state)
         return result.check == .ok ? .accepted : .refused(result)
     }
@@ -233,5 +247,19 @@ struct GPUControlFanDraft: Equatable, Sendable {
         customCurve = held.curve != nil
         points = held.curve ?? GPUControlFanDraft.testedCurve
         zeroRpmOff = held.zeroRpmOff
+    }
+
+    /// The draft once the held fan state went from `seed` (the one the
+    /// editor last took) to `held`: a draft the owner has not touched
+    /// follows it, an edit stays.
+    func following(seed: GPUControlOD8Want, held: GPUControlOD8Want) -> GPUControlFanDraft {
+        want == seed ? GPUControlFanDraft(held: held) : self
+    }
+
+    /// Applying this draft gives the whole OD8 hold back (the way back to
+    /// the start-up values): it is the stock fan over a held fan state, with
+    /// no clock held.
+    func givesBack(_ held: GPUControlOD8Want) -> Bool {
+        want.isStock && (held.curve != nil || held.zeroRpmOff) && held.gfxMaxMHz == nil
     }
 }

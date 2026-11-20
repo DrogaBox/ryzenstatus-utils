@@ -486,8 +486,12 @@ enum GPUControlRememberPolicy {
     /// remembering active, writing already open (never a password), nobody
     /// else holding, and the control not stopped (a failure or the watchdog
     /// keep it from asking until the app starts again).
+    /// `kextVersion`: the kext's `VersionInfo`. A fan state goes out only to a
+    /// build the curve rules were checked against, as with "Apply curve"
+    /// (none given: no fan state).
     static func request(remembered: GPUControlRemembered, active: Bool,
-                        facts: GPUControlFacts?, stopped: GPUControlStop?) -> GPUControlRequest? {
+                        facts: GPUControlFacts?, stopped: GPUControlStop?,
+                        kextVersion: String? = nil) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         switch remembered {
@@ -498,8 +502,9 @@ enum GPUControlRememberPolicy {
                     .contains(watts), watts != boot else { return nil }
             return .power(watts: UInt32(watts))
         case .od8(let want):
-            // OD8 not read cleanly: the kext could not take it.
-            guard facts.od8Ready, !want.isStock else { return nil }
+            // OD8 not read cleanly: the kext could not take it. Another kext
+            // build: the rules were not checked with it, and Apply is off too.
+            guard facts.od8Ready, GPUControlCurveRules.isChecked(kextVersion), !want.isStock else { return nil }
             return .od8(want)
         }
     }

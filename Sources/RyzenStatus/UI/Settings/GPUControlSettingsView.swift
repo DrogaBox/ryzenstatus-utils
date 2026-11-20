@@ -186,6 +186,8 @@ struct GPUControlPageContent: View {
     let actions: GPUControlPageActions
     @State private var copied = false
     @State private var draft: GPUControlFanDraft
+    /// The fan state the editor last took from what is held.
+    @State private var fanSeed: GPUControlOD8Want
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
          title: String, actions: GPUControlPageActions) {
@@ -197,6 +199,13 @@ struct GPUControlPageContent: View {
         var held: GPUControlOD8Want?
         if case .heldByApp(.od8(let want))? = input.state { held = want }
         _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
+        _fanSeed = State(initialValue: Self.heldFan(input))
+    }
+
+    /// The fan part of the OD8 state the app holds (stock when none).
+    private static func heldFan(_ input: GPUControlPageInput) -> GPUControlOD8Want {
+        guard case .heldByApp(.od8(let want))? = input.state else { return .stock }
+        return GPUControlOD8Want(curve: want.curve, zeroRpmOff: want.zeroRpmOff)
     }
 
     private var s: GPUControlPageStrings { strings }
@@ -218,6 +227,14 @@ struct GPUControlPageContent: View {
         // changes occur": the state line changes on its own (a11y A2).
         .onChange(of: stateTitle) { _, title in
             AccessibilityNotification.Announcement(title).post()
+        }
+        // What is held changed (the first status after the page appeared, a
+        // remembered state, a wake, the kext going back): an editor the owner
+        // has not touched follows it, so Apply never gives back a hold the
+        // page did not show; an edit stays.
+        .onChange(of: Self.heldFan(input)) { _, held in
+            draft = draft.following(seed: fanSeed, held: held)
+            fanSeed = held
         }
     }
 
@@ -450,13 +467,13 @@ struct GPUControlPageContent: View {
     // MARK: Remembering (plan 8)
 
     /// Its own section: it can be set while writing is still closed.
-    /// "Toggles", macOS: a small switch per row, its label says what turning
-    /// it on does.
+    /// "Toggles", macOS: within a grouped form, a mini switch per row (as in
+    /// the fan section); its label says what turning it on does.
     private var rememberSection: some View {
         Section {
             Toggle(s.rememberToggle, isOn: Binding(get: { input.remember }, set: { actions.setRemember($0) }))
                 .toggleStyle(.switch)
-                .controlSize(.small)
+                .controlSize(.mini)
         } footer: {
             Text(s.rememberFooter)
                 .font(.caption)

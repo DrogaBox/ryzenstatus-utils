@@ -43,6 +43,13 @@ enum GPUControlFanTests {
                         .map { GPUControlFanPoint(temperatureC: $0.0, speedPercent: $0.1) },
                      "the stock curve from the table")
         suite.expect(base.limitC == 48, "100 % by 70 - 22 = 48 C on this card")
+        var noTarget = base
+        noTarget.first[Rules.targetTemp] = Rules.Entry()
+        suite.expect(noTarget.limitC == 48, "no target published: the card's 48 C, never -22 C")
+        noTarget.first[Rules.targetTemp].def = 110
+        suite.expect(noTarget.limitC == 48, "a target the kext refuses: the card's 48 C")
+        noTarget.first[Rules.targetTemp].def = 80
+        suite.expect(noTarget.limitC == 58, "another target in range: 80 - 22")
         suite.expect(base.first[Rules.gfxMax] == Rules.Entry(feature: 1, min: 500, max: 2_800, def: 2_359),
                      "GFX max by its id, from its name")
         suite.expect(base.first[2] == Rules.Entry() && base.current[13] == 0,
@@ -194,6 +201,23 @@ enum GPUControlFanTests {
         draft.zeroRpmOff = false
         draft.customCurve = true
         suite.expect(draft.want.scalars()?[1] == 1, "curve only: flags 1")
+
+        // The page drawn before the first status, then a held curve: the
+        // untouched editor follows it, so Apply does not give it back.
+        let followed = GPUControlFanDraft().following(seed: .stock, held: held)
+        suite.expect(followed.want == held, "an untouched draft follows what is held")
+        suite.expect(followed.following(seed: held, held: .stock).want.isStock,
+                     "the hold went away on its own: the untouched draft follows back")
+        var edited = GPUControlFanDraft()
+        edited.zeroRpmOff = true
+        suite.expect(edited.following(seed: .stock, held: held) == edited, "an edit stays")
+
+        // The button's title: a stock draft over a held fan state is the way back.
+        suite.expect(GPUControlFanDraft().givesBack(held), "both off over a held curve: back to start-up")
+        suite.expect(!GPUControlFanDraft().givesBack(.stock), "nothing held: still Apply")
+        suite.expect(!GPUControlFanDraft(held: held).givesBack(held), "a curve over a curve: Apply")
+        suite.expect(!GPUControlFanDraft().givesBack(GPUControlOD8Want(curve: held.curve, gfxMaxMHz: 2_000)),
+                     "a clock held too: not the whole way back, so Apply")
     }
 
     // MARK: The controller against the model
@@ -291,10 +315,23 @@ enum GPUControlFanTests {
         facts.armed = true
         facts.bootW = 240
         facts.od8Ready = true
-        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil)
+        let checked = "REL-072-2026-11-19"
+        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil,
+                                                      kextVersion: checked)
                         == .od8(want), "writing open, OD8 read: ask for the fan state")
+        // Another kext build: Apply is off, and the remembered state is not
+        // asked for either.
+        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil,
+                                                      kextVersion: "REL-073-2026-12-01") == nil,
+                     "another kext build: no remembered fan state")
+        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil)
+                        == nil, "no build name: no remembered fan state")
+        suite.expect(GPUControlRememberPolicy.request(remembered: .power(watts: 220), active: true, facts: facts,
+                                                      stopped: nil, kextVersion: "REL-073-2026-12-01")
+                        == .power(watts: 220), "the power limit does not depend on the curve rules")
         facts.od8Ready = false
-        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil) == nil,
+        suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil,
+                                                      kextVersion: checked) == nil,
                      "OD8 not read: nothing")
     }
 
@@ -309,7 +346,7 @@ enum GPUControlFanTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlFanStrings.enUS.all
-        suite.expect(english.count == 22, "22 texts")
+        suite.expect(english.count == 23, "23 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlFan(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },

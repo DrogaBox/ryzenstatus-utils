@@ -352,7 +352,8 @@ final class GPUControlService: ObservableObject {
             return
         }
         if let request = GPUControlRememberPolicy.request(remembered: .load(defaults), active: rememberActive,
-                                                          facts: facts, stopped: snapshot?.stopped) {
+                                                          facts: facts, stopped: snapshot?.stopped,
+                                                          kextVersion: control?.writing?.kextVersion) {
             controller.choose(request, origin: .remembered)
         }
     }
