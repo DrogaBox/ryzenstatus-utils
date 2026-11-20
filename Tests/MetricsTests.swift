@@ -1967,6 +1967,13 @@ struct MetricsTests {
                    "disk drew every style but bars as a value")
             expect(migrated[DefaultsKey.menuBarCPU] == nil,
                    "without the hidden classic layout no visibility changes")
+            // Only the five metrics that had a style get one written. Battery,
+            // frequency and the two-line readings keep no saved style, so a
+            // later build's registered defaults still decide their look.
+            let unstyled = MenuBarMetric.allCases.filter { !MenuBarMetricAppearance.styledMetrics.contains($0) }
+            expect(Set(migrated.keys) == Set(MenuBarMetricAppearance.styledMetrics.map(\.styleKey))
+                   && !unstyled.isEmpty && unstyled.allSatisfy { migrated[$0.styleKey] == nil },
+                   "the conversion writes a style for the five styled metrics and for no other reading")
             let fresh = MenuBarStyleMigration.migratedValues(stored: [:])
             expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] == nil },
                    "settings that name no style write none; the registered values apply")
@@ -2011,6 +2018,42 @@ struct MetricsTests {
                && MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "5 min", metricsKey: "a")
                != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "4 min", metricsKey: "a"),
                "the glyph spacing and a running countdown change the title key")
+        do {
+            // The status item rewrites its title only when the render key
+            // changes, so everything that changes the pixels must change it.
+            let suite = UserDefaults(suiteName: "menubar-title-key-test")!
+            suite.removePersistentDomain(forName: "menubar-title-key-test")
+            var settings = MenuBarRenderSettings.current(defaults: suite)
+            settings.styles[.cpu] = .values
+            var snapshot = SystemSnapshot()
+            snapshot.cpuUsage = 0.23
+            snapshot.cpuHistory = [0.1, 0.4, 0.23]
+            func key(_ settings: MenuBarRenderSettings, _ snapshot: SystemSnapshot) -> String {
+                MenuBarRenderer.render(for: snapshot, metrics: [.cpu], settings: settings,
+                                       widthMemory: MenuBarWidthMemory()).key
+            }
+            let base = key(settings, snapshot)
+            expect(!base.isEmpty && base == key(settings, snapshot),
+                   "two renders of the same reading have the same key, though their attachments differ")
+            var newValue = snapshot
+            newValue.cpuUsage = 0.24
+            expect(key(settings, newValue) != base, "a new value changes the title key")
+            var dark = settings
+            dark.appearanceName = "NSAppearanceNameDarkAqua"
+            expect(settings.appearanceName != dark.appearanceName && key(dark, snapshot) != base,
+                   "a light/dark change rewrites the title")
+            var graph = settings
+            graph.styles[.cpu] = .sparkline
+            let graphBase = key(graph, snapshot)
+            var newTheme = graph
+            newTheme.graphToken = graph.graphToken + "|other"
+            expect(graphBase != base && key(newTheme, snapshot) != graphBase,
+                   "a style change and a graph theme or accent change rewrite the title")
+            var newHistory = snapshot
+            newHistory.cpuHistory = [0.4, 0.23, 0.9]
+            expect(key(graph, newHistory) != graphBase, "new graph samples rewrite the title")
+            suite.removePersistentDomain(forName: "menubar-title-key-test")
+        }
         expectClose(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 4) ?? -1, 0.75,
                     "menu bar memory bars use the current used fraction")
         expect(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 0) == nil,
