@@ -22,6 +22,7 @@ enum GPUControlChannelTests {
         controllerQueue(suite)
         noChannel(suite)
         textGroups(suite)
+        wireNumbers(suite)
     }
 
     // MARK: Fixtures
@@ -59,6 +60,14 @@ enum GPUControlChannelTests {
         suite.expect(od8State?.held == [] && od8State?.lastCheck == 0 && od8State?.lastCheckText == "ok",
                      "OD8WriteState: nothing held, last check ok")
         suite.expect(od8State?.fanCurveHeld == nil && od8State?.gfxMaxHeld == nil, "no held curve or clock at stock")
+        // The uint64_t counters keep their value past UInt32.max.
+        let big = NSNumber(value: UInt64(UInt32.max) + 1)
+        let bigState = GPUControlStatus.Writing.State.parse(["Changes": big, "Reverts": big])
+        let bigOD8 = GPUControlStatus.Writing.OD8State.parse(["Changes": big, "Reverts": big, "SentPower": big])
+        suite.expect(bigState?.changes == big.intValue && bigState?.reverts == big.intValue
+                         && bigOD8?.changes == big.intValue && bigOD8?.reverts == big.intValue
+                         && bigOD8?.sentPower == big.intValue,
+                     "WriteState and OD8WriteState: uint64_t counters past UInt32.max")
         suite.expect(w?.od8Read == .read, "OD8State: read cleanly")
         let od8 = w?.od8
         suite.expect(od8?.caps == 212_749 && od8?.reads == 1 && od8?.tries == 1, "OD8: caps and read counts")
@@ -805,6 +814,27 @@ enum GPUControlChannelTests {
             h.run(ms: 0)
             suite.expect(h.replies(.release) == 2, "nothing held: nothing to give back")
         }
+        // The start-up limit asked as a power value: the kext takes that `set`
+        // as the way back, so the app asks for the way back.
+        do {
+            let h = Harness()
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 0)
+            h.run(ms: 3_000)
+            h.engine.choose(.power(watts: h.fake.bootW))
+            h.run(ms: 0)
+            suite.expect(h.replies(.set) == 1 && h.replies(.release) == 1,
+                         "power at the start-up limit: release, no set")
+            suite.expect(h.held == nil && h.engine.snapshot.outcome == nil,
+                         "power at the start-up limit: nothing held, no \"not confirmed\"")
+            h.fake.advance(by: 1_000)
+            suite.expect(h.fake.writes.map(\.kind) == [.power(220), .wayBack], "power at the start-up limit: the kext went back")
+            h.run(ms: 3_000)
+            h.engine.choose(.power(watts: h.fake.bootW), origin: .remembered)
+            h.run(ms: 0)
+            suite.expect(h.replies(.set) == 1 && h.replies(.release) == 1 && h.engine.snapshot.outcome == nil,
+                         "power at the start-up limit with nothing held: no call that writes, no outcome")
+        }
         // One request at a time; the latest choice wins.
         do {
             let h = Harness()
@@ -1160,5 +1190,40 @@ enum GPUControlChannelTests {
         suite.expect(answer.kextText == "GFX max must be between 1500 MHz and the stock maximum",
                      "a refused OD8 state shows the reason in the kext's words")
         suite.expect(GPUControlAnswer(replyCode: 77).kextText == "reply 77", "an unknown reply shows its number")
+    }
+
+    // MARK: Wire numbers (control_logic.hpp, kext 0.7.2)
+
+    /// The numbers written out, in the kext's order: a case added in the
+    /// middle of an enum would renumber the channel without any other test
+    /// noticing, since the rest compare the app with itself.
+    private static func wireNumbers(_ suite: TestSuite) {
+        let selectors: [(GPUControlWire.Selector, UInt32)] = [
+            (.status, 0), (.arm, 1), (.set, 2), (.alive, 3), (.release, 4), (.setOD8, 5),
+        ]
+        suite.expect(selectors.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWire.Selector.allCases.count == 6,
+                     "selectors: status 0 ... setOD8 5, as kSelStatus ... kSelSetOd8")
+        let replies: [(GPUControlReply, UInt64)] = [
+            (.ok, 0), (.badVersion, 1), (.badArgs, 2), (.notPrivileged, 3), (.off, 4), (.notArmed, 5),
+            (.noBootValue, 6), (.notReady, 7), (.sleeping, 8), (.busy, 9), (.tooSoon, 10), (.belowFloor, 11),
+            (.aboveBoot, 12), (.notAStep, 13), (.timeout, 14), (.failed, 15), (.notOwner, 16), (.cancelled, 17),
+            (.od8Refused, 18),
+        ]
+        suite.expect(replies.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlReply.allCases.count == 19,
+                     "replies: ok 0 ... od8Refused 18, as gpuctl::Reply")
+        let checks: [(GPUControlOD8Check, UInt64)] = [
+            (.ok, 0), (.notRead, 1), (.drifted, 2), (.memoryMoved, 3), (.noFeature, 4), (.curveRange, 5),
+            (.curveOrder, 6), (.curveFirst, 7), (.curveLast, 8), (.curveCooling, 9), (.gfxRange, 10),
+            (.noReadings, 11),
+        ]
+        suite.expect(checks.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlOD8Check.allCases.count == 12,
+                     "OD8 checks: ok 0 ... noReadings 11, as gpuctl::Od8Check")
+        let offs: [(GPUControlWriteOff, UInt64)] = [
+            (.none, 0), (.ctlOff, 1), (.notOneCard, 2), (.otherAmdGpu, 3), (.library, 4), (.routes, 5),
+            (.cwdde, 6), (.secondObject, 7), (.bootImplausible, 8), (.start, 9), (.sendFailed, 10),
+            (.revertFailed, 11), (.teardown, 12), (.od8Failed, 13), (.od8Watchdog, 14),
+        ]
+        suite.expect(offs.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWriteOff.allCases.count == 15,
+                     "write-off reasons: none 0 ... od8Watchdog 14, as gpuctl::WriteOff")
     }
 }

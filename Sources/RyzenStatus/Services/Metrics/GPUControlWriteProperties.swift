@@ -217,11 +217,13 @@ extension GPUControlStatus.Writing.State {
     static func parse(_ raw: Any?) -> Self? {
         guard let dict = raw as? [String: Any] else { return nil }
         func n(_ key: String) -> Int? { GPUControlStatus.integer(dict[key]) }
+        // Changes and Reverts are uint64_t in the kext.
+        func c(_ key: String) -> Int? { GPUControlStatus.count(dict[key]) }
         return Self(writeOff: n("WriteOff"),
                     // Kept even when empty: an empty text is the kext saying "not off".
                     writeOffText: (dict["WriteOffText"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                     armed: GPUControlStatus.flag(dict["Armed"]), owned: GPUControlStatus.flag(dict["Owned"]),
-                    heldW: n("HeldW"), changes: n("Changes"), reverts: n("Reverts"), lastReply: n("LastReply"))
+                    heldW: n("HeldW"), changes: c("Changes"), reverts: c("Reverts"), lastReply: n("LastReply"))
     }
 }
 
@@ -229,9 +231,11 @@ extension GPUControlStatus.Writing.OD8State {
     static func parse(_ raw: Any?) -> Self? {
         guard let dict = raw as? [String: Any] else { return nil }
         func n(_ key: String) -> Int? { GPUControlStatus.integer(dict[key]) }
+        // Changes, Reverts and SentPower are uint64_t in the kext.
+        func c(_ key: String) -> Int? { GPUControlStatus.count(dict[key]) }
         return Self(held: n("Held").map { GPUControlOD8Held(rawValue: UInt64($0)) },
-                    changes: n("Changes"), reverts: n("Reverts"), lastCheck: n("LastCheck"),
-                    lastCheckText: GPUControlStatus.text(dict["LastCheckText"]), sentPower: n("SentPower"),
+                    changes: c("Changes"), reverts: c("Reverts"), lastCheck: n("LastCheck"),
+                    lastCheckText: GPUControlStatus.text(dict["LastCheckText"]), sentPower: c("SentPower"),
                     fanCurveHeld: GPUControlStatus.fanCurvePacked(dict["FanCurveHeld"]),
                     gfxMaxHeld: n("GfxMaxHeld").flatMap { $0 > 0 ? $0 : nil })
     }

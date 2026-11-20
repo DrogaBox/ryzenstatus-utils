@@ -16,11 +16,11 @@ enum GPUControlWire {
     enum Selector: UInt32, CaseIterable, Sendable {
         case status = 0
         /// Opens writing until restart. Root only: the app never calls it.
-        case arm
-        case set
-        case alive
-        case release
-        case setOD8
+        case arm = 1
+        case set = 2
+        case alive = 3
+        case release = 4
+        case setOD8 = 5
 
         /// Scalars in, the version included.
         var inputCount: Int {
@@ -70,24 +70,24 @@ enum GPUControlWire {
 /// A call's first scalar out (`gpuctl::Reply`).
 enum GPUControlReply: UInt64, CaseIterable, Sendable {
     case ok = 0
-    case badVersion
-    case badArgs
-    case notPrivileged
-    case off
-    case notArmed
-    case noBootValue
-    case notReady
-    case sleeping
-    case busy
-    case tooSoon
-    case belowFloor
-    case aboveBoot
-    case notAStep
-    case timeout
-    case failed
-    case notOwner
-    case cancelled
-    case od8Refused
+    case badVersion = 1
+    case badArgs = 2
+    case notPrivileged = 3
+    case off = 4
+    case notArmed = 5
+    case noBootValue = 6
+    case notReady = 7
+    case sleeping = 8
+    case busy = 9
+    case tooSoon = 10
+    case belowFloor = 11
+    case aboveBoot = 12
+    case notAStep = 13
+    case timeout = 14
+    case failed = 15
+    case notOwner = 16
+    case cancelled = 17
+    case od8Refused = 18
 
     /// The kext's own words (`replyText`), shown under the app's sentence.
     var kextText: String {
@@ -121,17 +121,17 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
 /// scalar out, and `status`'s last field.
 enum GPUControlOD8Check: UInt64, CaseIterable, Sendable {
     case ok = 0
-    case notRead
-    case drifted
-    case memoryMoved
-    case noFeature
-    case curveRange
-    case curveOrder
-    case curveFirst
-    case curveLast
-    case curveCooling
-    case gfxRange
-    case noReadings
+    case notRead = 1
+    case drifted = 2
+    case memoryMoved = 3
+    case noFeature = 4
+    case curveRange = 5
+    case curveOrder = 6
+    case curveFirst = 7
+    case curveLast = 8
+    case curveCooling = 9
+    case gfxRange = 10
+    case noReadings = 11
 
     /// `od8CheckText`.
     var kextText: String {
@@ -155,20 +155,20 @@ enum GPUControlOD8Check: UInt64, CaseIterable, Sendable {
 /// Why writing is off until restart (`gpuctl::WriteOff`).
 enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
     case none = 0
-    case ctlOff
-    case notOneCard
-    case otherAmdGpu
-    case library
-    case routes
-    case cwdde
-    case secondObject
-    case bootImplausible
-    case start
-    case sendFailed
-    case revertFailed
-    case teardown
-    case od8Failed
-    case od8Watchdog
+    case ctlOff = 1
+    case notOneCard = 2
+    case otherAmdGpu = 3
+    case library = 4
+    case routes = 5
+    case cwdde = 6
+    case secondObject = 7
+    case bootImplausible = 8
+    case start = 9
+    case sendFailed = 10
+    case revertFailed = 11
+    case teardown = 12
+    case od8Failed = 13
+    case od8Watchdog = 14
 
     /// `writeOffText`.
     var kextText: String {

@@ -404,6 +404,13 @@ final class GPUControlEngine {
     private func attempt(_ request: GPUControlRequest) {
         guard let channel, let status = readStatus() else { return }
         let now = clock()
+        // The kext takes `set` at the start-up limit as the way back
+        // (`routeSet`: release, never a change), so `status` would never
+        // show it as mine: ask for it as the way back, whoever asked.
+        var request = request
+        if case .power(let watts) = request, status.bootW != 0, UInt64(watts) == status.bootW {
+            request = .startUp
+        }
         if request == .startUp {
             if snapshot.held != nil || status.flags.contains(.mine) {
                 _ = channel.release()
@@ -628,6 +635,14 @@ final class GPUControlController: @unchecked Sendable {
         lastSnapshot = engine.snapshot
     }
 
+    /// Let go without `shutdown`: nothing on the queue holds the controller
+    /// any more, so the wake observer, the timer and the activity go here.
+    deinit {
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        timer?.cancel()
+        endActivity()
+    }
+
     var snapshot: GPUControlSnapshot { snapshotLock.withLock { lastSnapshot } }
 
     /// Listens for wakes. Opens nothing by itself.
@@ -655,9 +670,15 @@ final class GPUControlController: @unchecked Sendable {
 
     func refresh() { queue.async { [self] in engine.refresh(); run() } }
 
-    /// `applicationWillTerminate`: `release` at once on a helper thread
-    /// (it answers right away, and wins over a `set` that waits on the
-    /// queue), then close; waits `timeout` seconds at most.
+    /// `applicationWillTerminate`: `release` at once on a helper thread,
+    /// then close; waits `timeout` seconds at most.
+    /// `release` answers right away and wins over a `set` already waiting in
+    /// the kext (kext 0.7.2: the waiting `set` sleeps without `gStateLock`,
+    /// `release` drops its request and the `set` answers `cancelled`). A
+    /// `set` that reaches the kext just after the `release` is waited for by
+    /// `close()`, up to the kext's 5 s; past `timeout` the app goes on, and
+    /// when the process ends the kext sees the connection die and goes back
+    /// to the start-up values all the same.
     func shutdown(timeout: TimeInterval = 1) {
         gate.shutDown()
         let done = DispatchSemaphore(value: 0)
