@@ -802,17 +802,19 @@ enum GPUControlChannelTests {
             h.run(ms: 0)
             h.engine.choose(.startUp)
             h.run(ms: 0)
-            suite.expect(h.replies(.release) == 1 && h.held == nil && h.engine.snapshot.outcome == nil,
-                         "start-up values: release")
+            suite.expect(h.replies(.release) == 1 && h.held == nil && h.engine.snapshot.outcome == .backToStartUp,
+                         "start-up values: release, confirmed")
             h.run(ms: 3_000)
             h.engine.chooseGfxMax(2_300)
             h.run(ms: 3_000)
             h.engine.choose(.od8(.stock))
             h.run(ms: 0)
-            suite.expect(h.replies(.release) == 2 && h.replies(.setOD8) == 1, "the stock OD8 state is a release too")
+            suite.expect(h.replies(.release) == 2 && h.replies(.setOD8) == 1 && h.engine.snapshot.outcome == .backToStartUp,
+                         "the stock OD8 state is a release too")
             h.engine.choose(.startUp)
             h.run(ms: 0)
-            suite.expect(h.replies(.release) == 2, "nothing held: nothing to give back")
+            suite.expect(h.replies(.release) == 2 && h.engine.snapshot.outcome == .alreadyAtStartUp,
+                         "nothing held: nothing to give back, and the owner is told")
         }
         // The start-up limit asked as a power value: the kext takes that `set`
         // as the way back, so the app asks for the way back.
@@ -825,8 +827,8 @@ enum GPUControlChannelTests {
             h.run(ms: 0)
             suite.expect(h.replies(.set) == 1 && h.replies(.release) == 1,
                          "power at the start-up limit: release, no set")
-            suite.expect(h.held == nil && h.engine.snapshot.outcome == nil,
-                         "power at the start-up limit: nothing held, no \"not confirmed\"")
+            suite.expect(h.held == nil && h.engine.snapshot.outcome == .backToStartUp,
+                         "power at the start-up limit: nothing held, confirmed as the way back")
             h.fake.advance(by: 1_000)
             suite.expect(h.fake.writes.map(\.kind) == [.power(220), .wayBack], "power at the start-up limit: the kext went back")
             h.run(ms: 3_000)
@@ -834,6 +836,37 @@ enum GPUControlChannelTests {
             h.run(ms: 0)
             suite.expect(h.replies(.set) == 1 && h.replies(.release) == 1 && h.engine.snapshot.outcome == nil,
                          "power at the start-up limit with nothing held: no call that writes, no outcome")
+            h.engine.choose(.power(watts: h.fake.bootW))
+            h.run(ms: 0)
+            suite.expect(h.replies(.set) == 1 && h.replies(.release) == 1 && h.engine.snapshot.outcome == .alreadyAtStartUp,
+                         "power at the start-up limit asked by the owner with nothing held: no call, the owner is told")
+        }
+        // The way back while another program holds the control: nothing of
+        // the other program's is touched, and the owner is told who holds it.
+        for request in [GPUControlRequest.startUp, .power(watts: 240)] {
+            let h = Harness()
+            let other = h.fake.connection()
+            _ = other.open()
+            _ = other.setPower(watts: 230)
+            h.engine.choose(request)
+            h.run(ms: 0)
+            suite.expect(h.engine.snapshot.outcome == .otherProgram, "\(request) while another program holds: other program")
+            suite.expect(h.replies(.release) == 0 && h.replies(.set) == 0 && h.held == nil,
+                         "\(request) while another program holds: no call that writes")
+            suite.expect(h.fake.statusFor(other)?.flags.contains(.mine) == true && h.fake.statusFor(other)?.heldW == 230,
+                         "\(request) while another program holds: its change stays")
+        }
+        // No start-up limit the kext believes: the kext opens nothing, so a
+        // power value equal to what `status` shows as `bootW` is not taken as
+        // the way back; it ends as "closed", never "not confirmed".
+        for boot: UInt32 in [0, 350] {
+            let h = Harness { $0.bootW = boot }
+            h.engine.choose(.power(watts: boot == 0 ? 240 : boot))
+            h.run(ms: 0)
+            suite.expect(h.engine.snapshot.outcome == .closed && h.held == nil,
+                         "start-up limit \(boot) W not believable: closed")
+            suite.expect(h.replies(.set) == 0 && h.replies(.release) == 0,
+                         "start-up limit \(boot) W not believable: no call that writes")
         }
         // One request at a time; the latest choice wins.
         do {

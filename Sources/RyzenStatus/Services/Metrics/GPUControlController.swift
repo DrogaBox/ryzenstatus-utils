@@ -95,6 +95,12 @@ struct GPUControlSnapshot: Equatable, Sendable {
         case lost
         /// The Mac woke: the kext goes back to the start-up values.
         case backAfterWake
+        /// Asked for the start-up values (or the start-up limit): released,
+        /// and `status` no longer names this program.
+        case backToStartUp
+        /// Asked for the start-up values (or the start-up limit) with nothing
+        /// held and no other program holding: nothing to give back.
+        case alreadyAtStartUp
     }
 
     var status: GPUControlChannelStatus?
@@ -390,6 +396,11 @@ final class GPUControlEngine {
         return status
     }
 
+    /// The kext's `bootValuePlausible`: a start-up limit it takes as read.
+    static func bootBelievable(_ bootW: UInt64) -> Bool {
+        bootW >= UInt64(GPUControlWire.powerFloorW) && bootW <= UInt64(GPUControlWire.maxBootW)
+    }
+
     /// What `status` shows is the request.
     static func matches(_ request: GPUControlRequest, _ status: GPUControlChannelStatus) -> Bool {
         switch request {
@@ -407,8 +418,14 @@ final class GPUControlEngine {
         // The kext takes `set` at the start-up limit as the way back
         // (`routeSet`: release, never a change), so `status` would never
         // show it as mine: ask for it as the way back, whoever asked.
+        // Only with a start-up limit the kext believes (`checkPower`'s
+        // `bootValuePlausible`, the same range). Without one (`bootW` 0: never
+        // read; or outside the range) the kext routes no `set` to the way
+        // back: it refuses `arm` and every `set` with "no start-up value" and
+        // never shows `ready`, so the request ends as `closed` (nothing to
+        // compare with, nothing held), never as `notConfirmed`.
         var request = request
-        if case .power(let watts) = request, status.bootW != 0, UInt64(watts) == status.bootW {
+        if case .power(let watts) = request, Self.bootBelievable(status.bootW), UInt64(watts) == status.bootW {
             request = .startUp
         }
         if request == .startUp {
@@ -416,9 +433,16 @@ final class GPUControlEngine {
                 _ = channel.release()
                 lastWriteAt = now
                 snapshot.held = nil
-                _ = readStatus()
+                // Confirmed once `status` no longer names this program; the
+                // kext's way back itself may still be running.
+                if let after = readStatus(), !after.flags.contains(.mine) {
+                    snapshot.outcome = .backToStartUp
+                }
             } else if status.flags.contains(.owned) {
                 snapshot.outcome = .otherProgram
+            } else if wantedOrigin == .owner {
+                // Nothing to give back: say so to the owner, who asked.
+                snapshot.outcome = .alreadyAtStartUp
             }
             finishRequest()
             return
@@ -675,10 +699,13 @@ final class GPUControlController: @unchecked Sendable {
     /// `release` answers right away and wins over a `set` already waiting in
     /// the kext (kext 0.7.2: the waiting `set` sleeps without `gStateLock`,
     /// `release` drops its request and the `set` answers `cancelled`). A
-    /// `set` that reaches the kext just after the `release` is waited for by
-    /// `close()`, up to the kext's 5 s; past `timeout` the app goes on, and
-    /// when the process ends the kext sees the connection die and goes back
-    /// to the start-up values all the same.
+    /// `set` that reaches the kext just after the `release` finds the control
+    /// free (the `release` gave it up), so the kext takes it and applies it
+    /// if the process lives long enough, not only answers it: `close()` waits
+    /// for that answer, up to the kext's 5 s, and closing gives the change
+    /// back. Past `timeout` the app goes on; when the process ends the kext
+    /// sees the connection die and goes back to the start-up values all the
+    /// same.
     func shutdown(timeout: TimeInterval = 1) {
         gate.shutDown()
         let done = DispatchSemaphore(value: 0)
