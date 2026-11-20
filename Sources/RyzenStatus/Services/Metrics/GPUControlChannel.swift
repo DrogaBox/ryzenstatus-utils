@@ -71,6 +71,13 @@ extension GPUControlChannel {
         answer(.release, input: [GPUControlWire.channelVersion])
     }
 
+    /// Closes writing again (0.8.0), with no password: refused with
+    /// `stillApplied` while anything is applied. Nil from a 0.7.x kext,
+    /// which does not know the selector: the call fails, and the connection
+    /// stays as it was.
+    func disarm() -> GPUControlAnswer? {
+        answer(.disarm, input: [GPUControlWire.channelVersion])
+    }
     private func answer(_ selector: GPUControlWire.Selector, input: [UInt64]) -> GPUControlAnswer? {
         guard let out = call(selector, input: input, outputCount: selector.outputCount), !out.isEmpty else { return nil }
         // The second scalar counts only with "refused": the kext zeroes it otherwise.

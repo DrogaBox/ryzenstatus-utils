@@ -3,11 +3,14 @@
 
 import Foundation
 
-/// The numbers of GPUSensors.kext's control channel, version 2 (kext 0.7.x):
-/// an IOUserClient of type 0 on `DrogaBoxGPUSensors` that takes and returns
-/// scalars only. Copied from the kext's `control_logic.hpp` (selectors,
-/// replies, the status layout, its flags) and `kern_service.cpp` (the counts
-/// each call takes). Nothing here talks to the kext.
+/// The numbers of GPUSensors.kext's control channel, version 2 (kext 0.7.x
+/// and 0.8.0): an IOUserClient of type 0 on `DrogaBoxGPUSensors` that takes
+/// and returns scalars only. Copied from the kext's `control_logic.hpp`
+/// (selectors, replies, the status layout, its flags) and `kern_service.cpp`
+/// (the counts each call takes). 0.8.0 keeps version 2 and only adds: the
+/// `disarm` selector, two replies, one `WriteOff` reason and the card's own
+/// power range (`PowerRange`, read from the properties). Nothing here talks
+/// to the kext.
 enum GPUControlWire {
     /// The first scalar of every call. A kext that speaks another version
     /// answers `badVersion` and nothing else.
@@ -21,6 +24,10 @@ enum GPUControlWire {
         case alive = 3
         case release = 4
         case setOD8 = 5
+        /// Closes writing again (0.8.0). Anyone may: closing only makes it
+        /// safer, it is refused while anything is applied, and opening again
+        /// still needs `arm`. A 0.7.x kext does not know it: the call fails.
+        case disarm = 6
 
         /// Scalars in, the version included.
         var inputCount: Int {
@@ -53,14 +60,22 @@ enum GPUControlWire {
     /// Two GPU writes are at least this far apart; a way back counts.
     static let minChangeGapMs: UInt64 = 2_000
 
-    /// The power limit the kext takes: from here to the start-up value, in
-    /// steps. The start-up value itself is the way back.
-    static let powerFloorW = 200
+    /// The power limit the kext takes goes down from the start-up value in
+    /// these steps, to the card's own floor (`GPUControlPowerRange`, never a
+    /// number written here). The start-up value itself is the way back.
     static let powerStepW = 10
-    /// A start-up value outside `powerFloorW...maxBootW` is not believable.
+    /// `kMinBootW` and `kMaxBootW`: a start-up value outside these is not
+    /// believed as read. A check of the read only, never a floor for requests.
+    static let minBootW = 200
     static let maxBootW = 300
-    /// The GFX maximum clock is never taken below this.
+    /// The GFX maximum clock is never taken below this (`kOd8GfxFloorMHz`).
     static let gfxFloorMHz = 1_500
+    /// The fan watchdog takes the curve back after this long hot
+    /// (`kOd8DogHoldMs`).
+    static let od8DogHoldMs: UInt64 = 5_000
+    /// After a wake the kext waits this long after the driver's read before
+    /// it calls the card ready (`kWakeReadyMarginMs`).
+    static let wakeReadyMarginMs: UInt64 = 2_000
 
     /// `setOD8`'s flags scalar.
     static let wantCurve: UInt64 = 1
@@ -88,6 +103,11 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
     case notOwner = 16
     case cancelled = 17
     case od8Refused = 18
+    /// `disarm` (0.8.0): something is still applied; go back first.
+    case stillApplied = 19
+    /// `set` (0.8.0): the card's minimum power limit is not known
+    /// (`PowerRangeState` says why): only the start-up value is taken.
+    case noFloor = 20
 
     /// The kext's own words (`replyText`), shown under the app's sentence.
     var kextText: String {
@@ -104,7 +124,7 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
         case .busy:
             return "busy: another program holds the control, a way back is running, or the GPU is busy; try later"
         case .tooSoon: return "refused: less than 2 s since the last write"
-        case .belowFloor: return "refused: below 200 W"
+        case .belowFloor: return "refused: below the card's minimum power limit (PowerRange)"
         case .aboveBoot: return "refused: above the start-up limit"
         case .notAStep: return "refused: not a 10 W step"
         case .timeout: return "busy: no answer in 5 s; anything held by this program goes back"
@@ -113,6 +133,9 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
         case .notOwner: return "this program holds nothing"
         case .cancelled: return "cancelled: the connection closed"
         case .od8Refused: return "refused: the fan or clock setting is not allowed"
+        case .stillApplied:
+            return "refused: a change is still applied or being handled; go back to the start-up values first"
+        case .noFloor: return "refused: the card's minimum power limit is not known (PowerRangeState)"
         }
     }
 }
@@ -169,13 +192,16 @@ enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
     case teardown = 12
     case od8Failed = 13
     case od8Watchdog = 14
+    /// 0.8.0: a card the kext reads but never writes (the RX 6900 XT, 73BF
+    /// rev C0). Off from boot; the reads still run.
+    case readOnlyCard = 15
 
     /// `writeOffText`.
     var kextText: String {
         switch self {
         case .none: return ""
         case .ctlOff: return "-gpuctloff"
-        case .notOneCard: return "not exactly one RX 6800 XT"
+        case .notOneCard: return "not exactly one RX 6800 XT or RX 6900 XT"
         case .otherAmdGpu: return "another AMD GPU is present"
         case .library: return "the driver library is not AMDRadeonX6000HWLibs"
         case .routes: return "a watched driver function is not routed"
@@ -188,6 +214,7 @@ enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
         case .teardown: return "the GPU went away or the Mac is stopping"
         case .od8Failed: return "an OD8 change did not read back as sent"
         case .od8Watchdog: return "the fan watchdog put the stock fan back"
+        case .readOnlyCard: return "this card can only be read (RX 6900 XT, 73BF rev C0): writing never opens on it"
         }
     }
 }
@@ -196,9 +223,10 @@ enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
 struct GPUControlFlags: OptionSet, Hashable, Sendable {
     let rawValue: UInt64
 
-    /// An administrator opened writing since the restart.
+    /// An administrator opened writing since the restart, and (0.8.0)
+    /// nobody closed it again.
     static let armed = GPUControlFlags(rawValue: 1)
-    /// Writing is off until restart.
+    /// Writing is off until restart, or (0.8.0) the card is read only.
     static let off = GPUControlFlags(rawValue: 2)
     static let sleeping = GPUControlFlags(rawValue: 4)
     /// A way back to the start-up values is running.
@@ -366,7 +394,7 @@ struct GPUControlOD8Want: Equatable, Hashable, Sendable {
 }
 
 /// The sentences the app shows for the kext's numbers. The kext answers with
-/// 18 replies besides "ok", 11 OD8 refusals and 14 reasons that keep writing
+/// 20 replies besides "ok", 11 OD8 refusals and 15 reasons that keep writing
 /// off; the app translates one sentence per group and puts the kext's own
 /// English text under it. A number this app does not know has no group and is
 /// shown as the kext wrote it.
@@ -408,6 +436,9 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .ok: return nil
         case .badVersion: return .otherVersion
         case .badArgs, .belowFloor, .aboveBoot, .notAStep: return .notAllowed
+        // Until the page has its own sentences for them.
+        case .noFloor: return .notReady
+        case .stillApplied: return .busy
         case .notPrivileged: return .needsAdministrator
         case .off: return .writingOff
         case .notArmed: return .closed
@@ -440,6 +471,7 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .sendFailed, .revertFailed, .od8Failed: return .offChangeUnconfirmed
         case .teardown: return .offDriverStopped
         case .od8Watchdog: return .offWatchdog
+        case .readOnlyCard: return .offNotAsExpected
         }
     }
 }

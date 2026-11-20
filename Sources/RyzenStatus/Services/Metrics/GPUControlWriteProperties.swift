@@ -6,8 +6,9 @@ import Foundation
 extension GPUControlStatus {
     /// What GPUSensors.kext 0.5.0 and later publish about writing: the power
     /// limit's write path (`Write`, `WriteState`, 0.5.0), the OD8 readout
-    /// (`OD8State`, `OD8`, 0.6.0) and the OD8 writes (`OD8Write`,
-    /// `OD8WriteState`, 0.7.0). Read from the same whole-table read as the
+    /// (`OD8State`, `OD8`, 0.6.0), the OD8 writes (`OD8Write`,
+    /// `OD8WriteState`, 0.7.0) and the card's power range (`PowerRange`,
+    /// `PowerRangeState`, 0.8.0). Read from the same whole-table read as the
     /// sensors, without opening the control channel, so the app can tell the
     /// state before it ever connects. Nothing here says whether this app
     /// holds a change: only the channel's `status` knows which connection
@@ -16,7 +17,8 @@ extension GPUControlStatus {
         /// `Write` and `OD8Write`: where the write path stands, in the
         /// kext's own order of checks.
         enum Gate: Equatable {
-            /// Off until restart, or the control never started.
+            /// Off until restart, the control never started, or (0.8.0) the
+            /// card is read only: `WriteState.WriteOff` tells which.
             case off
             /// The driver, its start-up limit or a clean OD8 read is missing.
             case waiting
@@ -131,6 +133,12 @@ extension GPUControlStatus {
         /// `OD8State`, nil before 0.6.0.
         var od8Read: OD8Read?
         var od8: OD8Table?
+        /// `PowerRange` (0.8.0), nil from an older kext or while the kext has
+        /// no control.
+        var powerRange: GPUControlPowerRange? = nil
+        /// `PowerRangeState` (0.8.0): why the floor is known or not, as the
+        /// kext wrote it.
+        var powerRangeState: String? = nil
 
         /// Nil for a kext without the write path (before 0.5.0): there is no
         /// `Write` text, so there is nothing to control.
@@ -145,7 +153,9 @@ extension GPUControlStatus {
                 od8Gate: od8Text.map(Gate.parse),
                 od8State: OD8State.parse(properties["OD8WriteState"]),
                 od8Read: GPUControlStatus.text(properties["OD8State"]).map(OD8Read.parse),
-                od8: OD8Table.parse(properties["OD8"]))
+                od8: OD8Table.parse(properties["OD8"]),
+                powerRange: GPUControlPowerRange.parse(properties["PowerRange"]),
+                powerRangeState: GPUControlStatus.text(properties["PowerRangeState"]))
         }
     }
 
@@ -201,6 +211,8 @@ extension GPUControlStatus.Writing.Gate {
     static func parse(_ text: String) -> Self {
         func starts(_ word: String) -> Bool { GPUControlStatus.starts(text, with: word) }
         if starts("off") { return .off }
+        // 0.8.0's read-only card: "read only: this card can only be read".
+        if starts("read only") { return .off }
         if starts("waiting") { return .waiting }
         if starts("closed") { return .closed }
         guard starts("armed"), let rest = GPUControlStatus.reason(text, after: "armed") else { return .other(text) }
@@ -279,5 +291,82 @@ extension GPUControlStatus.Writing.OD8Table {
                     defaultsMoved: flag("DefaultsMoved"), currentMoved: flag("CurrentMoved"),
                     fanCurveStock: GPUControlStatus.fanCurvePairs(dict["FanCurveStock"]),
                     fanCurve: GPUControlStatus.fanCurvePairs(dict["FanCurve"]), settings: settings)
+    }
+}
+
+/// The power limits a card takes (`PowerRange`, kext 0.8.0): from its floor
+/// to the start-up value, in 10 W steps, plus the start-up value itself. The
+/// floor is the card's own: the start-up limit less the card's OD8 power
+/// percent, as Linux computes `power1_cap_min`. Unknown until the kext read
+/// the card's table cleanly; then only the start-up value is taken.
+struct GPUControlPowerRange: Equatable, Sendable {
+    enum Source: Equatable, Sendable {
+        /// Published by the kext (0.8.0): the floor its `set` enforces.
+        case kext
+        /// Worked out by the app from the OD8 table, the same way, for a
+        /// 0.7.x kext that publishes no range (it takes down to its own fixed
+        /// floor, which is never above the card's).
+        case od8Table
+    }
+
+    var source: Source
+    /// The lowest limit taken; nil while the kext does not know it.
+    var floorW: Int?
+    /// The start-up limit, the highest taken; nil while the floor is not known.
+    var maxW: Int?
+    var stepW: Int
+    /// The card's OD8 power percent, once read.
+    var percentMin: Int?
+    var percentMax: Int?
+
+    var isKnown: Bool { floorW != nil && maxW != nil }
+
+    /// `kMaxPowerPercentDown`: a lower bound further down is a broken read.
+    static let maxPercentDown = 50
+
+    /// Nil for anything that is not the kext's dictionary.
+    static func parse(_ raw: Any?) -> Self? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        let known = GPUControlStatus.flag(dict["Known"]) ?? false
+        let floor = GPUControlStatus.integer(dict["FloorW"])
+        let max = GPUControlStatus.integer(dict["MaxW"])
+        let step = GPUControlStatus.integer(dict["StepW"]).flatMap { $0 > 0 ? $0 : nil } ?? GPUControlWire.powerStepW
+        var usable = false
+        if known, let floor, let max { usable = floor > 0 && floor <= max }
+        return Self(source: .kext, floorW: usable ? floor : nil, maxW: usable ? max : nil, stepW: step,
+                    percentMin: signed(dict["PercentMin"]), percentMax: signed(dict["PercentMax"]))
+    }
+
+    /// The kext's signed 32-bit numbers: the 32-bit pattern (-6 as 4294967290)
+    /// or the sign-extended 64-bit one ioreg prints (18446744073709551610).
+    private static func signed(_ raw: Any?) -> Int? {
+        if let value = GPUControlStatus.signed32(raw) { return value }
+        guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              !CFNumberIsFloatType(number as CFNumber) else { return nil }
+        let value = number.int64Value
+        return value >= Int64(Int32.min) && value <= Int64(Int32.max) ? Int(value) : nil
+    }
+
+    /// The kext's `powerRange()`, for a kext that does not publish one: from
+    /// the start-up limit and the first clean read of `OD8.Settings.PowerPercent`.
+    /// Nil (floor not known) for anything the kext would not take as a floor
+    /// either: no believable start-up limit, no clean read, an odd entry.
+    static func fromOD8(bootW: Int?, od8: GPUControlStatus.Writing.OD8Table?, od8Read: Bool) -> Self? {
+        guard let boot = bootW, boot >= GPUControlWire.minBootW, boot <= GPUControlWire.maxBootW,
+              od8Read, let od8, od8.stockOdd != true, let entry = od8.settings["PowerPercent"] else { return nil }
+        var range = Self(source: .od8Table, floorW: nil, maxW: nil, stepW: GPUControlWire.powerStepW,
+                         percentMin: entry.min, percentMax: entry.max)
+        if entry.feature == 0 {
+            // The card offers no lower limit: the floor is the start-up value.
+            range.floorW = boot
+            range.maxW = boot
+            return range
+        }
+        guard entry.feature == 0x8, entry.min <= 0, entry.min >= -maxPercentDown, entry.min <= entry.max else {
+            return range
+        }
+        range.floorW = boot * (100 + entry.min) / 100
+        range.maxW = boot
+        return range
     }
 }

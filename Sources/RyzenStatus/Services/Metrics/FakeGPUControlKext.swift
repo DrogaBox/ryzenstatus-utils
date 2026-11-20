@@ -3,9 +3,16 @@
 
 import Foundation
 
-/// A model of the control channel of GPUSensors.kext 0.7.2, driven by a
-/// clock the caller moves. It never touches IOKit or the GPU: the tests and
-/// the screenshots talk to it instead of the kext.
+/// A model of the control channel of GPUSensors.kext 0.8.0 (and, with
+/// `generation = .v07`, of 0.7.2), driven by a clock the caller moves. It
+/// never touches IOKit or the GPU: the tests and the screenshots talk to it
+/// instead of the kext.
+///
+/// 0.8.0 against 0.7.2: `disarm` (0.7.2 fails the call), the card's own
+/// power floor from its OD8 power percent (0.7.2: a fixed 200 W) and
+/// `PowerRange`, `NoFloor` and `StillApplied`, the read-only card
+/// (`WriteOff` 15), and `set`/`setOD8` answering off and not armed before
+/// they look at a value.
 ///
 /// What it copies, from `control_logic.hpp` and `kern_control.cpp`:
 /// - `Owner`: one owner at a time, 2 s between GPU writes (a way back counts),
@@ -28,9 +35,29 @@ import Foundation
 final class FakeGPUControlKext: @unchecked Sendable {
     // MARK: Settings the test changes
 
+    /// Which kext this is.
+    enum Generation: Equatable, Sendable {
+        /// 0.7.2: no `disarm`, the floor fixed at `legacyFloorW`, no
+        /// `PowerRange`, values checked before "not armed".
+        case v07
+        /// 0.8.0.
+        case v08
+    }
+
+    var generation: Generation = .v08
     /// The channel version this kext speaks; 1 is 0.5.0 and 0.6.0.
     var version: UInt64 = GPUControlWire.channelVersion
     var bootW: UInt32 = 240
+    /// The card's `OD8.Settings.PowerPercent`: feature 0x8, its lower bound
+    /// (negative) and upper bound. The owner's card has -6 and 9 (floor 225 W
+    /// at 240 W); the model's default -20 leaves the tests room (192 W).
+    /// Feature 0: the card offers no lower limit, the floor is the start-up
+    /// value.
+    var powerPercentFeature: UInt32 = 0x8
+    var powerPercentMin = -20
+    var powerPercentMax = 9
+    /// 0.7.2's `kFloorW`: the old kext's fixed floor, modelled as it was.
+    static let legacyFloorW: UInt32 = 200
     /// The driver's power management is up (`readyLocked` without the
     /// start-up limit, which `bootW` decides).
     var driverReady = true
@@ -143,6 +170,19 @@ final class FakeGPUControlKext: @unchecked Sendable {
 
     // MARK: The test's hands
 
+    /// The card is the read-only one (0.8.0, RX 6900 XT rev C0): set once at
+    /// start, before anything can arm. The reads go on; writing never opens.
+    func makeReadOnlyCard() {
+        locked {
+            owner.markReadOnly()
+            writeOff = .readOnlyCard
+        }
+    }
+
+    /// The lowest limit `set` takes now, 0 while it is not known (0.8.0:
+    /// OD8 not read, or an entry the kext does not take as a floor).
+    var floorW: UInt32 { locked { floorLocked } }
+
     /// `sudo gpucontrol arm`: what an administrator gets.
     @discardableResult
     func arm(administrator: Bool = true) -> GPUControlReply {
@@ -171,7 +211,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
         locked {
             inSleep = false
             pendingWakeReadMs = Swift.min(driverReadAfterMs, 10_000)
-            if workerAsleep { wakeDoneAt = nowMs + pendingWakeReadMs + 2_000 }
+            if workerAsleep { wakeDoneAt = nowMs + pendingWakeReadMs + GPUControlWire.wakeReadyMarginMs }
             runWorker(until: nowMs)
         }
     }
@@ -227,7 +267,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 od8State["FanCurveHeld"] = curve.map { NSNumber(value: $0.temperatureC * 1_000 + $0.speedPercent) }
             }
             if od8Dirty, let gfx = od8HeldWant.gfxMaxMHz { od8State["GfxMaxHeld"] = NSNumber(value: gfx) }
-            return [
+            var all: [String: Any] = [
                 "Write": writeText(),
                 "WriteState": [
                     "WriteOff": NSNumber(value: writeOff.rawValue), "WriteOffText": writeOff.kextText,
@@ -239,7 +279,33 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 "OD8Write": od8WriteText(),
                 "OD8WriteState": od8State,
             ]
+            if generation == .v08 {
+                let floor = floorLocked
+                all["PowerRangeState"] = powerRangeText(floor: floor)
+                var range: [String: Any] = ["Known": NSNumber(value: floor != 0 ? 1 : 0),
+                                            "StepW": NSNumber(value: GPUControlWire.powerStepW)]
+                if floor != 0 {
+                    range["FloorW"] = NSNumber(value: floor)
+                    range["MaxW"] = NSNumber(value: bootW)
+                }
+                if od8Ready, Self.bootPlausible(bootW) {
+                    // Signed 32-bit, as the kext publishes them.
+                    range["PercentMin"] = NSNumber(value: Int32(powerPercentMin))
+                    range["PercentMax"] = NSNumber(value: Int32(powerPercentMax))
+                }
+                all["PowerRange"] = range
+            }
+            return all
         }
+    }
+
+    // `floorStateText`.
+    private func powerRangeText(floor: UInt32) -> String {
+        if !Self.bootPlausible(bootW) { return "not known: the start-up limit is not read yet or not believable" }
+        if !od8Ready { return "not known yet: waiting for a clean OD8 read" }
+        if powerPercentFeature == 0 { return "the card offers no lower power limit: only the start-up limit" }
+        if floor == 0 { return "not known: the card's OD8 power entry is not as expected" }
+        return "from the card: start-up limit less its OD8 power percent"
     }
 
     // MARK: Connections, inside
@@ -295,7 +361,13 @@ final class FakeGPUControlKext: @unchecked Sendable {
             case .arm:
                 // The app is never root.
                 return [armLocked(administrator: false).rawValue]
+            case .disarm:
+                // 0.7.2 has no selector 6: `IOConnectCallScalarMethod` fails.
+                guard generation == .v08 else { return nil }
+                return [disarmLocked().rawValue]
             case .set:
+                // 0.8.0: off and not armed come before any value (`valueGate`).
+                if generation == .v08, let gate = valueGate() { return [record(gate).rawValue] }
                 let reply: GPUControlReply = input[1] > 0xFFFF_FFFF
                     ? .aboveBoot : set(client: client, watts: UInt32(input[1]))
                 return [reply.rawValue]
@@ -305,7 +377,8 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 startRevert(owner.release(client))
                 return [GPUControlReply.ok.rawValue]
             case .setOD8:
-                guard let want = Self.want(from: input) else {
+                if generation == .v08, let gate = valueGate() { return [record(gate).rawValue, 0] }
+                guard let want = Self.want(from: input, maxGfxMHz: generation == .v08 ? 0x7FFF_FFFF : 5_000) else {
                     return [GPUControlReply.badArgs.rawValue, 0]
                 }
                 let (reply, check) = setOD8(client: client, want: want)
@@ -315,9 +388,10 @@ final class FakeGPUControlKext: @unchecked Sendable {
     }
 
     /// The dispatcher's reading of `setOD8`'s 13 scalars; nil is malformed.
-    private static func want(from input: [UInt64]) -> GPUControlOD8Want? {
+    /// The clock's wire bound: 5000 MHz in 0.7.2, the 32-bit field in 0.8.0.
+    private static func want(from input: [UInt64], maxGfxMHz: UInt64) -> GPUControlOD8Want? {
         let flags = input[1]
-        guard flags & ~(GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff) == 0, input[12] <= 5_000 else {
+        guard flags & ~(GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff) == 0, input[12] <= maxGfxMHz else {
             return nil
         }
         let curve = flags & GPUControlWire.wantCurve != 0
@@ -336,18 +410,47 @@ final class FakeGPUControlKext: @unchecked Sendable {
 
     private func armLocked(administrator: Bool) -> GPUControlReply {
         guard administrator else { return .notPrivileged }
-        if owner.isOff { return .off }
+        if owner.isOff || owner.isReadOnly { return .off }
         if !Self.bootPlausible(bootW) { return .noBootValue }
         if !readyLocked { return .notReady }
         return owner.arm() ? .ok : .off
     }
 
+    // `disarmCheck` (0.8.0): anyone may close; refused while anything is
+    // applied (a hold, something not confirmed back, a way back).
+    private func disarmLocked() -> GPUControlReply {
+        startRevert(owner.expired(nowMs))
+        if owner.isOff || owner.isReadOnly { return .off }
+        let holds = changedLocked || heldW != 0 || limitUnknown || od8Dirty || pendingRevert != 0
+        if holds || !owner.canDisarm { return .stillApplied }
+        owner.disarm()
+        return .ok
+    }
+
+    // `valueGate` (0.8.0): nil when set and setOD8 go on to their values.
+    private func valueGate() -> GPUControlReply? {
+        if owner.isOff || owner.isReadOnly { return .off }
+        if !owner.isArmed { return .notArmed }
+        return nil
+    }
+
+    // `powerRange`: 0.8.0's floor from the card's power percent, once OD8
+    // was read; 0.7.2's fixed one.
+    private var floorLocked: UInt32 {
+        guard generation == .v08 else { return Self.legacyFloorW }
+        guard Self.bootPlausible(bootW), od8Ready else { return 0 }
+        if powerPercentFeature == 0 { return bootW }
+        guard powerPercentFeature == 0x8, powerPercentMin <= 0,
+              powerPercentMin >= -GPUControlPowerRange.maxPercentDown, powerPercentMin <= powerPercentMax else { return 0 }
+        return bootW * UInt32(100 + powerPercentMin) / 100
+    }
+
     // `GPUControl::set` and the worker's `runSet`.
     private func set(client: UInt64, watts: UInt32) -> GPUControlReply {
         startRevert(owner.expired(nowMs))
-        if owner.isOff { return record(.off) }
+        if owner.isOff || owner.isReadOnly { return record(.off) }
         let reply: GPUControlReply
-        switch Self.routeSet(boot: bootW, watts: watts) {
+        switch Self.routeSet(boot: bootW, floor: floorLocked, watts: watts) {
         case .refuse(let refusal):
             reply = refusal
         case .release:
@@ -394,7 +497,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
     // `GPUControl::setOd8` and the worker's `runSetOd8`.
     private func setOD8(client: UInt64, want: GPUControlOD8Want) -> (GPUControlReply, GPUControlOD8Check) {
         startRevert(owner.expired(nowMs))
-        if owner.isOff { return (record(.off), .ok) }
+        if owner.isOff || owner.isReadOnly { return (record(.off), .ok) }
         if want.isStock {
             // The stock state is the way back, never a change.
             if owner.owner != 0, owner.owner != client { return (record(.busy), .ok) }
@@ -497,7 +600,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
         var flags: GPUControlFlags = []
         if od8Ready { flags.insert(.od8Ready) }
         if owner.isArmed { flags.insert(.armed) }
-        if owner.isOff { flags.insert(.off) }
+        if owner.isOff || owner.isReadOnly { flags.insert(.off) }
         if sleepingLocked { flags.insert(.sleeping) }
         if owner.isReverting || pendingRevert != 0 { flags.insert(.reverting) }
         if changedLocked { flags.insert(.changed) }
@@ -514,6 +617,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
     }
 
     private func writeText() -> String {
+        if owner.isReadOnly { return "read only: this card can only be read (see WriteState)" }
         if owner.isOff { return "off until restart: see WriteState" }
         if !readyLocked { return "waiting for the power management and its start-up limit" }
         if !owner.isArmed { return "closed: sudo gpucontrol arm opens it until restart" }
@@ -524,6 +628,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
     }
 
     private func od8WriteText() -> String {
+        if owner.isReadOnly { return "read only: this card can only be read (see WriteState)" }
         if owner.isOff { return "off until restart: see WriteState" }
         if !od8Ready { return "waiting for a clean OD8 read (OD8State)" }
         if !owner.isArmed { return "closed: sudo gpucontrol arm opens it until restart" }
@@ -589,7 +694,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 owner.willSleep()
                 pendingRevert = 0
                 revertDoneAt = nil
-                if !inSleep { wakeDoneAt = nowMs + pendingWakeReadMs + 2_000 }
+                if !inSleep { wakeDoneAt = nowMs + pendingWakeReadMs + GPUControlWire.wakeReadyMarginMs }
             case 1:
                 workerAsleep = false
                 wakeDoneAt = nil
@@ -656,17 +761,19 @@ final class FakeGPUControlKext: @unchecked Sendable {
     }
 
     private static func bootPlausible(_ watts: UInt32) -> Bool {
-        watts >= UInt32(GPUControlWire.powerFloorW) && watts <= UInt32(GPUControlWire.maxBootW)
+        watts >= UInt32(GPUControlWire.minBootW) && watts <= UInt32(GPUControlWire.maxBootW)
     }
 
     private enum Route { case refuse(GPUControlReply), release, change }
 
-    // `checkPower` and `routeSet`.
-    private static func routeSet(boot: UInt32, watts: UInt32) -> Route {
+    // `checkPower` and `routeSet`. `floor` 0: not known (0.8.0), only the
+    // start-up value is taken.
+    private static func routeSet(boot: UInt32, floor: UInt32, watts: UInt32) -> Route {
         if !bootPlausible(boot) { return .refuse(.noBootValue) }
         if watts == boot { return .release }
         if watts > boot { return .refuse(.aboveBoot) }
-        if watts < UInt32(GPUControlWire.powerFloorW) { return .refuse(.belowFloor) }
+        if floor == 0 || floor > boot { return .refuse(.noFloor) }
+        if watts < floor { return .refuse(.belowFloor) }
         if watts % UInt32(GPUControlWire.powerStepW) != 0 { return .refuse(.notAStep) }
         return .change
     }
@@ -697,11 +804,24 @@ final class FakeGPUControlKext: @unchecked Sendable {
         private(set) var isReverting = false
         private(set) var isSleeping = false
         private(set) var isOff = false
+        private(set) var isReadOnly = false
 
         mutating func arm() -> Bool {
-            if isOff { return false }
+            if isOff || isReadOnly { return false }
             isArmed = true
             return true
+        }
+
+        // 0.8.0.
+        var canDisarm: Bool { !isOff && owner == 0 && !isChanged && !isReverting }
+
+        mutating func disarm() {
+            if canDisarm { isArmed = false }
+        }
+
+        mutating func markReadOnly() {
+            isReadOnly = true
+            isArmed = false
         }
 
         mutating func change(_ client: UInt64, _ now: UInt64) -> Ask {
@@ -717,7 +837,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
 
         func wouldChange(_ client: UInt64, _ now: UInt64) -> Ask {
             if client == 0 { return .badClient }
-            if isOff { return .off }
+            if isOff || isReadOnly { return .off }
             if !isArmed { return .notArmed }
             if isSleeping { return .sleeping }
             if isReverting { return .busy }

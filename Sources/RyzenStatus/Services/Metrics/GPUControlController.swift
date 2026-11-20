@@ -54,6 +54,19 @@ enum GPUControlNotice: Equatable, Sendable {
     case writingOff(GPUControlWriteOff?)
 }
 
+/// "Close changes" (`disarm`, kext 0.8.0): where it stands. The app first
+/// gives back what it holds and waits for the way back, then asks once.
+enum GPUControlClosing: Equatable, Sendable {
+    /// Going back to the start-up values first, or about to ask.
+    case waiting
+    /// Closed: `arm` is needed again (also when it was closed already).
+    case closed
+    /// The kext said no; `stillApplied` while another program holds a change.
+    case refused(GPUControlAnswer)
+    /// A 0.7.x kext: it has no `disarm`; restarting the Mac closes writing.
+    case notSupported
+}
+
 /// Where a request came from. A remembered one (phase 2: after launch and
 /// after a wake) never replaces a choice the owner made.
 enum GPUControlOrigin: Equatable, Sendable {
@@ -108,6 +121,9 @@ struct GPUControlSnapshot: Equatable, Sendable {
     var activity: Activity = .none
     var outcome: Outcome?
     var stopped: GPUControlStop?
+    /// The last "close changes", nil until one is asked for (and again after
+    /// a new choice).
+    var closing: GPUControlClosing?
 }
 
 /// The rules of plan section 6, without threads: every call goes through
@@ -159,6 +175,9 @@ final class GPUControlEngine {
     private var sawBusy = false
     private var quietSince: UInt64?
     private var wokeAt: UInt64?
+    /// "Close changes" asked for and not answered yet.
+    private var closeWanted = false
+    private var closeSince: UInt64 = 0
 
     init(channel: GPUControlChannel?, clock: @escaping () -> UInt64, isShutDown: @escaping () -> Bool = { false }) {
         self.channel = channel
@@ -172,7 +191,9 @@ final class GPUControlEngine {
 
     /// True while something is held or about to be: `alive` must not be late
     /// (App Nap).
-    var needsTimelyCalls: Bool { snapshot.stopped == nil && (snapshot.held != nil || wanted != nil) }
+    var needsTimelyCalls: Bool {
+        snapshot.stopped == nil && (snapshot.held != nil || wanted != nil || closeWanted)
+    }
 
     // MARK: Inputs
 
@@ -183,6 +204,9 @@ final class GPUControlEngine {
         let request = request.normalized
         let now = clock()
         if wanted == nil, request == snapshot.held, snapshot.activity == .none { return }
+        // A choice after "close changes" replaces it.
+        closeWanted = false
+        snapshot.closing = nil
         wanted = request
         wantedOrigin = origin
         wantedSince = now
@@ -213,6 +237,22 @@ final class GPUControlEngine {
         if case .od8(let want)? = wanted { return want }
         if wanted == nil, case .od8(let want)? = snapshot.held { return want }
         return .stock
+    }
+
+    /// "Close changes" (kext 0.8.0): give back what this app holds, wait for
+    /// the way back, then `disarm` once. No password: anyone may close, and
+    /// the kext refuses while anything is applied. A request not sent yet is
+    /// dropped: closing is the opposite of asking for something.
+    func close() {
+        guard snapshot.stopped == nil else { return }
+        wanted = nil
+        switching = false
+        snapshot.activity = .none
+        snapshot.outcome = nil
+        closeWanted = true
+        closeSince = clock()
+        nextTryAt = clock()
+        snapshot.closing = .waiting
     }
 
     /// Read `status` at the next step (the page opened).
@@ -270,7 +310,7 @@ final class GPUControlEngine {
     func step() -> UInt64? {
         guard snapshot.stopped == nil else { return nil }
         guard isShutDown() == false else { return stop(.shutDown, close: false) }
-        let busy = wanted != nil || snapshot.held != nil || statusRequested
+        let busy = wanted != nil || snapshot.held != nil || statusRequested || closeWanted
         guard busy else { return nil }
         guard openIfNeeded() else { return nil }
         if statusRequested {
@@ -280,7 +320,9 @@ final class GPUControlEngine {
         if snapshot.held != nil, clock() >= nextPollAt {
             guard keepHolding() else { return snapshot.stopped == nil ? nextDue() : nil }
         }
-        if let request = wanted, clock() >= nextTryAt {
+        if closeWanted, clock() >= nextTryAt {
+            attemptClose()
+        } else if let request = wanted, clock() >= nextTryAt {
             attempt(request)
         }
         return snapshot.stopped == nil ? nextDue() : nil
@@ -289,7 +331,7 @@ final class GPUControlEngine {
     private func nextDue() -> UInt64? {
         var due: [UInt64] = []
         if snapshot.held != nil { due.append(nextPollAt) }
-        if wanted != nil { due.append(nextTryAt) }
+        if wanted != nil || closeWanted { due.append(nextTryAt) }
         return due.min()
     }
 
@@ -396,9 +438,10 @@ final class GPUControlEngine {
         return status
     }
 
-    /// The kext's `bootValuePlausible`: a start-up limit it takes as read.
+    /// The kext's `bootValuePlausible`: a start-up limit it takes as read
+    /// (a check of the read, not the floor for requests).
     static func bootBelievable(_ bootW: UInt64) -> Bool {
-        bootW >= UInt64(GPUControlWire.powerFloorW) && bootW <= UInt64(GPUControlWire.maxBootW)
+        bootW >= UInt64(GPUControlWire.minBootW) && bootW <= UInt64(GPUControlWire.maxBootW)
     }
 
     /// What `status` shows is the request.
@@ -577,6 +620,56 @@ final class GPUControlEngine {
         }
     }
 
+    // MARK: Closing (kext 0.8.0)
+
+    /// One step of "close changes": the app's own hold goes back first; the
+    /// way back gets up to `retryWindowMs` to finish; then `disarm`, once.
+    /// Another program's hold does not go away by waiting: the kext's
+    /// `stillApplied` says so at once.
+    private func attemptClose() {
+        guard let channel, let status = readStatus() else {
+            closeWanted = false
+            return
+        }
+        let now = clock()
+        if !status.flags.contains(.armed) {
+            closeWanted = false
+            snapshot.closing = .closed
+            return
+        }
+        if snapshot.held != nil || status.flags.contains(.mine) {
+            _ = channel.release()
+            lastWriteAt = now
+            snapshot.held = nil
+            nextTryAt = now + Self.switchPollMs
+            return
+        }
+        let ownWayBack = status.flags.contains(.reverting)
+            || (status.flags.contains(.changed) && !status.flags.contains(.owned))
+        if ownWayBack, now < closeSince + Self.retryWindowMs {
+            nextTryAt = now + Self.switchPollMs
+            return
+        }
+        closeWanted = false
+        guard let answer = channel.disarm() else {
+            // A 0.7.x kext does not know the selector; the connection is fine.
+            snapshot.closing = .notSupported
+            return
+        }
+        switch answer.reply {
+        case .ok?:
+            snapshot.closing = .closed
+            _ = readStatus()
+        case .badVersion?:
+            snapshot.closing = .refused(answer)
+            _ = readStatus()
+            if snapshot.stopped == nil { stop(.otherVersion(snapshot.status?.version ?? 0), close: true) }
+        default:
+            snapshot.closing = .refused(answer)
+            _ = readStatus()
+        }
+    }
+
     private func wait(_ request: GPUControlRequest, _ why: GPUControlWait, every ms: UInt64) {
         let now = clock()
         if now >= wantedSince + Self.retryWindowMs {
@@ -610,6 +703,7 @@ final class GPUControlEngine {
         if close, opened { channel?.close() }
         if close { opened = false }
         wanted = nil
+        closeWanted = false
         snapshot.held = nil
         snapshot.activity = .none
         snapshot.stopped = why
@@ -693,6 +787,9 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     func refresh() { queue.async { [self] in engine.refresh(); run() } }
+
+    /// "Close changes": see `GPUControlEngine.close()`.
+    func close() { queue.async { [self] in engine.close(); run() } }
 
     /// `applicationWillTerminate`: `release` at once on a helper thread,
     /// then close; waits `timeout` seconds at most.

@@ -32,7 +32,7 @@ enum GPUControlChannelTests {
         .map { GPUControlFanPoint(temperatureC: $0.0, speedPercent: $0.1) }
 
     /// The real 0.7.2 table (Tests/Fixtures/GPUSensors/README.md).
-    private static func real072() -> [String: Any]? {
+    static func real072() -> [String: Any]? {
         let path = FileManager.default.currentDirectoryPath + "/Tests/Fixtures/GPUSensors/ioreg-0.7.2-2026-11-20.plist"
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
         return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
@@ -540,6 +540,9 @@ enum GPUControlChannelTests {
             got(answer, .od8Refused, "1400 MHz")
             suite.expect(answer?.check == .gfxRange, "the reason: GFX range")
         }
+        // 0.8.0's two replies.
+        do { let (_, c) = fresh { $0.od8Ready = false }; got(c.setPower(watts: 230), .noFloor, "the card's floor not known") }
+        do { let (_, c) = fresh(); _ = c.setPower(watts: 230); got(c.disarm(), .stillApplied, "close while a change is held") }
         suite.expect(seen == Set(GPUControlReply.allCases.map(\.rawValue)), "the model gives every reply of the kext")
 
         // Every reason writing goes off, with the off-back for OD8.
@@ -1182,9 +1185,9 @@ enum GPUControlChannelTests {
             .notArmed: .closed, .noBootValue: .notReady, .notReady: .notReady, .sleeping: .notReady, .busy: .busy,
             .tooSoon: .busy, .belowFloor: .notAllowed, .aboveBoot: .notAllowed, .notAStep: .notAllowed,
             .timeout: .unconfirmed, .failed: .unconfirmed, .notOwner: .notOwner, .cancelled: .notReady,
-            .od8Refused: .notAllowed,
+            .od8Refused: .notAllowed, .noFloor: .notReady, .stillApplied: .busy,
         ]
-        suite.expect(replies.count == 18, "18 replies besides ok")
+        suite.expect(replies.count == 20, "20 replies besides ok")
         for reply in GPUControlReply.allCases {
             suite.expect(G.forReply(reply.rawValue) == replies[reply], "reply \(reply.rawValue) \(reply): its group")
             suite.expect(!reply.kextText.isEmpty, "reply \(reply): the kext's words")
@@ -1211,39 +1214,41 @@ enum GPUControlChannelTests {
             .library: .offNotAsExpected, .routes: .offNotAsExpected, .cwdde: .offNotAsExpected,
             .secondObject: .offNotAsExpected, .bootImplausible: .offNotAsExpected, .start: .offNotAsExpected,
             .sendFailed: .offChangeUnconfirmed, .revertFailed: .offChangeUnconfirmed, .teardown: .offDriverStopped,
-            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog,
+            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .offNotAsExpected,
         ]
-        suite.expect(offs.count == 14, "14 write-off reasons")
+        suite.expect(offs.count == 15, "15 write-off reasons")
         for reason in GPUControlWriteOff.allCases {
             suite.expect(G.forWriteOff(reason.rawValue) == offs[reason], "write off \(reason.rawValue) \(reason): its group")
             suite.expect(reason == .none || !reason.kextText.isEmpty, "write off \(reason): the kext's words")
         }
-        suite.expect(G.forWriteOff(15) == nil, "an unknown write-off reason has no group")
+        suite.expect(G.forWriteOff(16) == nil, "an unknown write-off reason has no group")
         let answer = GPUControlAnswer(replyCode: GPUControlReply.od8Refused.rawValue, checkCode: 10)
         suite.expect(answer.kextText == "GFX max must be between 1500 MHz and the stock maximum",
                      "a refused OD8 state shows the reason in the kext's words")
         suite.expect(GPUControlAnswer(replyCode: 77).kextText == "reply 77", "an unknown reply shows its number")
     }
 
-    // MARK: Wire numbers (control_logic.hpp, kext 0.7.2)
+    // MARK: Wire numbers (control_logic.hpp, kext 0.8.0)
 
     /// The numbers written out, in the kext's order: a case added in the
     /// middle of an enum would renumber the channel without any other test
     /// noticing, since the rest compare the app with itself.
     private static func wireNumbers(_ suite: TestSuite) {
         let selectors: [(GPUControlWire.Selector, UInt32)] = [
-            (.status, 0), (.arm, 1), (.set, 2), (.alive, 3), (.release, 4), (.setOD8, 5),
+            (.status, 0), (.arm, 1), (.set, 2), (.alive, 3), (.release, 4), (.setOD8, 5), (.disarm, 6),
         ]
-        suite.expect(selectors.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWire.Selector.allCases.count == 6,
-                     "selectors: status 0 ... setOD8 5, as kSelStatus ... kSelSetOd8")
+        suite.expect(selectors.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWire.Selector.allCases.count == 7,
+                     "selectors: status 0 ... disarm 6, as kSelStatus ... kSelDisarm")
+        suite.expect(GPUControlWire.Selector.disarm.inputCount == 1 && GPUControlWire.Selector.disarm.outputCount == 1,
+                     "disarm: the version in, the reply out")
         let replies: [(GPUControlReply, UInt64)] = [
             (.ok, 0), (.badVersion, 1), (.badArgs, 2), (.notPrivileged, 3), (.off, 4), (.notArmed, 5),
             (.noBootValue, 6), (.notReady, 7), (.sleeping, 8), (.busy, 9), (.tooSoon, 10), (.belowFloor, 11),
             (.aboveBoot, 12), (.notAStep, 13), (.timeout, 14), (.failed, 15), (.notOwner, 16), (.cancelled, 17),
-            (.od8Refused, 18),
+            (.od8Refused, 18), (.stillApplied, 19), (.noFloor, 20),
         ]
-        suite.expect(replies.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlReply.allCases.count == 19,
-                     "replies: ok 0 ... od8Refused 18, as gpuctl::Reply")
+        suite.expect(replies.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlReply.allCases.count == 21,
+                     "replies: ok 0 ... noFloor 20, as gpuctl::Reply")
         let checks: [(GPUControlOD8Check, UInt64)] = [
             (.ok, 0), (.notRead, 1), (.drifted, 2), (.memoryMoved, 3), (.noFeature, 4), (.curveRange, 5),
             (.curveOrder, 6), (.curveFirst, 7), (.curveLast, 8), (.curveCooling, 9), (.gfxRange, 10),
@@ -1254,9 +1259,34 @@ enum GPUControlChannelTests {
         let offs: [(GPUControlWriteOff, UInt64)] = [
             (.none, 0), (.ctlOff, 1), (.notOneCard, 2), (.otherAmdGpu, 3), (.library, 4), (.routes, 5),
             (.cwdde, 6), (.secondObject, 7), (.bootImplausible, 8), (.start, 9), (.sendFailed, 10),
-            (.revertFailed, 11), (.teardown, 12), (.od8Failed, 13), (.od8Watchdog, 14),
+            (.revertFailed, 11), (.teardown, 12), (.od8Failed, 13), (.od8Watchdog, 14), (.readOnlyCard, 15),
         ]
-        suite.expect(offs.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWriteOff.allCases.count == 15,
-                     "write-off reasons: none 0 ... od8Watchdog 14, as gpuctl::WriteOff")
+        suite.expect(offs.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWriteOff.allCases.count == 16,
+                     "write-off reasons: none 0 ... readOnlyCard 15, as gpuctl::WriteOff")
+        kextConstants(suite)
+    }
+
+    /// Security review S-6: the kext's constants the app mirrors. The kext
+    /// lives in DrogaBoxGPU today, so these are the values of
+    /// `sensors/kext/control_logic.hpp` at DrogaBoxGPU 72d3f1c (GPUSensors
+    /// 0.8.0), copied here and pinned. Once the kext moves into this
+    /// repository (GPU/), this test reads that file and compares instead.
+    /// Not the power floor: since 0.8.0 the floor is the card's own
+    /// (`PowerRange`), and `kMinBootW` only checks the start-up read.
+    private static func kextConstants(_ suite: TestSuite) {
+        let pinned: [(String, UInt64, UInt64)] = [
+            ("kChannelVersion", 2, GPUControlWire.channelVersion),
+            ("kMaxBootW", 300, UInt64(GPUControlWire.maxBootW)),
+            ("kMinBootW (start-up read check)", 200, UInt64(GPUControlWire.minBootW)),
+            ("kStepW", 10, UInt64(GPUControlWire.powerStepW)),
+            ("kOd8GfxFloorMHz", 1_500, UInt64(GPUControlWire.gfxFloorMHz)),
+            ("kOd8DogHoldMs", 5_000, GPUControlWire.od8DogHoldMs),
+            ("kWakeReadyMarginMs", 2_000, GPUControlWire.wakeReadyMarginMs),
+            ("kSetWaitMs", 5_000, GPUControlWire.setWaitMs),
+            ("kMaxPowerPercentDown", 50, UInt64(GPUControlPowerRange.maxPercentDown)),
+        ]
+        for (name, kext, app) in pinned {
+            suite.expect(kext == app, "S-6: \(name) is \(kext) in control_logic.hpp 0.8.0, the app has \(app)")
+        }
     }
 }
