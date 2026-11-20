@@ -504,11 +504,6 @@ extension DefaultsKey {
     static let panelWidgetShowMemory = "istats_show_memory"      // Bool, memory card of the widget style
     static let panelWidgetShowCores = "istats_show_cores"        // Bool, core grid of the widget style
     static let panelWidgetOrder = "istatsCardOrder"              // String, the widget cards' order, comma separated
-    static let menuBarMetricAppearanceCPU = "menuBarMetricAppearance_cpu"
-    static let menuBarMetricAppearanceGPU = "menuBarMetricAppearance_gpu"
-    static let menuBarMetricAppearanceMemory = "menuBarMetricAppearance_memory"
-    static let menuBarMetricAppearanceNetwork = "menuBarMetricAppearance_network"
-    static let menuBarMetricAppearanceDiskUsage = "menuBarMetricAppearance_diskUsage"
     static let curveOptimizerUnlocked = "coUnlocked"             // Bool, Curve Optimizer controls shown
     static let pboUnlocked = "pboUnlocked"                       // Bool, PBO limit controls shown
     static let pboLastPPTWatts = "pboLastPPTWatts"               // Double, last applied PPT (slider seed)

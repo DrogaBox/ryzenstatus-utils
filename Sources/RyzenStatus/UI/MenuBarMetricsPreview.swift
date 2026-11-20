@@ -10,6 +10,8 @@ import SwiftUI
 /// before it occupies the actual menu bar.
 struct MenuBarMetricsPreview: View {
     @ObservedObject private var monitor = SystemMonitor.shared
+    /// The spoken label follows a language change even without a new sample.
+    @ObservedObject private var l10n = L10n.shared
     @StateObject private var model = MenuBarPreviewModel()
     @Environment(\.colorScheme) private var colorScheme
 
@@ -51,8 +53,8 @@ struct MenuBarMetricsPreview: View {
                 .fill(dark ? Color(white: 0.16) : Color(white: 0.9))
         )
         .accessibilityElement(children: .ignore)
-        // The title is block images; VoiceOver gets the readings' names.
-        .accessibilityLabel(model.metrics.map { $0.title(L10n.shared.s) }.joined(separator: ", "))
+        // The title is block images; VoiceOver gets the readings in words.
+        .accessibilityLabel(rendered.spoken)
     }
 
     private func glyph(_ ink: Color) -> some View {
@@ -93,7 +95,10 @@ private final class MenuBarPreviewModel: ObservableObject {
 
     private func reload() {
         let newSettings = MenuBarRenderSettings.current()
-        if newSettings != settings { settings = newSettings }
+        if newSettings != settings {
+            widthMemory.reset()
+            settings = newSettings
+        }
         let newMetrics = MenuBarMetric.enabled(in: .standard)
         if newMetrics != metrics { metrics = newMetrics }
     }
