@@ -42,7 +42,12 @@ enum ShortcutCapture {
         AppSwitcher.shared.setCapturingShortcut(false)
         FeatureRuntime.shared.sync(GlobalShortcutRole.featuresToSilenceWhileRecording)
         // `begin` released it with every quick tool key, and no feature
-        // binding owns it to give it back.
-        MainActor.assumeIsolated { MonitorWindowShortcut.shared.syncWithPreferences() }
+        // binding owns it to give it back. Off the main thread (against the
+        // rule above) it is given back on main instead of trapping.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { MonitorWindowShortcut.shared.syncWithPreferences() }
+        } else {
+            Task { @MainActor in MonitorWindowShortcut.shared.syncWithPreferences() }
+        }
     }
 }

@@ -12,6 +12,7 @@ enum MonitorShortcutTests {
         defaults(suite)
         systemShortcuts(suite)
         availability(suite)
+        registration(suite)
     }
 
     private static func defaults(_ suite: TestSuite) {
@@ -83,5 +84,30 @@ enum MonitorShortcutTests {
         suite.expect(role.feature.group == .monitor, "the row is listed with the monitor's shortcuts")
         suite.expect(!GlobalShortcutRole.featuresToSilenceWhileRecording.contains(.monitorCPU),
                      "recording a shortcut does not re-plan the monitor; ShortcutCapture gives the key back itself")
+    }
+
+    /// The shortcuts page hands this role to the Monitor's own shortcut, not
+    /// to the feature runtime, and switching it off releases the key.
+    private static func registration(_ suite: TestSuite) {
+        suite.expect(GlobalShortcutRole.monitorWindow.registrar == .monitorWindow,
+                     "the shortcuts page re-registers the Monitor key through MonitorWindowShortcut")
+        let others = GlobalShortcutRole.allCases.filter { $0 != .monitorWindow }
+        suite.expect(others.allSatisfy { $0.registrar == .features($0.availabilityFeatures) },
+                     "every other role still goes through its features' runtime bindings")
+        // Switched off: nothing is registered, so nothing can be refused.
+        // (Switched on would register a real global key from the tests.)
+        let name = "ryzenstatus.tests.monitor-shortcut"
+        guard let defaults = UserDefaults(suiteName: name) else {
+            suite.expect(false, "a scratch defaults domain opens")
+            return
+        }
+        defaults.removePersistentDomain(forName: name)
+        defaults.set(false, forKey: DefaultsKey.monitorWindowShortcutEnabled)
+        MainActor.assumeIsolated {
+            MonitorWindowShortcut.shared.syncWithPreferences(defaults: defaults)
+            suite.expect(!MonitorWindowShortcut.shared.registrationFailed,
+                         "with its switch off the Monitor key is released and shows no refusal")
+        }
+        defaults.removePersistentDomain(forName: name)
     }
 }
