@@ -12,6 +12,8 @@ struct GPUControlFanSection: View {
     let strings: GPUControlPageStrings
     let fan: GPUControlFanStrings
     @Binding var draft: GPUControlFanDraft
+    /// The section that asked last, so a refusal shows next to its control.
+    @Binding var lastOD8Source: GPUControlOD8Source
     let apply: (GPUControlFanDraft) -> Void
 
     private var curveState: GPUControlCurveRules.State? {
@@ -125,6 +127,7 @@ struct GPUControlFanSection: View {
     static let editorIndent: CGFloat = 20
 
     private func applyDraft() {
+        lastOD8Source = .fan
         apply(draft)
         draft = draft.applied
     }
@@ -141,7 +144,8 @@ struct GPUControlFanSection: View {
 
     /// The kext's refusal of the last fan request, next to the editor.
     private var refusal: GPUControlPageNote? {
-        guard case .refused(let request, _)? = input.snapshot?.outcome, request.isOD8 else { return nil }
+        guard lastOD8Source == .fan, case .refused(let request, _)? = input.snapshot?.outcome,
+              request.isOD8 else { return nil }
         return GPUControlPageNote.make(input.snapshot, strings)
     }
 

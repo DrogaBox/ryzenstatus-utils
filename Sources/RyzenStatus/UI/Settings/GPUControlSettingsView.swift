@@ -18,6 +18,7 @@ struct GPUControlSettingsView: View {
             input: GPUControlPageInput(service: service),
             strings: FeatureStrings.gpuControlPage(l10n.language),
             fan: FeatureStrings.gpuControlFan(l10n.language),
+            clock: FeatureStrings.gpuControlClock(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
@@ -25,6 +26,7 @@ struct GPUControlSettingsView: View {
                 openWriting: { service.openWriting(prompt: FeatureStrings.gpuControlPage(l10n.language).armPrompt) },
                 setRemember: { service.remember = $0 },
                 applyFan: { service.applyFan($0) },
+                chooseGfxMax: { service.chooseGfxMax($0) },
                 closeChanges: { service.closeChanges() }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
@@ -82,6 +84,7 @@ struct GPUControlPageActions {
     var openWriting: () -> Void = {}
     var setRemember: (Bool) -> Void = { _ in }
     var applyFan: (GPUControlFanDraft) -> Void = { _ in }
+    var chooseGfxMax: (Int?) -> Void = { _ in }
     var closeChanges: () -> Void = {}
 }
 
@@ -182,18 +185,21 @@ struct GPUControlPageContent: View {
     let input: GPUControlPageInput
     let strings: GPUControlPageStrings
     let fan: GPUControlFanStrings
+    let clock: GPUControlClockStrings
     let title: String
     let actions: GPUControlPageActions
     @State private var copied = false
     /// The editor's draft; its `edited` flag says whether the owner touched
     /// it since it was last seeded or applied.
     @State private var draft: GPUControlFanDraft
+    @State private var lastOD8Source: GPUControlOD8Source = .fan
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
-         title: String, actions: GPUControlPageActions) {
+         clock: GPUControlClockStrings, title: String, actions: GPUControlPageActions) {
         self.input = input
         self.strings = strings
         self.fan = fan
+        self.clock = clock
         self.title = title
         self.actions = actions
         var held: GPUControlOD8Want?
@@ -215,7 +221,11 @@ struct GPUControlPageContent: View {
             if showsPower { powerSection }
             if showsPower, input.facts?.od8Ready == true {
                 GPUControlFanSection(input: input, strings: strings, fan: fan, draft: $draft,
-                                     apply: actions.applyFan)
+                                     lastOD8Source: $lastOD8Source, apply: actions.applyFan)
+            }
+            if showsPower {
+                GPUControlClockSection(input: input, strings: strings, clock: clock,
+                                       lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMax)
             }
             if case .closed? = input.state { armSection }
             rememberSection
@@ -440,9 +450,10 @@ struct GPUControlPageContent: View {
                 // "Writing": the error next to the problem, with what to do.
                 noteView(note)
             }
-            if case .heldByApp(.od8)? = input.state {
+            if case .heldByApp(.od8(let held))? = input.state {
                 // "Writing": what choosing a limit does, before it is chosen.
-                Label(fan.noteCurveHeld, systemImage: "info.circle")
+                Label(held.curve == nil && !held.zeroRpmOff ? clock.noteClockHeld : fan.noteCurveHeld,
+                      systemImage: "info.circle")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
