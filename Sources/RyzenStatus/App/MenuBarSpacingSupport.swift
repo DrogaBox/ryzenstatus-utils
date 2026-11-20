@@ -225,6 +225,17 @@ enum MenuBarSpacingSupport {
         [glyphHidden ? "-" : "+", countdown, metricsKey].joined(separator: "\u{1E}")
     }
 
+    /// Whether a status item's title must be written again. Every write
+    /// re-lays out and redraws the status window, so an unchanged key on a
+    /// title that is already drawn is skipped. A nil or empty last key means
+    /// nothing has been written since the item was made or its memo reset,
+    /// and an empty button title means something else cleared it: both
+    /// write. Shared by the main item and the separate metric items.
+    static func needsTitleWrite(key: String, lastWrittenKey: String?, currentTitleLength: Int) -> Bool {
+        guard let lastWrittenKey, !lastWrittenKey.isEmpty else { return true }
+        return key != lastWrittenKey || currentTitleLength == 0
+    }
+
     /// Whether the app glyph may hide so the menu bar shows metrics only
     /// (user request). Every gate protects the same invariant: the status
     /// item must never end up with no image and no text, and hiding must

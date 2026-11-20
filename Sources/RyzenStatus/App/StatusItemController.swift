@@ -574,7 +574,9 @@ final class StatusItemController {
             let titleKey = MenuBarSpacingSupport.titleKey(glyphHidden: glyphHidden,
                                                           countdown: includesCountdown ? title.string : "",
                                                           metricsKey: metricsKey)
-            if titleKey != lastMainTitleKey || button.attributedTitle.length == 0 {
+            if MenuBarSpacingSupport.needsTitleWrite(key: titleKey,
+                                                     lastWrittenKey: lastMainTitleKey,
+                                                     currentTitleLength: button.attributedTitle.length) {
                 let full = NSMutableAttributedString(string: glyphHidden ? "" : " ")
                 full.append(title)
                 let font = MenuBarRenderer.statusFont()
@@ -653,7 +655,9 @@ final class StatusItemController {
             item.length = NSStatusItem.variableLength
             guard let button = item.button else { continue }
 
-            if metricTitleKeys[group.id] != rendered.key || button.attributedTitle.length == 0 {
+            if MenuBarSpacingSupport.needsTitleWrite(key: rendered.key,
+                                                     lastWrittenKey: metricTitleKeys[group.id],
+                                                     currentTitleLength: button.attributedTitle.length) {
                 let full = NSMutableAttributedString(attributedString: title)
                 let font = MenuBarRenderer.statusFont()
                 full.addAttribute(.font,

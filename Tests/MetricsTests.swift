@@ -2019,6 +2019,20 @@ struct MetricsTests {
                != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "4 min", metricsKey: "a"),
                "the glyph spacing and a running countdown change the title key")
         do {
+            // The write memo both status item sites run through.
+            let key = MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+            let other = MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "b")
+            expect(!MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: key, currentTitleLength: 3),
+                   "an unchanged key on a drawn title is not written again")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: other, lastWrittenKey: key, currentTitleLength: 3),
+                   "a new key writes the title")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: key, currentTitleLength: 0),
+                   "an unchanged key still writes when the button title was cleared")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: nil, currentTitleLength: 3)
+                   && MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: "", currentTitleLength: 3),
+                   "a new item or a reset memo writes the title")
+        }
+        do {
             // The status item rewrites its title only when the render key
             // changes, so everything that changes the pixels must change it.
             let suite = UserDefaults(suiteName: "menubar-title-key-test")!
