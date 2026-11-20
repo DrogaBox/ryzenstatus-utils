@@ -6,9 +6,12 @@ import Foundation
 /// The GFX maximum clock section of Settings > GPU control (plan 7.1,
 /// phase 4). MHz is written as each language's table already writes it.
 struct GPUControlClockStrings {
-    /// The section's header, and the slider's, field's and stepper's
-    /// VoiceOver label.
+    /// The section's header, and the slider's VoiceOver label.
     let section: String
+    /// VoiceOver: the MHz field.
+    let fieldLabel: String
+    /// VoiceOver: the stepper; %d = its step in MHz.
+    let stepperFormat: String
     let toggle: String
     /// %d = the stock maximum in MHz.
     let stockFormat: String
@@ -20,7 +23,10 @@ struct GPUControlClockStrings {
     /// %d = the floor, %d = the stock maximum, both in MHz.
     let outOfRangeFormat: String
 
-    var all: [String] { [section, toggle, stockFormat, footer, notePowerHeld, noteClockHeld, switching, outOfRangeFormat] }
+    var all: [String] {
+        [section, toggle, stockFormat, footer, notePowerHeld, noteClockHeld, switching, outOfRangeFormat,
+         fieldLabel, stepperFormat]
+    }
 }
 
 extension FeatureStrings {
@@ -47,6 +53,8 @@ extension FeatureStrings {
 extension GPUControlClockStrings {
     static let enUS = GPUControlClockStrings(
         section: "GFX maximum clock",
+        fieldLabel: "GFX maximum clock in MHz",
+        stepperFormat: "GFX maximum clock, steps of %d MHz",
         toggle: "Lower the maximum clock",
         stockFormat: "Stock (%d MHz)",
         footer: "Only lower than stock; the kext checks every request. Nothing was measured below 200 W: a clock that gives less than 200 W is untested.",
@@ -57,6 +65,8 @@ extension GPUControlClockStrings {
 
     static let es = GPUControlClockStrings(
         section: "Reloj máximo de GFX",
+        fieldLabel: "Reloj máximo de GFX en MHz",
+        stepperFormat: "Reloj máximo de GFX, pasos de %d MHz",
         toggle: "Bajar el reloj máximo",
         stockFormat: "De fábrica (%d MHz)",
         footer: "Solo por debajo del de fábrica; el kext revisa cada pedido. No se midió nada por debajo de 200 W: un reloj que dé menos de 200 W no está probado.",
@@ -67,6 +77,8 @@ extension GPUControlClockStrings {
 
     static let ptBR = GPUControlClockStrings(
         section: "Clock máximo da GFX",
+        fieldLabel: "Clock máximo da GFX em MHz",
+        stepperFormat: "Clock máximo da GFX, passos de %d MHz",
         toggle: "Reduzir o clock máximo",
         stockFormat: "Padrão (%d MHz)",
         footer: "Só abaixo do padrão; o kext verifica cada pedido. Nada foi medido abaixo de 200 W: um clock que dê menos de 200 W não foi testado.",
@@ -77,6 +89,8 @@ extension GPUControlClockStrings {
 
     static let tr = GPUControlClockStrings(
         section: "Maks. GFX saati",
+        fieldLabel: "Maks. GFX saati (MHz)",
+        stepperFormat: "Maks. GFX saati, %d MHz'lik adımlar",
         toggle: "Maks. saati düşür",
         stockFormat: "Fabrika (%d MHz)",
         footer: "Yalnızca fabrika değerinin altında; kext her isteği denetler. 200 W'ın altında hiçbir şey ölçülmedi: 200 W'tan az veren bir saat denenmedi.",
@@ -87,6 +101,8 @@ extension GPUControlClockStrings {
 
     static let ru = GPUControlClockStrings(
         section: "Макс. частота GFX",
+        fieldLabel: "Макс. частота GFX в МГц",
+        stepperFormat: "Макс. частота GFX, шаг %d МГц",
         toggle: "Снизить максимальную частоту",
         stockFormat: "Заводская (%d МГц)",
         footer: "Только ниже заводской; kext проверяет каждый запрос. Ниже 200 Вт ничего не измерялось: частота, дающая меньше 200 Вт, не проверена.",
@@ -97,6 +113,8 @@ extension GPUControlClockStrings {
 
     static let sk = GPUControlClockStrings(
         section: "Maximálny takt GFX",
+        fieldLabel: "Maximálny takt GFX v MHz",
+        stepperFormat: "Maximálny takt GFX, kroky po %d MHz",
         toggle: "Znížiť maximálny takt",
         stockFormat: "Továrenský (%d MHz)",
         footer: "Iba pod továrenskú hodnotu; kext kontroluje každú požiadavku. Pod 200 W sa nič nemeralo: takt, ktorý dáva menej než 200 W, nie je overený.",
@@ -107,6 +125,8 @@ extension GPUControlClockStrings {
 
     static let de = GPUControlClockStrings(
         section: "Maximaler GFX-Takt",
+        fieldLabel: "Maximaler GFX-Takt in MHz",
+        stepperFormat: "Maximaler GFX-Takt, Schritte von %d MHz",
         toggle: "Maximalen Takt senken",
         stockFormat: "Werkswert (%d MHz)",
         footer: "Nur unter den Werkswert; der Kext prüft jede Anfrage. Unter 200 W wurde nichts gemessen: Ein Takt, der weniger als 200 W ergibt, ist nicht erprobt.",
@@ -117,6 +137,8 @@ extension GPUControlClockStrings {
 
     static let fr = GPUControlClockStrings(
         section: "Fréquence GFX maximale",
+        fieldLabel: "Fréquence GFX maximale en MHz",
+        stepperFormat: "Fréquence GFX maximale, pas de %d MHz",
         toggle: "Abaisser la fréquence maximale",
         stockFormat: "Usine (%d MHz)",
         footer: "Seulement sous la valeur d’usine ; le kext vérifie chaque demande. Rien n’a été mesuré sous 200 W : une fréquence qui donne moins de 200 W n’est pas testée.",
@@ -127,6 +149,8 @@ extension GPUControlClockStrings {
 
     static let it = GPUControlClockStrings(
         section: "Clock GFX massimo",
+        fieldLabel: "Clock GFX massimo in MHz",
+        stepperFormat: "Clock GFX massimo, passi da %d MHz",
         toggle: "Abbassa il clock massimo",
         stockFormat: "Di fabbrica (%d MHz)",
         footer: "Solo sotto il valore di fabbrica; il kext controlla ogni richiesta. Sotto i 200 W non è stato misurato nulla: un clock che dà meno di 200 W non è provato.",
@@ -137,6 +161,8 @@ extension GPUControlClockStrings {
 
     static let ja = GPUControlClockStrings(
         section: "GFX 最大クロック",
+        fieldLabel: "GFX 最大クロック（MHz）",
+        stepperFormat: "GFX 最大クロック、%d MHz 刻み",
         toggle: "最大クロックを下げる",
         stockFormat: "純正 (%d MHz)",
         footer: "純正より低い値のみです。kext はすべての要求を確認します。200 W 未満は何も測定していません: 200 W 未満になるクロックは未検証です。",
@@ -147,6 +173,8 @@ extension GPUControlClockStrings {
 
     static let ko = GPUControlClockStrings(
         section: "최대 GFX 클록",
+        fieldLabel: "최대 GFX 클록(MHz)",
+        stepperFormat: "최대 GFX 클록, %d MHz 단위",
         toggle: "최대 클록 낮추기",
         stockFormat: "기본값 (%d MHz)",
         footer: "기본값보다 낮게만 설정할 수 있으며, kext가 모든 요청을 확인합니다. 200 W 미만은 측정하지 않았습니다: 200 W 미만이 되는 클록은 검증되지 않았습니다.",
@@ -157,6 +185,8 @@ extension GPUControlClockStrings {
 
     static let zhHans = GPUControlClockStrings(
         section: "GFX 最大时钟",
+        fieldLabel: "GFX 最大时钟（MHz）",
+        stepperFormat: "GFX 最大时钟，步长 %d MHz",
         toggle: "降低最大时钟",
         stockFormat: "出厂值（%d MHz）",
         footer: "只能低于出厂值；kext 会检查每个请求。低于 200 W 时没有任何测量：使功率低于 200 W 的时钟未经测试。",
@@ -167,6 +197,8 @@ extension GPUControlClockStrings {
 
     static let zhTW = GPUControlClockStrings(
         section: "GFX 最大時脈",
+        fieldLabel: "GFX 最大時脈（MHz）",
+        stepperFormat: "GFX 最大時脈，間距 %d MHz",
         toggle: "降低最大時脈",
         stockFormat: "原廠值（%d MHz）",
         footer: "只能低於原廠值；kext 會檢查每個要求。低於 200 W 時沒有任何量測：使功率低於 200 W 的時脈未經測試。",
@@ -177,6 +209,8 @@ extension GPUControlClockStrings {
 
     static let uk = GPUControlClockStrings(
         section: "Макс. частота GFX",
+        fieldLabel: "Макс. частота GFX у МГц",
+        stepperFormat: "Макс. частота GFX, крок %d МГц",
         toggle: "Знизити максимальну частоту",
         stockFormat: "Заводська (%d МГц)",
         footer: "Лише нижче заводської; kext перевіряє кожен запит. Нижче 200 Вт нічого не вимірювали: частота, що дає менше 200 Вт, не перевірена.",

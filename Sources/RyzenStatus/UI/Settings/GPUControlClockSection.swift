@@ -117,28 +117,45 @@ struct GPUControlClockSection: View {
     /// "Sliders": a wide range gets a field and a stepper too; minimum on the
     /// leading side; tick marks every 100 MHz with the ends labelled.
     /// "Steppers": next to the field that shows the value.
+    /// "VoiceOver": "Provide alternative labels for all key interface
+    /// elements": the slider, the field and the stepper each have their own
+    /// name, so the three are never heard as one.
+    /// "Layout": "horizontally adjacent views may need to stack vertically":
+    /// the field and the stepper go under the slider when the row does not
+    /// fit on one line.
     private func clockRow(range: ClosedRange<Int>, top: Int) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                GPUControlTickSlider(value: draft, range: range,
-                                     ticks: GPUControlClockLogic.tickCount(stockGfxMaxMHz: top),
-                                     label: clock.section,
-                                     onChange: { draft = GPUControlClockLogic.snapped($0, stockGfxMaxMHz: top) },
-                                     onRelease: { send(draft, top: top) })
-                TextField(clock.section, text: $fieldText)
-                    .labelsHidden()
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 56)
-                    .onSubmit { commitField(range: range, top: top) }
-                    .accessibilityLabel(clock.section)
-                Stepper(clock.section, value: Binding(get: { draft }, set: { value in
-                    draft = Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
-                    send(draft, top: top)
-                }), in: range, step: GPUControlClockLogic.step)
-                    .labelsHidden()
-                    .accessibilityLabel(clock.section)
-                    .accessibilityValue("\(draft) MHz")
-                Text("MHz").foregroundStyle(.secondary)
+        let slider = GPUControlTickSlider(value: draft, range: range,
+                                          ticks: GPUControlClockLogic.tickCount(stockGfxMaxMHz: top),
+                                          label: clock.section,
+                                          onChange: { draft = GPUControlClockLogic.snapped($0, stockGfxMaxMHz: top) },
+                                          onRelease: { send(draft, top: top) })
+        let stepperLabel = String(format: clock.stepperFormat, GPUControlClockLogic.step)
+        let entry = HStack(spacing: 8) {
+            TextField(clock.fieldLabel, text: $fieldText)
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 56)
+                .onSubmit { commitField(range: range, top: top) }
+                .accessibilityLabel(clock.fieldLabel)
+            Stepper(stepperLabel, value: Binding(get: { draft }, set: { value in
+                draft = Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
+                send(draft, top: top)
+            }), in: range, step: GPUControlClockLogic.step)
+                .labelsHidden()
+                .accessibilityLabel(stepperLabel)
+                .accessibilityValue("\(draft) MHz")
+            Text("MHz").foregroundStyle(.secondary)
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    slider.frame(minWidth: Self.sliderMinWidth)
+                    entry
+                }
+                VStack(alignment: .trailing, spacing: 4) {
+                    slider
+                    entry
+                }
             }
             HStack {
                 Text(verbatim: "\(range.lowerBound) MHz")
@@ -150,6 +167,10 @@ struct GPUControlClockSection: View {
         }
         .disabled(!enabled)
     }
+
+    /// The narrowest slider kept on the field's line; below it the field
+    /// and the stepper move under the slider.
+    static let sliderMinWidth: CGFloat = 160
 
     // MARK: Sending
 
@@ -223,6 +244,9 @@ struct GPUControlTickSlider: NSViewRepresentable {
         slider.numberOfTickMarks = ticks
         slider.isEnabled = context.environment.isEnabled
         if Int(slider.doubleValue.rounded()) != value { slider.doubleValue = Double(value) }
+        // "VoiceOver": "keep your descriptions up-to-date" (a language
+        // change gives the same slider a new name).
+        slider.setAccessibilityLabel(label)
         slider.setAccessibilityValueDescription("\(value) MHz")
     }
 
