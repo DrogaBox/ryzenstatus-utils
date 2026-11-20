@@ -139,6 +139,18 @@ final class GPUControlService: ObservableObject {
         controller.choose(.power(watts: UInt32(watts)))
     }
 
+    /// "Apply curve": the whole fan state; the controller keeps a held GFX
+    /// maximum with it and gives a power limit back first.
+    func applyFan(_ draft: GPUControlFanDraft) {
+        guard let controller else { return }
+        if draft.want.isStock {
+            backToStartUp()
+            return
+        }
+        ownerChoseStartUp = false
+        controller.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
+    }
+
     func backToStartUp() {
         guard let controller else { return }
         ownerChoseStartUp = true
@@ -300,8 +312,9 @@ final class GPUControlService: ObservableObject {
             pendingRemembered = false
             rememberTimer?.invalidate()
             rememberTimer = nil
-        } else if rememberActive, case .power(let watts)? = snapshot?.held {
-            GPUControlRemembered.power(watts: Int(watts)).save(defaults)
+        } else if rememberActive, let held = snapshot?.held,
+                  let save = GPUControlRememberPolicy.toSave(held: held, ownerChoseStartUp: false, active: true) {
+            save.save(defaults)
         }
     }
 
@@ -339,7 +352,8 @@ final class GPUControlService: ObservableObject {
             return
         }
         if let request = GPUControlRememberPolicy.request(remembered: .load(defaults), active: rememberActive,
-                                                          facts: facts, stopped: snapshot?.stopped) {
+                                                          facts: facts, stopped: snapshot?.stopped,
+                                                          kextVersion: control?.writing?.kextVersion) {
             controller.choose(request, origin: .remembered)
         }
     }

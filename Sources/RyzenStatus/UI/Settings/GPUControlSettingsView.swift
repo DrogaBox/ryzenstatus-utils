@@ -17,12 +17,14 @@ struct GPUControlSettingsView: View {
         GPUControlPageContent(
             input: GPUControlPageInput(service: service),
             strings: FeatureStrings.gpuControlPage(l10n.language),
+            fan: FeatureStrings.gpuControlFan(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
                 backToStartUp: { service.backToStartUp() },
                 openWriting: { service.openWriting(prompt: FeatureStrings.gpuControlPage(l10n.language).armPrompt) },
                 setRemember: { service.remember = $0 },
+                applyFan: { service.applyFan($0) },
                 closeChanges: { service.closeChanges() }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
@@ -46,6 +48,12 @@ struct GPUControlPageInput: Equatable {
     var kextVersion: String?
     /// The controller exists (a channel was connected at launch).
     var canChoose = true
+    /// The write keys of the last read: the OD8 table and the kext's build
+    /// name, for the curve editor's preview.
+    var writing: GPUControlStatus.Writing?
+    /// The editor's starting draft; nil starts from what is held, or from
+    /// the tested curve.
+    var fanDraft: GPUControlFanDraft?
 
     init(facts: GPUControlFacts?, state: GPUControlPageState?, snapshot: GPUControlSnapshot?) {
         self.facts = facts
@@ -64,6 +72,7 @@ struct GPUControlPageInput: Equatable {
         remember = service.remember
         kextVersion = service.control?.writing?.kextVersion
         canChoose = service.mode != .none
+        writing = service.control?.writing
     }
 }
 
@@ -72,6 +81,7 @@ struct GPUControlPageActions {
     var backToStartUp: () -> Void = {}
     var openWriting: () -> Void = {}
     var setRemember: (Bool) -> Void = { _ in }
+    var applyFan: (GPUControlFanDraft) -> Void = { _ in }
     var closeChanges: () -> Void = {}
 }
 
@@ -171,9 +181,31 @@ extension GPUControlPageNote {
 struct GPUControlPageContent: View {
     let input: GPUControlPageInput
     let strings: GPUControlPageStrings
+    let fan: GPUControlFanStrings
     let title: String
     let actions: GPUControlPageActions
     @State private var copied = false
+    /// The editor's draft; its `edited` flag says whether the owner touched
+    /// it since it was last seeded or applied.
+    @State private var draft: GPUControlFanDraft
+
+    init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
+         title: String, actions: GPUControlPageActions) {
+        self.input = input
+        self.strings = strings
+        self.fan = fan
+        self.title = title
+        self.actions = actions
+        var held: GPUControlOD8Want?
+        if case .heldByApp(.od8(let want))? = input.state { held = want }
+        _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
+    }
+
+    /// The fan part of the OD8 state the app holds (stock when none).
+    private static func heldFan(_ input: GPUControlPageInput) -> GPUControlOD8Want {
+        guard case .heldByApp(.od8(let want))? = input.state else { return .stock }
+        return GPUControlOD8Want(curve: want.curve, zeroRpmOff: want.zeroRpmOff)
+    }
 
     private var s: GPUControlPageStrings { strings }
 
@@ -181,6 +213,10 @@ struct GPUControlPageContent: View {
         Form {
             stateSection
             if showsPower { powerSection }
+            if showsPower, input.facts?.od8Ready == true {
+                GPUControlFanSection(input: input, strings: strings, fan: fan, draft: $draft,
+                                     apply: actions.applyFan)
+            }
             if case .closed? = input.state { armSection }
             rememberSection
             detailsSection
@@ -190,6 +226,14 @@ struct GPUControlPageContent: View {
         // changes occur": the state line changes on its own (a11y A2).
         .onChange(of: stateTitle) { _, title in
             AccessibilityNotification.Announcement(title).post()
+        }
+        // What is held changed (the first status after the page appeared, a
+        // remembered state, a wake, the kext going back): an editor the owner
+        // has not touched follows it, so Apply never gives back a hold the
+        // page did not show; an edit stays, even one set back to the
+        // seeded values.
+        .onChange(of: Self.heldFan(input)) { _, held in
+            draft = draft.following(held: held)
         }
     }
 
@@ -377,7 +421,9 @@ struct GPUControlPageContent: View {
             if case .heldByApp? = input.state { return true }
             return false
         }()
-        let note = GPUControlPageNote.make(input.snapshot, s)
+        // A refusal of a fan request shows in the fan section instead.
+        var note = GPUControlPageNote.make(input.snapshot, s)
+        if case .refused(let request, _)? = input.snapshot?.outcome, request.isOD8 { note = nil }
         return Section {
             Picker(s.powerLabel, selection: Binding(
                 get: { shown ?? choices.first ?? 0 },
@@ -393,6 +439,12 @@ struct GPUControlPageContent: View {
             if let note {
                 // "Writing": the error next to the problem, with what to do.
                 noteView(note)
+            }
+            if case .heldByApp(.od8)? = input.state {
+                // "Writing": what choosing a limit does, before it is chosen.
+                Label(fan.noteCurveHeld, systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             // "Alerts": no alert for a common, repeatable action; the safe
             // action is a plain button.
@@ -414,13 +466,13 @@ struct GPUControlPageContent: View {
     // MARK: Remembering (plan 8)
 
     /// Its own section: it can be set while writing is still closed.
-    /// "Toggles", macOS: a small switch per row, its label says what turning
-    /// it on does.
+    /// "Toggles", macOS: within a grouped form, a mini switch per row (as in
+    /// the fan section); its label says what turning it on does.
     private var rememberSection: some View {
         Section {
             Toggle(s.rememberToggle, isOn: Binding(get: { input.remember }, set: { actions.setRemember($0) }))
                 .toggleStyle(.switch)
-                .controlSize(.small)
+                .controlSize(.mini)
         } footer: {
             Text(s.rememberFooter)
                 .font(.caption)

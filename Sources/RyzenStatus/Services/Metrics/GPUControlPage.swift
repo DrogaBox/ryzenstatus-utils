@@ -421,21 +421,45 @@ enum GPUControlArmTool {
 enum GPUControlRemembered: Equatable, Sendable {
     case nothing
     case power(watts: Int)
+    /// A fan state (curve and zero RPM; the GFX maximum joins in phase 4).
+    case od8(GPUControlOD8Want)
 
     static func load(_ defaults: UserDefaults) -> Self {
-        guard defaults.string(forKey: DefaultsKey.gpuControlRememberedKind) == "power" else { return .nothing }
-        let watts = defaults.integer(forKey: DefaultsKey.gpuControlRememberedWatts)
-        return watts > 0 ? .power(watts: watts) : .nothing
+        switch defaults.string(forKey: DefaultsKey.gpuControlRememberedKind) {
+        case "power":
+            let watts = defaults.integer(forKey: DefaultsKey.gpuControlRememberedWatts)
+            return watts > 0 ? .power(watts: watts) : .nothing
+        case "od8":
+            var want = GPUControlOD8Want(zeroRpmOff: defaults.bool(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff))
+            if let flat = defaults.array(forKey: DefaultsKey.gpuControlRememberedCurve) as? [Int] {
+                guard flat.count == 2 * GPUControlWire.fanCurvePoints else { return .nothing }
+                want.curve = stride(from: 0, to: flat.count, by: 2).map {
+                    GPUControlFanPoint(temperatureC: flat[$0], speedPercent: flat[$0 + 1])
+                }
+            }
+            return want.isStock ? .nothing : .od8(want)
+        default:
+            return .nothing
+        }
     }
 
     func save(_ defaults: UserDefaults) {
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedWatts)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedCurve)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
         switch self {
         case .nothing:
             defaults.set("none", forKey: DefaultsKey.gpuControlRememberedKind)
-            defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedWatts)
         case .power(let watts):
             defaults.set("power", forKey: DefaultsKey.gpuControlRememberedKind)
             defaults.set(watts, forKey: DefaultsKey.gpuControlRememberedWatts)
+        case .od8(let want):
+            defaults.set("od8", forKey: DefaultsKey.gpuControlRememberedKind)
+            if let curve = want.curve {
+                defaults.set(curve.flatMap { [$0.temperatureC, $0.speedPercent] },
+                             forKey: DefaultsKey.gpuControlRememberedCurve)
+            }
+            defaults.set(want.zeroRpmOff, forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
         }
     }
 }
@@ -454,6 +478,7 @@ enum GPUControlRememberPolicy {
     static func toSave(held: GPUControlRequest?, ownerChoseStartUp: Bool, active: Bool) -> GPUControlRemembered? {
         guard active else { return nil }
         if case .power(let watts)? = held { return .power(watts: Int(watts)) }
+        if case .od8(let want)? = held, !want.isStock { return .od8(want) }
         return ownerChoseStartUp ? .nothing : nil
     }
 
@@ -461,14 +486,27 @@ enum GPUControlRememberPolicy {
     /// remembering active, writing already open (never a password), nobody
     /// else holding, and the control not stopped (a failure or the watchdog
     /// keep it from asking until the app starts again).
+    /// `kextVersion`: the kext's `VersionInfo`. A fan state goes out only to a
+    /// build the curve rules were checked against, as with "Apply curve"
+    /// (none given: no fan state).
     static func request(remembered: GPUControlRemembered, active: Bool,
-                        facts: GPUControlFacts?, stopped: GPUControlStop?) -> GPUControlRequest? {
+                        facts: GPUControlFacts?, stopped: GPUControlStop?,
+                        kextVersion: String? = nil) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
-        guard case .power(let watts) = remembered, watts > 0, let boot = facts.bootW,
-              GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange).contains(watts),
-              watts != boot else { return nil }
-        return .power(watts: UInt32(watts))
+        switch remembered {
+        case .nothing:
+            return nil
+        case .power(let watts):
+            guard watts > 0, let boot = facts.bootW, GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange)
+                    .contains(watts), watts != boot else { return nil }
+            return .power(watts: UInt32(watts))
+        case .od8(let want):
+            // OD8 not read cleanly: the kext could not take it. Another kext
+            // build: the rules were not checked with it, and Apply is off too.
+            guard facts.od8Ready, GPUControlCurveRules.isChecked(kextVersion), !want.isStock else { return nil }
+            return .od8(want)
+        }
     }
 
     /// A remembered limit the card does not take is forgotten, not kept for
