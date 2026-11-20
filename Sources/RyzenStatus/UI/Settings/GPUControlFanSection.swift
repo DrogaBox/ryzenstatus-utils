@@ -60,21 +60,30 @@ struct GPUControlFanSection: View {
                 .controlSize(.mini)
                 .disabled(!enabled)
             // "Layout": progressive disclosure, the editor only while the
-            // custom curve is on.
+            // custom curve is on, indented under its switch: "people
+            // perceive indented items as subordinate to the item they
+            // follow".
             if draft.customCurve {
-                ForEach(0..<GPUControlWire.fanCurvePoints, id: \.self) { k in
-                    pointRow(k)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(0..<GPUControlWire.fanCurvePoints, id: \.self) { k in
+                        pointRow(k)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        chart
+                        // "Charts": name the lines on screen too, not only for
+                        // VoiceOver (the chart's label says the same).
+                        Text(fan.chartKey)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityHidden(true)
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    chart
-                    // "Charts": name the lines on screen too, not only for
-                    // VoiceOver (the chart's label says the same).
-                    Text(fan.chartKey)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityHidden(true)
-                }
+                .padding(.leading, Self.editorIndent)
+                // "Buttons": Return confirms, as with a primary button, but
+                // only from the editor's own fields: a default button
+                // would take Return from every field on the page.
+                .onSubmit(applyOnReturn)
             }
             previewRow
             if case .heldByApp(.power)? = input.state {
@@ -99,10 +108,7 @@ struct GPUControlFanSection: View {
                 Spacer()
                 // "Entering data": enable the button only with valid data;
                 // "Buttons": the editor's one action, prominent.
-                Button(applyTitle) {
-                    apply(draft)
-                    draft = draft.applied
-                }
+                Button(applyTitle, action: applyDraft)
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
@@ -113,6 +119,24 @@ struct GPUControlFanSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// How far the curve editor sits in from its switch.
+    static let editorIndent: CGFloat = 20
+
+    private func applyDraft() {
+        apply(draft)
+        draft = draft.applied
+    }
+
+    /// Return in a point field. The field commits its number on Return as
+    /// well, so the check waits for the next turn of the main queue, when
+    /// the draft holds the typed value; nothing is sent unless Apply
+    /// itself could be used.
+    private func applyOnReturn() {
+        DispatchQueue.main.async {
+            if canApply { applyDraft() }
         }
     }
 
@@ -127,31 +151,56 @@ struct GPUControlFanSection: View {
     /// "Steppers": a stepper sits next to the field that shows its value;
     /// "Text fields": a number formatter. Nothing is clamped: the live
     /// sentence names a value the kext would refuse.
+    /// "Layout": "horizontally adjacent views may need to stack vertically
+    /// to provide more space for text": one line while it fits, then the
+    /// label above the two fields, then each field on its own line.
     private func pointRow(_ k: Int) -> some View {
         let temperature = Binding(get: { draft.points[k].temperatureC }, set: { draft.points[k].temperatureC = $0 })
         let speed = Binding(get: { draft.points[k].speedPercent }, set: { draft.points[k].speedPercent = $0 })
-        return HStack(spacing: 6) {
-            Text(String(format: fan.pointFormat, k + 1))
-            Spacer()
-            TextField("", value: temperature, format: .number)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 44)
-                .accessibilityLabel(String(format: fan.pointTempFormat, k + 1))
-            Stepper("", value: temperature, step: 1)
-                .labelsHidden()
-                .accessibilityLabel(String(format: fan.stepTempFormat, k + 1))
-            Text("°C").foregroundStyle(.secondary)
-            TextField("", value: speed, format: .number)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 44)
-                .padding(.leading, 12)
-                .accessibilityLabel(String(format: fan.pointSpeedFormat, k + 1))
-            Stepper("", value: speed, step: 1)
-                .labelsHidden()
-                .accessibilityLabel(String(format: fan.stepSpeedFormat, k + 1))
-            Text("%").foregroundStyle(.secondary)
+        let label = Text(String(format: fan.pointFormat, k + 1))
+        let temperatureField = valueField(temperature, unit: "°C",
+                                          name: String(format: fan.pointTempFormat, k + 1),
+                                          stepName: String(format: fan.stepTempFormat, k + 1))
+        let speedField = valueField(speed, unit: "%",
+                                    name: String(format: fan.pointSpeedFormat, k + 1),
+                                    stepName: String(format: fan.stepSpeedFormat, k + 1))
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                label
+                Spacer()
+                temperatureField
+                speedField.padding(.leading, 12)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                label
+                HStack(spacing: 6) {
+                    Spacer()
+                    temperatureField
+                    speedField.padding(.leading, 12)
+                }
+            }
+            VStack(alignment: .trailing, spacing: 4) {
+                label.frame(maxWidth: .infinity, alignment: .leading)
+                temperatureField
+                speedField
+            }
         }
         .disabled(!enabled)
+    }
+
+    /// One number of a point: its field, its stepper and its unit, each
+    /// control with its own VoiceOver name.
+    private func valueField(_ value: Binding<Int>, unit: String, name: String, stepName: String) -> some View {
+        HStack(spacing: 6) {
+            TextField("", value: value, format: .number)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 44)
+                .accessibilityLabel(name)
+            Stepper("", value: value, step: 1)
+                .labelsHidden()
+                .accessibilityLabel(stepName)
+            Text(unit).foregroundStyle(.secondary)
+        }
     }
 
     // MARK: Chart

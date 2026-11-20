@@ -16,6 +16,29 @@ enum GPUControlFanTests {
         controller(suite)
         remember(suite)
         strings(suite)
+        editorLayout(suite)
+    }
+
+    /// The HIG review of the page (A2), read from the view's source: the
+    /// editor indented under its switch, Return from its fields, and rows
+    /// that stack when they do not fit.
+    private static func editorLayout(_ suite: TestSuite) {
+        let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                + "/Sources/RyzenStatus/UI/Settings/GPUControlFanSection.swift", encoding: .utf8)) ?? ""
+        func at(_ text: String) -> String.Index? { view.range(of: text)?.lowerBound }
+        if let open = at("if draft.customCurve {"), let rows = at("pointRow(k)"), let chart = at("                        chart\n"),
+           let indent = at(".padding(.leading, Self.editorIndent)"), let preview = at("            previewRow\n") {
+            suite.expect(open < rows && rows < chart && chart < indent && indent < preview,
+                         "the points and the chart sit in one container, indented under the curve switch")
+        } else {
+            suite.expect(false, "the curve editor's container is where the test looks for it")
+        }
+        suite.expect(GPUControlFanSection.editorIndent > 0, "the editor is indented")
+        suite.expect(view.contains(".onSubmit(applyOnReturn)") && view.contains("if canApply { applyDraft() }"),
+                     "Return in a point field applies, only when Apply could")
+        suite.expect(!view.contains(".keyboardShortcut(.defaultAction)"),
+                     "no default button: it would take Return from every field on the page")
+        suite.expect(view.contains("ViewThatFits(in: .horizontal)"), "a point row stacks when it does not fit")
     }
 
     private typealias Rules = GPUControlCurveRules
