@@ -24,7 +24,7 @@ struct GPUControlPageStrings {
     let heldPowerFormat: String
     /// %d = watts.
     let reaskingFormat: String
-    /// %d = the kext's channel version.
+    /// %d = the kext's channel version, then the app's.
     let otherVersionFormat: String
     let connectionLost: String
     let readyWarning: String
@@ -84,6 +84,43 @@ struct GPUControlPageStrings {
     let gaveUpFormat: String
     let timedOut: String
     let notConfirmed: String
+    // Why the arm button is not offered (plan 4), one per reason.
+    let unsafeNotPlain: String
+    let unsafeNotRoot: String
+    let unsafeWritable: String
+    let unsafeACL: String
+    let unsafeUnreadable: String
+    let unsafeSignature: String
+    let unsafeOtherProgram: String
+    // OD8 holds, for phase 3 and 4.
+    /// %@ = the held settings, joined.
+    let heldOD8Format: String
+    let fanCurveItem: String
+    let zeroRpmItem: String
+    /// %d = MHz.
+    let gfxItemFormat: String
+
+    /// Why the arm button is not offered.
+    func sentence(_ reason: GPUControlArmTool.UnsafeReason) -> String {
+        switch reason {
+        case .notPlain: return unsafeNotPlain
+        case .notRoot: return unsafeNotRoot
+        case .writable: return unsafeWritable
+        case .accessControlList: return unsafeACL
+        case .unreadable: return unsafeUnreadable
+        case .signature: return unsafeSignature
+        case .otherProgram: return unsafeOtherProgram
+        }
+    }
+
+    /// What an OD8 hold is, in words: "a fan curve, a GFX maximum of 2300 MHz".
+    func od8Held(_ want: GPUControlOD8Want) -> String {
+        var items: [String] = []
+        if want.curve != nil { items.append(fanCurveItem) }
+        if want.zeroRpmOff { items.append(zeroRpmItem) }
+        if let mhz = want.gfxMaxMHz { items.append(String(format: gfxItemFormat, mhz)) }
+        return String(format: heldOD8Format, items.joined(separator: ", "))
+    }
 
     /// The translated sentence of one group.
     func sentence(_ group: GPUControlTextGroup) -> String {
@@ -114,7 +151,8 @@ struct GPUControlPageStrings {
          copy, copied, notInstalled, unsafeTool, armFailed, rememberToggle, rememberFooter, changes, reverts,
          kextVersion, channel, panelLabel, notAllowed, busy, notReady, off, closedGroup, needsAdministrator,
          otherVersion, unconfirmed, notOwner, settingMissing, offNotAsExpected, offChangeUnconfirmed,
-         offDriverStopped, offWatchdog, gaveUpFormat, timedOut, notConfirmed]
+         offDriverStopped, offWatchdog, gaveUpFormat, timedOut, notConfirmed,
+         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat]
     }
 }
 
@@ -154,7 +192,7 @@ extension GPUControlPageStrings {
         applying: "Applying…",
         heldPowerFormat: "RyzenStatus is holding %d W",
         reaskingFormat: "Back at the start-up values; asking for %d W again…",
-        otherVersionFormat: "The kext speaks channel version %d and the app version 2. Update one of them.",
+        otherVersionFormat: "The kext speaks channel version %d and the app version %d. Update one of them.",
         connectionLost: "The connection to the kext closed and it went back to the start-up values. Open RyzenStatus again to use the control.",
         readyWarning: "Writing is open until restart: any program of this user can lower the limit.",
         restartMac: "Could not confirm the card returned to stock. Restart the Mac.",
@@ -201,7 +239,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Off: the fan watchdog put the stock fan back.",
         gaveUpFormat: "Not taken after a minute. %@",
         timedOut: "No answer in 5 s; nothing is held.",
-        notConfirmed: "The kext did not confirm the change; nothing is held.")
+        notConfirmed: "The kext did not confirm the change; nothing is held.",
+        unsafeNotPlain: "Not a plain file or folder.",
+        unsafeNotRoot: "It does not belong to root.",
+        unsafeWritable: "Others than root can change it.",
+        unsafeACL: "It has an access control list.",
+        unsafeUnreadable: "It cannot be read.",
+        unsafeSignature: "Its signature is missing, or it was changed after it was signed.",
+        unsafeOtherProgram: "It is another program, not DrogaBoxGPU’s gpucontrol.",
+        heldOD8Format: "RyzenStatus is holding %@",
+        fanCurveItem: "a fan curve",
+        zeroRpmItem: "the fan always on",
+        gfxItemFormat: "a GFX maximum of %d MHz")
 
     static let es = GPUControlPageStrings(
         stateSection: "Estado",
@@ -217,7 +266,7 @@ extension GPUControlPageStrings {
         applying: "Aplicando…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Volvió a los valores de arranque; pidiendo %d W de nuevo…",
-        otherVersionFormat: "El kext habla la versión %d del canal y la app la 2. Actualiza uno de los dos.",
+        otherVersionFormat: "El kext habla la versión %d del canal y la app la %d. Actualiza uno de los dos.",
         connectionLost: "La conexión con el kext se cerró y volvió a los valores de arranque. Abre RyzenStatus de nuevo para usar el control.",
         readyWarning: "Escritura abierta hasta reiniciar: cualquier programa de este usuario puede bajar el límite.",
         restartMac: "No se pudo confirmar que la tarjeta volvió a fábrica. Reinicia el Mac.",
@@ -264,7 +313,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Apagada: el vigilante del ventilador volvió al ventilador de fábrica.",
         gaveUpFormat: "No se aceptó en un minuto. %@",
         timedOut: "Sin respuesta en 5 s; no se mantiene nada.",
-        notConfirmed: "El kext no confirmó el cambio; no se mantiene nada.")
+        notConfirmed: "El kext no confirmó el cambio; no se mantiene nada.",
+        unsafeNotPlain: "No es un archivo ni una carpeta común.",
+        unsafeNotRoot: "No pertenece a root.",
+        unsafeWritable: "Otros además de root pueden modificarlo.",
+        unsafeACL: "Tiene una lista de control de acceso.",
+        unsafeUnreadable: "No se puede leer.",
+        unsafeSignature: "No tiene firma o se modificó después de firmarlo.",
+        unsafeOtherProgram: "Es otro programa, no el gpucontrol de DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus mantiene %@",
+        fanCurveItem: "una curva de ventilador",
+        zeroRpmItem: "el ventilador siempre girando",
+        gfxItemFormat: "un reloj GFX máximo de %d MHz")
 
     static let ptBR = GPUControlPageStrings(
         stateSection: "Estado",
@@ -280,7 +340,7 @@ extension GPUControlPageStrings {
         applying: "Aplicando…",
         heldPowerFormat: "O RyzenStatus está mantendo %d W",
         reaskingFormat: "De volta aos valores de inicialização; pedindo %d W de novo…",
-        otherVersionFormat: "O kext fala a versão %d do canal e o app a 2. Atualize um deles.",
+        otherVersionFormat: "O kext fala a versão %d do canal e o app a %d. Atualize um deles.",
         connectionLost: "A conexão com o kext foi fechada e ele voltou aos valores de inicialização. Abra o RyzenStatus de novo para usar o controle.",
         readyWarning: "Escrita aberta até reiniciar: qualquer programa deste usuário pode reduzir o limite.",
         restartMac: "Não foi possível confirmar que a placa voltou ao padrão. Reinicie o Mac.",
@@ -327,7 +387,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Desativada: o vigilante da ventoinha restaurou a ventoinha de fábrica.",
         gaveUpFormat: "Não aceito em um minuto. %@",
         timedOut: "Sem resposta em 5 s; nada é mantido.",
-        notConfirmed: "O kext não confirmou a alteração; nada é mantido.")
+        notConfirmed: "O kext não confirmou a alteração; nada é mantido.",
+        unsafeNotPlain: "Não é um arquivo nem uma pasta comum.",
+        unsafeNotRoot: "Não pertence ao root.",
+        unsafeWritable: "Outros além do root podem alterá-lo.",
+        unsafeACL: "Tem uma lista de controle de acesso.",
+        unsafeUnreadable: "Não pode ser lido.",
+        unsafeSignature: "Não tem assinatura ou foi alterado depois de assinado.",
+        unsafeOtherProgram: "É outro programa, não o gpucontrol do DrogaBoxGPU.",
+        heldOD8Format: "O RyzenStatus está mantendo %@",
+        fanCurveItem: "uma curva de ventoinha",
+        zeroRpmItem: "a ventoinha sempre girando",
+        gfxItemFormat: "um clock GFX máximo de %d MHz")
 
     static let tr = GPUControlPageStrings(
         stateSection: "Durum",
@@ -343,7 +414,7 @@ extension GPUControlPageStrings {
         applying: "Uygulanıyor…",
         heldPowerFormat: "RyzenStatus %d W tutuyor",
         reaskingFormat: "Başlangıç değerlerine dönüldü; %d W yeniden isteniyor…",
-        otherVersionFormat: "Kext kanalın %d sürümünü, uygulama 2 sürümünü konuşuyor. Birini güncelle.",
+        otherVersionFormat: "Kext kanalın %d sürümünü, uygulama %d sürümünü konuşuyor. Birini güncelle.",
         connectionLost: "Kext ile bağlantı kapandı ve kext başlangıç değerlerine döndü. Denetimi kullanmak için RyzenStatus'u yeniden aç.",
         readyWarning: "Yazma yeniden başlatılana kadar açık: bu kullanıcının herhangi bir programı limiti düşürebilir.",
         restartMac: "Kartın fabrika değerlerine döndüğü doğrulanamadı. Mac'i yeniden başlat.",
@@ -390,7 +461,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Kapalı: fan bekçisi fabrika fanını geri getirdi.",
         gaveUpFormat: "Bir dakikada kabul edilmedi. %@",
         timedOut: "5 sn içinde yanıt yok; hiçbir şey tutulmuyor.",
-        notConfirmed: "Kext değişikliği doğrulamadı; hiçbir şey tutulmuyor.")
+        notConfirmed: "Kext değişikliği doğrulamadı; hiçbir şey tutulmuyor.",
+        unsafeNotPlain: "Sıradan bir dosya veya klasör değil.",
+        unsafeNotRoot: "root'a ait değil.",
+        unsafeWritable: "root dışındakiler de değiştirebilir.",
+        unsafeACL: "Bir erişim denetim listesi var.",
+        unsafeUnreadable: "Okunamıyor.",
+        unsafeSignature: "İmzası yok veya imzalandıktan sonra değiştirilmiş.",
+        unsafeOtherProgram: "Bu başka bir program, DrogaBoxGPU'nun gpucontrol'ü değil.",
+        heldOD8Format: "RyzenStatus şunu tutuyor: %@",
+        fanCurveItem: "bir fan eğrisi",
+        zeroRpmItem: "her zaman dönen fan",
+        gfxItemFormat: "%d MHz maks. GFX saati")
 
     static let ru = GPUControlPageStrings(
         stateSection: "Состояние",
@@ -406,7 +488,7 @@ extension GPUControlPageStrings {
         applying: "Применение…",
         heldPowerFormat: "RyzenStatus удерживает %d Вт",
         reaskingFormat: "Вернулись к значениям загрузки; снова запрашиваем %d Вт…",
-        otherVersionFormat: "Kext говорит на версии канала %d, приложение — на версии 2. Обновите одно из них.",
+        otherVersionFormat: "Kext говорит на версии канала %d, приложение — на версии %d. Обновите одно из них.",
         connectionLost: "Соединение с kext закрылось, и он вернулся к значениям загрузки. Откройте RyzenStatus снова, чтобы пользоваться управлением.",
         readyWarning: "Запись открыта до перезапуска: любая программа этого пользователя может снизить лимит.",
         restartMac: "Не удалось подтвердить, что карта вернулась к заводским значениям. Перезапустите Mac.",
@@ -453,7 +535,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Выключено: сторож вентилятора вернул заводской вентилятор.",
         gaveUpFormat: "Не принято за минуту. %@",
         timedOut: "Нет ответа за 5 с; ничего не удерживается.",
-        notConfirmed: "Kext не подтвердил изменение; ничего не удерживается.")
+        notConfirmed: "Kext не подтвердил изменение; ничего не удерживается.",
+        unsafeNotPlain: "Это не обычный файл или папка.",
+        unsafeNotRoot: "Не принадлежит root.",
+        unsafeWritable: "Изменить его может не только root.",
+        unsafeACL: "У него есть список управления доступом.",
+        unsafeUnreadable: "Его нельзя прочитать.",
+        unsafeSignature: "Подписи нет, или файл изменён после подписи.",
+        unsafeOtherProgram: "Это другая программа, а не gpucontrol из DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus удерживает: %@",
+        fanCurveItem: "кривую вентилятора",
+        zeroRpmItem: "вентилятор, который всегда вращается",
+        gfxItemFormat: "макс. частоту GFX %d МГц")
 
     static let sk = GPUControlPageStrings(
         stateSection: "Stav",
@@ -469,7 +562,7 @@ extension GPUControlPageStrings {
         applying: "Používa sa…",
         heldPowerFormat: "RyzenStatus drží %d W",
         reaskingFormat: "Späť na štartovacích hodnotách; znova sa žiada %d W…",
-        otherVersionFormat: "Kext hovorí verziou kanála %d a aplikácia verziou 2. Aktualizujte jedno z nich.",
+        otherVersionFormat: "Kext hovorí verziou kanála %d a aplikácia verziou %d. Aktualizujte jedno z nich.",
         connectionLost: "Spojenie s kextom sa zatvorilo a kext sa vrátil na štartovacie hodnoty. Ak chcete riadenie použiť, otvorte RyzenStatus znova.",
         readyWarning: "Zápis je otvorený do reštartu: hocijaký program tohto používateľa môže znížiť limit.",
         restartMac: "Nepodarilo sa potvrdiť, že sa karta vrátila na továrenské hodnoty. Reštartujte Mac.",
@@ -516,7 +609,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Vypnuté: strážca ventilátora vrátil továrenský ventilátor.",
         gaveUpFormat: "Neprijaté do minúty. %@",
         timedOut: "Žiadna odpoveď do 5 s; nič sa nedrží.",
-        notConfirmed: "Kext zmenu nepotvrdil; nič sa nedrží.")
+        notConfirmed: "Kext zmenu nepotvrdil; nič sa nedrží.",
+        unsafeNotPlain: "Nie je to obyčajný súbor ani priečinok.",
+        unsafeNotRoot: "Nepatrí rootovi.",
+        unsafeWritable: "Môžu ho meniť aj iní než root.",
+        unsafeACL: "Má zoznam riadenia prístupu.",
+        unsafeUnreadable: "Nedá sa prečítať.",
+        unsafeSignature: "Nemá podpis alebo sa zmenil po podpísaní.",
+        unsafeOtherProgram: "Je to iný program, nie gpucontrol z DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus drží: %@",
+        fanCurveItem: "krivku ventilátora",
+        zeroRpmItem: "ventilátor stále v chode",
+        gfxItemFormat: "maximálny takt GFX %d MHz")
 
     static let de = GPUControlPageStrings(
         stateSection: "Status",
@@ -532,7 +636,7 @@ extension GPUControlPageStrings {
         applying: "Wird angewendet …",
         heldPowerFormat: "RyzenStatus hält %d W",
         reaskingFormat: "Zurück bei den Startwerten; %d W werden erneut angefragt …",
-        otherVersionFormat: "Der Kext spricht Kanalversion %d und die App Version 2. Aktualisiere eines von beiden.",
+        otherVersionFormat: "Der Kext spricht Kanalversion %d und die App Version %d. Aktualisiere eines von beiden.",
         connectionLost: "Die Verbindung zum Kext wurde geschlossen und er ist zu den Startwerten zurückgekehrt. Öffne RyzenStatus erneut, um die Steuerung zu nutzen.",
         readyWarning: "Schreiben ist bis zum Neustart offen: Jedes Programm dieses Benutzers kann das Limit senken.",
         restartMac: "Es ließ sich nicht bestätigen, dass die Karte auf Werkseinstellung zurück ist. Starte den Mac neu.",
@@ -579,7 +683,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Aus: Der Lüfterwächter hat den Werkslüfter zurückgebracht.",
         gaveUpFormat: "In einer Minute nicht angenommen. %@",
         timedOut: "Keine Antwort in 5 s; nichts wird gehalten.",
-        notConfirmed: "Der Kext hat die Änderung nicht bestätigt; nichts wird gehalten.")
+        notConfirmed: "Der Kext hat die Änderung nicht bestätigt; nichts wird gehalten.",
+        unsafeNotPlain: "Keine normale Datei und kein normaler Ordner.",
+        unsafeNotRoot: "Gehört nicht root.",
+        unsafeWritable: "Auch andere als root können es ändern.",
+        unsafeACL: "Es hat eine Zugriffssteuerungsliste.",
+        unsafeUnreadable: "Es kann nicht gelesen werden.",
+        unsafeSignature: "Die Signatur fehlt, oder es wurde nach dem Signieren geändert.",
+        unsafeOtherProgram: "Es ist ein anderes Programm, nicht gpucontrol von DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus hält %@",
+        fanCurveItem: "eine Lüfterkurve",
+        zeroRpmItem: "den Lüfter immer an",
+        gfxItemFormat: "einen maximalen GFX-Takt von %d MHz")
 
     static let fr = GPUControlPageStrings(
         stateSection: "État",
@@ -595,7 +710,7 @@ extension GPUControlPageStrings {
         applying: "Application…",
         heldPowerFormat: "RyzenStatus maintient %d W",
         reaskingFormat: "Retour aux valeurs de démarrage ; %d W redemandés…",
-        otherVersionFormat: "Le kext parle la version %d du canal et l’app la version 2. Mettez l’un des deux à jour.",
+        otherVersionFormat: "Le kext parle la version %d du canal et l’app la version %d. Mettez l’un des deux à jour.",
         connectionLost: "La connexion au kext s’est fermée et il est revenu aux valeurs de démarrage. Rouvrez RyzenStatus pour utiliser le contrôle.",
         readyWarning: "Écriture ouverte jusqu’au redémarrage : tout programme de cet utilisateur peut abaisser la limite.",
         restartMac: "Impossible de confirmer que la carte est revenue aux réglages d’usine. Redémarrez le Mac.",
@@ -642,7 +757,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Désactivée : le gardien du ventilateur a remis le ventilateur d’usine.",
         gaveUpFormat: "Non accepté en une minute. %@",
         timedOut: "Pas de réponse en 5 s ; rien n’est maintenu.",
-        notConfirmed: "Le kext n’a pas confirmé le changement ; rien n’est maintenu.")
+        notConfirmed: "Le kext n’a pas confirmé le changement ; rien n’est maintenu.",
+        unsafeNotPlain: "Ce n’est pas un fichier ni un dossier ordinaire.",
+        unsafeNotRoot: "N’appartient pas à root.",
+        unsafeWritable: "D’autres que root peuvent le modifier.",
+        unsafeACL: "Il a une liste de contrôle d’accès.",
+        unsafeUnreadable: "Il ne peut pas être lu.",
+        unsafeSignature: "Sa signature manque, ou il a été modifié après la signature.",
+        unsafeOtherProgram: "C’est un autre programme, pas le gpucontrol de DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus maintient %@",
+        fanCurveItem: "une courbe de ventilateur",
+        zeroRpmItem: "le ventilateur toujours en marche",
+        gfxItemFormat: "une fréquence GFX max de %d MHz")
 
     static let it = GPUControlPageStrings(
         stateSection: "Stato",
@@ -658,7 +784,7 @@ extension GPUControlPageStrings {
         applying: "Applicazione…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Di nuovo ai valori di avvio; %d W richiesti di nuovo…",
-        otherVersionFormat: "Il kext parla la versione %d del canale e l’app la 2. Aggiornane uno.",
+        otherVersionFormat: "Il kext parla la versione %d del canale e l’app la %d. Aggiornane uno.",
         connectionLost: "La connessione con il kext si è chiusa ed è tornato ai valori di avvio. Riapri RyzenStatus per usare il controllo.",
         readyWarning: "Scrittura aperta fino al riavvio: qualsiasi programma di questo utente può abbassare il limite.",
         restartMac: "Non è stato possibile confermare che la scheda è tornata ai valori di fabbrica. Riavvia il Mac.",
@@ -705,7 +831,18 @@ extension GPUControlPageStrings {
         offWatchdog: "Disattivata: il supervisore della ventola ha rimesso la ventola di fabbrica.",
         gaveUpFormat: "Non accettato in un minuto. %@",
         timedOut: "Nessuna risposta in 5 s; non viene mantenuto nulla.",
-        notConfirmed: "Il kext non ha confermato la modifica; non viene mantenuto nulla.")
+        notConfirmed: "Il kext non ha confermato la modifica; non viene mantenuto nulla.",
+        unsafeNotPlain: "Non è un file né una cartella normale.",
+        unsafeNotRoot: "Non appartiene a root.",
+        unsafeWritable: "Anche altri oltre a root possono modificarlo.",
+        unsafeACL: "Ha un elenco di controllo degli accessi.",
+        unsafeUnreadable: "Non può essere letto.",
+        unsafeSignature: "Manca la firma, o è stato modificato dopo la firma.",
+        unsafeOtherProgram: "È un altro programma, non il gpucontrol di DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus mantiene %@",
+        fanCurveItem: "una curva della ventola",
+        zeroRpmItem: "la ventola sempre in rotazione",
+        gfxItemFormat: "un clock GFX massimo di %d MHz")
 
     static let ja = GPUControlPageStrings(
         stateSection: "状態",
@@ -721,7 +858,7 @@ extension GPUControlPageStrings {
         applying: "適用中…",
         heldPowerFormat: "RyzenStatus が %d W を保持中",
         reaskingFormat: "起動時の値に戻りました。%d W を再度要求中…",
-        otherVersionFormat: "kext はチャネルのバージョン %d、アプリはバージョン 2 です。どちらかをアップデートしてください。",
+        otherVersionFormat: "kext はチャネルのバージョン %d、アプリはバージョン %d です。どちらかをアップデートしてください。",
         connectionLost: "kext との接続が閉じ、kext は起動時の値に戻りました。制御を使うには RyzenStatus をもう一度開いてください。",
         readyWarning: "再起動まで書き込みが開いています。このユーザーのどのプログラムでも上限を下げられます。",
         restartMac: "カードが工場出荷時の値に戻ったことを確認できませんでした。Mac を再起動してください。",
@@ -768,7 +905,18 @@ extension GPUControlPageStrings {
         offWatchdog: "オフ：ファン監視が純正のファン制御に戻しました。",
         gaveUpFormat: "1分以内に受け付けられませんでした。%@",
         timedOut: "5 秒以内に応答がありません。何も保持していません。",
-        notConfirmed: "kext は変更を確認しませんでした。何も保持していません。")
+        notConfirmed: "kext は変更を確認しませんでした。何も保持していません。",
+        unsafeNotPlain: "通常のファイルまたはフォルダではありません。",
+        unsafeNotRoot: "root の所有ではありません。",
+        unsafeWritable: "root 以外も変更できます。",
+        unsafeACL: "アクセス制御リストがあります。",
+        unsafeUnreadable: "読み取れません。",
+        unsafeSignature: "署名がないか、署名後に変更されています。",
+        unsafeOtherProgram: "DrogaBoxGPU の gpucontrol ではなく、別のプログラムです。",
+        heldOD8Format: "RyzenStatus が保持中: %@",
+        fanCurveItem: "ファンカーブ",
+        zeroRpmItem: "常に回るファン",
+        gfxItemFormat: "GFX 最大クロック %d MHz")
 
     static let ko = GPUControlPageStrings(
         stateSection: "상태",
@@ -784,7 +932,7 @@ extension GPUControlPageStrings {
         applying: "적용 중…",
         heldPowerFormat: "RyzenStatus가 %d W를 유지 중",
         reaskingFormat: "시동 값으로 돌아갔습니다. %d W를 다시 요청하는 중…",
-        otherVersionFormat: "kext는 채널 버전 %d, 앱은 버전 2를 사용합니다. 둘 중 하나를 업데이트하십시오.",
+        otherVersionFormat: "kext는 채널 버전 %d, 앱은 버전 %d를 사용합니다. 둘 중 하나를 업데이트하십시오.",
         connectionLost: "kext와의 연결이 닫혀 kext가 시동 값으로 돌아갔습니다. 제어를 사용하려면 RyzenStatus를 다시 여십시오.",
         readyWarning: "재시동할 때까지 쓰기가 열려 있습니다. 이 사용자의 어떤 프로그램이든 제한을 낮출 수 있습니다.",
         restartMac: "카드가 공장 값으로 돌아간 것을 확인할 수 없습니다. Mac을 재시동하십시오.",
@@ -831,7 +979,18 @@ extension GPUControlPageStrings {
         offWatchdog: "꺼짐: 팬 감시가 기본 팬 제어로 되돌렸습니다.",
         gaveUpFormat: "1분 안에 받아들여지지 않았습니다. %@",
         timedOut: "5초 안에 응답이 없습니다. 아무것도 유지하지 않습니다.",
-        notConfirmed: "kext가 변경을 확인하지 않았습니다. 아무것도 유지하지 않습니다.")
+        notConfirmed: "kext가 변경을 확인하지 않았습니다. 아무것도 유지하지 않습니다.",
+        unsafeNotPlain: "일반 파일이나 폴더가 아닙니다.",
+        unsafeNotRoot: "root 소유가 아닙니다.",
+        unsafeWritable: "root 외의 사용자도 바꿀 수 있습니다.",
+        unsafeACL: "접근 제어 목록이 있습니다.",
+        unsafeUnreadable: "읽을 수 없습니다.",
+        unsafeSignature: "서명이 없거나 서명 후 변경되었습니다.",
+        unsafeOtherProgram: "DrogaBoxGPU의 gpucontrol이 아닌 다른 프로그램입니다.",
+        heldOD8Format: "RyzenStatus가 유지 중: %@",
+        fanCurveItem: "팬 곡선",
+        zeroRpmItem: "항상 도는 팬",
+        gfxItemFormat: "최대 GFX 클록 %d MHz")
 
     static let zhHans = GPUControlPageStrings(
         stateSection: "状态",
@@ -847,7 +1006,7 @@ extension GPUControlPageStrings {
         applying: "正在应用…",
         heldPowerFormat: "RyzenStatus 正在保持 %d W",
         reaskingFormat: "已回到启动值；正在再次请求 %d W…",
-        otherVersionFormat: "kext 使用通道版本 %d，应用使用版本 2。请更新其中一个。",
+        otherVersionFormat: "kext 使用通道版本 %d，应用使用版本 %d。请更新其中一个。",
         connectionLost: "与 kext 的连接已关闭，它已返回启动值。请重新打开 RyzenStatus 以使用控制。",
         readyWarning: "写入在重新启动前保持打开：该用户的任何程序都可以降低上限。",
         restartMac: "无法确认显卡已返回出厂值。请重新启动 Mac。",
@@ -894,7 +1053,18 @@ extension GPUControlPageStrings {
         offWatchdog: "关闭：风扇监控已恢复出厂风扇控制。",
         gaveUpFormat: "一分钟内未被接受。%@",
         timedOut: "5 秒内无响应；未保持任何内容。",
-        notConfirmed: "kext 未确认更改；未保持任何内容。")
+        notConfirmed: "kext 未确认更改；未保持任何内容。",
+        unsafeNotPlain: "不是普通文件或文件夹。",
+        unsafeNotRoot: "不归 root 所有。",
+        unsafeWritable: "root 以外的用户也可以更改它。",
+        unsafeACL: "它有访问控制列表。",
+        unsafeUnreadable: "无法读取。",
+        unsafeSignature: "缺少签名，或签名后被更改过。",
+        unsafeOtherProgram: "这是另一个程序，不是 DrogaBoxGPU 的 gpucontrol。",
+        heldOD8Format: "RyzenStatus 正在保持：%@",
+        fanCurveItem: "风扇曲线",
+        zeroRpmItem: "始终转动的风扇",
+        gfxItemFormat: "GFX 最大时钟 %d MHz")
 
     static let zhTW = GPUControlPageStrings(
         stateSection: "狀態",
@@ -910,7 +1080,7 @@ extension GPUControlPageStrings {
         applying: "正在套用…",
         heldPowerFormat: "RyzenStatus 正在保持 %d W",
         reaskingFormat: "已回到啟動值；正在再次要求 %d W…",
-        otherVersionFormat: "kext 使用通道版本 %d，App 使用版本 2。請更新其中一個。",
+        otherVersionFormat: "kext 使用通道版本 %d，App 使用版本 %d。請更新其中一個。",
         connectionLost: "與 kext 的連線已關閉，它已返回啟動值。請重新打開 RyzenStatus 以使用控制。",
         readyWarning: "寫入在重新啟動前保持開啟：此使用者的任何程式都可以降低上限。",
         restartMac: "無法確認顯示卡已返回原廠值。請重新啟動 Mac。",
@@ -957,7 +1127,18 @@ extension GPUControlPageStrings {
         offWatchdog: "關閉：風扇監控已恢復原廠風扇控制。",
         gaveUpFormat: "一分鐘內未被接受。%@",
         timedOut: "5 秒內沒有回應；未保持任何內容。",
-        notConfirmed: "kext 未確認變更；未保持任何內容。")
+        notConfirmed: "kext 未確認變更；未保持任何內容。",
+        unsafeNotPlain: "不是一般檔案或檔案夾。",
+        unsafeNotRoot: "不屬於 root。",
+        unsafeWritable: "root 以外的使用者也可以更改它。",
+        unsafeACL: "它有存取控制列表。",
+        unsafeUnreadable: "無法讀取。",
+        unsafeSignature: "缺少簽名，或簽名後被更改過。",
+        unsafeOtherProgram: "這是另一個程式，不是 DrogaBoxGPU 的 gpucontrol。",
+        heldOD8Format: "RyzenStatus 正在保持：%@",
+        fanCurveItem: "風扇曲線",
+        zeroRpmItem: "始終轉動的風扇",
+        gfxItemFormat: "GFX 最大時脈 %d MHz")
 
     static let uk = GPUControlPageStrings(
         stateSection: "Стан",
@@ -973,7 +1154,7 @@ extension GPUControlPageStrings {
         applying: "Застосування…",
         heldPowerFormat: "RyzenStatus утримує %d Вт",
         reaskingFormat: "Повернулися до значень завантаження; знову запитуємо %d Вт…",
-        otherVersionFormat: "Kext говорить версією каналу %d, а застосунок — версією 2. Оновіть одне з них.",
+        otherVersionFormat: "Kext говорить версією каналу %d, а застосунок — версією %d. Оновіть одне з них.",
         connectionLost: "З’єднання з kext закрилося, і він повернувся до значень завантаження. Відкрийте RyzenStatus знову, щоб користуватися керуванням.",
         readyWarning: "Запис відкрито до перезапуску: будь-яка програма цього користувача може знизити ліміт.",
         restartMac: "Не вдалося підтвердити, що картка повернулася до заводських значень. Перезапустіть Mac.",
@@ -1020,5 +1201,16 @@ extension GPUControlPageStrings {
         offWatchdog: "Вимкнено: сторож вентилятора повернув заводський вентилятор.",
         gaveUpFormat: "Не прийнято за хвилину. %@",
         timedOut: "Немає відповіді за 5 с; нічого не утримується.",
-        notConfirmed: "Kext не підтвердив зміну; нічого не утримується.")
+        notConfirmed: "Kext не підтвердив зміну; нічого не утримується.",
+        unsafeNotPlain: "Це не звичайний файл чи тека.",
+        unsafeNotRoot: "Не належить root.",
+        unsafeWritable: "Змінювати його може не лише root.",
+        unsafeACL: "Має список керування доступом.",
+        unsafeUnreadable: "Його не можна прочитати.",
+        unsafeSignature: "Підпису немає, або файл змінено після підпису.",
+        unsafeOtherProgram: "Це інша програма, не gpucontrol із DrogaBoxGPU.",
+        heldOD8Format: "RyzenStatus утримує: %@",
+        fanCurveItem: "криву вентилятора",
+        zeroRpmItem: "вентилятор, що завжди обертається",
+        gfxItemFormat: "макс. частоту GFX %d МГц")
 }

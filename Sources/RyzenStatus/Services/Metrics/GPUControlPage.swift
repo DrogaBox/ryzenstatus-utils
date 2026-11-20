@@ -246,14 +246,32 @@ enum GPUControlArmTool {
     /// The identifier of a file whose signature is intact, else nil.
     typealias Signature = (String) -> String?
 
+    /// Why the button is not offered, one translated sentence each.
+    enum UnsafeReason: Equatable, Sendable, CaseIterable {
+        case notPlain
+        case notRoot
+        case writable
+        case accessControlList
+        case unreadable
+        case signature
+        case otherProgram
+    }
+
+    struct Problem: Equatable, Sendable {
+        var reason: UnsafeReason
+        var path: String
+        /// Detail for a log or a test, in English (another identifier, a mode).
+        var detail: String = ""
+    }
+
     enum Availability: Equatable, Sendable {
         /// Installed safely: the button can run it.
         case button
 
         /// Installed, but something on its path is not root's alone, or the
         /// file is not our signed tool: only the command is shown, for the
-        /// owner to run.
-        case unsafe(String)
+        /// owner to run. `path`: the file or folder that failed.
+        case unsafe(UnsafeReason, path: String)
 
         /// Not installed. `buildPath`: the tool where DrogaBoxGPU builds it,
         /// when it is there.
@@ -275,7 +293,9 @@ enum GPUControlArmTool {
             let build = (home as NSString).appendingPathComponent(buildRelativePath)
             return .missing(buildPath: lookup(build)?.kind == .regular ? build : nil)
         }
-        if let problem = problem(path: installedPath, lookup: lookup, signature: signature) { return .unsafe(problem) }
+        if let problem = problem(path: installedPath, lookup: lookup, signature: signature) {
+            return .unsafe(problem.reason, path: problem.path)
+        }
         return .button
     }
 
@@ -283,28 +303,30 @@ enum GPUControlArmTool {
     /// belong to `owner` alone and the file is our signed tool. The app asks
     /// for root and "/"; a test passes its own user and folder.
     static func problem(path: String, owner: UInt32 = 0, top: String = "/",
-                        lookup: Lookup, signature: Signature) -> String? {
-        guard let file = lookup(path) else { return "\(path) cannot be read" }
-        guard file.kind == .regular else { return "\(path) is not a plain file" }
-        guard file.uid == owner else { return "\(path) does not belong to root" }
+                        lookup: Lookup, signature: Signature) -> Problem? {
+        guard let file = lookup(path) else { return Problem(reason: .unreadable, path: path) }
+        guard file.kind == .regular else { return Problem(reason: .notPlain, path: path) }
+        guard file.uid == owner else { return Problem(reason: .notRoot, path: path) }
         // No group or other write (the installer's rule); no setuid or setgid
         // either, which the installer never sets.
         guard file.permissions & 0o6022 == 0 else {
-            return "\(path) has mode \(String(file.permissions, radix: 8))"
+            return Problem(reason: .writable, path: path, detail: "mode " + String(file.permissions, radix: 8))
         }
-        guard !file.hasACL else { return "\(path) has an access control list" }
+        guard !file.hasACL else { return Problem(reason: .accessControlList, path: path) }
         var folder = (path as NSString).deletingLastPathComponent
         while true {
-            guard let info = lookup(folder) else { return "\(folder) cannot be read" }
-            guard info.kind == .directory else { return "\(folder) is not a plain folder" }
-            guard info.uid == owner else { return "\(folder) does not belong to root" }
-            guard info.permissions & 0o022 == 0 else { return "\(folder) can be written by others than root" }
-            guard !info.hasACL else { return "\(folder) has an access control list" }
+            guard let info = lookup(folder) else { return Problem(reason: .unreadable, path: folder) }
+            guard info.kind == .directory else { return Problem(reason: .notPlain, path: folder) }
+            guard info.uid == owner else { return Problem(reason: .notRoot, path: folder) }
+            guard info.permissions & 0o022 == 0 else {
+                return Problem(reason: .writable, path: folder, detail: "mode " + String(info.permissions, radix: 8))
+            }
+            guard !info.hasACL else { return Problem(reason: .accessControlList, path: folder) }
             if folder == top || folder == "/" { break }
             folder = (folder as NSString).deletingLastPathComponent
         }
-        guard let id = signature(path) else { return "\(path) is not signed, or was changed after it was signed" }
-        guard id == identifier else { return "\(path) is another program (\(id))" }
+        guard let id = signature(path) else { return Problem(reason: .signature, path: path) }
+        guard id == identifier else { return Problem(reason: .otherProgram, path: path, detail: id) }
         return nil
     }
 

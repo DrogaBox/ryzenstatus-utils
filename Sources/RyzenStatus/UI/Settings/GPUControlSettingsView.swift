@@ -73,6 +73,32 @@ struct GPUControlPageActions {
     var setRemember: (Bool) -> Void = { _ in }
 }
 
+extension GPUControlPageInput {
+    /// A request is out, or waits to be tried again: the kext has not taken it.
+    var isPending: Bool { GPUControlPageLogic.pending(snapshot) != nil }
+
+    /// The state in words, for the page and (`short`) the panel row.
+    func stateTitle(_ s: GPUControlPageStrings, short: Bool) -> String {
+        if isPending { return s.applying }
+        switch state {
+        case .ready?: return s.ready
+        case .closed?: return s.closed
+        case .writingOff?: return s.writingOff
+        case .waitingForDriver?, nil: return s.waitingForDriver
+        case .reverting?: return s.reverting
+        case .sleeping?: return s.sleeping
+        case .heldByOther?: return s.heldByOther
+        case .heldByApp(.power(let watts))?: return String(format: s.heldPowerFormat, Int(watts))
+        case .heldByApp(.od8(let want))?: return s.od8Held(want)
+        case .heldByApp(.startUp)?: return s.ready
+        case .connectionLost?: return short ? s.lost : s.connectionLost
+        case .otherVersion(let version)?:
+            return short ? s.otherVersion
+                : String(format: s.otherVersionFormat, Int(clamping: version), Int(GPUControlWire.channelVersion))
+        }
+    }
+}
+
 /// One sentence for the page about the last thing that happened, with the
 /// kext's own English text under it when there is one (plan 13).
 struct GPUControlPageNote: Equatable {
@@ -129,6 +155,7 @@ struct GPUControlPageContent: View {
             stateSection
             if showsPower { powerSection }
             if case .closed? = input.state { armSection }
+            rememberSection
             detailsSection
         }
         .formStyle(.grouped)
@@ -160,7 +187,7 @@ struct GPUControlPageContent: View {
                 }
             }
         } header: {
-            Text(title)
+            Text(s.stateSection)
         } footer: {
             if case .ready? = input.state {
                 Text(s.readyWarning)
@@ -171,6 +198,7 @@ struct GPUControlPageContent: View {
     }
 
     private var stateSymbol: (name: String, color: Color) {
+        if input.isPending { return ("clock", .secondary) }
         switch input.state {
         case .ready?: return ("checkmark.circle", .green)
         case .heldByApp?: return ("gauge.with.dots.needle.33percent", .accentColor)
@@ -182,26 +210,7 @@ struct GPUControlPageContent: View {
         }
     }
 
-    private var stateTitle: String {
-        if let pending = GPUControlPageLogic.pending(input.snapshot), pending != .startUp,
-           case .applying? = input.snapshot?.activity {
-            return s.applying
-        }
-        switch input.state {
-        case .ready?: return s.ready
-        case .closed?: return s.closed
-        case .writingOff?: return s.writingOff
-        case .waitingForDriver?: return s.waitingForDriver
-        case .reverting?: return s.reverting
-        case .sleeping?: return s.sleeping
-        case .heldByOther?: return s.heldByOther
-        case .heldByApp(.power(let watts))?: return String(format: s.heldPowerFormat, Int(watts))
-        case .heldByApp?: return s.ready
-        case .connectionLost?: return s.connectionLost
-        case .otherVersion(let version)?: return String(format: s.otherVersionFormat, Int(clamping: version))
-        case nil: return s.waitingForDriver
-        }
-    }
+    private var stateTitle: String { input.stateTitle(s, short: false) }
 
     /// The reason under the state: the kext's own words while writing is
     /// off; "restart the Mac" only when the card may not be at stock.
@@ -243,7 +252,9 @@ struct GPUControlPageContent: View {
     private var powerSection: some View {
         let choices = GPUControlPageLogic.powerChoices(bootW: input.facts?.bootW)
         let shown = input.facts.flatMap { GPUControlPageLogic.shownWatts(facts: $0, snapshot: input.snapshot) }
-        let enabled = input.canChoose && (input.state?.acceptsChoices ?? false)
+        // While a request is out or waits, the kext has not taken it: no
+        // second choice until it answers.
+        let enabled = input.canChoose && (input.state?.acceptsChoices ?? false) && !input.isPending
         let holding: Bool = {
             if case .heldByApp? = input.state { return true }
             return false
@@ -280,15 +291,6 @@ struct GPUControlPageContent: View {
                 Button(s.backToBoot) { actions.backToStartUp() }
                     .disabled(!input.canChoose || !holding)
             }
-            // "Toggles", macOS: a small switch per row, its label says what
-            // turning it on does.
-            Toggle(s.rememberToggle, isOn: Binding(get: { input.remember }, set: { actions.setRemember($0) }))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            Text(s.rememberFooter)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(s.powerFooter)
@@ -296,6 +298,24 @@ struct GPUControlPageContent: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Remembering (plan 8)
+
+    /// Its own section: it can be set while writing is still closed.
+    /// "Toggles", macOS: a small switch per row, its label says what turning
+    /// it on does.
+    private var rememberSection: some View {
+        Section {
+            Toggle(s.rememberToggle, isOn: Binding(get: { input.remember }, set: { actions.setRemember($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        } footer: {
+            Text(s.rememberFooter)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -313,11 +333,15 @@ struct GPUControlPageContent: View {
                     Button(s.openWriting) { actions.openWriting() }
                         .disabled(input.isArming || !input.canChoose)
                 }
-            case .unsafe(let problem):
-                Text(s.unsafeTool + " " + problem)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            case .unsafe(let reason, let path):
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.unsafeTool + " " + s.sentence(reason))
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(path)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
                 commandRow(input.armTool.command)
             case .missing(let buildPath):
                 if buildPath == nil {
@@ -352,6 +376,13 @@ struct GPUControlPageContent: View {
                 }
             }
         }
+        // "Copied" goes back to "Copy" after 2 s, and when the command changes.
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            copied = false
+        }
+        .onChange(of: command) { _, _ in copied = false }
     }
 
     // MARK: Details

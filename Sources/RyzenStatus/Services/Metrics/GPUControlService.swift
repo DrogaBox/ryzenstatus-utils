@@ -60,6 +60,7 @@ final class GPUControlService: ObservableObject {
     private var rememberTimer: Timer?
     private var pendingRemembered = false
     private var ownerChoseStartUp = false
+    private var refreshTicks = 0
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -184,6 +185,9 @@ final class GPUControlService: ObservableObject {
     }
 
     private func refreshNow() {
+        // Installing gpucontrol with the page open shows the button within 5 s.
+        refreshTicks += 1
+        if refreshTicks % 5 == 0 { refreshArmTool() }
         if let fake {
             fake.advance(by: 1_000)
             control = Self.fakeControl(fake)

@@ -34,39 +34,28 @@ struct GPUControlPanelRowContent: View {
         let choices = GPUControlPageLogic.powerChoices(bootW: input.facts?.bootW)
         let shown = input.facts.flatMap { GPUControlPageLogic.shownWatts(facts: $0, snapshot: input.snapshot) }
         VStack(alignment: .leading, spacing: 4) {
-            Picker(strings.panelLabel, selection: Binding(
-                get: { shown ?? choices.first ?? 0 },
-                set: { choosePower($0) })) {
-                ForEach(choices, id: \.self) { watts in
-                    Text(watts == choices.first ? String(format: strings.bootFormat, watts)
-                                                : String(format: strings.wattsFormat, watts))
-                        .tag(watts)
+            if choices.isEmpty {
+                // No start-up value yet: no empty pop-up, only the state.
+                LabeledContent(strings.panelLabel) {
+                    Text(strings.waitingForDriver).foregroundStyle(.secondary)
                 }
+            } else {
+                Picker(strings.panelLabel, selection: Binding(
+                    get: { shown ?? choices[0] },
+                    set: { choosePower($0) })) {
+                    ForEach(choices, id: \.self) { watts in
+                        Text(watts == choices[0] ? String(format: strings.bootFormat, watts)
+                                                 : String(format: strings.wattsFormat, watts))
+                            .tag(watts)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!input.canChoose || !(input.state?.acceptsChoices ?? false) || input.isPending)
             }
-            .pickerStyle(.menu)
-            .disabled(!input.canChoose || !(input.state?.acceptsChoices ?? false) || choices.isEmpty)
-            Text(stateLine)
+            Text(input.stateTitle(strings, short: true))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-        }
-    }
-
-    private var stateLine: String {
-        let s = strings
-        if case .applying? = input.snapshot?.activity { return s.applying }
-        switch input.state {
-        case .ready?: return s.ready
-        case .closed?: return s.closed
-        case .writingOff?: return s.writingOff
-        case .waitingForDriver?, nil: return s.waitingForDriver
-        case .reverting?: return s.reverting
-        case .sleeping?: return s.sleeping
-        case .heldByOther?: return s.heldByOther
-        case .heldByApp(.power(let watts))?: return String(format: s.heldPowerFormat, Int(watts))
-        case .heldByApp?: return s.ready
-        case .connectionLost?: return s.lost
-        case .otherVersion?: return s.otherVersion
         }
     }
 }

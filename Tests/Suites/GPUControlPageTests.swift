@@ -18,6 +18,54 @@ enum GPUControlPageTests {
         connection(suite)
         visibility(suite)
         strings(suite)
+        reviewFixes(suite)
+    }
+
+    /// Fixes from the review of phase 2.
+    private static func reviewFixes(_ suite: TestSuite) {
+        let s = GPUControlPageStrings.es
+        var facts = GPUControlFacts(source: .channel)
+        facts.ready = true
+        facts.armed = true
+        facts.bootW = 240
+        facts.heldW = 240
+        // Any pending request reads "Applying…", never "Ready" next to watts
+        // the kext has not taken.
+        for activity: GPUControlSnapshot.Activity in [.applying(.power(watts: 220)),
+                                                      .retrying(.power(watts: 220), .reply(.busy)),
+                                                      .switching(.power(watts: 220)),
+                                                      .afterWake(.power(watts: 220))] {
+            var snapshot = GPUControlSnapshot()
+            snapshot.activity = activity
+            let input = GPUControlPageInput(facts: facts, state: .ready, snapshot: snapshot)
+            suite.expect(input.isPending && input.stateTitle(s, short: false) == s.applying
+                            && input.stateTitle(s, short: true) == s.applying,
+                         "\(activity): applying on the page and in the panel")
+        }
+        let idle = GPUControlPageInput(facts: facts, state: .ready, snapshot: GPUControlSnapshot())
+        suite.expect(!idle.isPending && idle.stateTitle(s, short: false) == s.ready, "nothing pending: ready")
+        // OD8 holds in words, not "Ready".
+        let curve = GPUControlOD8Want(curve: GPUControlChannelTests.testedCurve, zeroRpmOff: true)
+        let held = GPUControlPageInput(facts: facts, state: .heldByApp(.od8(curve)), snapshot: GPUControlSnapshot())
+        suite.expect(held.stateTitle(s, short: false)
+                        == "RyzenStatus mantiene una curva de ventilador, el ventilador siempre girando",
+                     "a held curve and zero RPM off, in words")
+        suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(gfxMaxMHz: 2_300))
+                        == "RyzenStatus is holding a GFX maximum of 2300 MHz", "a held clock, in words")
+        // The channel version is an argument, not a "2" in the text.
+        let other = GPUControlPageInput(facts: facts, state: .otherVersion(1), snapshot: nil)
+        suite.expect(other.stateTitle(GPUControlPageStrings.enUS, short: false)
+                        == "The kext speaks channel version 1 and the app version 2. Update one of them.",
+                     "both versions come from numbers")
+        // The changelog keeps its own structure.
+        let changelog = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath + "/CHANGELOG.md",
+                                     encoding: .utf8)) ?? ""
+        suite.expect(!changelog.contains("## [Unreleased]"), "no invented changelog heading")
+        // The page source: the status header, the remember section apart.
+        let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                + "/Sources/RyzenStatus/UI/Settings/GPUControlSettingsView.swift", encoding: .utf8)) ?? ""
+        suite.expect(view.contains("Text(s.stateSection)"), "the status section has its header")
+        suite.expect(view.contains("            rememberSection\n"), "remembering has its own section, shown while closed")
     }
 
     private typealias Harness = GPUControlChannelTests.Harness
@@ -276,22 +324,27 @@ enum GPUControlPageTests {
         for (path, info, why) in cases {
             var table = safe
             table[path] = info
-            guard case .unsafe(let problem) = availability(table) else {
+            guard case .unsafe(let reason, let failed) = availability(table) else {
                 suite.expect(false, "\(why): no button")
                 continue
             }
-            suite.expect(problem.contains(path), "\(why): the reason names \(path)")
+            suite.expect(failed == path, "\(why): the failing path is \(path)")
+            suite.expect(!GPUControlPageStrings.es.sentence(reason).isEmpty, "\(why): a translated reason")
             suite.expect(availability(table).command == "sudo /usr/local/bin/gpucontrol arm", "\(why): the command to copy")
         }
-        if case .unsafe(let why) = availability(safe, signature: { _ in nil }) {
-            suite.expect(why.contains("changed after it was signed"), "a broken signature: no button")
-        } else {
-            suite.expect(false, "a broken signature: no button")
-        }
-        if case .unsafe(let why) = availability(safe, signature: { _ in "com.example.gpucontrol" }) {
-            suite.expect(why.contains("another program"), "another identifier: no button")
-        } else {
-            suite.expect(false, "another identifier: no button")
+        suite.expect(availability(safe, signature: { _ in nil }) == .unsafe(.signature, path: Tool.installedPath),
+                     "a broken signature: no button")
+        suite.expect(availability(safe, signature: { _ in "com.example.gpucontrol" })
+                        == .unsafe(.otherProgram, path: Tool.installedPath), "another identifier: no button")
+        var userBin = safe
+        userBin["/usr/local/bin"] = Tool.FileInfo(kind: .directory, uid: 501, permissions: 0o755)
+        suite.expect(availability(userBin) == .unsafe(.notRoot, path: "/usr/local/bin"),
+                     "a bin folder that is not root's: that reason and that folder")
+        for reason in Tool.UnsafeReason.allCases {
+            for language in AppLanguage.allCases {
+                suite.expect(!FeatureStrings.gpuControlPage(language).sentence(reason).isEmpty,
+                             "\(language.rawValue): a sentence for \(reason)")
+            }
         }
         var unreadable = safe
         unreadable["/usr"] = nil
@@ -348,7 +401,7 @@ enum GPUControlPageTests {
         let signed = run("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", Tool.identifier, tool])
         suite.expect(signed == 0, "the test's copy is signed ad hoc as com.droga.gpucontrol")
         let me = getuid()
-        func check(_ path: String = tool) -> String? {
+        func check(_ path: String = tool) -> Tool.Problem? {
             Tool.problem(path: path, owner: me, top: top, lookup: Tool.lstatInfo, signature: Tool.signingIdentifier)
         }
         suite.expect(Tool.signingIdentifier(tool) == Tool.identifier, "the signature reads back as com.droga.gpucontrol")
@@ -358,25 +411,28 @@ enum GPUControlPageTests {
                      "lstat: a plain file, the user's, mode 755, no ACL")
 
         run("/bin/chmod", ["775", tool])
-        suite.expect(check()?.contains("has mode 775") == true, "group write on the file: unsafe")
+        suite.expect(check() == Tool.Problem(reason: .writable, path: tool, detail: "mode 775"),
+                     "group write on the file: unsafe")
+        run("/bin/chmod", ["700", tool])
+        suite.expect(check() == nil, "mode 700, no group or other write: safe")
         run("/bin/chmod", ["757", bin])
         run("/bin/chmod", ["755", tool])
-        suite.expect(check()?.contains("can be written by others") == true, "others can write the folder: unsafe")
+        suite.expect(check()?.reason == .writable && check()?.path == bin, "others can write the folder: unsafe")
         run("/bin/chmod", ["755", bin])
 
         run("/bin/chmod", ["+a", "everyone allow write", tool])
         suite.expect(Tool.hasExtendedACL(tool), "an ACL on the file is seen")
-        suite.expect(check()?.contains("access control list") == true, "an ACL on the file: unsafe")
+        suite.expect(check() == Tool.Problem(reason: .accessControlList, path: tool), "an ACL on the file: unsafe")
         run("/bin/chmod", ["-N", tool])
         suite.expect(!Tool.hasExtendedACL(tool) && check() == nil, "the ACL removed: safe again")
 
         run("/bin/chmod", ["+a", "everyone allow add_file", bin])
-        suite.expect(check()?.contains("\(bin) has an access control list") == true, "an ACL on the folder: unsafe")
+        suite.expect(check() == Tool.Problem(reason: .accessControlList, path: bin), "an ACL on the folder: unsafe")
         run("/bin/chmod", ["-N", bin])
 
         try? FileManager.default.createSymbolicLink(atPath: bin + "/link", withDestinationPath: tool)
         suite.expect(Tool.lstatInfo(bin + "/link")?.kind == .symlink, "lstat does not follow a link")
-        suite.expect(check(bin + "/link")?.contains("not a plain file") == true, "a link to the tool: unsafe")
+        suite.expect(check(bin + "/link")?.reason == .notPlain, "a link to the tool: unsafe")
 
         if let handle = FileHandle(forWritingAtPath: tool) {
             handle.seekToEndOfFile()
@@ -384,7 +440,7 @@ enum GPUControlPageTests {
             try? handle.close()
         }
         suite.expect(Tool.signingIdentifier(tool) == nil, "a byte added after signing: the signature is broken")
-        suite.expect(check()?.contains("changed after it was signed") == true, "a changed tool: unsafe")
+        suite.expect(check() == Tool.Problem(reason: .signature, path: tool), "a changed tool: unsafe")
         suite.expect(Tool.problem(path: tool, lookup: Tool.lstatInfo, signature: Tool.signingIdentifier) != nil,
                      "with the app's own rule (root, \"/\") a user's file is never safe")
         suite.expect(Tool.lstatInfo(top + "/none") == nil, "lstat: nothing there")
@@ -505,7 +561,7 @@ enum GPUControlPageTests {
             return pattern?.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } } ?? []
         }
         let english = GPUControlPageStrings.enUS.all
-        suite.expect(english.count == 61, "61 texts")
+        suite.expect(english.count == 72, "72 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlPage(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
