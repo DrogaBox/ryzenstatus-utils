@@ -203,7 +203,11 @@ final class GPUControlEngine {
         if origin == .remembered, wanted != nil, wantedOrigin == .owner { return }
         let request = request.normalized
         let now = clock()
-        if wanted == nil, request == snapshot.held, snapshot.activity == .none { return }
+        if wanted == nil, request == snapshot.held, snapshot.activity == .none {
+            // Already held: no refusal of an older request stays on screen.
+            snapshot.outcome = nil
+            return
+        }
         // A choice after "close changes" replaces it.
         closeWanted = false
         snapshot.closing = nil
@@ -603,11 +607,14 @@ final class GPUControlEngine {
             _ = readStatus()
         case .failed, .off:
             // "failed": the app's own change was not confirmed; the kext went
-            // back and turned writing off (the notice comes with the status).
+            // back and turned writing off. "off" while a set waited: writing
+            // went off under it, which the owner hears about if the app held
+            // something (the notice comes with the status).
+            let wasHeld = snapshot.held != nil
             snapshot.held = nil
-            if readStatus(confirming: reply == .failed) != nil {
+            if readStatus(confirming: reply == .failed || wasHeld) != nil {
                 // `status` did not say off: stop all the same.
-                if reply == .failed { onNotice?(.writingOff(snapshot.status?.writeOff)) }
+                if reply == .failed || wasHeld { onNotice?(.writingOff(snapshot.status?.writeOff)) }
                 stop(.writingOff(snapshot.status?.writeOffCode ?? 0), close: false)
             }
         case .badVersion:
@@ -726,9 +733,18 @@ final class GPUControlController: @unchecked Sendable {
     private let snapshotLock = NSLock()
     private var lastSnapshot = GPUControlSnapshot()
 
-    /// Called on the main queue.
-    var onChange: (@Sendable (GPUControlSnapshot) -> Void)?
-    var onNotice: (@Sendable (GPUControlNotice) -> Void)?
+    /// Called on the main queue. Read and written under the snapshot lock,
+    /// so a handler set at any time is never read half-way.
+    var onChange: (@Sendable (GPUControlSnapshot) -> Void)? {
+        get { snapshotLock.withLock { changeHandler } }
+        set { snapshotLock.withLock { changeHandler = newValue } }
+    }
+    var onNotice: (@Sendable (GPUControlNotice) -> Void)? {
+        get { snapshotLock.withLock { noticeHandler } }
+        set { snapshotLock.withLock { noticeHandler = newValue } }
+    }
+    private var changeHandler: (@Sendable (GPUControlSnapshot) -> Void)?
+    private var noticeHandler: (@Sendable (GPUControlNotice) -> Void)?
 
     /// Thread-safe flag shared with the engine.
     private final class Gate: @unchecked Sendable {
@@ -867,9 +883,12 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     private func publish(_ snapshot: GPUControlSnapshot) {
-        snapshotLock.withLock { lastSnapshot = snapshot }
-        guard let onChange else { return }
-        DispatchQueue.main.async { onChange(snapshot) }
+        let handler: (@Sendable (GPUControlSnapshot) -> Void)? = snapshotLock.withLock {
+            lastSnapshot = snapshot
+            return changeHandler
+        }
+        guard let handler else { return }
+        DispatchQueue.main.async { handler(snapshot) }
     }
 
     private static func nowMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }

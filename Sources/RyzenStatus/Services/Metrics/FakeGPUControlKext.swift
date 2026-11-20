@@ -32,6 +32,18 @@ import Foundation
 /// ranges, order, first and last point (no "less air than stock"), and the
 /// real driver calls. Times are the kext's: `revertMs` stands for the driver
 /// calls of a way back.
+///
+/// Simplified on purpose:
+/// - A way back is one step that ends `revertMs` later, confirmed or failed
+///   (`failNextWayBack`). The kext makes up to 3 tries 500 ms apart
+///   (`kRevertTries`, `afterRevertTry`), so a slow way back that confirms on
+///   its second try keeps the reverting flag longer than here.
+/// - The fan watchdog trips only when a test calls `tripFanWatchdog()`; the
+///   kext's conditions (95 C, or 75 C with the fan under 90 % for 5 s, or
+///   10 s without readings) are not modelled.
+/// - There is no `SetSlot`: calls answer at once, so a second set while one
+///   waits (Busy) and a connection closing during a set (Cancelled) only
+///   happen through `forcedReplies`.
 final class FakeGPUControlKext: @unchecked Sendable {
     // MARK: Settings the test changes
 
@@ -454,8 +466,9 @@ final class FakeGPUControlKext: @unchecked Sendable {
         case .refuse(let refusal):
             reply = refusal
         case .release:
+            // The kext writes `LastReply` only for a posted set or a refusal.
             startRevert(owner.release(client))
-            reply = .ok
+            return .ok
         case .change:
             var pre = Self.reply(owner.wouldChange(client, nowMs))
             if pre == .ok, !readyLocked { pre = .notReady }
@@ -468,11 +481,17 @@ final class FakeGPUControlKext: @unchecked Sendable {
     }
 
     private func runSet(client: UInt64, watts: UInt32) -> GPUControlReply {
-        guard gpuAnswers else { return .notReady }
         if sleepingLocked { return .sleeping }
         if od8Dirty { return .busy }
         let change = Self.reply(owner.change(client, nowMs))
         guard change == .ok else { return change }
+        guard gpuAnswers else {
+            // `runSet`, sendLimit Busy or NotSent (kern_control.cpp:805-810):
+            // nothing reached the firmware; the change Owner counted goes
+            // back and the program hears "busy".
+            startRevert(owner.release(client))
+            return .busy
+        }
         if failNextChange {
             failNextChange = false
             _ = owner.release(client)
