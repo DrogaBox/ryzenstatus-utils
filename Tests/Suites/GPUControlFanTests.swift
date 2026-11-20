@@ -129,7 +129,10 @@ enum GPUControlFanTests {
     // MARK: Preview
 
     private static func preview(_ suite: TestSuite) {
-        guard let writing = realWriting() else { return }
+        guard let writing = realWriting() else {
+            suite.expect(false, "preview: the 0.7.2 table loads")
+            return
+        }
         let tested = GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve)
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: writing) == .accepted,
                      "the tested curve: the kext would accept it")
