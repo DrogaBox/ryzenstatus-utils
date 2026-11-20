@@ -12,6 +12,8 @@ struct NowPlayingSnapshot: Equatable {
     var album: String?
     var appName: String?
     var appBundleID: String?
+    /// The player's process as the session names it (macOS 15.4+ reader).
+    var appPID: Int32?
     var artworkData: Data?
     var isPlaying = false
     var elapsed: TimeInterval?
@@ -62,6 +64,10 @@ struct NowPlayingSnapshot: Equatable {
     /// A title is the minimum requirement for a "now playing" moment; a
     /// paused track still counts, an idle session does not.
     var hasTrack: Bool { !(title ?? "").isEmpty }
+
+    /// A position control may seek: the song has a length and its player
+    /// moves when asked.
+    var acceptsSeek: Bool { (duration ?? 0) > 0 && !NowPlayingTidal.ignoresSeek(appBundleID) }
 
     var displayTitle: String { title ?? "" }
 
@@ -130,6 +136,7 @@ struct NowPlayingSnapshot: Equatable {
               lhs.album == rhs.album,
               lhs.appName == rhs.appName,
               lhs.appBundleID == rhs.appBundleID,
+              lhs.appPID == rhs.appPID,
               lhs.isPlaying == rhs.isPlaying,
               lhs.elapsed == rhs.elapsed,
               lhs.duration == rhs.duration,
@@ -211,6 +218,9 @@ enum NowPlayingProvider: Int, CaseIterable {
     case music = 1
     case spotify = 2
     case kaset = 3
+    /// TIDAL has no scripting dictionary: it is read and controlled only
+    /// through the system media session.
+    case tidal = 4
 
     /// Bundle identifiers the pinned providers accept. Auto accepts all.
     func accepts(_ bundleID: String?) -> Bool {
@@ -219,7 +229,76 @@ enum NowPlayingProvider: Int, CaseIterable {
         case .music: return bundleID == "com.apple.Music"
         case .spotify: return bundleID == "com.spotify.client"
         case .kaset: return NowPlayingAutomation.isKaset(bundleID)
+        case .tidal: return bundleID == NowPlayingTidal.bundleID
         }
+    }
+
+    /// The providers read over AppleScript where the media session cannot be
+    /// read directly. Auto and TIDAL go through the session reader.
+    var isScripted: Bool {
+        switch self {
+        case .music, .spotify, .kaset: return true
+        case .auto, .tidal: return false
+        }
+    }
+
+    /// The scripted provider that owns a bundle, if any.
+    static func scripted(for bundleID: String?) -> NowPlayingProvider? {
+        if bundleID == NowPlayingAutomation.musicBundleID { return .music }
+        if bundleID == NowPlayingAutomation.spotifyBundleID { return .spotify }
+        if NowPlayingAutomation.isKaset(bundleID) { return .kaset }
+        return nil
+    }
+}
+
+/// The TIDAL desktop app (Electron). Checked on TIDAL 2.48 under macOS 26:
+/// it publishes title, artist, album, cover, elapsed time, duration and rate
+/// (no "is playing" key) to the media session and obeys play and pause from
+/// it. It answers a seek with success but does not move, so its position is
+/// shown and never offered as a control.
+enum NowPlayingTidal {
+    static let bundleID = "com.tidal.desktop"
+
+    /// Players whose session acknowledges a seek without performing it.
+    static func ignoresSeek(_ bundleID: String?) -> Bool {
+        bundleID == Self.bundleID
+    }
+
+    /// During a track change TIDAL briefly publishes parts of the old song
+    /// with parts of the new one. A new title is read again after this delay
+    /// before it is shown (the delay ungive/mediaremote-adapter uses for it).
+    static let titleSettleDelay: TimeInterval = 1.0
+
+    /// Whether a TIDAL reading is read again before it is shown: its title is
+    /// new, the first song the reader sees included (at start, after a stop,
+    /// or after a reading without a song).
+    ///
+    /// The poll right after a settle whose re-read failed does not wait
+    /// again: the title shown then was the unsettled one, and this poll comes
+    /// a second or more after the change, which is all the settle waits for.
+    static func shouldSettle(_ reading: NowPlayingSnapshot, lastTitle: String?,
+                             afterFailedSettle: Bool = false) -> Bool {
+        !afterFailedSettle && reading.appBundleID == bundleID && reading.hasTrack && reading.title != lastTitle
+    }
+
+    /// TIDAL opens `tidal://<path>` as a page of its own web client.
+    static func searchURL(for query: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "tidal"
+        components.host = ""
+        components.path = "/search"
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        return components.url
+    }
+
+    /// TIDAL's web player search, for a Mac without the app.
+    static func webSearchURL(for query: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "listen.tidal.com"
+        components.path = "/search"
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        return components.url
     }
 }
 
@@ -227,7 +306,9 @@ enum NowPlayingProvider: Int, CaseIterable {
 /// values are the stable MRMediaRemoteCommand identifiers (verified against
 /// the MediaRemote private framework header):
 ///   kMRPlay=0, kMRPause=1, kMRTogglePlayPause=2, kMRStop=3,
-///   kMRNextTrack=4, kMRPreviousTrack=5, kMRSeekToPlaybackPosition=20.
+///   kMRNextTrack=4, kMRPreviousTrack=5, kMRSeekToPlaybackPosition=24.
+/// 24 checked on macOS 26.7.3: the system log names 24 SeekToPlaybackPosition
+/// and 20 RateTrack, and players list 24 among their commands.
 enum NowPlayingCommand: Int {
     case play = 0
     case pause = 1
@@ -235,7 +316,7 @@ enum NowPlayingCommand: Int {
     // note: 3 is kMRStop — intentionally omitted to avoid confusion
     case nextTrack = 4
     case previousTrack = 5
-    case seekToPlaybackPosition = 20
+    case seekToPlaybackPosition = 24
 }
 
 /// The system's media session has no public API. Every symbol resolves once
@@ -286,6 +367,7 @@ enum MediaRemoteBridge {
         static let duration = "kMRMediaRemoteNowPlayingInfoDuration"
         static let isPlaying = "kMRMediaRemoteNowPlayingInfoIsPlaying"
         static let playbackRate = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
+        static let timestamp = "kMRMediaRemoteNowPlayingInfoTimestamp"
     }
 
     /// Reads the current media session. The completion runs on `queue`, like
@@ -303,10 +385,14 @@ enum MediaRemoteBridge {
                 snapshot.artist = info[InfoKey.artist] as? String
                 snapshot.album = info[InfoKey.album] as? String
                 snapshot.artworkData = info[InfoKey.artworkData] as? Data
-                snapshot.elapsed = info[InfoKey.elapsedTime] as? TimeInterval
                 snapshot.duration = info[InfoKey.duration] as? TimeInterval
-                let rate = (info[InfoKey.playbackRate] as? TimeInterval) ?? 0
-                snapshot.isPlaying = ((info[InfoKey.isPlaying] as? Bool) ?? false) && rate > 0
+                let rate = info[InfoKey.playbackRate] as? TimeInterval
+                snapshot.isPlaying = NowPlayingSessionReading.isPlaying(
+                    flag: info[InfoKey.isPlaying] as? Bool, rate: rate)
+                snapshot.elapsed = NowPlayingSessionReading.elapsed(
+                    info[InfoKey.elapsedTime] as? TimeInterval, at: info[InfoKey.timestamp] as? Date,
+                    rate: rate ?? (snapshot.isPlaying ? 1 : 0), isPlaying: snapshot.isPlaying,
+                    duration: snapshot.duration, now: Date())
             }
             completion(snapshot)
         }
@@ -454,11 +540,13 @@ enum NowPlayingSearch {
         if snapshot.appBundleID == NowPlayingAutomation.spotifyBundleID { return .spotify }
         if snapshot.appBundleID == NowPlayingAutomation.musicBundleID { return .music }
         if NowPlayingAutomation.isKaset(snapshot.appBundleID) { return .kaset }
+        if snapshot.appBundleID == NowPlayingTidal.bundleID { return .tidal }
         let preferred = NowPlayingProvider(rawValue: UserDefaults.standard
             .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
         switch preferred {
         case .spotify: return .spotify
         case .kaset: return .kaset
+        case .tidal: return .tidal
         case .music, .auto: return .music
         }
     }
@@ -473,7 +561,28 @@ enum NowPlayingSearch {
             openSpotifySearch(query: trimmed)
         case .kaset:
             openKasetSearch(query: trimmed)
+        case .tidal:
+            openTidalSearch(query: trimmed)
         }
+    }
+
+    /// Opens TIDAL's own search page, launching TIDAL when it is closed, or
+    /// TIDAL's web player when the app is not installed or no app on this Mac
+    /// handles `tidal:` links.
+    private static func openTidalSearch(query: String) {
+        if let url = NowPlayingTidal.searchURL(for: query),
+           NSWorkspace.shared.urlForApplication(toOpen: url) != nil,
+           let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingTidal.bundleID) {
+            // TIDAL installed but not opening its scheme (a broken or half
+            // finished install) falls back to the web player too.
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                guard error != nil, let webURL = NowPlayingTidal.webSearchURL(for: query) else { return }
+                DispatchQueue.main.async { NSWorkspace.shared.open(webURL) }
+            }
+            return
+        }
+        guard let webURL = NowPlayingTidal.webSearchURL(for: query) else { return }
+        NSWorkspace.shared.open(webURL)
     }
 
     private static func openSpotifySearch(query: String) {

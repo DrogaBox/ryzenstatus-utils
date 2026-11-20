@@ -175,6 +175,9 @@ enum NowPlayingAutomation {
             case .kaset:
                 let snap = fetchKasetSnapshot()
                 completion(snap)
+            case .tidal:
+                // No scripting dictionary: TIDAL is read from the session.
+                completion(.empty)
             case .auto:
                 let musicRunning = isRunning(bundleID: musicBundleID)
                 let spotifyRunning = isRunning(bundleID: spotifyBundleID)

@@ -8,7 +8,7 @@ import AppKit
 enum NowPlayingPreferredPlayer {
     /// Stored when the choice is left automatic.
     static let automatic = ""
-    static let known = ["com.spotify.client", "com.apple.Music"]
+    static let known = ["com.spotify.client", NowPlayingTidal.bundleID, "com.apple.Music"]
     /// The music app that last played in this launch of the app. Not saved:
     /// it names what the person was listening to, not a setting.
     static var lastPlayed: String?
@@ -19,7 +19,7 @@ enum NowPlayingPreferredPlayer {
     }
 
     /// A chosen player wins while it is installed. Otherwise the music app
-    /// that played last, then Spotify, then Apple Music.
+    /// that played last, then Spotify, then TIDAL, then Apple Music.
     static func resolve(choice: String, lastPlayed: String?, isInstalled: (String) -> Bool) -> String? {
         if !choice.isEmpty, isInstalled(choice) { return choice }
         if let lastPlayed, isInstalled(lastPlayed) { return lastPlayed }

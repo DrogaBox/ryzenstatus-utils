@@ -307,6 +307,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if AppFeature.notch.isAvailable { NotchService.shared.stop(restoreCapture: false) }
         closeNowPlayingPopup()
         NowPlayingPopupController.shared.tearDown()
+        // Ends the session reader's osascript with the app.
+        NowPlayingService.shared.stop()
         if AppFeature.brightness.isAvailable {
             BrightnessService.shared.restoreDisplaysBeforeTermination()
         }

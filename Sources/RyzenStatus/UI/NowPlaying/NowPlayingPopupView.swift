@@ -491,7 +491,7 @@ struct NowPlayingPopupView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: reset)
                 }
             }
-            .disabled(duration <= 0)
+            .disabled(!service.snapshotAcceptsSeek)
             .controlSize(.mini)
             .labelsHidden()
 
@@ -1044,6 +1044,9 @@ private struct NowPlayingDetailsPane: View {
             actionTitle = strings.searchOpenAction
         case .kaset:
             placeholder = strings.searchKasetPlaceholder
+            actionTitle = strings.searchOpenAction
+        case .tidal:
+            placeholder = strings.searchTidalPlaceholder
             actionTitle = strings.searchOpenAction
         case .music, .auto:
             placeholder = strings.searchMusicPlaceholder

@@ -160,7 +160,7 @@ struct NowPlayingTrackContent: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: reset)
                 }
             }
-            .disabled(duration <= 0)
+            .disabled(!service.snapshotAcceptsSeek)
             .controlSize(.mini)
             .labelsHidden()
 
