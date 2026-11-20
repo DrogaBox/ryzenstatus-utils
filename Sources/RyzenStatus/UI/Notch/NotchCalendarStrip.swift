@@ -167,11 +167,9 @@ struct NotchCalendarStrip: View {
     /// Time left in an event under way takes the agenda's "happening now"
     /// color, so it never reads as a wait for the next one.
     private static func clock(_ remaining: String, ongoing: Bool) -> some View {
-        Text(remaining)
-            .font(.system(size: 13, weight: .medium)).monospacedDigit()
-            .lineLimit(1).minimumScaleFactor(0.8)
-            .foregroundStyle(ongoing ? Color.mint : Color.white)
-            .modifier(NotchRollingDigits(value: remaining, countsDown: true, everySecond: false))
+        NotchRollingReading(value: remaining, style: RollingDigitsStyle(size: 13, weight: .medium),
+                            color: ongoing ? Color.mint : Color.white, countsDown: true, everySecond: false,
+                            minimumScaleFactor: 0.8)
     }
 }
 

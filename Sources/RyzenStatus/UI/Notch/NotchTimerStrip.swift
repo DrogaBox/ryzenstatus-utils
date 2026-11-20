@@ -83,11 +83,9 @@ struct NotchTimerStrip: View {
         return Button { service.openActivity(.timer) } label: {
             Group {
                 if geometry.compactActivityWingWidth >= 42 {
-                    Text(text)
-                        .font(.system(size: textSize, weight: .medium)).monospacedDigit()
-                        .foregroundStyle(.orange)
-                        .lineLimit(1).minimumScaleFactor(0.65)
-                        .modifier(NotchRollingDigits(value: text, countsDown: !timer.session.countsUp, everySecond: false))
+                    NotchRollingReading(value: text, style: RollingDigitsStyle(size: textSize, weight: .medium),
+                                        color: .orange, countsDown: !timer.session.countsUp, everySecond: false,
+                                        minimumScaleFactor: 0.65)
                         // A reading that gains or loses a character, like
                         // 10m becoming 9m, resizes the wings; the service
                         // measures the same reading.

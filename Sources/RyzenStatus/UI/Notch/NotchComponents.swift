@@ -74,16 +74,20 @@ struct NotchMeter: View {
 
 /// A clock's digits roll into the next reading, downward while it counts
 /// down and upward while it counts up; Reduce Motion changes them in place.
-struct NotchRollingDigits: ViewModifier {
+/// Core Animation rolls them (`RollingDigitsText`).
+struct NotchRollingReading: View {
     let value: String
+    let style: RollingDigitsStyle
+    let color: Color
     let countsDown: Bool
     /// Off in the closed island, where only the part above the seconds rolls.
     var everySecond = true
+    var minimumScaleFactor: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    func body(content: Content) -> some View {
-        content
-            .contentTransition(.numericText(countsDown: countsDown))
+    var body: some View {
+        RollingDigitsText(value, style: style, color: color, countsDown: countsDown, duration: 0.3,
+                          minimumScaleFactor: minimumScaleFactor)
             .animation(reduceMotion ? nil : .smooth(duration: 0.3),
                        value: NotchTimerSupport.rollingValue(value, everySecond: everySecond))
     }

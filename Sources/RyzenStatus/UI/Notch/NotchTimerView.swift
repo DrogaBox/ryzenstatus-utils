@@ -193,12 +193,12 @@ struct NotchTimerView: View {
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).font(.system(size: 17, weight: .medium))
-                clock(value, size: 62).modifier(NotchRollingDigits(value: value, countsDown: countsDown))
+                clock(value, size: 62, countsDown: countsDown)
             }.fixedSize()
             VStack(alignment: .trailing, spacing: 0) {
                 Text(title).font(.system(size: 13, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.7)
-                clock(value, size: 62).modifier(NotchRollingDigits(value: value, countsDown: countsDown))
+                clock(value, size: 62, countsDown: countsDown)
             }
         }
         .foregroundStyle(.orange)
@@ -287,11 +287,19 @@ struct NotchTimerView: View {
             : String(value)
     }
 
-    private func clock(_ value: String, size: CGFloat) -> some View {
-        Text(value)
-            .font(.system(size: size, weight: .thin)).monospacedDigit()
-            .foregroundStyle(.orange)
-            .lineLimit(1).minimumScaleFactor(0.5)
+    /// The running clock rolls its digits; the setup's clock, without
+    /// `countsDown`, is a plain line as before.
+    @ViewBuilder
+    private func clock(_ value: String, size: CGFloat, countsDown: Bool? = nil) -> some View {
+        if let countsDown {
+            NotchRollingReading(value: value, style: RollingDigitsStyle(size: size, weight: .thin), color: .orange,
+                                countsDown: countsDown, minimumScaleFactor: 0.5)
+        } else {
+            Text(value)
+                .font(.system(size: size, weight: .thin)).monospacedDigit()
+                .foregroundStyle(.orange)
+                .lineLimit(1).minimumScaleFactor(0.5)
+        }
     }
 
     private func roundButton(symbol: String, title: String, primary: Bool,
