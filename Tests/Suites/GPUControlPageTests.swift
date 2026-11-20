@@ -240,24 +240,37 @@ enum GPUControlPageTests {
             "/usr/local/bin/gpucontrol": rootTool, "/usr/local/bin": rootDir, "/usr/local": rootDir,
             "/usr": rootDir, "/": Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o1755),
         ]
-        func availability(_ table: [String: Tool.FileInfo], home: String = "/Users/someone") -> Tool.Availability {
-            Tool.availability(lookup: { table[$0] }, home: home)
+        let ours: Tool.Signature = { _ in Tool.identifier }
+        func availability(_ table: [String: Tool.FileInfo], signature: @escaping Tool.Signature = ours,
+                          home: String = "/Users/someone") -> Tool.Availability {
+            Tool.availability(lookup: { table[$0] }, signature: signature, home: home)
         }
-        suite.expect(availability(safe) == .button, "root's tool in root's folders: the button")
+        suite.expect(availability(safe) == .button, "our signed tool, root's, in root's folders: the button")
         suite.expect(Tool.armCommand == "/usr/local/bin/gpucontrol arm", "the dialog runs a fixed command")
         suite.expect(AdminShell.appleScriptSource(command: Tool.armCommand, prompt: "p")
                         == "do shell script \"/usr/local/bin/gpucontrol arm\" with administrator privileges with prompt \"p\"",
                      "the administrator script carries the fixed command and nothing else")
+        // The installer's rule is "no group or other write", not one mode.
+        for mode: UInt16 in [0o755, 0o555, 0o700, 0o750] {
+            var table = safe
+            table["/usr/local/bin/gpucontrol"] = Tool.FileInfo(kind: .regular, uid: 0, permissions: mode)
+            suite.expect(availability(table) == .button, "mode \(String(mode, radix: 8)): no group or other write, the button")
+        }
         let cases: [(String, Tool.FileInfo, String)] = [
             ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 501, permissions: 0o755), "the user's file"),
             ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o775), "group can write the file"),
+            ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o757), "others can write the file"),
             ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o4755), "setuid file"),
-            ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o700), "mode 700"),
             ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .symlink, uid: 0, permissions: 0o755), "a link"),
+            ("/usr/local/bin/gpucontrol", Tool.FileInfo(kind: .regular, uid: 0, permissions: 0o755, hasACL: true),
+             "an access control list on the file"),
             ("/usr/local/bin", Tool.FileInfo(kind: .directory, uid: 501, permissions: 0o755), "the user's bin folder (Homebrew)"),
             ("/usr/local/bin", Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o775), "group can write bin"),
+            ("/usr/local/bin", Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o755, hasACL: true),
+             "an access control list on bin"),
             ("/usr/local", Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o757), "others can write /usr/local"),
             ("/usr/local", Tool.FileInfo(kind: .symlink, uid: 0, permissions: 0o755), "/usr/local is a link"),
+            ("/usr", Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o755, hasACL: true), "an access control list on /usr"),
             ("/", Tool.FileInfo(kind: .directory, uid: 501, permissions: 0o755), "the root folder is not root's"),
         ]
         for (path, info, why) in cases {
@@ -269,6 +282,16 @@ enum GPUControlPageTests {
             }
             suite.expect(problem.contains(path), "\(why): the reason names \(path)")
             suite.expect(availability(table).command == "sudo /usr/local/bin/gpucontrol arm", "\(why): the command to copy")
+        }
+        if case .unsafe(let why) = availability(safe, signature: { _ in nil }) {
+            suite.expect(why.contains("changed after it was signed"), "a broken signature: no button")
+        } else {
+            suite.expect(false, "a broken signature: no button")
+        }
+        if case .unsafe(let why) = availability(safe, signature: { _ in "com.example.gpucontrol" }) {
+            suite.expect(why.contains("another program"), "another identifier: no button")
+        } else {
+            suite.expect(false, "another identifier: no button")
         }
         var unreadable = safe
         unreadable["/usr"] = nil
@@ -285,21 +308,7 @@ enum GPUControlPageTests {
         suite.expect(build.command == "sudo /Users/someone/Desktop/DrogaBoxGPU/sensors/build/gpucontrol arm",
                      "the build path's command to copy (never run by the app)")
 
-        // lstat itself, on files this test makes (never the real tool).
-        let folder = NSTemporaryDirectory() + "gpucontrol-armtool-\(getpid())"
-        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let file = folder + "/tool"
-        FileManager.default.createFile(atPath: file, contents: Data([0x23, 0x21]),
-                                       attributes: [.posixPermissions: 0o755])
-        try? FileManager.default.createSymbolicLink(atPath: folder + "/link", withDestinationPath: file)
-        let info = Tool.lstatInfo(file)
-        suite.expect(info == Tool.FileInfo(kind: .regular, uid: getuid(), permissions: 0o755),
-                     "lstat: a plain file, the user's, mode 755")
-        suite.expect(Tool.lstatInfo(folder + "/link")?.kind == .symlink, "lstat does not follow a link")
-        suite.expect(Tool.lstatInfo(folder)?.kind == .directory, "lstat: a folder")
-        suite.expect(Tool.lstatInfo(folder + "/none") == nil, "lstat: nothing there")
-        if let info { suite.expect(Tool.problem(file: info, lookup: Tool.lstatInfo) != nil, "a user's file is never safe") }
-        try? FileManager.default.removeItem(atPath: folder)
+        realFiles(suite)
 
         // The service runs only that command, only from the button.
         let source = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
@@ -309,6 +318,77 @@ enum GPUControlPageTests {
                      "one administrator call, with the fixed command")
         suite.expect(source.contains("guard armTool == .button else { return }"),
                      "the button checks the file again right before the dialog")
+    }
+
+    /// The same checks on real files in a folder this test owns: its user
+    /// stands in for root and the folder for "/". Never the real tool.
+    private static func realFiles(_ suite: TestSuite) {
+        typealias Tool = GPUControlArmTool
+        @discardableResult
+        func run(_ tool: String, _ arguments: [String]) -> Int32 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tool)
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch { return -1 }
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+        let top = NSTemporaryDirectory() + "gpucontrol-armtool-\(getpid())"
+        let bin = top + "/bin"
+        let tool = bin + "/gpucontrol"
+        try? FileManager.default.removeItem(atPath: top)
+        try? FileManager.default.createDirectory(atPath: bin, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o755])
+        run("/bin/chmod", ["755", top])
+        try? FileManager.default.copyItem(atPath: "/usr/bin/true", toPath: tool)
+        run("/bin/chmod", ["755", tool])
+        // An ad hoc signature with our identifier, as DrogaBoxGPU signs it.
+        let signed = run("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", Tool.identifier, tool])
+        suite.expect(signed == 0, "the test's copy is signed ad hoc as com.droga.gpucontrol")
+        let me = getuid()
+        func check(_ path: String = tool) -> String? {
+            Tool.problem(path: path, owner: me, top: top, lookup: Tool.lstatInfo, signature: Tool.signingIdentifier)
+        }
+        suite.expect(Tool.signingIdentifier(tool) == Tool.identifier, "the signature reads back as com.droga.gpucontrol")
+        suite.expect(Tool.signingIdentifier("/usr/bin/true") == "com.apple.true", "a system tool reads as its own identifier")
+        suite.expect(check() == nil, "own folder, own signed tool, mode 755, no ACL: safe")
+        suite.expect(Tool.lstatInfo(tool) == Tool.FileInfo(kind: .regular, uid: me, permissions: 0o755, hasACL: false),
+                     "lstat: a plain file, the user's, mode 755, no ACL")
+
+        run("/bin/chmod", ["775", tool])
+        suite.expect(check()?.contains("has mode 775") == true, "group write on the file: unsafe")
+        run("/bin/chmod", ["757", bin])
+        run("/bin/chmod", ["755", tool])
+        suite.expect(check()?.contains("can be written by others") == true, "others can write the folder: unsafe")
+        run("/bin/chmod", ["755", bin])
+
+        run("/bin/chmod", ["+a", "everyone allow write", tool])
+        suite.expect(Tool.hasExtendedACL(tool), "an ACL on the file is seen")
+        suite.expect(check()?.contains("access control list") == true, "an ACL on the file: unsafe")
+        run("/bin/chmod", ["-N", tool])
+        suite.expect(!Tool.hasExtendedACL(tool) && check() == nil, "the ACL removed: safe again")
+
+        run("/bin/chmod", ["+a", "everyone allow add_file", bin])
+        suite.expect(check()?.contains("\(bin) has an access control list") == true, "an ACL on the folder: unsafe")
+        run("/bin/chmod", ["-N", bin])
+
+        try? FileManager.default.createSymbolicLink(atPath: bin + "/link", withDestinationPath: tool)
+        suite.expect(Tool.lstatInfo(bin + "/link")?.kind == .symlink, "lstat does not follow a link")
+        suite.expect(check(bin + "/link")?.contains("not a plain file") == true, "a link to the tool: unsafe")
+
+        if let handle = FileHandle(forWritingAtPath: tool) {
+            handle.seekToEndOfFile()
+            handle.write(Data([0]))
+            try? handle.close()
+        }
+        suite.expect(Tool.signingIdentifier(tool) == nil, "a byte added after signing: the signature is broken")
+        suite.expect(check()?.contains("changed after it was signed") == true, "a changed tool: unsafe")
+        suite.expect(Tool.problem(path: tool, lookup: Tool.lstatInfo, signature: Tool.signingIdentifier) != nil,
+                     "with the app's own rule (root, \"/\") a user's file is never safe")
+        suite.expect(Tool.lstatInfo(top + "/none") == nil, "lstat: nothing there")
+        try? FileManager.default.removeItem(atPath: top)
     }
 
     private static func remember(_ suite: TestSuite) {

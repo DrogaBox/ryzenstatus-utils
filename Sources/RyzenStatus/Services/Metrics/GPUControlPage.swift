@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import Foundation
+import Security
 
 /// What the GPU control page knows about the kext's write path, from one
 /// place: the channel's `status` while the controller's connection is open
@@ -207,12 +208,23 @@ enum GPUControlPageLogic {
 
 /// Whether the app may offer "Open writing…": it runs
 /// `/usr/local/bin/gpucontrol arm` as root through the administrator dialog,
-/// so nothing a program of this user can replace may be on that path.
+/// so nothing a program of this user can replace may be on that path. The
+/// checks are the ones DrogaBoxGPU's installer makes before it puts the tool
+/// there (`install/sensors.sh`, `tool_file_unsound` and `tool_dir_unsafe`):
+/// a plain file, root's, no group or other write, no access control list;
+/// every folder above it root's, no group or other write, no access control
+/// list; the signature intact with the identifier `com.droga.gpucontrol`.
+/// The tool is signed ad hoc, so the identifier only keeps the button from
+/// running some other program of that name; the trust comes from only root
+/// being able to change the file and its folders.
 enum GPUControlArmTool {
     static let installedPath = "/usr/local/bin/gpucontrol"
+
     /// The whole command the administrator dialog runs: a fixed path, no
     /// input from anyone.
     static let armCommand = installedPath + " arm"
+    static let identifier = "com.droga.gpucontrol"
+
     /// Where DrogaBoxGPU's build leaves the tool, under the home folder.
     static let buildRelativePath = "Desktop/DrogaBoxGPU/sensors/build/gpucontrol"
 
@@ -220,19 +232,29 @@ enum GPUControlArmTool {
         enum Kind: Equatable, Sendable { case regular, directory, symlink, other }
         var kind: Kind
         var uid: UInt32
+
         /// The permission bits (`st_mode & 07777`).
         var permissions: UInt16
+
+        /// An extended access control list is set (`ls -le` shows "+").
+        var hasACL = false
     }
 
-    /// `lstat`, or a test's table.
+    /// `lstat` plus the ACL, or a test's table.
     typealias Lookup = (String) -> FileInfo?
+
+    /// The identifier of a file whose signature is intact, else nil.
+    typealias Signature = (String) -> String?
 
     enum Availability: Equatable, Sendable {
         /// Installed safely: the button can run it.
         case button
-        /// Installed, but something on its path is not root's alone: only
-        /// the command is shown, for the owner to run.
+
+        /// Installed, but something on its path is not root's alone, or the
+        /// file is not our signed tool: only the command is shown, for the
+        /// owner to run.
         case unsafe(String)
+
         /// Not installed. `buildPath`: the tool where DrogaBoxGPU builds it,
         /// when it is there.
         case missing(buildPath: String?)
@@ -247,31 +269,43 @@ enum GPUControlArmTool {
         }
     }
 
-    static func availability(lookup: Lookup, home: String) -> Availability {
-        guard let file = lookup(installedPath) else {
+    static func availability(lookup: Lookup = lstatInfo, signature: Signature = signingIdentifier,
+                             home: String) -> Availability {
+        guard lookup(installedPath) != nil else {
             let build = (home as NSString).appendingPathComponent(buildRelativePath)
             return .missing(buildPath: lookup(build)?.kind == .regular ? build : nil)
         }
-        if let problem = problem(file: file, lookup: lookup) { return .unsafe(problem) }
+        if let problem = problem(path: installedPath, lookup: lookup, signature: signature) { return .unsafe(problem) }
         return .button
     }
 
-    /// Nil when the file and every folder above it belong to root alone.
-    static func problem(file: FileInfo, lookup: Lookup) -> String? {
-        guard file.kind == .regular else { return "\(installedPath) is not a plain file" }
-        guard file.uid == 0 else { return "\(installedPath) does not belong to root" }
-        guard file.permissions == 0o755 else {
-            return "\(installedPath) has mode \(String(file.permissions, radix: 8)), not 755"
+    /// Nil when `path` and every folder above it, up to and including `top`,
+    /// belong to `owner` alone and the file is our signed tool. The app asks
+    /// for root and "/"; a test passes its own user and folder.
+    static func problem(path: String, owner: UInt32 = 0, top: String = "/",
+                        lookup: Lookup, signature: Signature) -> String? {
+        guard let file = lookup(path) else { return "\(path) cannot be read" }
+        guard file.kind == .regular else { return "\(path) is not a plain file" }
+        guard file.uid == owner else { return "\(path) does not belong to root" }
+        // No group or other write (the installer's rule); no setuid or setgid
+        // either, which the installer never sets.
+        guard file.permissions & 0o6022 == 0 else {
+            return "\(path) has mode \(String(file.permissions, radix: 8))"
         }
-        var folder = (installedPath as NSString).deletingLastPathComponent
+        guard !file.hasACL else { return "\(path) has an access control list" }
+        var folder = (path as NSString).deletingLastPathComponent
         while true {
             guard let info = lookup(folder) else { return "\(folder) cannot be read" }
             guard info.kind == .directory else { return "\(folder) is not a plain folder" }
-            guard info.uid == 0 else { return "\(folder) does not belong to root" }
+            guard info.uid == owner else { return "\(folder) does not belong to root" }
             guard info.permissions & 0o022 == 0 else { return "\(folder) can be written by others than root" }
-            if folder == "/" { return nil }
+            guard !info.hasACL else { return "\(folder) has an access control list" }
+            if folder == top || folder == "/" { break }
             folder = (folder as NSString).deletingLastPathComponent
         }
+        guard let id = signature(path) else { return "\(path) is not signed, or was changed after it was signed" }
+        guard id == identifier else { return "\(path) is another program (\(id))" }
+        return nil
     }
 
     /// The real file system, without following a link.
@@ -281,10 +315,33 @@ enum GPUControlArmTool {
         let type = st.st_mode & S_IFMT
         let kind: FileInfo.Kind = type == S_IFREG ? .regular : type == S_IFDIR ? .directory
             : type == S_IFLNK ? .symlink : .other
-        return FileInfo(kind: kind, uid: st.st_uid, permissions: UInt16(st.st_mode & 0o7777))
+        return FileInfo(kind: kind, uid: st.st_uid, permissions: UInt16(st.st_mode & 0o7777),
+                        hasACL: hasExtendedACL(path))
+    }
+
+    /// Whether the file itself (not a link's target) carries an extended ACL
+    /// with at least one entry.
+    static func hasExtendedACL(_ path: String) -> Bool {
+        guard let acl = acl_get_link_np(path, ACL_TYPE_EXTENDED) else { return false }
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        var entry: acl_entry_t?
+        return acl_get_entry(acl, ACL_FIRST_ENTRY.rawValue, &entry) == 0
+    }
+
+    /// The signing identifier when the signature is intact on every
+    /// architecture (`codesign --verify`), else nil.
+    static func signingIdentifier(_ path: String) -> String? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess,
+              let code else { return nil }
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures)
+        guard SecStaticCodeCheckValidity(code, flags, nil) == errSecSuccess else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return nil }
+        return dict[kSecCodeInfoIdentifier as String] as? String
     }
 }
-
 // MARK: - Remembering the setting (plan 8, D4 = at launch and at wake)
 
 /// What the app remembers: only what it held, confirmed by the kext.

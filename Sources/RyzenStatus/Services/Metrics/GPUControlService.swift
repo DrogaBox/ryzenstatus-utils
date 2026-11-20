@@ -205,7 +205,7 @@ final class GPUControlService: ObservableObject {
 
     private func refreshArmTool() {
         armTool = fake != nil ? .button
-            : GPUControlArmTool.availability(lookup: GPUControlArmTool.lstatInfo, home: NSHomeDirectory())
+            : GPUControlArmTool.availability(home: NSHomeDirectory())
     }
 
     /// The model's properties, as the kext would publish them.
