@@ -113,6 +113,9 @@ final class NowPlayingService: ObservableObject {
     /// The last title the session reader delivered, on `queue`, so a TIDAL
     /// song change is read once more before it is shown.
     private var lastSessionTitle: String?
+    /// The last settle re-read failed and showed the reading that asked for
+    /// it, on `queue`: the next poll shows what it reads without settling.
+    private var settleFailed = false
     /// The cover the reader cannot send, read once per song through the
     /// bundled perl helper on its own queue so a poll never waits for it.
     private let coverQueue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-cover", qos: .utility)
@@ -396,9 +399,13 @@ final class NowPlayingService: ObservableObject {
         guard !retiredRuns.isRetired(gen) else { return }
         let settled = trigger != nil
         if settled { pendingSettle = nil }
-        let reading = sessionReader.read() ?? trigger
+        let fresh = sessionReader.read()
+        let reading = fresh ?? trigger
+        let afterFailedSettle = !settled && settleFailed
+        settleFailed = settled && fresh == nil
         if !settled, let reading,
-           NowPlayingTidal.shouldSettle(reading.snapshot, lastTitle: lastSessionTitle) {
+           NowPlayingTidal.shouldSettle(reading.snapshot, lastTitle: lastSessionTitle,
+                                        afterFailedSettle: afterFailedSettle) {
             pendingSettle?.cancel()
             let settle = DispatchWorkItem { [weak self] in
                 self?.readSession(provider: provider, generation: gen, settling: reading)
@@ -491,8 +498,13 @@ final class NowPlayingService: ObservableObject {
             let startedAt = ProcessInfo.processInfo.systemUptime
             let cover = self.coverReader.read()
             let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
+            // A read that started a rest or turned covers off says so at once,
+            // so the next poll does not hop here only to be skipped.
+            let readyAt = self.coverReader.readyAt
             self.queue.async { [weak self] in
-                guard let self, self.sessionCover?.key == key else { return }
+                guard let self else { return }
+                self.coversReadyAt = readyAt
+                guard self.sessionCover?.key == key else { return }
                 self.sessionCover?.recordRead(at: startedAt, data: data)
                 guard let data else { return }
                 DispatchQueue.main.async { [weak self] in
@@ -514,6 +526,7 @@ final class NowPlayingService: ObservableObject {
         pendingSettle = nil
         sessionReader.stop()
         lastSessionTitle = nil
+        settleFailed = false
         sessionCover = nil
     }
 

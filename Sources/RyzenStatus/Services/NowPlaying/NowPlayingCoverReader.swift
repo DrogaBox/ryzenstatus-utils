@@ -6,16 +6,21 @@ import os
 import Security
 
 /// When the cover helper may run. A library that does not load (missing,
-/// refused, wrong file) stops covers for the run; anything else, such as a
-/// timeout right after wake, rests covers for a while and then tries again.
+/// refused, wrong file) stops covers for the run; so does a perl that will
+/// not start, until "Clear media cache". Anything else, such as a timeout
+/// right after wake, rests covers for a while and then tries again.
 struct NowPlayingCoverBackoff: Equatable {
     static let failuresBeforeRest = 2
     static let restInterval: TimeInterval = 300
 
-    enum Outcome: Equatable { case success, unavailable, transientFailure }
+    /// `notStarting`: perl failed to start twice in a row.
+    enum Outcome: Equatable { case success, unavailable, notStarting, transientFailure }
     enum Change: Equatable { case none, stopped, resting }
 
     private(set) var stopped = false
+    /// Covers stopped because perl would not start, which "Clear media cache"
+    /// may try again; a library that cannot load stays off.
+    private(set) var stoppedByLaunch = false
     private(set) var failures = 0
     private(set) var restingUntil: TimeInterval = 0
 
@@ -27,9 +32,10 @@ struct NowPlayingCoverBackoff: Equatable {
         case .success:
             failures = 0
             return .none
-        case .unavailable:
+        case .unavailable, .notStarting:
             guard !stopped else { return .none }
             stopped = true
+            stoppedByLaunch = outcome == .notStarting
             return .stopped
         case .transientFailure:
             failures += 1
@@ -40,11 +46,15 @@ struct NowPlayingCoverBackoff: Equatable {
         }
     }
 
-    /// "Clear media cache" gives covers another chance after a rest, not
-    /// after a library that cannot load.
+    /// "Clear media cache" gives covers another chance after a rest or a
+    /// perl that would not start, not after a library that cannot load.
     mutating func clearRest() {
         failures = 0
         restingUntil = 0
+        if stoppedByLaunch {
+            stopped = false
+            stoppedByLaunch = false
+        }
     }
 }
 
@@ -56,9 +66,9 @@ struct NowPlayingCoverBackoff: Equatable {
 /// daemon trusts, and prints it.
 ///
 /// It runs for a new song, never per poll. Failures write one log line and
-/// back off (`NowPlayingCoverBackoff`); a library that does not load, or a
-/// perl that fails to start twice in a row, ends covers for the run. Players
-/// then show their app icon.
+/// back off (`NowPlayingCoverBackoff`); a library that does not load ends
+/// covers for the run, and a perl that fails to start twice in a row ends
+/// them until "Clear media cache". Players then show their app icon.
 ///
 /// Not thread-safe: every call runs on the caller's serial queue.
 final class NowPlayingCoverReader {
@@ -122,7 +132,12 @@ final class NowPlayingCoverReader {
     /// off for the run.
     var readyAt: TimeInterval { backoff.stopped ? .infinity : backoff.restingUntil }
 
-    func clearRest() { backoff.clearRest() }
+    /// "Clear media cache": covers that rest, or that perl could not start,
+    /// try again, with a failed start forgotten.
+    func clearRest() {
+        backoff.clearRest()
+        lastRunDidNotStart = false
+    }
 
     /// The session's cover now, or nil when there is none or covers rest.
     func read() -> Cover? {
@@ -161,19 +176,28 @@ final class NowPlayingCoverReader {
             timeout: Self.timeout, maxOutputBytes: Self.maximumOutputBytes,
             // Nothing from the app's environment (PERL5LIB, PERL5OPT) reaches perl.
             environment: NowPlayingSessionReader.childEnvironment)
-        let didNotStart = Self.didNotStart(status: result.status, timedOut: result.timedOut, output: result.output)
+        let cover = result.status == 0 ? Self.parse(result.output) : nil
+        record(status: result.status, timedOut: result.timedOut, output: result.output, gotCover: cover != nil,
+               at: uptime)
+        return cover
+    }
+
+    /// Books one helper run: a cover clears the failures, anything else backs
+    /// off as `outcome` says, and whether perl started is kept for the next
+    /// run, which a success or any run that started forgets.
+    func record(status: Int32, timedOut: Bool, output: Data, gotCover: Bool, at uptime: TimeInterval) {
+        let didNotStart = Self.didNotStart(status: status, timedOut: timedOut, output: output)
         defer { lastRunDidNotStart = didNotStart }
-        if result.status == 0, let cover = Self.parse(result.output) {
+        if gotCover {
             _ = backoff.record(.success, at: uptime)
-            return cover
+            return
         }
-        let detail = String(decoding: result.output.prefix(300), as: UTF8.self)
+        let detail = String(decoding: output.prefix(300), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let outcome = Self.outcome(status: result.status, timedOut: result.timedOut, output: result.output,
+        let outcome = Self.outcome(status: status, timedOut: timedOut, output: output,
                                    didNotStartBefore: lastRunDidNotStart)
-        let what = result.timedOut ? "timed out" : (result.status == -1 ? "could not start" : "exited \(result.status)")
+        let what = timedOut ? "timed out" : (status == -1 ? "could not start" : "exited \(status)")
         note(outcome, "perl helper \(what) \(detail)", at: uptime)
-        return nil
     }
 
     static let perlPath = "/usr/bin/perl"
@@ -188,19 +212,21 @@ final class NowPlayingCoverReader {
     /// library does not load. A perl that could not be started may be a
     /// passing problem (no free descriptors, memory), so one such run only
     /// counts as a failure; a second one in a row means it will not start,
-    /// and covers end for the run. Anything else may pass, such as a timeout
-    /// right after wake.
+    /// and covers end until "Clear media cache". Anything else may pass, such
+    /// as a timeout right after wake.
     static func outcome(status: Int32, timedOut: Bool, output: Data,
                         didNotStartBefore: Bool = false) -> NowPlayingCoverBackoff.Outcome {
         if status == 2 || status == 3 { return .unavailable }
         if didNotStart(status: status, timedOut: timedOut, output: output) {
-            return didNotStartBefore ? .unavailable : .transientFailure
+            return didNotStartBefore ? .notStarting : .transientFailure
         }
         return .transientFailure
     }
 
     private func note(_ outcome: NowPlayingCoverBackoff.Outcome, _ reason: String, at uptime: TimeInterval) {
         switch backoff.record(outcome, at: uptime) {
+        case .stopped where outcome == .notStarting:
+            Self.log.notice("Now Playing covers off until the media cache is cleared: \(reason, privacy: .public)")
         case .stopped:
             Self.log.notice("Now Playing covers off for this run: \(reason, privacy: .public)")
         case .resting:

@@ -9485,6 +9485,12 @@ struct MetricsTests {
                    "Cover backoff: a library that does not load stops covers, logged once")
             backoff.clearRest()
             expect(!backoff.allows(at: 20_000), "Cover backoff: clearing the cache does not bring back a library that cannot load")
+            var launch = NowPlayingCoverBackoff()
+            expect(launch.record(.notStarting, at: 600) == .stopped && !launch.allows(at: 10_000) && launch.stopped,
+                   "Cover backoff: a perl that will not start turns covers off")
+            launch.clearRest()
+            expect(launch.allows(at: 601) && !launch.stopped,
+                   "Cover backoff: clearing the cache tries a perl that would not start again")
 
             // A song's cover is asked once more if it was not ready, never more.
             var songCover = NowPlayingSessionCover(key: "k", askedAt: 50)
@@ -9540,6 +9546,8 @@ struct MetricsTests {
             noSong.title = nil
             expect(!NowPlayingTidal.shouldSettle(otherPlayer, lastTitle: nil) && !NowPlayingTidal.shouldSettle(noSong, lastTitle: nil),
                    "TIDAL settle: other players and readings without a song show at once")
+            expect(!NowPlayingTidal.shouldSettle(settling, lastTitle: "Other", afterFailedSettle: true),
+                   "TIDAL settle: the poll after a failed settle shows a new title without waiting again")
 
             // A reader that cannot reach MediaRemote says so, and that counts as a failure.
             let unavailableLine = NowPlayingSessionReading.parse(line: Data(#"{"seq":11,"error":"MediaRemote unavailable"}"#.utf8), now: readAt)
@@ -9557,14 +9565,39 @@ struct MetricsTests {
             // missing library; once may be a passing problem.
             expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data()) == .transientFailure,
                    "Cover helper: one perl that cannot start only counts as a failure")
-            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data(), didNotStartBefore: true) == .unavailable,
-                   "Cover helper: a perl that cannot start twice in a row turns covers off for the run")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data(), didNotStartBefore: true) == .notStarting,
+                   "Cover helper: a perl that cannot start twice in a row turns covers off until the cache is cleared")
             expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data(), didNotStartBefore: true) == .transientFailure
                    && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data(), didNotStartBefore: true) == .transientFailure,
                    "Cover helper: after a failed start, a timeout or another exit only rests covers")
             expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data()) == .transientFailure
                    && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data("x".utf8)) == .transientFailure,
                    "Cover helper: a timeout or another exit only rests covers")
+            // The reader keeps whether the last run started: a success, a
+            // timeout or any run that started forgets a failed start.
+            func notStarted(_ reader: NowPlayingCoverReader, at uptime: TimeInterval) {
+                reader.record(status: -1, timedOut: false, output: Data(), gotCover: false, at: uptime)
+            }
+            let twice = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(twice, at: 700)
+            expect(!twice.gaveUp, "Cover reader: one perl that cannot start keeps covers on")
+            notStarted(twice, at: 701)
+            expect(twice.gaveUp && twice.readyAt == .infinity, "Cover reader: two in a row turn covers off")
+            twice.clearRest()
+            expect(!twice.gaveUp && twice.readyAt == 0 && twice.isReady(at: 702),
+                   "Cover reader: \"Clear media cache\" brings back covers a perl that would not start turned off")
+            notStarted(twice, at: 703)
+            expect(!twice.gaveUp, "Cover reader: after clearing, one failed start is a passing problem again")
+            let afterSuccess = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(afterSuccess, at: 800)
+            afterSuccess.record(status: 0, timedOut: false, output: Data("{}".utf8), gotCover: true, at: 801)
+            notStarted(afterSuccess, at: 802)
+            expect(!afterSuccess.gaveUp, "Cover reader: a cover between two failed starts keeps covers on")
+            let afterTimeout = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(afterTimeout, at: 900)
+            afterTimeout.record(status: -1, timedOut: true, output: Data(), gotCover: false, at: 901)
+            notStarted(afterTimeout, at: 902)
+            expect(!afterTimeout.gaveUp, "Cover reader: a timeout between two failed starts keeps covers on")
             expect(NowPlayingCoverReader.outcome(status: 2, timedOut: false, output: Data()) == .unavailable
                    && NowPlayingCoverReader.outcome(status: 3, timedOut: false, output: Data()) == .unavailable,
                    "Cover helper: a library that does not load turns covers off")

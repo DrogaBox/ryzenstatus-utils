@@ -272,8 +272,13 @@ enum NowPlayingTidal {
     /// Whether a TIDAL reading is read again before it is shown: its title is
     /// new, the first song the reader sees included (at start, after a stop,
     /// or after a reading without a song).
-    static func shouldSettle(_ reading: NowPlayingSnapshot, lastTitle: String?) -> Bool {
-        reading.appBundleID == bundleID && reading.hasTrack && reading.title != lastTitle
+    ///
+    /// The poll right after a settle whose re-read failed does not wait
+    /// again: the title shown then was the unsettled one, and this poll comes
+    /// a second or more after the change, which is all the settle waits for.
+    static func shouldSettle(_ reading: NowPlayingSnapshot, lastTitle: String?,
+                             afterFailedSettle: Bool = false) -> Bool {
+        !afterFailedSettle && reading.appBundleID == bundleID && reading.hasTrack && reading.title != lastTitle
     }
 
     /// TIDAL opens `tidal://<path>` as a page of its own web client.
