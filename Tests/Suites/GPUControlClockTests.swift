@@ -13,6 +13,7 @@ enum GPUControlClockTests {
         remember(suite)
         controller(suite)
         strings(suite)
+        reviewFixes(suite)
     }
 
     private typealias Logic = GPUControlClockLogic
@@ -210,5 +211,108 @@ enum GPUControlClockTests {
                         == "Elige un valor entre 1500 y 2359 MHz.", "the field's range in Spanish")
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve, gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a fan curve and a GFX maximum of 2300 MHz", "a curve and a clock held, in one sentence")
+    }
+
+    /// The review of phases 3 and 4 (F1 to F6).
+    private static func reviewFixes(_ suite: TestSuite) {
+        let curve = GPUControlFanDraft.testedCurve
+        // F1: a stock fan draft keeps a held clock, and never gives back power.
+        do {
+            let h = Harness()
+            h.engine.chooseGfxMax(2_300)
+            h.run(ms: 3_000)
+            h.engine.chooseFan(curve: nil, zeroRpmOff: false)
+            h.run(ms: 3_000)
+            suite.expect(h.engine.snapshot.held == .od8(GPUControlOD8Want(gfxMaxMHz: 2_300)) && h.replies(.release) == 0,
+                         "F1: a stock fan with a held clock: the clock stays")
+        }
+        do {
+            let h = Harness()
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 3_000)
+            h.engine.chooseFan(curve: nil, zeroRpmOff: false)
+            h.engine.chooseGfxMax(nil)
+            h.run(ms: 3_000)
+            suite.expect(h.engine.snapshot.held == .power(watts: 220) && h.replies(.release) == 0,
+                         "F1/F3: a stock fan or clock with a power limit held: nothing is given back")
+        }
+        let service = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                    + "/Sources/RyzenStatus/Services/Metrics/GPUControlService.swift", encoding: .utf8)) ?? ""
+        suite.expect(!service.contains("draft.want.isStock"), "F1: applyFan always goes through the controller")
+        // F2: the owner's way back is in the snapshot, so the remembered one is forgotten.
+        do {
+            let h = Harness()
+            h.engine.chooseGfxMax(2_300)
+            h.run(ms: 3_000)
+            suite.expect(!h.engine.snapshot.ownerReleased, "F2: a hold is not a way back")
+            h.engine.chooseGfxMax(nil)
+            h.run(ms: 0)
+            suite.expect(h.engine.snapshot.ownerReleased && h.engine.snapshot.held == nil && h.replies(.release) == 1,
+                         "F2: turning the clock off is the owner's way back")
+            suite.expect(GPUControlRememberPolicy.toSave(held: nil, ownerChoseStartUp: h.engine.snapshot.ownerReleased,
+                                                         active: true) == .nothing, "F2: so the remembered clock is forgotten")
+            h.run(ms: 3_000)
+            h.engine.chooseGfxMax(2_200)
+            suite.expect(!h.engine.snapshot.ownerReleased, "F2: the next choice clears it")
+            suite.expect(service.contains("next.ownerReleased"), "F2: the service saves on the snapshot's flag")
+        }
+        // F3: the controller compares with what waits, not only with what is held.
+        do {
+            let h = Harness()
+            h.engine.chooseGfxMax(2_200)
+            h.run(ms: 0)
+            h.engine.chooseGfxMax(2_100)
+            h.engine.chooseGfxMax(2_200)
+            h.run(ms: 5_000)
+            suite.expect(h.calls(.setOD8).map { $0.input[12] } == [2_200]
+                            && h.engine.snapshot.held == .od8(GPUControlOD8Want(gfxMaxMHz: 2_200)),
+                         "F3: 2200 held, 2100 waiting, back to 2200: 2100 never goes out")
+        }
+        do {
+            let h = Harness()
+            h.engine.chooseGfxMax(2_300)
+            h.engine.chooseGfxMax(nil)
+            h.run(ms: 5_000)
+            suite.expect(h.calls(.setOD8).isEmpty && h.replies(.release) == 0 && h.engine.snapshot.activity == .none,
+                         "F3: a clock asked for and switched off before it went out: nothing goes out")
+        }
+        let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                + "/Sources/RyzenStatus/UI/Settings/GPUControlClockSection.swift", encoding: .utf8)) ?? ""
+        suite.expect(!view.contains("request != Self.heldMHz") && !view.contains("if !value, Self.heldMHz"),
+                     "F3: the clock section no longer filters against the held value")
+        // F4: the switch follows what is held when nothing waits.
+        suite.expect(view.contains(".onChange(of: Self.heldMHz(input))"), "F4: the switch and value follow the held clock")
+        // F5: a remembered fan state waits for OD8 to be read.
+        typealias Read = GPUControlStatus.Writing.OD8Read
+        suite.expect(Read.notClean("waiting for the driver").isWaiting
+                        && Read.notClean("no data: the GPU was asleep or blocked").isWaiting
+                        && Read.notClean("not read: going to sleep, or the driver went away").isWaiting,
+                     "F5: the kext's waiting texts")
+        suite.expect(!Read.read.isWaiting && !Read.notClean("read, but an entry is not as expected").isWaiting
+                        && !Read.notClean("not available: OD8 not initialized").isWaiting,
+                     "F5: a clean read, an odd one or one that will not come is not waiting")
+        suite.expect(service.contains("od8Read?.isWaiting"), "F5: the service keeps the remembered fan state pending")
+        // F6: after a wake the clock is checked against the table of the moment.
+        suite.expect(GPUControlRememberPolicy.checkedAgain(.od8(GPUControlOD8Want(curve: curve, gfxMaxMHz: 2_350)),
+                                                           stockGfxMaxMHz: 2_340) == .od8(GPUControlOD8Want(curve: curve)),
+                     "F6: a clock above today's stock is left out, the curve stays")
+        suite.expect(GPUControlRememberPolicy.checkedAgain(.od8(GPUControlOD8Want(gfxMaxMHz: 2_350)), stockGfxMaxMHz: 2_340) == nil,
+                     "F6: a clock alone above today's stock: nothing to ask")
+        suite.expect(GPUControlRememberPolicy.checkedAgain(.power(watts: 220), stockGfxMaxMHz: nil) == .power(watts: 220),
+                     "F6: a power limit is not touched")
+        do {
+            let h = Harness(reask: true)
+            h.engine.reaskFilter = { GPUControlRememberPolicy.checkedAgain($0, stockGfxMaxMHz: 2_340) }
+            h.engine.chooseFan(curve: curve, zeroRpmOff: false)
+            h.run(ms: 3_000)
+            h.engine.chooseGfxMax(2_350)
+            h.run(ms: 3_000)
+            h.fake.sleep()
+            h.fake.wake()
+            h.engine.didWake()
+            h.run(ms: 40_000)
+            suite.expect(h.engine.snapshot.held == .od8(GPUControlOD8Want(curve: curve)) && h.calls(.setOD8).last?.input[12] == 0,
+                         "F6: after the wake the curve comes back without the clock above stock")
+        }
     }
 }

@@ -95,6 +95,14 @@ struct GPUControlClockSection: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onChange(of: draft) { _, value in fieldText = "\(value)" }
+        // What is held changed on its own (a wake, the kext going back, a
+        // refusal): the switch and the value follow it, unless a request
+        // still waits.
+        .onChange(of: Self.heldMHz(input)) { _, held in
+            guard !input.isPending else { return }
+            on = held != nil
+            draft = held ?? top ?? draft
+        }
         .onAppear { fieldText = "\(draft)" }
     }
 
@@ -151,11 +159,13 @@ struct GPUControlClockSection: View {
         // Turning it on shows the control and sends nothing: the stock
         // maximum is not a hold. Turning it off puts the stock clock back,
         // keeping a held fan state in the same request.
-        if !value, Self.heldMHz(input) != nil {
+        // The controller decides whether there is anything to give back
+        // (a held or waiting clock); it never gives back a power limit.
+        if !value {
             lastOD8Source = .clock
             choose(nil)
+            if let top { draft = top }
         }
-        if !value, let top { draft = top }
     }
 
     private func commitField(range: ClosedRange<Int>, top: Int) {
@@ -171,11 +181,10 @@ struct GPUControlClockSection: View {
 
     private func send(_ value: Int, top: Int) {
         outOfRange = false
-        let request = GPUControlClockLogic.request(value, stockGfxMaxMHz: top)
-        // Nothing to do when it asks for what is held already.
-        guard request != Self.heldMHz(input) else { return }
+        // Always to the controller: it compares with what waits and what is
+        // held, and drops a request that goes back to the held value.
         lastOD8Source = .clock
-        choose(request)
+        choose(GPUControlClockLogic.request(value, stockGfxMaxMHz: top))
     }
 }
 

@@ -584,6 +584,17 @@ enum GPUControlClockLogic {
     }
 }
 
+extension GPUControlRememberPolicy {
+    /// A remembered request again, right before it goes out: a clock that no
+    /// longer lowers the stock maximum of the moment is left out (the rest
+    /// of the fan state still goes). Nil when nothing is left to ask.
+    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?) -> GPUControlRequest? {
+        guard case .od8(var want) = request, let mhz = want.gfxMaxMHz else { return request }
+        if !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }
+        return want.isStock ? nil : .od8(want)
+    }
+}
+
 /// Which channel the app connects at launch (plan 11.1).
 enum GPUControlConnectionMode: Equatable, Sendable {
     case none
