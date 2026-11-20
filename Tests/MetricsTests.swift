@@ -1998,12 +1998,12 @@ struct MetricsTests {
             expect(migrated[DefaultsKey.menuBarCPU] == nil,
                    "without the hidden classic layout no visibility changes")
             // Only the five metrics that had a style get one written. Battery,
-            // frequency and the two-line readings keep no saved style, so a
-            // later build's registered defaults still decide their look.
-            let unstyled = MenuBarMetric.allCases.filter { !MenuBarMetricAppearance.styledMetrics.contains($0) }
-            expect(Set(migrated.keys) == Set(MenuBarMetricAppearance.styledMetrics.map(\.styleKey))
-                   && !unstyled.isEmpty && unstyled.allSatisfy { migrated[$0.styleKey] == nil },
-                   "the conversion writes a style for the five styled metrics and for no other reading")
+            // frequency and the two-line readings keep no saved style, so
+            // their registered defaults (their old looks) still decide.
+            let unconverted = MenuBarMetric.allCases.filter { !MenuBarStyleMigration.convertedMetrics.contains($0) }
+            expect(Set(migrated.keys) == Set(MenuBarStyleMigration.convertedMetrics.map(\.styleKey))
+                   && !unconverted.isEmpty && unconverted.allSatisfy { migrated[$0.styleKey] == nil },
+                   "the conversion writes a style for the five converted metrics and for no other reading")
             let fresh = MenuBarStyleMigration.migratedValues(stored: [:])
             expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] == nil },
                    "settings that name no style write none; the registered values apply")
@@ -2017,6 +2017,51 @@ struct MetricsTests {
             expect(classic[DefaultsKey.menuBarLayoutMode] as? String == "modern"
                    && classic[DefaultsKey.menuBarHideIconWithMetrics] as? Bool == false,
                    "classic converts once and keeps the glyph it forced on")
+        }
+        do {
+            // Both ways onto this build keep the old look. Saved on a build
+            // before any conversion: the old global ring and a CPU per-core
+            // graph. Straight to this build, the conversion runs here; through
+            // the build that first ran it (PR 101), that build already wrote
+            // the five styles and set the shared marker, so nothing runs here.
+            // Either way every other reading has no saved style and keeps its
+            // registered default, which is its old look.
+            let expected: [MenuBarMetric: MenuBarMetricAppearance] = [
+                .cpu: .histogram, .gpu: .pie, .memory: .pie, .network: .sparkline, .diskUsage: .values,
+            ]
+            func check(_ name: String, _ path: String) {
+                let suite = UserDefaults(suiteName: name)!
+                MenuBarStyleMigration.runIfNeeded(in: suite)
+                let saved = suite.persistentDomain(forName: name) ?? [:]
+                for metric in MenuBarMetric.allCases {
+                    let old = expected[metric] ?? MenuBarMetricAppearance.defaultStyle(for: metric)
+                    expect(MenuBarMetricAppearance.stored(for: metric, in: suite) == old,
+                           "\(path): \(metric.rawValue) keeps its old look")
+                    expect(expected[metric] != nil || saved[metric.styleKey] == nil,
+                           "\(path): \(metric.rawValue) has no saved style, so its default applies")
+                }
+                expect(suite.bool(forKey: MenuBarStyleMigration.markerKey)
+                       && suite.object(forKey: DefaultsKey.menuBarMetricAppearance) == nil,
+                       "\(path): converted once, the old global style gone")
+                suite.removePersistentDomain(forName: name)
+            }
+            let direct = UserDefaults(suiteName: "menubar-upgrade-direct-test")!
+            direct.removePersistentDomain(forName: "menubar-upgrade-direct-test")
+            direct.set("pie", forKey: DefaultsKey.menuBarMetricAppearance)
+            direct.set("histogram", forKey: MenuBarMetric.cpu.styleKey)
+            check("menubar-upgrade-direct-test", "straight from an old build")
+            // What PR 101's conversion leaves for the same saved values: the
+            // five styles in its own vocabulary and its marker (its test pins
+            // that it writes no other style key).
+            let through = UserDefaults(suiteName: "menubar-upgrade-through-test")!
+            through.removePersistentDomain(forName: "menubar-upgrade-through-test")
+            through.set("histogram", forKey: MenuBarMetric.cpu.styleKey)
+            through.set("pie", forKey: MenuBarMetric.gpu.styleKey)
+            through.set("pie", forKey: MenuBarMetric.memory.styleKey)
+            through.set("sparkline", forKey: MenuBarMetric.network.styleKey)
+            through.set("values", forKey: MenuBarMetric.diskUsage.styleKey)
+            through.set(true, forKey: MenuBarStyleMigration.markerKey)
+            check("menubar-upgrade-through-test", "through the first conversion")
         }
         do {
             // Usage and temperature combine only while the usage is text, so
@@ -2130,7 +2175,63 @@ struct MetricsTests {
             var newHistory = snapshot
             newHistory.cpuHistory = [0.4, 0.23, 0.9]
             expect(key(graph, newHistory) != graphBase, "new graph samples rewrite the title")
+            var inline = settings
+            inline.styles[.cpu] = .inline
+            expect(key(inline, snapshot) != base, "a text style change rewrites the title")
+            // 69.6 % and 70.4 % both read "70%"; with highlighting on, only
+            // the second is orange, so the key must tell them apart.
+            var highlight = settings
+            highlight.highlightHighValues = true
+            highlight.usageBarMediumThreshold = 70
+            highlight.usageBarHighThreshold = 90
+            var below = snapshot
+            below.cpuUsage = 0.696
+            var above = snapshot
+            above.cpuUsage = 0.704
+            expect(highlight.highlightHex(for: 0.696) == nil
+                   && highlight.highlightHex(for: 0.704) == "elevated"
+                   && highlight.highlightHex(for: 0.9) == "critical"
+                   && settings.highlightHex(for: 0.95) == nil,
+                   "values are highlighted from the bar thresholds, and only with the option on")
+            expect(key(settings, below) == key(settings, above) && key(highlight, below) != key(highlight, above),
+                   "crossing a threshold repaints a value whose text did not change")
             suite.removePersistentDomain(forName: "menubar-title-key-test")
+        }
+        do {
+            // Settings (drawnWithUsage) and the renderer (combinesTemperature)
+            // each encode when a temperature rides in its usage block; they
+            // must agree on every combination.
+            let name = "menubar-combine-agreement-test"
+            let suite = UserDefaults(suiteName: name)!
+            let pairs: [(usage: MenuBarMetric, temperature: MenuBarMetric, component: MenuBarComponent)] = [
+                (.cpu, .cpuTemperature, .cpu), (.gpu, .gpuTemperature, .gpu), (.battery, .batteryTemperature, .battery),
+            ]
+            var disagreements: [String] = []
+            for pair in pairs {
+                for combine in [false, true] {
+                    for usagePinned in [false, true] {
+                        for temperaturePinned in [false, true] {
+                            for style in [MenuBarMetricAppearance.values, .inline, .valueOnly, .sparkline] {
+                                suite.removePersistentDomain(forName: name)
+                                suite.set(combine, forKey: DefaultsKey.menuBarCombineTemperatures)
+                                suite.set(usagePinned, forKey: pair.usage.defaultsKey)
+                                suite.set(temperaturePinned, forKey: pair.temperature.defaultsKey)
+                                suite.set(style.rawValue, forKey: pair.usage.styleKey)
+                                let enabled = Set(MenuBarMetric.allCases.filter { suite.bool(forKey: $0.defaultsKey) })
+                                let renderer = MenuBarRenderSettings.current(defaults: suite)
+                                    .combinesTemperature(of: pair.component, enabled: enabled)
+                                if MenuBarMetricAppearance.drawnWithUsage(pair.temperature, in: suite) != renderer {
+                                    disagreements.append("\(pair.usage.rawValue)/\(style.rawValue)/\(combine)"
+                                                         + "/\(usagePinned)/\(temperaturePinned)")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            suite.removePersistentDomain(forName: name)
+            expect(disagreements.isEmpty,
+                   "Settings and the renderer agree on when a temperature joins its usage (got \(disagreements))")
         }
         expectClose(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 4) ?? -1, 0.75,
                     "menu bar memory bars use the current used fraction")
