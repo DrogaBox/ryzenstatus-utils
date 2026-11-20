@@ -127,6 +127,9 @@ struct GPUControlPageStrings {
         if want.curve != nil { items.append(fanCurveItem) }
         if want.zeroRpmOff { items.append(zeroRpmItem) }
         if let mhz = want.gfxMaxMHz { items.append(String(format: gfxItemFormat, mhz)) }
+        // An empty hold would leave "RyzenStatus is holding " with nothing
+        // after it: say the short form instead.
+        guard !items.isEmpty else { return heldOD8Short }
         // One sentence in every language: the last item joins with the
         // language's "and".
         let text = items.count < 2 ? items.joined()
@@ -411,7 +414,7 @@ extension GPUControlPageStrings {
         notConfirmed: "O kext não confirmou a alteração; nada é mantido.",
         unsafeNotPlain: "Não é um arquivo nem uma pasta comum.",
         unsafeNotRoot: "Não pertence ao root.",
-        unsafeWritable: "Outros além do root podem alterá-lo.",
+        unsafeWritable: "Quem não é root também pode alterá-lo.",
         unsafeSetID: "Tem o bit setuid ou setgid ativado.",
         unsafeACL: "Tem uma lista de controle de acesso.",
         unsafeUnreadable: "Não pode ser lido.",
@@ -461,7 +464,7 @@ extension GPUControlPageStrings {
         copy: "Kopyala",
         copied: "Kopyalandı",
         notInstalled: "gpucontrol /usr/local/bin içinde yüklü değil. DrogaBoxGPU onu “sudo install/sensors.sh tools” ile yükler.",
-        unsafeToolFormat: "Düğme, gpucontrol'ün ve üstündeki her klasörün yalnızca root'a ait olmasını gerektirir. %@",
+        unsafeToolFormat: "Düğme gpucontrol'ün ve üstündeki her klasörün yalnızca root'a ait olmasını gerektirir. %@",
         armFailed: "Yazma açılmadı.",
         rememberToggle: "Açılışta ve uyanmada hatırla",
         rememberFooter: "Yalnızca RyzenStatus'un tuttuğu, ve yalnızca yazma açıksa. Asla parola sormaz.",
@@ -488,9 +491,9 @@ extension GPUControlPageStrings {
         timedOut: "5 sn içinde yanıt yok; hiçbir şey tutulmuyor.",
         notConfirmed: "Kext değişikliği doğrulamadı; hiçbir şey tutulmuyor.",
         unsafeNotPlain: "Sıradan bir dosya veya klasör değil.",
-        unsafeNotRoot: "root'a ait değil.",
-        unsafeWritable: "root dışındakiler de değiştirebilir.",
-        unsafeSetID: "setuid veya setgid biti açık.",
+        unsafeNotRoot: "Root'a ait değil.",
+        unsafeWritable: "Root dışındakiler de değiştirebilir.",
+        unsafeSetID: "Setuid veya setgid biti açık.",
         unsafeACL: "Bir erişim denetim listesi var.",
         unsafeUnreadable: "Okunamıyor.",
         unsafeSignature: "İmzası yok veya imzalandıktan sonra değiştirilmiş.",
@@ -498,7 +501,7 @@ extension GPUControlPageStrings {
         heldOD8Format: "RyzenStatus şunu tutuyor: %@",
         fanCurveItem: "bir fan eğrisi",
         zeroRpmItem: "her zaman dönen fan",
-        gfxItemFormat: "%d MHz maks. GFX saati",
+        gfxItemFormat: "maks. %d MHz GFX saati",
         listSeparator: ", ",
         listLastSeparator: " ve ",
         heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor")
@@ -573,7 +576,7 @@ extension GPUControlPageStrings {
         unsafeUnreadable: "Его нельзя прочитать.",
         unsafeSignature: "Подписи нет, или файл изменён после подписи.",
         unsafeOtherProgram: "Это другая программа, а не gpucontrol из DrogaBoxGPU.",
-        heldOD8Format: "RyzenStatus удерживает: %@",
+        heldOD8Format: "RyzenStatus удерживает %@",
         fanCurveItem: "кривую вентилятора",
         zeroRpmItem: "постоянное вращение вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
@@ -651,7 +654,7 @@ extension GPUControlPageStrings {
         unsafeUnreadable: "Nedá sa prečítať.",
         unsafeSignature: "Nemá podpis alebo sa zmenil po podpísaní.",
         unsafeOtherProgram: "Je to iný program, nie gpucontrol z DrogaBoxGPU.",
-        heldOD8Format: "RyzenStatus drží: %@",
+        heldOD8Format: "RyzenStatus drží %@",
         fanCurveItem: "krivku ventilátora",
         zeroRpmItem: "ventilátor stále v chode",
         gfxItemFormat: "maximálny takt GFX %d MHz",
@@ -721,7 +724,7 @@ extension GPUControlPageStrings {
         gaveUpFormat: "In einer Minute nicht angenommen. %@",
         timedOut: "Keine Antwort in 5 s; nichts wird gehalten.",
         notConfirmed: "Der Kext hat die Änderung nicht bestätigt; nichts wird gehalten.",
-        unsafeNotPlain: "Keine normale Datei und kein normaler Ordner.",
+        unsafeNotPlain: "Es ist keine normale Datei und kein normaler Ordner.",
         unsafeNotRoot: "Es gehört nicht root.",
         unsafeWritable: "Auch andere als root können es ändern.",
         unsafeSetID: "Das setuid- oder setgid-Bit ist gesetzt.",
@@ -731,7 +734,7 @@ extension GPUControlPageStrings {
         unsafeOtherProgram: "Es ist ein anderes Programm, nicht gpucontrol von DrogaBoxGPU.",
         heldOD8Format: "RyzenStatus hält %@",
         fanCurveItem: "eine Lüfterkurve",
-        zeroRpmItem: "den Dauerlauf des Lüfters",
+        zeroRpmItem: "den Lüfter im Dauerbetrieb",
         gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
         listSeparator: ", ",
         listLastSeparator: " und ",
@@ -879,7 +882,7 @@ extension GPUControlPageStrings {
         notConfirmed: "Il kext non ha confermato la modifica; non viene mantenuto nulla.",
         unsafeNotPlain: "Non è un file né una cartella normale.",
         unsafeNotRoot: "Non appartiene a root.",
-        unsafeWritable: "Anche altri oltre a root possono modificarlo.",
+        unsafeWritable: "Anche chi non è root può modificarlo.",
         unsafeSetID: "Ha il bit setuid o setgid attivo.",
         unsafeACL: "Ha un elenco di controllo degli accessi.",
         unsafeUnreadable: "Non può essere letto.",
@@ -1275,7 +1278,7 @@ extension GPUControlPageStrings {
         unsafeUnreadable: "Його не можна прочитати.",
         unsafeSignature: "Підпису немає, або файл змінено після підпису.",
         unsafeOtherProgram: "Це інша програма, не gpucontrol із DrogaBoxGPU.",
-        heldOD8Format: "RyzenStatus утримує: %@",
+        heldOD8Format: "RyzenStatus утримує %@",
         fanCurveItem: "криву вентилятора",
         zeroRpmItem: "постійне обертання вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",

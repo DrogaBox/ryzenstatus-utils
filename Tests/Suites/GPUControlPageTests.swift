@@ -60,6 +60,13 @@ enum GPUControlPageTests {
                      "Chinese: 、 between the items, 和 before the last")
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a GFX maximum of 2300 MHz", "a held clock, in words")
+        suite.expect(GPUControlPageStrings.ru.od8Held(GPUControlOD8Want(gfxMaxMHz: 2_300))
+                        == "RyzenStatus удерживает макс. частоту GFX 2300 МГц", "Russian: no colon after the verb")
+        // An empty hold never leaves the sentence hanging.
+        for language in AppLanguage.allCases {
+            let t = FeatureStrings.gpuControlPage(language)
+            suite.expect(t.od8Held(.stock) == t.heldOD8Short, "\(language.rawValue): an empty hold says the short form")
+        }
         // The panel row has two caption lines: a short title, not the list.
         let heldAll = GPUControlPageInput(facts: facts, state: .heldByApp(.od8(all)), snapshot: GPUControlSnapshot())
         for language in AppLanguage.allCases {
