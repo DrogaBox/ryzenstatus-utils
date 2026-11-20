@@ -17,12 +17,14 @@ struct GPUControlSettingsView: View {
         GPUControlPageContent(
             input: GPUControlPageInput(service: service),
             strings: FeatureStrings.gpuControlPage(l10n.language),
+            fan: FeatureStrings.gpuControlFan(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
                 backToStartUp: { service.backToStartUp() },
                 openWriting: { service.openWriting(prompt: FeatureStrings.gpuControlPage(l10n.language).armPrompt) },
                 setRemember: { service.remember = $0 },
+                applyFan: { service.applyFan($0) },
                 closeChanges: { service.closeChanges() }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
@@ -46,6 +48,12 @@ struct GPUControlPageInput: Equatable {
     var kextVersion: String?
     /// The controller exists (a channel was connected at launch).
     var canChoose = true
+    /// The write keys of the last read: the OD8 table and the kext's build
+    /// name, for the curve editor's preview.
+    var writing: GPUControlStatus.Writing?
+    /// The editor's starting draft; nil starts from what is held, or from
+    /// the tested curve.
+    var fanDraft: GPUControlFanDraft?
 
     init(facts: GPUControlFacts?, state: GPUControlPageState?, snapshot: GPUControlSnapshot?) {
         self.facts = facts
@@ -64,6 +72,7 @@ struct GPUControlPageInput: Equatable {
         remember = service.remember
         kextVersion = service.control?.writing?.kextVersion
         canChoose = service.mode != .none
+        writing = service.control?.writing
     }
 }
 
@@ -72,6 +81,7 @@ struct GPUControlPageActions {
     var backToStartUp: () -> Void = {}
     var openWriting: () -> Void = {}
     var setRemember: (Bool) -> Void = { _ in }
+    var applyFan: (GPUControlFanDraft) -> Void = { _ in }
     var closeChanges: () -> Void = {}
 }
 
@@ -171,9 +181,23 @@ extension GPUControlPageNote {
 struct GPUControlPageContent: View {
     let input: GPUControlPageInput
     let strings: GPUControlPageStrings
+    let fan: GPUControlFanStrings
     let title: String
     let actions: GPUControlPageActions
     @State private var copied = false
+    @State private var draft: GPUControlFanDraft
+
+    init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
+         title: String, actions: GPUControlPageActions) {
+        self.input = input
+        self.strings = strings
+        self.fan = fan
+        self.title = title
+        self.actions = actions
+        var held: GPUControlOD8Want?
+        if case .heldByApp(.od8(let want))? = input.state { held = want }
+        _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
+    }
 
     private var s: GPUControlPageStrings { strings }
 
@@ -181,6 +205,10 @@ struct GPUControlPageContent: View {
         Form {
             stateSection
             if showsPower { powerSection }
+            if showsPower, input.facts?.od8Ready == true {
+                GPUControlFanSection(input: input, strings: strings, fan: fan, draft: $draft,
+                                     apply: actions.applyFan)
+            }
             if case .closed? = input.state { armSection }
             rememberSection
             detailsSection
@@ -377,7 +405,9 @@ struct GPUControlPageContent: View {
             if case .heldByApp? = input.state { return true }
             return false
         }()
-        let note = GPUControlPageNote.make(input.snapshot, s)
+        // A refusal of a fan request shows in the fan section instead.
+        var note = GPUControlPageNote.make(input.snapshot, s)
+        if case .refused(let request, _)? = input.snapshot?.outcome, request.isOD8 { note = nil }
         return Section {
             Picker(s.powerLabel, selection: Binding(
                 get: { shown ?? choices.first ?? 0 },
@@ -393,6 +423,12 @@ struct GPUControlPageContent: View {
             if let note {
                 // "Writing": the error next to the problem, with what to do.
                 noteView(note)
+            }
+            if case .heldByApp(.od8)? = input.state {
+                // "Writing": what choosing a limit does, before it is chosen.
+                Label(fan.noteCurveHeld, systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             // "Alerts": no alert for a common, repeatable action; the safe
             // action is a plain button.
