@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import AppKit
+import SwiftUI
 import Foundation
 
 /// The island, the popover and the menu bar after their review: the opening
@@ -26,6 +27,9 @@ enum IslandPanelTests {
         capsuleCenterWhereItShows(suite)
         artworkDownloads(suite)
         marqueeRestsQuietly(suite)
+        marqueeMovesItsLayer(suite)
+        hiddenHoverSkipsFarMoves(suite)
+        companionLoopsPace(suite)
         accessibilityAndReduceMotion(suite)
         localizedStrings(suite)
         permissionRepair(suite)
@@ -333,35 +337,129 @@ enum IslandPanelTests {
     }
 
     private static func marqueeRestsQuietly(_ suite: TestSuite) {
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        let schedule = NotchMarqueeSchedule(start: start, pause: 1.8, travel: 4, interval: 1.0 / 30)
-        func offsets(from date: Date, count: Int) -> [Double] {
-            let entries = schedule.entries(from: date, mode: .normal)
-            return (0..<count).compactMap { _ in entries.next()?.timeIntervalSince(start) }
-        }
-        let first = offsets(from: start, count: 3)
-        suite.expect(first.count == 3 && abs(first[0]) < 1e-6 && abs(first[1] - 1.8) < 1e-6
-                     && abs(first[2] - (1.8 + 1.0 / 30)) < 1e-6,
-                     "one frame for the rest, then frames through the scroll (\(first))")
-        let scrolling = offsets(from: start.addingTimeInterval(5), count: 2)
-        suite.expect(scrolling.count == 2 && abs(scrolling[1] - (5 + 1.0 / 30)) < 1e-6, "steady frames while scrolling")
-        let resting = offsets(from: start.addingTimeInterval(6), count: 2)
-        suite.expect(resting.count == 2 && abs(resting[1] - 7.6) < 1e-6, "a rest skips to its end (\(resting))")
+        // A 72 pt line with a 32 pt gap at 26 pt/s: a 1.8 s rest, then 4 s of glide.
+        let motion = NotchMarqueeMotion(lineWidth: 72, gap: 32, speed: 26, pause: 1.8)
+        suite.expect(abs(motion.cycle - 5.8) < 1e-9 && abs(motion.restFraction - 1.8 / 5.8) < 1e-9,
+                     "one turn is the rest plus the line and gap at its speed (\(motion.cycle))")
+        let animation = motion.animation()
+        let values = (animation.values ?? []).compactMap { ($0 as? NSNumber)?.doubleValue }
+        let times = (animation.keyTimes ?? []).map(\.doubleValue)
+        suite.expect(values == [0, 0, -104] && times.count == 3 && times[0] == 0
+                     && abs(times[1] - 1.8 / 5.8) < 1e-9 && times[2] == 1,
+                     "the line rests at its start, then moves one line and gap to where its copy began")
+        suite.expect(animation.repeatCount == .infinity && animation.calculationMode == .linear
+                     && animation.preferredFrameRateRange.maximum == 30 && animation.preferredFrameRateRange.minimum == 24,
+                     "it glides steadily, for ever, at the thirty frames a second it always had, never below 24")
+        let source = text("Sources/RyzenStatus/UI/Notch/NotchMarquee.swift", suite)
+        suite.expect(!source.contains("TimelineView("), "no SwiftUI timeline redraws the line while it moves")
+        suite.expect(NotchMarqueeMotion(lineWidth: 72, gap: 32, speed: 0, pause: 1.8).cycle.isFinite,
+                     "a zero speed cannot make an endless turn")
+    }
 
-        let real = NotchMarqueeSchedule(start: Date(timeIntervalSinceReferenceDate: 8e8 + 0.1), pause: 1.8,
-                                        travel: 4, interval: 1.0 / 30)
-        let entries = real.entries(from: Date(timeIntervalSinceReferenceDate: 8e8 + 0.1), mode: .normal)
-        var previous = entries.next()
-        var increasing = previous != nil
-        for _ in 0..<1000 {
-            guard let next = entries.next(), let last = previous else { increasing = false; break }
-            if next <= last { increasing = false; break }
-            previous = next
+    private static func marqueeMovesItsLayer(_ suite: TestSuite) {
+        let view = NotchMarqueeScrollView(rootView: AnyView(Text("CPU 9% · 58° · PPT 45W · GPU 42°").fixedSize()))
+        view.frame = CGRect(x: 0, y: 0, width: 120, height: 16)
+        view.layout()
+        let motion = NotchMarqueeMotion(lineWidth: 200, gap: 32, speed: 26, pause: 1.8)
+        let scroll = { view.hosting.layer?.animation(forKey: NotchMarqueeScrollView.scrollKey) }
+        view.run(motion)
+        suite.expect(scroll() == nil && view.running == motion,
+                     "a line out of any window keeps its motion without running it")
+        view.setVisible(true)
+        let first = scroll() as? CAKeyframeAnimation
+        suite.expect(first != nil && first?.keyPath == "transform.translation.x",
+                     "on screen, the line's own layer carries the scroll")
+        suite.expect(view.layer?.masksToBounds == true && view.layer?.mask is CAGradientLayer
+                     && view.layer?.mask?.frame == view.bounds,
+                     "the line is clipped to its room and fades at both edges")
+        view.run(motion)
+        suite.expect(scroll() === first, "a redraw with the same line keeps the scroll where it is")
+        view.setVisible(false)
+        suite.expect(scroll() == nil, "an island ordered out, hidden or covered keeps nothing running")
+        view.run(NotchMarqueeMotion(lineWidth: 230, gap: 32, speed: 26, pause: 1.8))
+        suite.expect(scroll() == nil, "a new line out of sight waits too")
+        view.setVisible(true)
+        let second = scroll() as? CAKeyframeAnimation
+        suite.expect(second != nil && second !== first
+                     && (second?.values?.last as? NSNumber)?.doubleValue == -262,
+                     "back on screen, the newest line scrolls from its beginning")
+        suite.expect(view.hitTest(CGPoint(x: 10, y: 8)) == nil, "the pointer goes to the strip under the line")
+
+        // While a long line scrolls, new readings replace the old ones without the
+        // rolling digits; a line that fits keeps them.
+        let still = NotchMarqueeScrollView.stillTransaction
+        suite.expect(still.animation == nil && still.disablesAnimations,
+                     "both scrolling copies take a new reading with no animation, so no digit roll is drawn")
+        let marquee = text("Sources/RyzenStatus/UI/Notch/NotchMarquee.swift", suite)
+        suite.expect(marquee.contains("hosting.rootView = Self.still(row)")
+                     && marquee.contains("AnyView(row.transaction { $0 = stillTransaction })")
+                     && !marquee.contains("@Published")
+                     && marquee.contains(".animation(nil, value: scrolls)"),
+                     "the scrolling copy never animates, and starting or stopping the scroll swaps lines at once")
+        let capsule = text("Sources/RyzenStatus/UI/Notch/NotchCapsuleViews.swift", suite)
+        suite.expect(capsule.contains("NotchMarquee(key: center) {")
+                     && capsule.contains(".contentTransition(.numericText())"),
+                     "the line that fits still asks for its rolling digits")
+    }
+
+    private static func hiddenHoverSkipsFarMoves(_ suite: TestSuite) {
+        let collapsed = CGRect(x: 860, y: 1050, width: 200, height: 30)
+        let reach = NotchHiddenHover.reach(collapsed: collapsed, strip: CGRect(x: 840, y: 1056, width: 240, height: 24),
+                                           window: CGRect(x: 700, y: 900, width: 520, height: 180),
+                                           children: [CGRect(x: 1300, y: 1000, width: 40, height: 40)])
+        let idle = NotchHiddenHover.Pending()
+        suite.expect(NotchHiddenHover.skips(CGPoint(x: 2880, y: 500), reach: reach, pending: idle),
+                     "a move on the other display, with nothing under way, skips the hover path")
+        for point in [CGPoint(x: 960, y: 1070), CGPoint(x: 845, y: 1060), CGPoint(x: 710, y: 910),
+                      CGPoint(x: 1320, y: 1020), CGPoint(x: 858, y: 1065)] {
+            suite.expect(!NotchHiddenHover.skips(point, reach: reach, pending: idle),
+                         "a move over the island, its strip, its window, a child or its margin is followed (\(point))")
         }
-        suite.expect(increasing, "the timeline always moves forward at a real date")
-        suite.expect(NotchMarqueeSchedule.step(elapsed: 1.8 - 1e-9, pause: 1.8, interval: 1.0 / 30)
-                     >= NotchMarqueeSchedule.minimumStep,
-                     "a rest ending a hair away still steps forward")
+        // Ordered out on the first display, the window's old frame no longer
+        // counts: a move there with the island following the pointer elsewhere skips.
+        let away = NotchHiddenHover.reach(collapsed: CGRect(x: 2780, y: 1050, width: 200, height: 30), strip: nil,
+                                          window: nil, children: [])
+        suite.expect(NotchHiddenHover.skips(CGPoint(x: 710, y: 910), reach: away, pending: idle)
+                     && !NotchHiddenHover.skips(CGPoint(x: 2880, y: 1060), reach: away, pending: idle),
+                     "a hidden window's stale frame on another display does not widen the island's reach")
+        let states: [WritableKeyPath<NotchHiddenHover.Pending, Bool>] = [\.inside, \.emphasized, \.suppressed,
+            \.capture, \.captureControls, \.hoverWork, \.exitWatch]
+        for state in states {
+            var pending = idle
+            pending[keyPath: state] = true
+            suite.expect(!NotchHiddenHover.skips(CGPoint(x: 2880, y: 500), reach: reach, pending: pending),
+                         "anything under way sends even a far move through the hover path (\(state))")
+        }
+    }
+
+    private static func companionLoopsPace(_ suite: TestSuite) {
+        func sameRate(_ a: CAFrameRateRange, _ b: CAFrameRateRange) -> Bool {
+            a.minimum == b.minimum && a.maximum == b.maximum && a.preferred == b.preferred
+        }
+        let breath = CAKeyframeAnimation(keyPath: "transform")
+        breath.loopsForever()
+        suite.expect(breath.repeatCount == .infinity && sameRate(breath.preferredFrameRateRange, NotchMascotPace.loop)
+                     && NotchMascotPace.loop.maximum == 30 && NotchMascotPace.loop.minimum == 24,
+                     "a slow loop repeats for ever at thirty frames a second, never below the walk's 24")
+        let flicker = CABasicAnimation(keyPath: "shadowRadius")
+        flicker.loopsForever(paced: false)
+        suite.expect(flicker.repeatCount == .infinity && sameRate(flicker.preferredFrameRateRange, CAFrameRateRange.default),
+                     "a fast loop keeps the display's own rate")
+        let group = CAAnimationGroup()
+        group.animations = [CABasicAnimation(keyPath: "opacity"), CABasicAnimation(keyPath: "position")]
+        group.loopsForever()
+        suite.expect(group.animations?.allSatisfy { sameRate($0.preferredFrameRateRange, NotchMascotPace.loop) } == true,
+                     "a group's own animations ask for the same pace")
+        let folders = ["Sources/RyzenStatus/UI/Notch", "Sources/RyzenStatus/Services/Notch"]
+        let mascot = folders.flatMap { folder in
+            ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
+                .filter { $0.hasPrefix("NotchMascot") && $0 != "NotchMascotPace.swift" }.map { "\(folder)/\($0)" }
+        }
+        let loose = mascot.filter { text($0, suite).contains("repeatCount = .infinity") }
+        suite.expect(mascot.count > 20 && loose.isEmpty, "every endless companion loop chooses its pace (\(loose))")
+        let signal = text("Sources/RyzenStatus/UI/Notch/NotchMascotSignalParts.swift", suite)
+        suite.expect(signal.contains("move.preferredFrameRateRange = scale.preferredFrameRateRange"),
+                     "a loop rebuilt around its centre keeps the pace it was given")
     }
 
     // MARK: Phase 3

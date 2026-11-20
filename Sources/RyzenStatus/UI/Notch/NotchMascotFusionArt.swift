@@ -310,7 +310,7 @@ final class NotchMascotFusionArt {
         }
         flicker.keyTimes = [0, 0.25, 0.5, 0.75, 1]
         flicker.duration = aura == .storm ? 0.3 : fizzles ? 0.9 : 0.45
-        flicker.repeatCount = .infinity
+        flicker.loopsForever()
         glow.add(flicker, forKey: "flicker")
 
         // The still shapes turn about it, twinkle or flicker, each its own way.
@@ -320,7 +320,7 @@ final class NotchMascotFusionArt {
             turn.fromValue = 0
             turn.toValue = aura == .frost ? -CGFloat.pi * 2 : CGFloat.pi * 2
             turn.duration = aura == .spirit ? 3.2 : 7
-            turn.repeatCount = .infinity
+            turn.loopsForever()
             motifs.add(turn, forKey: "turn")
             for (index, motif) in (motifs.sublayers ?? []).enumerated() {
                 let twinkle = CABasicAnimation(keyPath: "opacity")
@@ -328,7 +328,7 @@ final class NotchMascotFusionArt {
                 twinkle.toValue = 0.3
                 twinkle.duration = 0.5 + Double(index % 3) * 0.17
                 twinkle.autoreverses = true
-                twinkle.repeatCount = .infinity
+                twinkle.loopsForever()
                 motif.add(twinkle, forKey: "twinkle")
             }
         case .glitch, .storm:
@@ -338,7 +338,7 @@ final class NotchMascotFusionArt {
                 blink.keyTimes = [0, 0.1, 0.18, 0.3, 0.36, 1]
                 blink.calculationMode = .discrete
                 blink.duration = 0.9 + Double(index) * 0.13
-                blink.repeatCount = .infinity
+                blink.loopsForever()
                 motif.add(blink, forKey: "blink")
             }
         case .blaze, .bubbles, .fizzle:
@@ -348,7 +348,7 @@ final class NotchMascotFusionArt {
                 bob.toValue = -size * (fizzles ? 0.04 : 0.1)
                 bob.duration = 0.6 + Double(index % 3) * 0.2
                 bob.autoreverses = true
-                bob.repeatCount = .infinity
+                bob.loopsForever()
                 motif.add(bob, forKey: "bob")
             }
         }
@@ -460,7 +460,7 @@ final class NotchMascotFusionArt {
         sputter.keyTimes = [0, 0.2, 0.45, 0.6, 1]
         sputter.calculationMode = .discrete
         sputter.duration = 2.2
-        sputter.repeatCount = .infinity
+        sputter.loopsForever()
         particles.add(sputter, forKey: "sputter")
     }
 
@@ -495,7 +495,7 @@ final class NotchMascotFusionArt {
             crackle.calculationMode = .discrete
             crackle.duration = [1.1, 1.5, 1.9][index]
             crackle.beginTime = CACurrentMediaTime() + Double(index) * 0.31
-            crackle.repeatCount = .infinity
+            crackle.loopsForever()
             bolt.add(crackle, forKey: "crackle")
             sparks.addSublayer(bolt)
         }

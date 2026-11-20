@@ -240,7 +240,7 @@ extension NotchMascotDesktop {
         pulse.toValue = max(9, figureSize * 0.24)
         pulse.duration = 0.8
         pulse.autoreverses = true
-        pulse.repeatCount = .infinity
+        pulse.loopsForever()
         layer.add(pulse, forKey: "cheatGlow")
     }
 

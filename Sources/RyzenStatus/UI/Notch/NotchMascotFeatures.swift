@@ -654,7 +654,7 @@ private final class NotchMascotFaceSet {
         func run(_ animation: CAAnimation, on layer: CALayer, offset: CFTimeInterval = 0) {
             animation.beginTime = begin
             animation.timeOffset = offset
-            if let length { animation.repeatDuration = length } else { animation.repeatCount = .infinity }
+            if let length { animation.repeatDuration = length } else { animation.loopsForever() }
             layer.add(animation, forKey: "mark")
         }
         func keyframes(_ keyPath: String, _ values: [Any], _ times: [NSNumber]? = nil,

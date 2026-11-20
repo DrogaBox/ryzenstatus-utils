@@ -154,7 +154,7 @@ final class NotchMascotBodyParts {
             move.keyTimes = keyTimes
             move.duration = duration
             move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if repeats { move.repeatCount = .infinity }
+            if repeats { move.loopsForever() }
             shape.add(move, forKey: key)
         }
     }
@@ -202,7 +202,7 @@ final class NotchMascotBodyParts {
         beat.values = [0.5, 1, 0.6, 1, 0.5]
         beat.keyTimes = [0, 0.12, 0.24, 0.36, 1]
         beat.duration = 1.6
-        beat.repeatCount = .infinity
+        beat.loopsForever()
         glow.add(beat, forKey: "idle")
     }
 

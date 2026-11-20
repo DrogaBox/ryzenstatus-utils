@@ -335,7 +335,7 @@ final class NotchMascotCheatShows {
             bob.values = [0, tiny * 0.3, 0]
             bob.keyTimes = [0, 0.45, 1]
             bob.duration = 0.32
-            bob.repeatCount = .infinity
+            bob.loopsForever()
             bob.timeOffset = Double(index) * 0.07
             seat.add(bob, forKey: "bob")
             line.addSublayer(seat)
@@ -690,7 +690,7 @@ final class NotchMascotCheatShows {
         pulse.toValue = 1.15
         pulse.duration = 0.7
         pulse.autoreverses = true
-        pulse.repeatCount = .infinity
+        pulse.loopsForever()
         halo.add(pulse, forKey: "pulse")
         glory.addSublayer(halo)
         glory.opacity = 0
@@ -792,7 +792,7 @@ final class NotchMascotCheatShows {
                 let turn = CAKeyframeAnimation(keyPath: "transform.scale.x")
                 turn.values = [1, 0.2, 1]
                 turn.duration = 0.5
-                turn.repeatCount = .infinity
+                turn.loopsForever()
                 turn.timeOffset = Double.random(in: 0...0.5)
                 layer.add(turn, forKey: "turn")
                 canvas.addSublayer(layer)
@@ -969,7 +969,7 @@ final class NotchMascotCheatShows {
         let flutter = CAKeyframeAnimation(keyPath: "transform.scale.x")
         flutter.values = [1, -1, 1]
         flutter.duration = TimeInterval.random(in: 0.4...0.8)
-        flutter.repeatCount = .infinity
+        flutter.loopsForever()
         let group = CAAnimationGroup()
         group.animations = [move, spin, flutter]
         group.duration = fall
