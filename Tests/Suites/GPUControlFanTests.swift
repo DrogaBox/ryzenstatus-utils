@@ -204,16 +204,34 @@ enum GPUControlFanTests {
 
         // The page drawn before the first status, then a held curve: the
         // untouched editor follows it, so Apply does not give it back.
-        let followed = GPUControlFanDraft().following(seed: .stock, held: held)
+        suite.expect(!GPUControlFanDraft().edited && !GPUControlFanDraft(held: held).edited,
+                     "a seeded draft starts unedited")
+        let followed = GPUControlFanDraft().following(held: held)
         suite.expect(followed.want == held, "an untouched draft follows what is held")
-        suite.expect(followed.following(seed: held, held: .stock).want.isStock,
+        suite.expect(followed.following(held: .stock).want.isStock,
                      "the hold went away on its own: the untouched draft follows back")
         var edited = GPUControlFanDraft()
         edited.zeroRpmOff = true
-        suite.expect(edited.following(seed: .stock, held: held) == edited, "an edit stays")
+        suite.expect(edited.edited && edited.following(held: held) == edited, "an edit stays")
+        // An edit set back to the seeded values is still the owner's: the
+        // next state from the kext does not overwrite it.
+        var undone = GPUControlFanDraft()
+        undone.zeroRpmOff = true
+        undone.zeroRpmOff = false
+        suite.expect(undone.want.isStock && undone.following(held: held) == undone,
+                     "an edit back to the seed stays")
+        var pointBack = GPUControlFanDraft(held: held)
+        pointBack.points[2].speedPercent += 4
+        pointBack.points[2].speedPercent -= 4
+        suite.expect(pointBack.edited && pointBack.following(held: .stock).want == held,
+                     "a point moved and back is still an edit")
+        // Applied: the next state seeds it again.
+        let sent = edited.applied
+        suite.expect(!sent.edited && sent.want == edited.want, "applying keeps the values, not the edit mark")
+        suite.expect(sent.following(held: held).want == held, "after Apply the draft follows what the kext holds")
 
         // The button's title: a stock draft over a held fan state is the way back.
-        suite.expect(GPUControlFanDraft().givesBack(held), "both off over a held curve: back to start-up")
+        suite.expect(GPUControlFanDraft().givesBack(held), "both off over a held curve: back to stock")
         suite.expect(!GPUControlFanDraft().givesBack(.stock), "nothing held: still Apply")
         suite.expect(!GPUControlFanDraft(held: held).givesBack(held), "a curve over a curve: Apply")
         suite.expect(!GPUControlFanDraft().givesBack(GPUControlOD8Want(curve: held.curve, gfxMaxMHz: 2_000)),
@@ -346,9 +364,13 @@ enum GPUControlFanTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlFanStrings.enUS.all
-        suite.expect(english.count == 23, "23 texts")
+        suite.expect(english.count == 24, "24 texts")
         for language in AppLanguage.allCases {
-            let table = FeatureStrings.gpuControlFan(language).all
+            let fan = FeatureStrings.gpuControlFan(language)
+            // Two buttons on one page never share a name.
+            suite.expect(fan.backToStock != FeatureStrings.gpuControlPage(language).backToBoot,
+                         "\(language.rawValue): the fan's way back is not the power section's button")
+            let table = fan.all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
                          "\(language.rawValue): every fan text is there")
             for (index, text) in table.enumerated() {

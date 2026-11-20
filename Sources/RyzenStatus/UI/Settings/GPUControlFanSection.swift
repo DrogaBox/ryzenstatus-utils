@@ -41,9 +41,10 @@ struct GPUControlFanSection: View {
     }
 
     /// "Buttons": the title says what the button does. A stock draft over a
-    /// held fan state gives that state back, so it says so.
+    /// held fan state gives that state back, so it says so, in the stock
+    /// words of this section (the power section's button keeps start-up).
     private var applyTitle: String {
-        draft.givesBack(heldOD8) ? strings.backToBoot : fan.apply
+        draft.givesBack(heldOD8) ? fan.backToStock : fan.apply
     }
 
     var body: some View {
@@ -98,7 +99,10 @@ struct GPUControlFanSection: View {
                 Spacer()
                 // "Entering data": enable the button only with valid data;
                 // "Buttons": the editor's one action, prominent.
-                Button(applyTitle) { apply(draft) }
+                Button(applyTitle) {
+                    apply(draft)
+                    draft = draft.applied
+                }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }

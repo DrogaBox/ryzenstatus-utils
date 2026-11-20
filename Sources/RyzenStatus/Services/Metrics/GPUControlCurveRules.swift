@@ -231,9 +231,16 @@ struct GPUControlFanDraft: Equatable, Sendable {
     static let testedCurve = [(30, 20), (40, 36), (44, 52), (46, 68), (48, 100)]
         .map { GPUControlFanPoint(temperatureC: $0.0, speedPercent: $0.1) }
 
-    var customCurve = false
-    var points = GPUControlFanDraft.testedCurve
-    var zeroRpmOff = false
+    // Every change from a control marks the draft as edited. Observers do
+    // not run in the initializer, so a draft seeded from what is held starts
+    // unedited.
+    var customCurve = false { didSet { edited = true } }
+    var points = GPUControlFanDraft.testedCurve { didSet { edited = true } }
+    var zeroRpmOff = false { didSet { edited = true } }
+    /// The owner touched the editor since it was last seeded or applied.
+    /// A flag, not a comparison with the seed: an edit set back to the
+    /// seeded values is still the owner's, and stays.
+    var edited = false
 
     /// The whole OD8 state for the request (the GFX maximum is added by the
     /// controller from what is held).
@@ -249,11 +256,18 @@ struct GPUControlFanDraft: Equatable, Sendable {
         zeroRpmOff = held.zeroRpmOff
     }
 
-    /// The draft once the held fan state went from `seed` (the one the
-    /// editor last took) to `held`: a draft the owner has not touched
-    /// follows it, an edit stays.
-    func following(seed: GPUControlOD8Want, held: GPUControlOD8Want) -> GPUControlFanDraft {
-        want == seed ? GPUControlFanDraft(held: held) : self
+    /// The draft once the held fan state changed to `held`: a draft the
+    /// owner has not touched is seeded again from it, an edit stays.
+    func following(held: GPUControlOD8Want) -> GPUControlFanDraft {
+        edited ? self : GPUControlFanDraft(held: held)
+    }
+
+    /// The draft once it was sent: no longer an edit, so the state the kext
+    /// reports next seeds it again.
+    var applied: GPUControlFanDraft {
+        var draft = self
+        draft.edited = false
+        return draft
     }
 
     /// Applying this draft gives the whole OD8 hold back (the way back to

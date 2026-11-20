@@ -30,6 +30,9 @@ struct GPUControlFanStrings {
     let ruleLastFormat: String
     let ruleCooling: String
     let apply: String
+    /// The button when the draft gives the fan hold back: in this section's
+    /// stock words, not the power section's start-up.
+    let backToStock: String
     /// %d = the 100 % temperature.
     let footerFormat: String
     let notePowerHeld: String
@@ -41,7 +44,7 @@ struct GPUControlFanStrings {
     var all: [String] {
         [section, curveToggle, zeroRpmToggle, pointFormat, pointTempFormat, pointSpeedFormat, stepTempFormat,
          stepSpeedFormat, chartLabelFormat, limitFormat, curveOK, curveFailFormat, ruleRange, ruleOrder, ruleFirst,
-         ruleLastFormat, ruleCooling, apply, footerFormat, notePowerHeld, noteCurveHeld, notChecked,
+         ruleLastFormat, ruleCooling, apply, backToStock, footerFormat, notePowerHeld, noteCurveHeld, notChecked,
          chartKey]
     }
 
@@ -100,6 +103,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "the last point must be 100%% at %d °C or below.",
         ruleCooling: "it gives less air than the stock curve.",
         apply: "Apply curve",
+        backToStock: "Back to stock",
         footerFormat: "With any accepted curve the fan reaches 100%% by %d °C. The first point must be at 30 °C or below; no point may give less air than the stock curve.",
         notePowerHeld: "A power limit is held. Applying the curve first returns the power limit to its start-up value: the kext never holds both.",
         noteCurveHeld: "A fan setting is held. Choosing a power limit first returns the fan to stock: the kext never holds both.",
@@ -125,6 +129,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "el último punto tiene que ser 100%% a %d °C o menos.",
         ruleCooling: "da menos aire que la curva de fábrica.",
         apply: "Aplicar curva",
+        backToStock: "Volver a los valores de fábrica",
         footerFormat: "Con cualquier curva aceptada el ventilador llega al 100%% a %d °C. El primer punto tiene que estar a 30 °C o menos; ningún punto puede dar menos aire que la de fábrica.",
         notePowerHeld: "Hay un límite de potencia puesto. Al aplicar la curva, primero el límite vuelve a su valor de arranque: el kext nunca mantiene las dos cosas.",
         noteCurveHeld: "Hay un ajuste del ventilador puesto. Al elegir un límite de potencia, primero el ventilador vuelve a fábrica: el kext nunca mantiene las dos cosas.",
@@ -150,6 +155,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "o último ponto tem que ser 100%% a %d °C ou menos.",
         ruleCooling: "dá menos ar que a curva de fábrica.",
         apply: "Aplicar curva",
+        backToStock: "Voltar ao padrão",
         footerFormat: "Com qualquer curva aceita a ventoinha chega a 100%% a %d °C. O primeiro ponto tem que estar a 30 °C ou menos; nenhum ponto pode dar menos ar que a de fábrica.",
         notePowerHeld: "Há um limite de energia mantido. Ao aplicar a curva, primeiro o limite volta ao valor de inicialização: o kext nunca mantém os dois.",
         noteCurveHeld: "Há um ajuste da ventoinha mantido. Ao escolher um limite de energia, primeiro a ventoinha volta ao padrão: o kext nunca mantém os dois.",
@@ -175,6 +181,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "son nokta %d °C veya altında %%100 olmalı.",
         ruleCooling: "fabrika eğrisinden daha az hava veriyor.",
         apply: "Eğriyi uygula",
+        backToStock: "Fabrika ayarlarına dön",
         footerFormat: "Kabul edilen her eğriyle fan %d °C'de %%100'e ulaşır. İlk nokta 30 °C veya altında olmalı; hiçbir nokta fabrika eğrisinden az hava veremez.",
         notePowerHeld: "Bir güç sınırı tutuluyor. Eğriyi uygulamak önce güç sınırını başlangıç değerine döndürür: kext ikisini birlikte tutmaz.",
         noteCurveHeld: "Bir fan ayarı tutuluyor. Güç sınırı seçmek önce fanı fabrika ayarına döndürür: kext ikisini birlikte tutmaz.",
@@ -200,6 +207,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "последняя точка должна быть 100%% при %d °C или ниже.",
         ruleCooling: "она даёт меньше воздуха, чем заводская кривая.",
         apply: "Применить кривую",
+        backToStock: "Вернуть заводские настройки",
         footerFormat: "С любой принятой кривой вентилятор достигает 100%% при %d °C. Первая точка должна быть при 30 °C или ниже; ни одна точка не может давать меньше воздуха, чем заводская кривая.",
         notePowerHeld: "Удерживается лимит мощности. Применение кривой сначала вернёт лимит к значению загрузки: kext никогда не удерживает оба.",
         noteCurveHeld: "Удерживается настройка вентилятора. Выбор лимита мощности сначала вернёт вентилятор к заводским значениям: kext никогда не удерживает оба.",
@@ -225,6 +233,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "posledný bod musí byť 100%% pri %d °C alebo nižšie.",
         ruleCooling: "dáva menej vzduchu než továrenská krivka.",
         apply: "Použiť krivku",
+        backToStock: "Späť na továrenské nastavenia",
         footerFormat: "S každou prijatou krivkou ventilátor dosiahne 100%% pri %d °C. Prvý bod musí byť pri 30 °C alebo nižšie; žiadny bod nesmie dať menej vzduchu než továrenská krivka.",
         notePowerHeld: "Drží sa limit príkonu. Použitie krivky najprv vráti limit na štartovaciu hodnotu: kext nikdy nedrží oboje.",
         noteCurveHeld: "Drží sa nastavenie ventilátora. Výber limitu výkonu najprv vráti ventilátor na továrenské hodnoty: kext nikdy nedrží oboje.",
@@ -250,6 +259,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "Der letzte Punkt muss 100 %% bei %d °C oder darunter sein.",
         ruleCooling: "Die Kurve gibt dort weniger Luft als die Werkskurve.",
         apply: "Kurve anwenden",
+        backToStock: "Zurück zu den Werkswerten",
         footerFormat: "Mit jeder angenommenen Kurve erreicht der Lüfter 100 %% bei %d °C. Der erste Punkt muss bei 30 °C oder darunter liegen; kein Punkt darf weniger Luft geben als die Werkskurve.",
         notePowerHeld: "Ein Leistungslimit wird gehalten. Beim Anwenden der Kurve geht das Limit zuerst auf seinen Startwert zurück: Der Kext hält nie beides.",
         noteCurveHeld: "Eine Lüftereinstellung wird gehalten. Beim Wählen eines Leistungslimits geht der Lüfter zuerst auf Werkseinstellung zurück: Der Kext hält nie beides.",
@@ -275,6 +285,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "le dernier point doit être à 100 %% à %d °C ou moins.",
         ruleCooling: "elle donne moins d’air que la courbe d’usine.",
         apply: "Appliquer la courbe",
+        backToStock: "Revenir aux réglages d’usine",
         footerFormat: "Avec toute courbe acceptée, le ventilateur atteint 100 %% à %d °C. Le premier point doit être à 30 °C ou moins ; aucun point ne peut donner moins d’air que la courbe d’usine.",
         notePowerHeld: "Une limite de puissance est maintenue. Appliquer la courbe remet d’abord la limite à sa valeur de démarrage : le kext ne maintient jamais les deux.",
         noteCurveHeld: "Un réglage du ventilateur est maintenu. Choisir une limite de puissance remet d’abord le ventilateur aux réglages d’usine : le kext ne maintient jamais les deux.",
@@ -300,6 +311,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "l’ultimo punto deve essere al 100%% a %d °C o meno.",
         ruleCooling: "dà meno aria della curva di fabbrica.",
         apply: "Applica curva",
+        backToStock: "Torna ai valori di fabbrica",
         footerFormat: "Con qualsiasi curva accettata la ventola arriva al 100%% a %d °C. Il primo punto deve stare a 30 °C o meno; nessun punto può dare meno aria della curva di fabbrica.",
         notePowerHeld: "È mantenuto un limite di potenza. Applicando la curva, prima il limite torna al valore di avvio: il kext non mantiene mai entrambi.",
         noteCurveHeld: "È mantenuta un’impostazione della ventola. Scegliendo un limite di potenza, prima la ventola torna ai valori di fabbrica: il kext non mantiene mai entrambi.",
@@ -325,6 +337,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "最後のポイントは %d °C 以下で 100%% にしてください。",
         ruleCooling: "純正カーブより風量が少なくなります。",
         apply: "カーブを適用",
+        backToStock: "純正に戻す",
         footerFormat: "受け入れられたカーブでは、ファンは %d °C で 100%% に達します。最初のポイントは 30 °C 以下で、どのポイントも純正カーブより風量を少なくできません。",
         notePowerHeld: "電力制限が保持されています。カーブを適用すると、先に電力制限が起動時の値に戻ります。kext は両方を同時に保持しません。",
         noteCurveHeld: "ファンの設定が保持されています。電力制限を選ぶと、先にファンが純正に戻ります。kext は両方を同時に保持しません。",
@@ -350,6 +363,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "마지막 지점은 %d °C 이하에서 100%%여야 합니다.",
         ruleCooling: "기본 곡선보다 바람이 적습니다.",
         apply: "곡선 적용",
+        backToStock: "기본값으로 돌아가기",
         footerFormat: "받아들여진 곡선에서는 팬이 %d °C에서 100%%에 도달합니다. 첫 지점은 30 °C 이하여야 하고, 어떤 지점도 기본 곡선보다 바람이 적을 수 없습니다.",
         notePowerHeld: "전력 한도가 유지되고 있습니다. 곡선을 적용하면 먼저 전력 한도가 시동 값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
         noteCurveHeld: "팬 설정이 유지되고 있습니다. 전력 한도를 선택하면 먼저 팬이 기본값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
@@ -375,6 +389,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "最后一个点必须在 %d °C 或更低时为 100%%。",
         ruleCooling: "它的风量比原厂曲线少。",
         apply: "应用曲线",
+        backToStock: "返回出厂值",
         footerFormat: "使用任何被接受的曲线，风扇在 %d °C 时达到 100%%。第一个点必须为 30 °C 或更低；任何点的风量都不能少于原厂曲线。",
         notePowerHeld: "当前设有功率上限。应用曲线会先使功率上限返回启动值：kext 绝不会同时维持两者。",
         noteCurveHeld: "正在维持风扇设置。选择功率上限会先使风扇返回出厂设置：kext 绝不会同时维持两者。",
@@ -400,6 +415,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "最後一個點必須在 %d °C 或更低時為 100%%。",
         ruleCooling: "它的風量比原廠曲線少。",
         apply: "套用曲線",
+        backToStock: "返回原廠值",
         footerFormat: "使用任何被接受的曲線，風扇在 %d °C 時達到 100%%。第一個點必須為 30 °C 或更低；任何點的風量都不能少於原廠曲線。",
         notePowerHeld: "目前設有功率上限。套用曲線會先使功率上限回到啟動值：kext 絕不會同時維持兩者。",
         noteCurveHeld: "正在維持風扇設定。選擇功率上限會先使風扇回到原廠設定：kext 絕不會同時維持兩者。",
@@ -425,6 +441,7 @@ extension GPUControlFanStrings {
         ruleLastFormat: "остання точка має бути 100%% за %d °C або нижче.",
         ruleCooling: "вона дає менше повітря, ніж заводська крива.",
         apply: "Застосувати криву",
+        backToStock: "Повернути заводські налаштування",
         footerFormat: "З будь-якою прийнятою кривою вентилятор досягає 100%% за %d °C. Перша точка має бути за 30 °C або нижче; жодна точка не може давати менше повітря, ніж заводська крива.",
         notePowerHeld: "Утримується ліміт потужності. Застосування кривої спершу поверне ліміт до значення завантаження: kext ніколи не утримує обидва.",
         noteCurveHeld: "Утримується налаштування вентилятора. Вибір ліміту потужності спершу поверне вентилятор до заводських значень: kext ніколи не утримує обидва.",

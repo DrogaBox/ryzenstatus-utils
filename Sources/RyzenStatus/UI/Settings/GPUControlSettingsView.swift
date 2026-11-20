@@ -185,9 +185,9 @@ struct GPUControlPageContent: View {
     let title: String
     let actions: GPUControlPageActions
     @State private var copied = false
+    /// The editor's draft; its `edited` flag says whether the owner touched
+    /// it since it was last seeded or applied.
     @State private var draft: GPUControlFanDraft
-    /// The fan state the editor last took from what is held.
-    @State private var fanSeed: GPUControlOD8Want
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
          title: String, actions: GPUControlPageActions) {
@@ -199,7 +199,6 @@ struct GPUControlPageContent: View {
         var held: GPUControlOD8Want?
         if case .heldByApp(.od8(let want))? = input.state { held = want }
         _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
-        _fanSeed = State(initialValue: Self.heldFan(input))
     }
 
     /// The fan part of the OD8 state the app holds (stock when none).
@@ -231,10 +230,10 @@ struct GPUControlPageContent: View {
         // What is held changed (the first status after the page appeared, a
         // remembered state, a wake, the kext going back): an editor the owner
         // has not touched follows it, so Apply never gives back a hold the
-        // page did not show; an edit stays.
+        // page did not show; an edit stays, even one set back to the
+        // seeded values.
         .onChange(of: Self.heldFan(input)) { _, held in
-            draft = draft.following(seed: fanSeed, held: held)
-            fanSeed = held
+            draft = draft.following(held: held)
         }
     }
 
