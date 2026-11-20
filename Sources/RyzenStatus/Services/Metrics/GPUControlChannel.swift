@@ -107,6 +107,9 @@ final class KextGPUControlChannel: GPUControlChannel, @unchecked Sendable {
     }
 
     func call(_ selector: GPUControlWire.Selector, input: [UInt64], outputCount: Int) -> [UInt64]? {
+        // The kext refuses a wrong count anyway; refusing it here keeps a
+        // mistake in this app from reaching the kernel at all.
+        guard input.count == selector.inputCount else { return nil }
         state.lock()
         guard connection != 0, outputCount > 0 else {
             state.unlock()

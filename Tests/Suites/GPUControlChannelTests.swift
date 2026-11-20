@@ -71,6 +71,12 @@ enum GPUControlChannelTests {
         suite.expect(gfx?.feature == 1 && gfx?.stock == 2_359 && gfx?.min == 500 && gfx?.max == 2_800,
                      "GFX max: stock 2359 MHz, driver range 500-2800")
         suite.expect(od8?.stockGfxMaxMHz == 2_359, "the clock a request may not pass is the stock 2359 MHz")
+        if var odd = od8, let entry = odd.settings["GfxMaxMHz"] {
+            odd.settings["GfxMaxMHz"] = GPUControlStatus.Writing.OD8Setting(
+                feature: 0x2, min: entry.min, max: entry.max, stock: entry.stock,
+                defaultNow: entry.defaultNow, current: entry.current)
+            suite.expect(odd.stockGfxMaxMHz == nil, "a GFX max feature other than 0x1 offers no clock (the kext says NoFeature)")
+        }
         suite.expect(od8?.settings["FanTargetC"]?.stock == 70 && od8?.settings["FanTargetC"]?.feature == 0,
                      "fan target 70 C, not offered as a feature")
         let stockCurve = [(30, 20), (50, 36), (56, 52), (63, 68), (70, 100)]

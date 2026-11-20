@@ -112,8 +112,10 @@ extension GPUControlStatus {
 
             /// The stock GFX maximum a request may not pass: the lower of
             /// the first read and the driver's default now (`od8StockGfxMax`).
+            /// Nil unless the entry's feature is exactly 0x1: any other value
+            /// and the kext refuses every OD8 call ("NoFeature").
             var stockGfxMaxMHz: Int? {
-                guard let setting = settings["GfxMaxMHz"], setting.feature != 0 else { return nil }
+                guard let setting = settings["GfxMaxMHz"], setting.feature == 0x1 else { return nil }
                 return Swift.min(setting.stock, setting.defaultNow)
             }
         }
