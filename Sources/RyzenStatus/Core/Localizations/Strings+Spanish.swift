@@ -95,7 +95,6 @@ extension Strings {
         istatsUser: "Usuario",
         istatsSystem: "Sistema",
         istatsAppMemory: "App",
-        istatsWiredMemory: "Wired",
         istatsCompressedMemory: "Comprimida",
         istatsFreeMemory: "Libre",
 

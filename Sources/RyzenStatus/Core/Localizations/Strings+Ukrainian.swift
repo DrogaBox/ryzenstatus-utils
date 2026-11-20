@@ -91,7 +91,6 @@ extension Strings {
         istatsUser: "Користувач",
         istatsSystem: "Система",
         istatsAppMemory: "Програми",
-        istatsWiredMemory: "Зарезервована",
         istatsCompressedMemory: "Стиснута",
         istatsFreeMemory: "Вільна",
         notifySessionEndedTitle: "Сеанс завершено",
