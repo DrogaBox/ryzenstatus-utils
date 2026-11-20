@@ -535,17 +535,13 @@ enum MenuBarRenderer {
                     guard !renderedGPU else { break }
                     renderedGPU = true
                     let usage = enabled.contains(.gpu) ? snapshot.gpuUsage : nil
-                    // A VRAM temperature is not the GPU's: it gets its own
-                    // labelled block instead of riding on the GPU group.
-                    let showsVRAM = snapshot.gpuDisplayLabel != "GPU"
+                    // Never a VRAM reading: with VRAM chosen the setting keeps
+                    // the temperature out of this block (combinesTemperature),
+                    // whether the kext delivers it or the macOS reading stands in.
                     let displayTemperature = enabled.contains(.gpuTemperature)
                         ? snapshot.gpuDisplayCelsius.map { temperatureCompact($0, settings) } : nil
                     combined(.gpu, component: "GPU", usage: usage.map(percent), fraction: usage,
-                             temperature: showsVRAM ? nil : displayTemperature)
-                    if showsVRAM, let displayTemperature {
-                        text(.gpuTemperature, label: temperatureLabel(snapshot.gpuDisplayLabel, settings),
-                             value: displayTemperature, minimum: "999°")
-                    }
+                             temperature: displayTemperature)
                     break
                 }
                 guard metric == .gpu else {

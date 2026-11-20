@@ -296,9 +296,13 @@ enum GPUSensorsTests {
         snapshot.gpuUsage = 0.4
         snapshot.gpuTemperature = 61
         suite.expect(!labels(snapshot).contains { $0.hasPrefix("VRAM") }, "the macOS temperature stays under GPU")
+        // A VRAM reading only arrives with VRAM chosen, and that setting is
+        // what keeps it out of the GPU block (combinesTemperature).
+        settings.gpuTemperatureSource = .memory
         snapshot.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
         suite.expect(labels(snapshot).contains { $0.hasPrefix("VRAM") },
                      "a VRAM temperature gets its own VRAM block in the combined item (got \(labels(snapshot)))")
+        settings.gpuTemperatureSource = .hotspot
 
         // 3b. GPU temp + power sizes its image from reserved lines, so the
         // "VRAM 000°" line must be reserved or its digits are clipped.

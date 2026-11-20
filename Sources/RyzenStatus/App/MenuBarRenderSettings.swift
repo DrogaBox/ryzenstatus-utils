@@ -13,6 +13,10 @@ import AppKit
 struct MenuBarRenderSettings: Equatable {
     var styles: [MenuBarMetric: MenuBarMetricAppearance]
     var combineTemperatures: Bool
+    /// The GPU temperature the user chose to show. The setting, not the
+    /// reading that arrived: with VRAM chosen and the kext silent, the
+    /// macOS fallback must not be folded into the GPU usage block either.
+    var gpuTemperatureSource: GPUTemperatureSource
     var graphShowsValue: Bool
     /// Graphs and usage bars in the text color, like the system's icons.
     var graphMonochrome: Bool
@@ -67,11 +71,17 @@ struct MenuBarRenderSettings: Equatable {
     ///
     /// Only while both readings are pinned: a temperature shown without its
     /// usage keeps its own style and name.
+    ///
+    /// A VRAM temperature is not the GPU's, so with VRAM chosen the GPU
+    /// temperature always keeps its own labelled block and style, also while
+    /// the kext is silent and the macOS reading stands in for it. Settings
+    /// asks the same question in `MenuBarMetricAppearance.drawnWithUsage`.
     func combinesTemperature(of component: MenuBarComponent, enabled: Set<MenuBarMetric>) -> Bool {
         guard combineTemperatures else { return false }
         switch component {
         case .cpu: return enabled.contains(.cpu) && enabled.contains(.cpuTemperature) && style(for: .cpu).isText
-        case .gpu: return enabled.contains(.gpu) && enabled.contains(.gpuTemperature) && style(for: .gpu).isText
+        case .gpu: return gpuTemperatureSource != .memory
+            && enabled.contains(.gpu) && enabled.contains(.gpuTemperature) && style(for: .gpu).isText
         case .battery: return enabled.contains(.battery) && enabled.contains(.batteryTemperature)
         }
     }
@@ -89,6 +99,7 @@ struct MenuBarRenderSettings: Equatable {
         return MenuBarRenderSettings(
             styles: styles,
             combineTemperatures: defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures),
+            gpuTemperatureSource: GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)),
             graphShowsValue: defaults.bool(forKey: DefaultsKey.menuBarGraphShowsValue),
             graphMonochrome: defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome),
             highlightHighValues: defaults.bool(forKey: DefaultsKey.menuBarHighlightHighValues),
@@ -213,6 +224,13 @@ enum MenuBarStyleMigration {
         let namesStyle = global != nil || convertedMetrics.contains { validStyle(stored[$0.styleKey]) != nil }
         // Settings that name no style (a classic-only config file) leave the
         // current per-metric styles alone.
+        //
+        // Deliberately `convertedMetrics`, not `MenuBarMetricAppearance.styledMetrics`
+        // (every metric since per-metric styles): only these five ever read the
+        // old global key, so only they have an old look to keep. Every other
+        // metric must stay unsaved and resolve to `defaultStyle(for:)`. Widening
+        // this loop would write a style for all of them under the same marker,
+        // with no second pass to undo it; the conversion tests catch that.
         for metric in convertedMetrics where namesStyle {
             let effective = validStyle(stored[metric.styleKey]) ?? global ?? "values"
             result[metric.styleKey] = shownStyle(effective, for: metric)

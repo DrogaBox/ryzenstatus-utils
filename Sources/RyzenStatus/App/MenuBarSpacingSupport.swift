@@ -103,8 +103,9 @@ enum MenuBarMetricAppearance: String, CaseIterable {
         switch temperature {
         case .cpuTemperature: usage = .cpu
         case .gpuTemperature:
-            // A VRAM reading is not the GPU's: it always keeps its own block
-            // and style (see MenuBarRenderer, the VRAM path).
+            // With VRAM chosen the temperature always keeps its own block
+            // and style, kext or no kext: the renderer decides from the same
+            // setting (MenuBarRenderSettings.gpuTemperatureSource).
             if GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)) == .memory {
                 return false
             }

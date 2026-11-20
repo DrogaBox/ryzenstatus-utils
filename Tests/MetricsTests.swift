@@ -2200,29 +2200,34 @@ struct MetricsTests {
         do {
             // Settings (drawnWithUsage) and the renderer (combinesTemperature)
             // each encode when a temperature rides in its usage block; they
-            // must agree on every combination.
+            // must agree on every combination, the GPU temperature source too.
             let name = "menubar-combine-agreement-test"
             let suite = UserDefaults(suiteName: name)!
             let pairs: [(usage: MenuBarMetric, temperature: MenuBarMetric, component: MenuBarComponent)] = [
                 (.cpu, .cpuTemperature, .cpu), (.gpu, .gpuTemperature, .gpu), (.battery, .batteryTemperature, .battery),
             ]
             var disagreements: [String] = []
+            var checked = 0
             for pair in pairs {
                 for combine in [false, true] {
                     for usagePinned in [false, true] {
                         for temperaturePinned in [false, true] {
                             for style in [MenuBarMetricAppearance.values, .inline, .valueOnly, .sparkline] {
-                                suite.removePersistentDomain(forName: name)
-                                suite.set(combine, forKey: DefaultsKey.menuBarCombineTemperatures)
-                                suite.set(usagePinned, forKey: pair.usage.defaultsKey)
-                                suite.set(temperaturePinned, forKey: pair.temperature.defaultsKey)
-                                suite.set(style.rawValue, forKey: pair.usage.styleKey)
-                                let enabled = Set(MenuBarMetric.allCases.filter { suite.bool(forKey: $0.defaultsKey) })
-                                let renderer = MenuBarRenderSettings.current(defaults: suite)
-                                    .combinesTemperature(of: pair.component, enabled: enabled)
-                                if MenuBarMetricAppearance.drawnWithUsage(pair.temperature, in: suite) != renderer {
-                                    disagreements.append("\(pair.usage.rawValue)/\(style.rawValue)/\(combine)"
-                                                         + "/\(usagePinned)/\(temperaturePinned)")
+                                for source in GPUTemperatureSource.allCases {
+                                    suite.removePersistentDomain(forName: name)
+                                    suite.set(combine, forKey: DefaultsKey.menuBarCombineTemperatures)
+                                    suite.set(usagePinned, forKey: pair.usage.defaultsKey)
+                                    suite.set(temperaturePinned, forKey: pair.temperature.defaultsKey)
+                                    suite.set(style.rawValue, forKey: pair.usage.styleKey)
+                                    suite.set(source.rawValue, forKey: DefaultsKey.gpuTemperatureSource)
+                                    let enabled = Set(MenuBarMetric.allCases.filter { suite.bool(forKey: $0.defaultsKey) })
+                                    let renderer = MenuBarRenderSettings.current(defaults: suite)
+                                        .combinesTemperature(of: pair.component, enabled: enabled)
+                                    checked += 1
+                                    if MenuBarMetricAppearance.drawnWithUsage(pair.temperature, in: suite) != renderer {
+                                        disagreements.append("\(pair.usage.rawValue)/\(style.rawValue)/\(combine)"
+                                                             + "/\(usagePinned)/\(temperaturePinned)/\(source.rawValue)")
+                                    }
                                 }
                             }
                         }
@@ -2230,8 +2235,38 @@ struct MetricsTests {
                 }
             }
             suite.removePersistentDomain(forName: name)
-            expect(disagreements.isEmpty,
+            expect(checked == 288 && disagreements.isEmpty,
                    "Settings and the renderer agree on when a temperature joins its usage (got \(disagreements))")
+        }
+        do {
+            // VRAM chosen, kext silent: the snapshot carries only the macOS
+            // reading, labelled "GPU". The temperature still keeps its own
+            // block, exactly as with combine off, and is never folded into
+            // the GPU usage block.
+            let name = "menubar-vram-silent-test"
+            let suite = UserDefaults(suiteName: name)!
+            suite.removePersistentDomain(forName: name)
+            var settings = MenuBarRenderSettings.current(defaults: suite)
+            settings.styles[.gpu] = .values
+            settings.styles[.gpuTemperature] = .values
+            var snapshot = SystemSnapshot()
+            snapshot.gpuUsage = 0.42
+            snapshot.gpuTemperature = 61
+            // What the monitor resolves with VRAM chosen and no kext sample.
+            snapshot.gpuDisplayTemperature = GPUDisplayTemperature.resolve(source: .memory, macOS: 61, sample: nil)
+            func key(combine: Bool, source: GPUTemperatureSource) -> String {
+                var s = settings
+                s.combineTemperatures = combine
+                s.gpuTemperatureSource = source
+                return MenuBarRenderer.render(for: snapshot, metrics: [.gpu, .gpuTemperature], settings: s,
+                                              widthMemory: MenuBarWidthMemory()).key
+            }
+            expect(snapshot.gpuDisplayLabel == "GPU"
+                   && key(combine: true, source: .hotspot) != key(combine: false, source: .hotspot),
+                   "with the macOS source, combine folds the GPU temperature into the usage block")
+            expect(key(combine: true, source: .memory) == key(combine: false, source: .memory),
+                   "with VRAM chosen and the kext silent, the fallback temperature keeps its own block")
+            suite.removePersistentDomain(forName: name)
         }
         expectClose(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 4) ?? -1, 0.75,
                     "menu bar memory bars use the current used fraction")
