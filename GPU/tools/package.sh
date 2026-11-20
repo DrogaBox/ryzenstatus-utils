@@ -104,7 +104,7 @@ strs=$(strings -a $bins)
   print -r -- "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH$epoch_note"
   print -r -- "versions: GPU sensors $(<sensors/VERSION), encoding fix $(<encode/VERSION)"
 } > $OUT/BUILD-INFO.txt
-(cd $OUT && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > SHA256SUMS)
+(cd $OUT && find . -type f ! -path ./SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > SHA256SUMS)
 xattr -cr $OUT
 if [[ $MODE == payload ]]; then
   print "parts written to $OUT"
