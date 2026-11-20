@@ -323,7 +323,7 @@ struct MonitorWindowStrings {
                         processor: "Procesor", network: "Sieť", history: "História", diagnostics: "Diagnostika",
                         section: "Sekcia", cores: "Jadrá", activeCoresFormat: "aktívne: %d z %d",
                         pptLimitFormat: "Limit PPT: %@", voltage: "Napätie", openMonitor: "Otvoriť Monitor",
-                        openMonitorCaption: "Prehľad sa otvára vo vlastnom okne.",
+                        openMonitorCaption: "Dashboard sa otvára vo vlastnom okne.",
                         interfaceColumn: "Rozhranie", addressColumn: "Adresa", statusColumn: "Stav",
                         statusUp: "Aktívne", statusDown: "Neaktívne", metric: "Veličina",
                         cpuTemperature: "Teplota CPU", gpuTemperature: "Teplota GPU",
