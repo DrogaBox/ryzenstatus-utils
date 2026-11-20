@@ -284,9 +284,8 @@ final class RollingDigitsGlyphs {
     }
 
     func image(_ text: String, font: NSFont, color: CGColor, scale: CGFloat) -> CGImage? {
-        let components = (color.components ?? []).map { String(format: "%.3f", $0) }.joined(separator: ",")
-        let key = "\(text)|\(font.fontName)|\(font.pointSize)|\(components)|\(scale)" as NSString
-        if let image = cache.object(forKey: key) { return image }
+        let key = Self.key(text, font: font, color: color, scale: scale)
+        if let key, let image = cache.object(forKey: key) { return image }
         let metrics = metrics(for: font)
         let size = CGSize(width: max(1, width(of: text, font: font)), height: metrics.lineHeight)
         guard let context = CGContext(data: nil, width: Int(ceil(size.width * scale)), height: Int(ceil(size.height * scale)),
@@ -305,8 +304,18 @@ final class RollingDigitsGlyphs {
         // Long lines, such as a song title or a line cut short every tick,
         // are drawn as they come and kept out, so they never push the
         // digits and short runs everybody shares out of the cache.
-        if text.count <= Self.cachedLength { cache.setObject(image, forKey: key) }
+        if let key, text.count <= Self.cachedLength { cache.setObject(image, forKey: key) }
         return image
+    }
+
+    /// The cache's name for a drawing. The colour goes in by its space and
+    /// components; one with no components, such as a pattern, has no name
+    /// and is drawn as it comes, so two such colours never share an image.
+    static func key(_ text: String, font: NSFont, color: CGColor, scale: CGFloat) -> NSString? {
+        guard let components = color.components else { return nil }
+        let space = color.colorSpace?.name.map { $0 as String } ?? "?"
+        let values = components.map { String(format: "%.3f", $0) }.joined(separator: ",")
+        return "\(text)|\(font.fontName)|\(font.pointSize)|\(space)|\(values)|\(scale)" as NSString
     }
 }
 
@@ -418,7 +427,8 @@ final class RollingDigitsView: NSView {
     private var style = RollingDigitsStyle(size: 13)
     private var font = RollingDigitsStyle(size: 13).font()
     private var color: NSColor = .labelColor
-    private var resolvedColor: CGColor = NSColor.white.cgColor
+    /// The colour the glyphs are drawn in, for tests.
+    private(set) var resolvedColor: CGColor = NSColor.white.cgColor
     private var duration: TimeInterval = 0.25
     private var frameRates = defaultFrameRates
     private var minimumScaleFactor: CGFloat = 1
@@ -432,6 +442,8 @@ final class RollingDigitsView: NSView {
     private var occlusionObserver: NSObjectProtocol?
     /// Animations added by the last change, for tests.
     private(set) var lastAnimations: [CAAnimation] = []
+    /// How many times every glyph was drawn again, for tests.
+    private(set) var redraws = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -464,12 +476,16 @@ final class RollingDigitsView: NSView {
         self.duration = duration
         self.frameRates = frameRates
         self.minimumScaleFactor = minimumScaleFactor
-        guard style != self.style || color != self.color || dark != self.dark else { return }
-        self.style = style
+        // The colour is compared as it is drawn, not as an NSColor: SwiftUI
+        // hands over a new one on every update, and a dynamic colour is equal
+        // only to itself, which would draw every glyph again each time.
+        let resolved = resolve(color, dark: dark)
         self.color = color
+        guard style != self.style || resolved != resolvedColor || dark != self.dark else { return }
+        self.style = style
         self.dark = dark
         font = style.font()
-        resolveColor()
+        resolvedColor = resolved
         redraw()
     }
 
@@ -477,10 +493,15 @@ final class RollingDigitsView: NSView {
 
     private var dark: Bool?
     private func resolveColor() {
+        resolvedColor = resolve(color, dark: dark)
+    }
+
+    /// `color` as it draws in the given scheme, or in this view's appearance.
+    private func resolve(_ color: NSColor, dark: Bool?) -> CGColor {
         var resolved = NSColor.white.cgColor
         let appearance = dark.flatMap { NSAppearance(named: $0 ? .darkAqua : .aqua) } ?? effectiveAppearance
-        appearance.performAsCurrentDrawingAppearance { resolved = self.color.cgColor }
-        resolvedColor = resolved
+        appearance.performAsCurrentDrawingAppearance { resolved = color.cgColor }
+        return resolved
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -529,6 +550,7 @@ final class RollingDigitsView: NSView {
 
     /// Redraws the current text at once, as a new scale, colour or font asks.
     private func redraw() {
+        redraws += 1
         let current = text
         text = ""
         dropLeaving()

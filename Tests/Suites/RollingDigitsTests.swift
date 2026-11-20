@@ -224,6 +224,7 @@ enum RollingDigitsTests {
         reach(suite)
         inactive(suite)
         cache(suite)
+        quiet(suite)
         shortcutTile(suite)
         hosted(suite)
     }
@@ -325,6 +326,56 @@ enum RollingDigitsTests {
         suite.expect(glyphs.image(title, font: font, color: white, scale: 2)
                      !== glyphs.image(title, font: font, color: white, scale: 2),
                      "a longer line is drawn as it comes, without being kept")
+    }
+
+    /// An update that changes nothing, as most island ticks bring, touches no
+    /// layer and draws nothing again, whatever colour object it carries; the
+    /// colour scheme it is drawn in does.
+    private static func quiet(_ suite: TestSuite) {
+        let view = rollingView()
+        view.show("42%", animated: false, countsDown: nil)
+        let columns = view.lineLayer.sublayers ?? []
+        let glyphs = columns.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } }
+        let redraws = view.redraws
+        view.show("42%", animated: true, countsDown: nil)
+        let columnsAfter = view.lineLayer.sublayers ?? []
+        suite.expect(columnsAfter.count == columns.count && zip(columns, columnsAfter).allSatisfy { $0 === $1 }
+                     && zip(glyphs, columnsAfter.compactMap { $0.sublayers?.first?.contents.map { $0 as AnyObject } })
+                        .allSatisfy { $0 === $1 }
+                     && view.redraws == redraws,
+                     "the same text again keeps every column and glyph and draws nothing")
+
+        // SwiftUI hands over a new NSColor on every update; a dynamic one is
+        // equal only to itself.
+        func dynamic() -> NSColor {
+            NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black }
+        }
+        let style = RollingDigitsStyle.rounded(22, .medium)
+        func configure(_ color: NSColor, dark: Bool?) {
+            view.configure(style: style, color: color, duration: 0.25, frameRates: RollingDigitsView.defaultFrameRates,
+                           minimumScaleFactor: 1, dark: dark)
+        }
+        configure(dynamic(), dark: true)
+        let dynamicRedraws = view.redraws
+        configure(dynamic(), dark: true)
+        configure(dynamic(), dark: true)
+        suite.expect(view.redraws == dynamicRedraws, "a new colour object that draws the same draws nothing again")
+        configure(.white, dark: true)
+        suite.expect(view.redraws == dynamicRedraws, "nor does another colour that resolves to the same white")
+
+        configure(.labelColor, dark: false)
+        let light = view.resolvedColor
+        let lightRedraws = view.redraws
+        configure(.labelColor, dark: true)
+        suite.expect(view.resolvedColor != light && view.redraws == lightRedraws + 1,
+                     "the label colour resolves in the scheme SwiftUI draws in, and a new scheme draws again")
+
+        let font = RollingDigitsStyle(size: 13).font()
+        let srgb = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let p3 = CGColor(colorSpace: CGColorSpace(name: CGColorSpace.displayP3)!, components: [1, 1, 1, 1])!
+        suite.expect(RollingDigitsGlyphs.key("4", font: font, color: srgb, scale: 2)
+                     != RollingDigitsGlyphs.key("4", font: font, color: p3, scale: 2),
+                     "the same components in another colour space are another image")
     }
 
     /// The shortcut tile's longest reading fits its 68 pt line at the 0.7 the
