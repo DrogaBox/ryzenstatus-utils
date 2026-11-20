@@ -180,8 +180,13 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
             // The global shortcut brings the window back from the Dock too.
             if window.isMiniaturized { window.deminiaturize(nil) }
             // Taken off again once the window is key (windowDidBecomeKey).
+            // Any other open takes off a flag an earlier one left behind
+            // (a window that never became key), so a click never pulls the
+            // window across Spaces.
             if toActiveSpace, !window.isOnActiveSpace {
                 window.collectionBehavior.insert(.moveToActiveSpace)
+            } else {
+                window.collectionBehavior.remove(.moveToActiveSpace)
             }
             bringToFront(window)
             // The same read as a new window: occlusion notifications report
@@ -322,13 +327,17 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The shortcut's `moveToActiveSpace` lasts one activation, so a later
-    /// click in the Dock from another Space switches Spaces as usual.
+    /// click in the Dock from another Space switches Spaces as usual. The
+    /// flag comes off one main-queue turn later, so a move AppKit makes after
+    /// this notification is not cancelled.
     nonisolated func windowDidBecomeKey(_ notification: Notification) {
         let becameKey = (notification.object as AnyObject?).map(ObjectIdentifier.init)
         MainActor.assumeIsolated {
             guard let window = self.window, ObjectIdentifier(window) == becameKey,
                   window.collectionBehavior.contains(.moveToActiveSpace) else { return }
-            window.collectionBehavior.remove(.moveToActiveSpace)
+            DispatchQueue.main.async { [weak window] in
+                window?.collectionBehavior.remove(.moveToActiveSpace)
+            }
         }
     }
 }
