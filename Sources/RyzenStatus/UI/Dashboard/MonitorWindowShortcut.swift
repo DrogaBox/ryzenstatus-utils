@@ -19,7 +19,11 @@ final class MonitorWindowShortcut: ObservableObject {
     /// The Monitor's symbol, shared by its settings page and shortcut row.
     nonisolated static let symbolName = "gauge.with.dots.needle.33percent"
 
-    /// True when macOS refused the combination because another app holds it.
+    /// True when `RegisterEventHotKey` refused the combination: the system
+    /// does not accept it, or this app already registered it for another
+    /// key. Another app holding the same combination is not a refusal:
+    /// Carbon lets several processes register one hotkey (the
+    /// `eventHotKeyExistsErr` note in CarbonEventsCore.h).
     @Published private(set) var registrationFailed = false
 
     private let role = GlobalShortcutRole.monitorWindow
@@ -29,13 +33,13 @@ final class MonitorWindowShortcut: ObservableObject {
     private init() {
         // The shared Carbon handler delivers presses on the main queue.
         hotkey.onPress = {
-            MainActor.assumeIsolated { MonitorWindowController.shared.show() }
+            MainActor.assumeIsolated { MonitorWindowController.shared.show(toActiveSpace: true) }
         }
-        // A combination refused at launch may be free later (the app holding
-        // it quit). Coming to the front, where its settings are read, tries
-        // again so the warning does not stay stale. A key that is registered
-        // is left alone: Carbon says nothing when another app also asks for
-        // it, so that case cannot be seen from here.
+        // After a refusal, coming to the front (where its settings are read)
+        // tries again. That clears the warning only when this app's own other
+        // registration of the combination has gone since; a combination the
+        // system does not accept stays refused, and the retry costs one call.
+        // A key that is registered is left alone.
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in

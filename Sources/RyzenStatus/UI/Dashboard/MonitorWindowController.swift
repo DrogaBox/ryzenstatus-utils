@@ -170,11 +170,19 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
 
     private override init() {}
 
-    func show(section: MonitorSection? = nil) {
+    /// `toActiveSpace` is for the global shortcut: an open window on another
+    /// Space comes to the one in use instead of the screen switching Spaces
+    /// (`NSWindow.CollectionBehavior.moveToActiveSpace`). Clicks in the app
+    /// keep the usual behavior. Not yet checked with a second Space.
+    func show(section: MonitorSection? = nil, toActiveSpace: Bool = false) {
         if let window, let state {
             if let section, section.isAvailable { state.section = section }
             // The global shortcut brings the window back from the Dock too.
             if window.isMiniaturized { window.deminiaturize(nil) }
+            // Taken off again once the window is key (windowDidBecomeKey).
+            if toActiveSpace, !window.isOnActiveSpace {
+                window.collectionBehavior.insert(.moveToActiveSpace)
+            }
             bringToFront(window)
             // The same read as a new window: occlusion notifications report
             // changes, so a state that missed one is set right here too.
@@ -311,6 +319,17 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
         state?.setVisible(false)
         state = nil
         self.window = nil
+    }
+
+    /// The shortcut's `moveToActiveSpace` lasts one activation, so a later
+    /// click in the Dock from another Space switches Spaces as usual.
+    nonisolated func windowDidBecomeKey(_ notification: Notification) {
+        let becameKey = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+        MainActor.assumeIsolated {
+            guard let window = self.window, ObjectIdentifier(window) == becameKey,
+                  window.collectionBehavior.contains(.moveToActiveSpace) else { return }
+            window.collectionBehavior.remove(.moveToActiveSpace)
+        }
     }
 }
 
