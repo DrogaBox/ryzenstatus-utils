@@ -87,8 +87,9 @@ extension GPUControlChannel {
 }
 
 /// The real channel: the only code in the app that opens the kext's user
-/// client. Nothing creates one yet; the app connects it in one place, at
-/// launch, and tests and harnesses never do.
+/// client. The app creates it in one place, at launch
+/// (`AppDelegate` -> `GPUControlService.connectAtLaunch`), and tests and
+/// harnesses never do.
 final class KextGPUControlChannel: GPUControlChannel, @unchecked Sendable {
     private let state = NSCondition()
     private var connection: io_connect_t = 0

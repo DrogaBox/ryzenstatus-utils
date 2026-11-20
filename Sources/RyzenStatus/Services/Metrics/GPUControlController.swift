@@ -719,8 +719,9 @@ final class GPUControlEngine {
 }
 
 /// The GPU control's owner in the app: one engine, one connection, one
-/// serial queue. Nothing creates one with a real channel yet (phase 2 does,
-/// once, at launch); without a channel it cannot open anything.
+/// serial queue. `GPUControlService.connectAtLaunch` creates the one with
+/// the real channel, once, at launch (`AppDelegate`); without a channel it
+/// cannot open anything.
 final class GPUControlController: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ryzenstatus.gpu-control", qos: .userInitiated)
     private let channel: GPUControlChannel?
