@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has opened its writing, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to 200 W. The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps. GPUSensors.kext is not public yet; without it, nothing changes.
+
 ## [1.85.0] — 2026-11-17 — kexts 3.40.3 (No kext changes)
 
 **A lighter start, and a round of fixes and small features across the tools.** The AMD side is untouched; this release makes startup and a few tools lighter, fixes the microphone mute and the monitor speakers, and adds options to the Dynamic Island, the displays and the tools.

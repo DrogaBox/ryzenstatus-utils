@@ -1159,21 +1159,34 @@ enum GPUControlChannelTests {
                      "a controller made without a channel: no channel")
         controller.shutdown(timeout: 1)
 
-        // The source: only the channel's own file makes a KextGPUControlChannel,
-        // and nothing makes a controller with a channel yet.
+        // The source: the real channel is made in one place only, inside
+        // applicationDidFinishLaunching, and only the service gives the
+        // controller a channel (plan 11.1).
         let root = FileManager.default.currentDirectoryPath + "/Sources/RyzenStatus"
         let files = (FileManager.default.enumerator(atPath: root)?.allObjects as? [String] ?? [])
             .filter { $0.hasSuffix(".swift") }
         suite.expect(files.count > 100, "the sources are found from the repo root")
-        var makers: [String] = []
+        var makers: [String: Int] = [:]
         var controllers: [String] = []
         for file in files {
             guard let text = try? String(contentsOfFile: root + "/" + file, encoding: .utf8) else { continue }
-            if text.contains("KextGPUControlChannel(") { makers.append(file) }
+            let made = text.components(separatedBy: "KextGPUControlChannel(").count - 1
+            if made > 0 { makers[file] = made }
             if text.contains("GPUControlController(channel") { controllers.append(file) }
         }
-        suite.expect(makers.isEmpty, "no file makes a KextGPUControlChannel: \(makers)")
-        suite.expect(controllers.isEmpty, "no file gives the controller a channel: \(controllers)")
+        suite.expect(makers == ["App/AppDelegate.swift": 1],
+                     "only AppDelegate makes a KextGPUControlChannel, once: \(makers)")
+        suite.expect(controllers == ["Services/Metrics/GPUControlService.swift"],
+                     "only the service gives the controller a channel: \(controllers)")
+        if let app = try? String(contentsOfFile: root + "/App/AppDelegate.swift", encoding: .utf8),
+           let launch = app.range(of: "func applicationDidFinishLaunching("),
+           let made = app.range(of: "KextGPUControlChannel(") {
+            let nextFunction = app.range(of: "\n    func ", range: launch.upperBound..<app.endIndex)?.lowerBound ?? app.endIndex
+            suite.expect(made.lowerBound > launch.upperBound && made.lowerBound < nextFunction,
+                         "the real channel is made inside applicationDidFinishLaunching")
+        } else {
+            suite.expect(false, "AppDelegate makes the real channel at launch")
+        }
     }
 
     // MARK: Text groups (plan section 13)

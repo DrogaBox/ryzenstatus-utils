@@ -788,6 +788,9 @@ final class GPUControlController: @unchecked Sendable {
 
     func refresh() { queue.async { [self] in engine.refresh(); run() } }
 
+    /// Ask again for what was held after a wake (remembering, plan 8).
+    func setReaskAfterWake(_ on: Bool) { queue.async { [self] in engine.reaskAfterWake = on } }
+
     /// "Close changes": see `GPUControlEngine.close()`.
     func close() { queue.async { [self] in engine.close(); run() } }
 

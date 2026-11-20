@@ -281,6 +281,9 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     /// Whether the kext's service exists. Gates settings that only mean
     /// something with the kext, so they never show on other Macs.
     @Published private(set) var isPresent = false
+    /// Whether the kext has the write path (`Write`, 0.5.0 and later): the
+    /// GPU control page and its panel row exist only then.
+    @Published private(set) var hasWritePath = false
 
     static let pollInterval: TimeInterval = 1
     static let cacheLifetime: TimeInterval = 0.5
@@ -290,6 +293,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     private var present = false
     private var cached: GPUSensorsReading?
     private var cachedControl: GPUControlStatus?
+    private var writePath = false
     private var cachedAt: TimeInterval = -.infinity
     /// A registry read is out (`refreshIfStale`); no second one starts.
     private var readInFlight = false
@@ -387,9 +391,29 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
             cached = nextReading
             cachedControl = nextControl
             cachedAt = now
+            let hasWrite = nextControl?.writing != nil
+            if hasWrite != writePath {
+                writePath = hasWrite
+                publishWritePath(hasWrite)
+            }
         }
         lock.unlock()
         IOObjectRelease(entry)
+    }
+    /// Thread-safe, no registry access: the last read had `Write`.
+    var hasWritePathNow: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return false }
+        #endif
+        lock.lock()
+        defer { lock.unlock() }
+        return writePath
+    }
+    private func publishWritePath(_ value: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.hasWritePath != value else { return }
+            self.hasWritePath = value
+        }
     }
 
     /// Thread-safe, no registry access.
@@ -455,7 +479,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
             }
             lock.unlock()
         }
-        if found { publishPresence(true) }
+        guard found else { return }
+        // One read now, so the write path is known before a page asks.
+        refreshIfStale(now: ProcessInfo.processInfo.systemUptime)
+        publishPresence(true)
     }
 
     private func serviceVanished(_ iterator: io_iterator_t) {
@@ -469,6 +496,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
                 present = false
                 cached = nil
                 cachedControl = nil
+                if writePath {
+                    writePath = false
+                    publishWritePath(false)
+                }
                 lost = true
             }
             lock.unlock()

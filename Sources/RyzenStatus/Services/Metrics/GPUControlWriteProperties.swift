@@ -133,6 +133,8 @@ extension GPUControlStatus {
         /// `OD8State`, nil before 0.6.0.
         var od8Read: OD8Read?
         var od8: OD8Table?
+        /// `VersionInfo`, the kext's build name.
+        var kextVersion: String? = nil
         /// `PowerRange` (0.8.0), nil from an older kext or while the kext has
         /// no control.
         var powerRange: GPUControlPowerRange? = nil
@@ -154,6 +156,7 @@ extension GPUControlStatus {
                 od8State: OD8State.parse(properties["OD8WriteState"]),
                 od8Read: GPUControlStatus.text(properties["OD8State"]).map(OD8Read.parse),
                 od8: OD8Table.parse(properties["OD8"]),
+                kextVersion: GPUControlStatus.text(properties["VersionInfo"]),
                 powerRange: GPUControlPowerRange.parse(properties["PowerRange"]),
                 powerRangeState: GPUControlStatus.text(properties["PowerRangeState"]))
         }
