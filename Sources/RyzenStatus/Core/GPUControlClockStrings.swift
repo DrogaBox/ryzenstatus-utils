@@ -61,7 +61,7 @@ extension GPUControlClockStrings {
         stockFormat: "De fábrica (%d MHz)",
         footer: "Solo por debajo del de fábrica; el kext revisa cada pedido. No se midió nada por debajo de 200 W: un reloj que dé menos de 200 W no está probado.",
         notePowerHeld: "Hay un límite de potencia puesto. Al elegir un reloj, primero el límite vuelve a su valor de arranque: el kext nunca mantiene las dos cosas.",
-        noteClockHeld: "Hay un reloj máximo puesto. Al elegir un límite de potencia, primero el reloj vuelve a fábrica: el kext nunca mantiene las dos cosas.",
+        noteClockHeld: "Hay un reloj máximo puesto. Al elegir un límite de potencia, primero el reloj vuelve a los valores de fábrica: el kext nunca mantiene las dos cosas.",
         switching: "Primero el límite de potencia vuelve a su valor de arranque…",
         outOfRangeFormat: "Elige un valor entre %d y %d MHz.")
 
