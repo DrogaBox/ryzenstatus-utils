@@ -5,8 +5,9 @@ import CoreGraphics
 
 /// While the island waits out of sight, a global monitor hears every mouse
 /// move on every display. Nearly all of them are far from the island, where
-/// the full hover path would change nothing, so one rectangle test answers
-/// those.
+/// the full hover path would change nothing, so a test against the island's
+/// reach answers those: the union of up to four frames and the child
+/// windows', then one containment check.
 enum NotchHiddenHover {
     /// What the hover path is in the middle of. With any of it under way a
     /// move always goes through the full path.

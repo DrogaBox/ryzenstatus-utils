@@ -348,8 +348,8 @@ enum IslandPanelTests {
                      && abs(times[1] - 1.8 / 5.8) < 1e-9 && times[2] == 1,
                      "the line rests at its start, then moves one line and gap to where its copy began")
         suite.expect(animation.repeatCount == .infinity && animation.calculationMode == .linear
-                     && animation.preferredFrameRateRange.maximum == 30,
-                     "it glides steadily, for ever, at the thirty frames a second it always had")
+                     && animation.preferredFrameRateRange.maximum == 30 && animation.preferredFrameRateRange.minimum == 24,
+                     "it glides steadily, for ever, at the thirty frames a second it always had, never below 24")
         let source = text("Sources/RyzenStatus/UI/Notch/NotchMarquee.swift", suite)
         suite.expect(!source.contains("TimelineView("), "no SwiftUI timeline redraws the line while it moves")
         suite.expect(NotchMarqueeMotion(lineWidth: 72, gap: 32, speed: 0, pause: 1.8).cycle.isFinite,
@@ -439,8 +439,8 @@ enum IslandPanelTests {
         let breath = CAKeyframeAnimation(keyPath: "transform")
         breath.loopsForever()
         suite.expect(breath.repeatCount == .infinity && sameRate(breath.preferredFrameRateRange, NotchMascotPace.loop)
-                     && NotchMascotPace.loop.maximum == 30,
-                     "a slow loop repeats for ever at thirty frames a second")
+                     && NotchMascotPace.loop.maximum == 30 && NotchMascotPace.loop.minimum == 24,
+                     "a slow loop repeats for ever at thirty frames a second, never below the walk's 24")
         let flicker = CABasicAnimation(keyPath: "shadowRadius")
         flicker.loopsForever(paced: false)
         suite.expect(flicker.repeatCount == .infinity && sameRate(flicker.preferredFrameRateRange, CAFrameRateRange.default),

@@ -67,8 +67,10 @@ struct NotchMarqueeMotion: Equatable {
     var pause: TimeInterval
 
     /// The marquee scrolled at thirty frames a second before; a step every
-    /// other frame of a fast display still reads as the same glide.
-    static let frameRates = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+    /// other frame of a fast display still reads as the same glide. Never
+    /// below 24, the floor the companion's walk has: at 15 the glide would
+    /// step almost two points a frame.
+    static let frameRates = CAFrameRateRange(minimum: 24, maximum: 30, preferred: 30)
 
     var travel: CGFloat { lineWidth + gap }
     var cycle: TimeInterval { pause + Double(travel / max(speed, 1)) }
@@ -88,6 +90,8 @@ struct NotchMarqueeMotion: Equatable {
 }
 
 /// The line in a hosting view of its own, so moving it never redraws it.
+/// That view inherits only the colour scheme, the locale and the layout
+/// direction: the line names its own font and colour, as both callers do.
 private struct NotchMarqueeScroller<Row: View>: NSViewRepresentable {
     let row: Row
     let key: AnyHashable?
@@ -164,11 +168,15 @@ final class NotchMarqueeScrollView: NSView {
             if !layer.masksToBounds { layer.masksToBounds = true }
             if layer.mask !== fade { layer.mask = fade }
         }
-        fade.frame = bounds
-        fade.contentsScale = window?.backingScaleFactor ?? fade.contentsScale
-        // Fading eight points at each edge, as the line always has.
-        let edge = bounds.width > 0 ? min(0.2, 8 / bounds.width) : 0
-        fade.locations = [0, NSNumber(value: Double(edge)), NSNumber(value: Double(1 - edge)), 1]
+        // A new reading lays the line out again; the edges change only with the size or the scale.
+        let scale = window?.backingScaleFactor ?? fade.contentsScale
+        if fade.frame != bounds || fade.contentsScale != scale || fade.locations == nil {
+            fade.frame = bounds
+            fade.contentsScale = scale
+            // Fading eight points at each edge, as the line always has.
+            let edge = bounds.width > 0 ? min(0.2, 8 / bounds.width) : 0
+            fade.locations = [0, NSNumber(value: Double(edge)), NSNumber(value: Double(1 - edge)), 1]
+        }
         CATransaction.commit()
     }
 

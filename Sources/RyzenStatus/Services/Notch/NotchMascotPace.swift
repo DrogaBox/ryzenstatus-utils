@@ -7,13 +7,15 @@ import QuartzCore
 /// Left alone, Core Animation runs them at the display's full rate, 144 Hz on
 /// a fast monitor, and the window server composites the island again every
 /// one of those frames for motion of a point or two. Thirty frames a second,
-/// what its walk already uses, looks the same and costs a fraction.
+/// never below 24, what its walk already uses, looks the same and costs a
+/// fraction.
 ///
 /// Not every loop can take it. A cycle shorter than about 0.3 s gets only a
-/// few frames a turn and goes uneven, and a fast spin steps far enough per
-/// frame to seem to turn the other way. Those pass `paced: false`.
+/// few frames a turn and goes uneven. A spin goes uneven sooner, whatever
+/// its cycle: the fan (1 s a turn) and the alarm's spin (0.7 s) step far
+/// enough per frame to seem to turn the other way. Those pass `paced: false`.
 enum NotchMascotPace {
-    static let loop = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+    static let loop = CAFrameRateRange(minimum: 24, maximum: 30, preferred: 30)
 }
 
 extension CAAnimation {
