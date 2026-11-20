@@ -151,6 +151,15 @@ final class GPUControlService: ObservableObject {
         controller.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
     }
 
+    /// The clock control: a lower GFX maximum, or nil for the stock clock.
+    /// The controller keeps a held fan state with it and gives a power limit
+    /// back first.
+    func chooseGfxMax(_ mhz: Int?) {
+        guard let controller else { return }
+        ownerChoseStartUp = false
+        controller.chooseGfxMax(mhz)
+    }
+
     func backToStartUp() {
         guard let controller else { return }
         ownerChoseStartUp = true
@@ -353,6 +362,7 @@ final class GPUControlService: ObservableObject {
         }
         if let request = GPUControlRememberPolicy.request(remembered: .load(defaults), active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped,
+                                                          stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
                                                           kextVersion: control?.writing?.kextVersion) {
             controller.choose(request, origin: .remembered)
         }
