@@ -31,7 +31,7 @@ struct GPUControlPanelRowContent: View {
     let choosePower: (Int) -> Void
 
     var body: some View {
-        let choices = GPUControlPageLogic.powerChoices(bootW: input.facts?.bootW)
+        let choices = GPUControlPageLogic.powerChoices(facts: input.facts, state: input.state)
         let shown = input.facts.flatMap { GPUControlPageLogic.shownWatts(facts: $0, snapshot: input.snapshot) }
         VStack(alignment: .leading, spacing: 4) {
             if choices.isEmpty {
@@ -55,7 +55,7 @@ struct GPUControlPanelRowContent: View {
             Text(input.stateTitle(strings, short: true))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

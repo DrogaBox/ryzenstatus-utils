@@ -20,6 +20,138 @@ enum GPUControlPageTests {
         strings(suite)
         reviewFixes(suite)
         armWords(suite)
+        kext080(suite)
+    }
+
+    /// GPUSensors.kext 0.8.0 on the page: the read-only card, closing
+    /// changes, the facts' range from the properties, the notices about
+    /// another program (security review S-5, S-9), no watts in the texts.
+    private static func kext080(_ suite: TestSuite) {
+        let s = GPUControlPageStrings.enUS
+        // The read-only card: a state of its own, nothing accepted.
+        do {
+            let fake = FakeGPUControlKext()
+            fake.makeReadOnlyCard()
+            let facts = GPUControlService.fakeControl(fake).flatMap(GPUControlFacts.init(control:))
+            let state = facts.map { GPUControlPageLogic.state(facts: $0, snapshot: nil) }
+            suite.expect(facts?.isReadOnlyCard == true && state == .readOnlyCard && state?.acceptsChoices == false,
+                         "WriteOff 15: the read-only state, no choices")
+            suite.expect(facts?.bootW == 240 && facts?.powerRange?.isKnown == true, "the readings stay, the range too")
+            suite.expect(GPUControlPageLogic.powerChoices(facts: facts, state: state) == [240],
+                         "the range is for showing only: no value below the start-up one is offered")
+            let input = GPUControlPageInput(facts: facts, state: state, snapshot: nil)
+            suite.expect(input.stateTitle(s, short: false) == s.readOnlyTitle, "its title")
+            var stopped = GPUControlSnapshot()
+            stopped.stopped = .writingOff(GPUControlWriteOff.readOnlyCard.rawValue)
+            let after = GPUControlPageLogic.facts(snapshot: stopped, control: GPUControlService.fakeControl(fake))
+            suite.expect(after.map { GPUControlPageLogic.state(facts: $0, snapshot: stopped) } == .readOnlyCard,
+                         "the controller stopped on it: still the read-only state, not writing off")
+        }
+        // The range and disarm come from the properties, also with the channel's facts.
+        do {
+            let fake = FakeGPUControlKext()
+            fake.powerPercentMin = -6
+            fake.arm()
+            let c = fake.connection()
+            _ = c.open()
+            var snapshot = GPUControlSnapshot()
+            snapshot.status = c.status()
+            let facts = GPUControlPageLogic.facts(snapshot: snapshot, control: GPUControlService.fakeControl(fake))
+            suite.expect(facts?.source == .channel && facts?.powerRange?.floorW == 225 && facts?.canDisarm == true,
+                         "status facts carry the published range and know disarm")
+            fake.generation = .v07
+            let old = GPUControlService.fakeControl(fake).flatMap(GPUControlFacts.init(control:))
+            suite.expect(old?.canDisarm == false && old?.powerRange == nil,
+                         "0.7.2 publishes neither: no close button, and (without its OD8 table here) no floor")
+        }
+        // The close note.
+        do {
+            typealias N = GPUControlPageNote
+            let still = GPUControlAnswer(replyCode: GPUControlReply.stillApplied.rawValue)
+            suite.expect(N.closing(.refused(still), state: .heldByOther, s)
+                            == N(sentence: s.closeRefused, kextText: GPUControlReply.stillApplied.kextText, isProblem: true),
+                         "still applied: the app's sentence, the kext's words under it")
+            suite.expect(N.closing(.notSupported, state: .ready, s)?.sentence == s.closeNotSupported, "0.7.x: said so")
+            suite.expect(N.closing(.closed, state: .closed, s)?.sentence == s.closedAgain
+                            && N.closing(.closed, state: .ready, s) == nil,
+                         "closed: said while the page shows closed, not after it opens again")
+            suite.expect(N.closing(.waiting, state: .ready, s) == nil && N.closing(nil, state: .ready, s) == nil,
+                         "nothing while it waits")
+        }
+        // Another program (S-5, S-9).
+        do {
+            var watch = GPUControlForeignWatch()
+            var facts = GPUControlFacts(source: .properties)
+            facts.ready = true
+            facts.armed = true
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: false) == nil, "open, nothing held: nothing")
+            facts.owned = true
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: false) == .changed,
+                         "S-5: a hold while the app holds nothing")
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: false) == nil, "told once per hold")
+            facts.owned = false
+            _ = watch.next(facts: facts, appHolds: false, appClosing: false)
+            facts.owned = true
+            suite.expect(watch.next(facts: facts, appHolds: true, appClosing: false) == nil, "the app's own hold: nothing")
+            facts.owned = false
+            _ = watch.next(facts: facts, appHolds: false, appClosing: false)
+            facts.armed = false
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: false) == .closed,
+                         "S-9: closed without the app asking")
+            facts.armed = true
+            _ = watch.next(facts: facts, appHolds: false, appClosing: false)
+            facts.armed = false
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: true) == nil, "the app's own close: nothing")
+            facts.armed = true
+            _ = watch.next(facts: facts, appHolds: false, appClosing: false)
+            facts.armed = false
+            facts.off = true
+            suite.expect(watch.next(facts: facts, appHolds: false, appClosing: false) == nil,
+                         "writing off is the kext's own notice, not a close by another program")
+        }
+        // No watts written into a text: the numbers come from the card.
+        for language in AppLanguage.allCases {
+            let texts = FeatureStrings.gpuControlPage(language).all
+            let fixed = texts.filter { $0.contains("200") || $0.contains("225") }
+            suite.expect(fixed.isEmpty, "\(language.rawValue): no fixed watts in the page texts (\(fixed))")
+        }
+        suite.expect(String(format: s.cardRangeFormat, 225, 240) == "Card minimum: 225 W · maximum: 240 W", "the limits line")
+        // When "Close changes" shows and can be pressed.
+        do {
+            typealias C = GPUControlPageContent
+            var facts = GPUControlFacts(source: .properties)
+            facts.ready = true
+            facts.armed = true
+            facts.canDisarm = true
+            func input(_ state: GPUControlPageState, _ edit: (inout GPUControlPageInput) -> Void = { _ in }) -> GPUControlPageInput {
+                var value = GPUControlPageInput(facts: facts, state: state, snapshot: GPUControlSnapshot())
+                edit(&value)
+                return value
+            }
+            suite.expect(C.closeButton(input(.ready)) == (true, true), "open with a kext that can close: shown, enabled")
+            suite.expect(C.closeButton(input(.heldByOther)).enabled, "another program holds: enabled, the kext answers why")
+            suite.expect(C.closeButton(input(.reverting)) == (true, false) && C.closeButton(input(.sleeping)) == (true, false),
+                         "a way back or a sleep: shown, disabled")
+            suite.expect(C.closeButton(input(.ready) { $0.snapshot?.closing = .waiting }) == (true, false),
+                         "a close on its way: disabled")
+            suite.expect(C.closeButton(input(.ready) { $0.snapshot?.activity = .applying(.power(watts: 220)) }) == (true, false),
+                         "a request on its way: disabled")
+            suite.expect(C.closeButton(input(.ready) { $0.canChoose = false }) == (true, false), "no controller: disabled")
+            var old = facts
+            old.canDisarm = false
+            suite.expect(C.closeButton(GPUControlPageInput(facts: old, state: .ready, snapshot: nil)) == (false, false),
+                         "0.7.x: no button")
+            var closed = facts
+            closed.armed = false
+            suite.expect(C.closeButton(GPUControlPageInput(facts: closed, state: .closed, snapshot: nil)).shown == false,
+                         "closed: nothing to close")
+            var readOnly = facts
+            readOnly.armed = false
+            readOnly.off = true
+            readOnly.writeOffCode = GPUControlWriteOff.readOnlyCard.rawValue
+            suite.expect(C.closeButton(GPUControlPageInput(facts: readOnly, state: .readOnlyCard, snapshot: nil)).shown == false,
+                         "read-only card: no button")
+        }
     }
 
     /// The arm flow's words (the owner's texts) and the warning's reach
@@ -29,8 +161,9 @@ enum GPUControlPageTests {
         let es = GPUControlPageStrings.es
         suite.expect(en.openWriting == "Allow GPU Changes…" && es.openWriting == "Permitir cambios en la GPU…",
                      "the arm button names the consequence")
-        suite.expect(en.closed == "Control Closed" && es.closed == "Control cerrado", "the closed state says what is closed")
-        suite.expect(es.armPrompt == "Permitir cambios en el límite de potencia, el ventilador y el reloj de la GPU hasta reiniciar el Mac.",
+        suite.expect(en.closed == "Control closed" && es.closed == "Control cerrado",
+                     "the closed state says what is closed, in sentence case like the other states")
+        suite.expect(es.armPrompt == "Permitir cambios en el límite de potencia, el ventilador y el reloj de la GPU hasta que los cierres o reinicies el Mac.",
                      "the password prompt says how far the permission goes")
         suite.expect(en.readyWarning.contains("any program on this Mac") && es.readyWarning.contains("cualquier programa de este Mac"),
                      "S-1: the warning names every program on the Mac, not one user's")
@@ -80,7 +213,7 @@ enum GPUControlPageTests {
                      "three held settings: commas, then the language's \"and\"")
         suite.expect(GPUControlPageStrings.ja.od8Held(curve) == "RyzenStatus が保持中: ファンカーブと常に回るファン",
                      "Japanese joins with と, not an English comma")
-        suite.expect(GPUControlPageStrings.zhHans.od8Held(all) == "RyzenStatus 正在维持：风扇曲线、始终转动的风扇和GFX 最大时钟 2300 MHz",
+        suite.expect(GPUControlPageStrings.zhHans.od8Held(all) == "RyzenStatus 正在维持：风扇曲线、始终转动的风扇和GFX 最大时钟频率 2300 MHz",
                      "Chinese: 、 between the items, 和 before the last")
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a GFX maximum of 2300 MHz", "a held clock, in words")
@@ -181,8 +314,9 @@ enum GPUControlPageTests {
             h.run(ms: 0)
             suite.expect(state(h) == .waitingForDriver, "no ready flag: waiting for the driver")
         }
-        // Writing off: stopped controller, facts from the properties.
-        for reason in GPUControlWriteOff.allCases where reason != .none {
+        // Writing off: stopped controller, facts from the properties. The
+        // read-only card has a state of its own (kext080 below).
+        for reason in GPUControlWriteOff.allCases where reason != .none && reason != .readOnlyCard {
             let fake = FakeGPUControlKext()
             fake.arm()
             fake.turnOff(reason)
@@ -268,22 +402,40 @@ enum GPUControlPageTests {
                      "a kext before 0.5.0: no facts, no page")
     }
 
+    /// A range as the kext publishes it.
+    static func range(_ floor: Int?, _ top: Int?) -> GPUControlPowerRange {
+        GPUControlPowerRange(source: .kext, floorW: floor, maxW: top, stepW: 10)
+    }
+
     private static func powerChoices(_ suite: TestSuite) {
-        suite.expect(GPUControlPageLogic.powerChoices(bootW: 240) == [240, 230, 220, 210, 200], "240 W: five values")
-        suite.expect(GPUControlPageLogic.powerChoices(bootW: 264) == [264, 260, 250, 240, 230, 220, 210, 200],
-                     "264 W: the start-up value, then every 10 W down to 200")
-        suite.expect(GPUControlPageLogic.powerChoices(bootW: 200) == [200], "200 W: nothing lower")
-        suite.expect(GPUControlPageLogic.powerChoices(bootW: 205) == [205, 200], "205 W: 200 below it")
-        suite.expect(GPUControlPageLogic.powerChoices(bootW: nil).isEmpty
-                         && GPUControlPageLogic.powerChoices(bootW: 150).isEmpty
-                         && GPUControlPageLogic.powerChoices(bootW: 301).isEmpty,
+        typealias L = GPUControlPageLogic
+        suite.expect(L.powerChoices(bootW: 240, range: range(225, 240)) == [240, 230],
+                     "the owner's card: 240 W and its floor of 225 W leave 230 W only")
+        suite.expect(L.powerChoices(bootW: 240, range: range(192, 240)) == [240, 230, 220, 210, 200],
+                     "a lower floor: every 10 W down to it")
+        suite.expect(L.powerChoices(bootW: 264, range: range(248, 264)) == [264, 260, 250],
+                     "264 W: the start-up value, then the multiples of 10 down to the floor")
+        suite.expect(L.powerChoices(bootW: 240, range: nil) == [240] && L.powerChoices(bootW: 240, range: range(nil, nil)) == [240],
+                     "floor not known: only the start-up value")
+        suite.expect(L.limits(bootW: 240, range: nil) == .unknown, "floor not known: said so")
+        suite.expect(L.powerChoices(bootW: 240, range: range(240, 240)) == [240]
+                        && L.limits(bootW: 240, range: range(240, 240)) == .nothingToLower(240),
+                     "floor at the start-up value: nothing to lower")
+        suite.expect(L.powerChoices(bootW: 240, range: range(225, 250)) == [240] && L.limits(bootW: 240, range: range(225, 250)) == .unknown,
+                     "a range for another start-up value is not used")
+        suite.expect(L.limits(bootW: 240, range: range(225, 240)) == .range(floorW: 225, maxW: 240), "the card's limits")
+        suite.expect(L.powerChoices(bootW: nil, range: range(225, 240)).isEmpty
+                         && L.powerChoices(bootW: 150, range: nil).isEmpty
+                         && L.powerChoices(bootW: 301, range: nil).isEmpty,
                      "no believable start-up value: no choices")
-        // Every value offered is one the kext takes.
-        for boot in [200, 205, 240, 264, 300] {
+        // Every value offered is one the kext takes: the model's range, as it publishes it.
+        for (boot, percent) in [(200, -20), (205, -20), (240, -6), (240, -20), (264, -6), (300, -20)] {
             let fake = FakeGPUControlKext()
             fake.bootW = UInt32(boot)
+            fake.powerPercentMin = percent
             fake.arm()
-            for watts in GPUControlPageLogic.powerChoices(bootW: boot) {
+            let published = GPUControlPowerRange.parse(fake.properties()["PowerRange"])
+            for watts in GPUControlPageLogic.powerChoices(bootW: boot, range: published) {
                 let c = fake.connection()
                 _ = c.open()
                 let reply = c.setPower(watts: UInt32(watts))?.reply
@@ -313,7 +465,9 @@ enum GPUControlPageTests {
         }
         let below = GPUControlAnswer(replyCode: GPUControlReply.belowFloor.rawValue)
         suite.expect(note(.refused(.power(watts: 190), below))
-                        == GPUControlPageNote(sentence: s.notAllowed, kextText: "refused: below 200 W", isProblem: true),
+                        == GPUControlPageNote(sentence: s.notAllowed,
+                                              kextText: "refused: below the card's minimum power limit (PowerRange)",
+                                              isProblem: true),
                      "a refusal: the group's sentence, the kext's words under it")
         let unknown = GPUControlAnswer(replyCode: 77)
         suite.expect(note(.refused(.power(watts: 220), unknown))?.sentence == "reply 77",
@@ -545,6 +699,7 @@ enum GPUControlPageTests {
         facts.armed = true
         facts.bootW = 240
         facts.heldW = 240
+        facts.powerRange = range(192, 240)
         let remembered = GPUControlRemembered.power(watts: 220)
         suite.expect(Policy.request(remembered: remembered, active: true, facts: facts, stopped: nil) == .power(watts: 220),
                      "writing open, nobody holding: ask for it")
@@ -556,6 +711,18 @@ enum GPUControlPageTests {
                      "after a failure or the watchdog: nothing until the app starts again")
         suite.expect(Policy.request(remembered: .power(watts: 225), active: true, facts: facts, stopped: nil) == nil,
                      "a value the pop-up would not offer: nothing")
+        // A value saved with 0.7.x below this card's floor is forgotten.
+        var owners = facts
+        owners.powerRange = range(225, 240)
+        suite.expect(Policy.request(remembered: .power(watts: 200), active: true, facts: owners, stopped: nil) == nil
+                        && Policy.forgets(remembered: .power(watts: 200), facts: owners),
+                     "200 W under a 225 W floor: not asked, forgotten")
+        suite.expect(!Policy.forgets(remembered: .power(watts: 230), facts: owners), "230 W is kept")
+        var unknownFloor = facts
+        unknownFloor.powerRange = nil
+        suite.expect(!Policy.forgets(remembered: .power(watts: 200), facts: unknownFloor)
+                        && Policy.request(remembered: .power(watts: 200), active: true, facts: unknownFloor, stopped: nil) == nil,
+                     "floor not known yet: not asked, but kept for when it is")
         suite.expect(Policy.request(remembered: .power(watts: 240), active: true, facts: facts, stopped: nil) == nil,
                      "the start-up value: nothing to ask")
         var closed = facts
@@ -573,6 +740,7 @@ enum GPUControlPageTests {
                      "writing off: nothing")
         var smaller = facts
         smaller.bootW = 230
+        smaller.powerRange = range(192, 230)
         suite.expect(Policy.request(remembered: .power(watts: 230), active: true, facts: smaller, stopped: nil) == nil,
                      "a remembered value that is now the start-up one: nothing")
 
@@ -639,7 +807,7 @@ enum GPUControlPageTests {
             return pattern?.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } } ?? []
         }
         let english = GPUControlPageStrings.enUS.all
-        suite.expect(english.count == 78, "78 texts")
+        suite.expect(english.count == 90, "90 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlPage(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },

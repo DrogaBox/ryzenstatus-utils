@@ -39,8 +39,28 @@ struct GPUControlFacts: Equatable, Sendable {
     var od8Reverts: Int?
     /// `OD8State` as the kext wrote it, when OD8 is not read cleanly.
     var od8ReadText: String?
+    /// The card's power range: `PowerRange` from kext 0.8.0, or worked out
+    /// from the OD8 table for 0.7.x, the same way. Always from the
+    /// properties: the channel's `status` does not carry it.
+    var powerRange: GPUControlPowerRange?
+    /// `PowerRangeState`, the kext's words about the floor (0.8.0).
+    var powerRangeState: String?
+    /// The kext can close writing again (`disarm`, 0.8.0): it publishes
+    /// `PowerRangeState`, which 0.7.x does not.
+    var canDisarm = false
 
     var writeOff: GPUControlWriteOff? { GPUControlWriteOff(rawValue: writeOffCode) }
+    /// The read-only card (kext 0.8.0): read, never controlled.
+    var isReadOnlyCard: Bool { writeOff == .readOnlyCard }
+
+    /// What only the properties know: the power range and whether the kext
+    /// has `disarm`.
+    mutating func takeRange(from writing: GPUControlStatus.Writing) {
+        powerRangeState = writing.powerRangeState
+        canDisarm = writing.powerRangeState != nil
+        powerRange = writing.powerRange
+            ?? GPUControlPowerRange.fromOD8(bootW: bootW, od8: writing.od8, od8Read: writing.od8Read == .read)
+    }
 
     init(source: Source) { self.source = source }
 
@@ -101,6 +121,7 @@ struct GPUControlFacts: Equatable, Sendable {
         od8Ready = writing.od8Read == .read
         if case .notClean(let text)? = writing.od8Read { od8ReadText = text }
         changed = (heldW != nil && bootW != nil && heldW != bootW) || !od8Held.isEmpty
+        takeRange(from: writing)
     }
 }
 
@@ -125,6 +146,9 @@ enum GPUControlPageState: Equatable, Sendable {
     case heldByApp(GPUControlRequest)
     /// Open, nothing held.
     case ready
+    /// Kext 0.8.0's read-only card (`WriteOff` 15): every reading shows,
+    /// nothing can be changed, and that never changes until another card.
+    case readOnlyCard
 
     /// The page's controls take a choice now.
     var acceptsChoices: Bool {
@@ -140,7 +164,8 @@ enum GPUControlPageLogic {
     /// and is not stopped, else the properties.
     static func facts(snapshot: GPUControlSnapshot?, control: GPUControlStatus?) -> GPUControlFacts? {
         if let snapshot, snapshot.stopped == nil, let status = snapshot.status,
-           let facts = GPUControlFacts(status: status) {
+           var facts = GPUControlFacts(status: status) {
+            if let writing = control?.writing { facts.takeRange(from: writing) }
             return facts
         }
         return control.flatMap(GPUControlFacts.init(control:))
@@ -152,6 +177,7 @@ enum GPUControlPageLogic {
         case .connectionFailed?, .openRefused?: return .connectionLost
         default: break
         }
+        if facts.isReadOnlyCard { return .readOnlyCard }
         if facts.off || facts.writeOffCode != 0 {
             let failed: Set<GPUControlWriteOff> = [.sendFailed, .revertFailed, .od8Failed]
             let restart = facts.writeOff.map(failed.contains) == true
@@ -169,15 +195,34 @@ enum GPUControlPageLogic {
         return .ready
     }
 
+    /// The values the page and the panel offer: none below the start-up
+    /// value on the read-only card, whose `PowerRange` is published for
+    /// showing only (kext 0.8.0).
+    static func powerChoices(facts: GPUControlFacts?, state: GPUControlPageState?) -> [Int] {
+        let all = powerChoices(bootW: facts?.bootW, range: facts?.powerRange)
+        if case .readOnlyCard? = state { return Array(all.prefix(1)) }
+        return all
+    }
+
+    /// What the card takes below its start-up value (kext 0.8.0's
+    /// `PowerRange`): nil without a start-up value.
+    static func limits(bootW: Int?, range: GPUControlPowerRange?) -> GPUControlPowerLimits? {
+        guard let boot = bootW else { return nil }
+        // A range for another start-up value is not this one's.
+        guard let range, let floor = range.floorW, let top = range.maxW, top == boot else { return .unknown }
+        return floor >= boot ? .nothingToLower(boot) : .range(floorW: floor, maxW: top)
+    }
+
     /// The pop-up's values (plan 7.1): the start-up value first, then every
-    /// multiple of 10 below it down to 200 W. Empty for a start-up value the
-    /// kext would not believe.
-    static func powerChoices(bootW: Int?) -> [Int] {
-        guard let boot = bootW, (GPUControlWire.powerFloorW...GPUControlWire.maxBootW).contains(boot) else { return [] }
-        let step = GPUControlWire.powerStepW
+    /// multiple of the step below it down to the card's own floor. Only the
+    /// start-up value while the floor is not known or is the start-up value.
+    /// Empty for a start-up value the kext would not believe.
+    static func powerChoices(bootW: Int?, range: GPUControlPowerRange?) -> [Int] {
+        guard let boot = bootW, (GPUControlWire.minBootW...GPUControlWire.maxBootW).contains(boot) else { return [] }
+        guard case .range(let floor, _)? = limits(bootW: boot, range: range) else { return [boot] }
+        let step = Swift.max(range?.stepW ?? GPUControlWire.powerStepW, 1)
         let firstBelow = (boot - 1) / step * step
-        let below = firstBelow >= GPUControlWire.powerFloorW
-            ? Array(stride(from: firstBelow, through: GPUControlWire.powerFloorW, by: -step)) : []
+        let below = firstBelow >= floor ? Array(stride(from: firstBelow, through: floor, by: -step)) : []
         return [boot] + below
     }
 
@@ -421,8 +466,22 @@ enum GPUControlRememberPolicy {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         guard case .power(let watts) = remembered, watts > 0, let boot = facts.bootW,
-              GPUControlPageLogic.powerChoices(bootW: boot).contains(watts), watts != boot else { return nil }
+              GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange).contains(watts),
+              watts != boot else { return nil }
         return .power(watts: UInt32(watts))
+    }
+
+    /// A remembered limit the card does not take is forgotten, not kept for
+    /// later: one saved with 0.7.x below this card's floor (200 W where the
+    /// floor is 225 W). Only once the range is known.
+    static func forgets(remembered: GPUControlRemembered, facts: GPUControlFacts?) -> Bool {
+        guard case .power(let watts) = remembered, let facts, let boot = facts.bootW else { return false }
+        switch GPUControlPageLogic.limits(bootW: boot, range: facts.powerRange) {
+        case .range?, .nothingToLower?:
+            return !GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange).contains(watts)
+        case .unknown?, nil:
+            return false
+        }
     }
 }
 
@@ -444,5 +503,45 @@ enum GPUControlConnectionMode: Equatable, Sendable {
             return defaults.bool(forKey: "gpuControlReal") ? .real : .none
         }
         return .real
+    }
+}
+
+/// The power section's line about the card's own limits.
+enum GPUControlPowerLimits: Equatable, Sendable {
+    /// The floor is not known (yet): only the start-up value is taken.
+    case unknown
+    /// The floor is the start-up value: nothing to lower.
+    case nothingToLower(Int)
+    case range(floorW: Int, maxW: Int)
+}
+
+/// Security review S-5 and S-9: what another program did to the GPU control,
+/// so the owner hears of it with the page closed too. Fed every few seconds
+/// with the properties' facts. A hold appears while the app holds nothing
+/// (S-5), or writing closes without the app having asked (S-9). Writing
+/// going off is the kext's own notice, not another program's.
+struct GPUControlForeignWatch: Equatable, Sendable {
+    enum Notice: Equatable, Sendable {
+        case changed
+        case closed
+    }
+
+    private(set) var wasArmed: Bool?
+    private(set) var foreignHeld = false
+
+    /// `appHolds`: the app holds or asks for something; `appClosing`: the
+    /// app asked to close a short while ago.
+    mutating func next(facts: GPUControlFacts, appHolds: Bool, appClosing: Bool) -> Notice? {
+        let foreign = facts.owned && !facts.mine && !appHolds
+        defer { foreignHeld = foreign }
+        if facts.off || facts.isReadOnlyCard {
+            wasArmed = nil
+            return nil
+        }
+        let closedNow = wasArmed == true && !facts.armed
+        wasArmed = facts.armed
+        if foreign, !foreignHeld { return .changed }
+        if closedNow, !appClosing { return .closed }
+        return nil
     }
 }

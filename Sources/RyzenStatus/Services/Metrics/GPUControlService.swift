@@ -61,6 +61,11 @@ final class GPUControlService: ObservableObject {
     private var pendingRemembered = false
     private var ownerChoseStartUp = false
     private var refreshTicks = 0
+    /// Security review S-5 and S-9: another program's hold or close.
+    private var foreignWatch = GPUControlForeignWatch()
+    private var foreignTimer: Timer?
+    /// When the owner last pressed "Close changes" (system uptime).
+    private var closeAskedAt: TimeInterval?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -106,6 +111,7 @@ final class GPUControlService: ObservableObject {
         controller.setReaskAfterWake(rememberActive)
         controller.start()
         self.controller = controller
+        if mode == .real { startForeignWatch() }
         if rememberActive, GPUControlRemembered.load(defaults) != .nothing {
             pendingRemembered = true
             startRememberWatch()
@@ -116,6 +122,7 @@ final class GPUControlService: ObservableObject {
     func shutdown() {
         pollTimer?.invalidate()
         rememberTimer?.invalidate()
+        foreignTimer?.invalidate()
         controller?.shutdown(timeout: 1)
     }
 
@@ -136,6 +143,14 @@ final class GPUControlService: ObservableObject {
         guard let controller else { return }
         ownerChoseStartUp = true
         controller.choose(.startUp)
+    }
+
+    /// "Close changes" (kext 0.8.0): back to the start-up values, then
+    /// `disarm` on the app's own connection. No password.
+    func closeChanges() {
+        guard let controller else { return }
+        closeAskedAt = ProcessInfo.processInfo.systemUptime
+        controller.close()
     }
 
     /// "Open writing…": the administrator dialog runs the installed tool's
@@ -195,6 +210,7 @@ final class GPUControlService: ObservableObject {
             control = GPUSensorsService.shared.currentControl()
         }
         controller?.refresh()
+        checkForeign()
         let hotspot = GPUSensorsService.shared.currentReading()?.sample.hotspot
         Task {
             let power = await IOAcceleratorCache.shared.power()
@@ -234,6 +250,34 @@ final class GPUControlService: ObservableObject {
             if next.held == nil, next.activity == .none { ownerChoseStartUp = false }
         }
         if next.stopped != nil { pendingRemembered = false }
+    }
+
+    // MARK: Another program (security review S-5, S-9)
+
+    /// Every 10 s while the app runs with the real kext: a hold by another
+    /// program while the app holds nothing, or writing closed by another
+    /// program, is told with a notification even with the page closed. The
+    /// read is the shared one the sensors use (one per second at most).
+    private func startForeignWatch() {
+        let timer = Timer(timeInterval: 10, repeats: true) { _ in
+            Task { @MainActor in GPUControlService.shared.checkForeign() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        foreignTimer = timer
+    }
+
+    private func checkForeign() {
+        guard mode == .real, GPUSensorsService.shared.hasWritePathNow else { return }
+        let current = viewers > 0 ? control : GPUSensorsService.shared.currentControl()
+        guard let current, let facts = GPUControlFacts(control: current) else { return }
+        let appHolds = snapshot?.held != nil || GPUControlPageLogic.pending(snapshot) != nil
+        // The app's own close: its answer and the next read may cross.
+        let appClosing = closeAskedAt.map { ProcessInfo.processInfo.systemUptime - $0 < 90 } ?? false
+        guard let notice = foreignWatch.next(facts: facts, appHolds: appHolds, appClosing: appClosing) else { return }
+        let language = L10n.shared.language
+        let strings = FeatureStrings.gpuControlPage(language)
+        let body = notice == .changed ? strings.otherProgramChanged : strings.closedByOther
+        Notifier.post(title: FeatureStrings.gpuControl(language).title, body: body)
     }
 
     private func notify(_ notice: GPUControlNotice) {
@@ -289,6 +333,11 @@ final class GPUControlService: ObservableObject {
         }
         guard facts.armed else { return }
         pendingRemembered = false
+        // Below the card's floor (saved with an older kext): forget it.
+        if GPUControlRememberPolicy.forgets(remembered: .load(defaults), facts: facts) {
+            GPUControlRemembered.nothing.save(defaults)
+            return
+        }
         if let request = GPUControlRememberPolicy.request(remembered: .load(defaults), active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped) {
             controller.choose(request, origin: .remembered)

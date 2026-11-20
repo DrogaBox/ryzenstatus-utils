@@ -1275,7 +1275,7 @@ enum GPUControlChannelTests {
             .notArmed: .closed, .noBootValue: .notReady, .notReady: .notReady, .sleeping: .notReady, .busy: .busy,
             .tooSoon: .busy, .belowFloor: .notAllowed, .aboveBoot: .notAllowed, .notAStep: .notAllowed,
             .timeout: .unconfirmed, .failed: .unconfirmed, .notOwner: .notOwner, .cancelled: .notReady,
-            .od8Refused: .notAllowed, .noFloor: .notReady, .stillApplied: .busy,
+            .od8Refused: .notAllowed, .noFloor: .noFloor, .stillApplied: .stillApplied,
         ]
         suite.expect(replies.count == 20, "20 replies besides ok")
         for reply in GPUControlReply.allCases {
@@ -1304,7 +1304,7 @@ enum GPUControlChannelTests {
             .library: .offNotAsExpected, .routes: .offNotAsExpected, .cwdde: .offNotAsExpected,
             .secondObject: .offNotAsExpected, .bootImplausible: .offNotAsExpected, .start: .offNotAsExpected,
             .sendFailed: .offChangeUnconfirmed, .revertFailed: .offChangeUnconfirmed, .teardown: .offDriverStopped,
-            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .offNotAsExpected,
+            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .readOnlyCard,
         ]
         suite.expect(offs.count == 15, "15 write-off reasons")
         for reason in GPUControlWriteOff.allCases {
