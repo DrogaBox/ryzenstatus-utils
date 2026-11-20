@@ -79,14 +79,26 @@ struct GPUControlStatus: Equatable {
         return string
     }
 
-    /// A whole number from 0 to `UInt32.max`: the kext publishes its
-    /// `uint32_t` fields (a firmware result such as 0xE00002BC included) as
-    /// 64-bit numbers. Anything else is no value.
+    /// A whole number from 0 to `UInt32.max`, for the fields the kext keeps
+    /// as `uint32_t` (`BootW`, `LastReadW`, `LastSentW`, `LastSentSource`,
+    /// `LastSentResult`, `ProfileSet`; a firmware result such as 0xE00002BC
+    /// included) and publishes as 64-bit numbers. Anything else is no value.
+    /// The kext's `uint64_t` counters go through `count`.
     static func integer(_ raw: Any?) -> Int? {
         guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let value = number.doubleValue
         guard value.isFinite, value >= 0, value <= Double(UInt32.max), value == value.rounded() else { return nil }
         return Int(value)
+    }
+
+    /// A count the kext keeps as `uint64_t` (`Reads`, `Sent`, `Sleeps`,
+    /// `Wakes`): any whole number from 0 to `Int.max`, so a count past
+    /// `UInt32.max` still shows instead of dropping its row.
+    static func count(_ raw: Any?) -> Int? {
+        guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        guard !CFNumberIsFloatType(number as CFNumber) else { return integer(number) }
+        let value = number.int64Value
+        return value >= 0 ? Int(value) : nil
     }
 
     /// `text` is `word` alone or `word` followed by ":" or a space, so a
@@ -142,9 +154,10 @@ extension GPUControlStatus.PowerWatch {
     static func parse(_ raw: Any?) -> Self? {
         guard let dict = raw as? [String: Any] else { return nil }
         func n(_ key: String) -> Int? { GPUControlStatus.integer(dict[key]) }
-        return Self(bootW: n("BootW"), lastReadW: n("LastReadW"), reads: n("Reads"),
-                    sent: n("Sent"), lastSentW: n("LastSentW"), lastSentSource: n("LastSentSource"),
-                    lastSentResult: n("LastSentResult"), sleeps: n("Sleeps"), wakes: n("Wakes"))
+        func c(_ key: String) -> Int? { GPUControlStatus.count(dict[key]) }
+        return Self(bootW: n("BootW"), lastReadW: n("LastReadW"), reads: c("Reads"),
+                    sent: c("Sent"), lastSentW: n("LastSentW"), lastSentSource: n("LastSentSource"),
+                    lastSentResult: n("LastSentResult"), sleeps: c("Sleeps"), wakes: c("Wakes"))
     }
 }
 

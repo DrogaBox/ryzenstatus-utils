@@ -204,6 +204,20 @@ enum GPUControlTests {
                      "a full uint32_t value is read")
         suite.expect(GPUControlStatus.integer(NSNumber(value: UInt64(UInt32.max) + 1)) == nil,
                      "past uint32_t is no value")
+        // The uint64_t counters (Reads, Sent, Sleeps, Wakes) keep their row past uint32_t.
+        let big = UInt64(UInt32.max) + 1
+        suite.expect(GPUControlStatus.count(NSNumber(value: big)) == Int(big), "a uint64_t count past uint32_t is read")
+        suite.expect(GPUControlStatus.count(NSNumber(value: -1)) == nil, "a negative count is no value")
+        suite.expect(GPUControlStatus.count(NSNumber(value: 2.5)) == nil, "a fraction is no count")
+        suite.expect(GPUControlStatus.count(kCFBooleanTrue) == nil, "a boolean is no count")
+        suite.expect(GPUControlStatus.count(NSNumber(value: UInt64.max)) == nil, "a count past Int.max is no value")
+        let bigWatch = GPUControlStatus.PowerWatch.parse([
+            "Reads": NSNumber(value: big), "Sent": NSNumber(value: big), "Sleeps": NSNumber(value: big),
+            "Wakes": NSNumber(value: big), "LastSentResult": NSNumber(value: big),
+        ])
+        suite.expect(bigWatch?.reads == Int(big) && bigWatch?.sent == Int(big) && bigWatch?.sleeps == Int(big)
+                         && bigWatch?.wakes == Int(big) && bigWatch?.lastSentResult == nil,
+                     "PowerWatch: the counters read as uint64_t, the result as uint32_t")
 
         for blank in ["", "   ", "\n"] {
             var noControl = v030
