@@ -101,6 +101,9 @@ final class MonitorWindowState: ObservableObject {
         }
     }
     @Published private(set) var isVisible = false
+    /// The process search, kept here so it survives a trip to another
+    /// section, as it does in Activity Monitor's tabs.
+    @Published var processSearch = ""
 
     /// Menu commands for the process table, which owns the selection.
     enum Command { case inspect, terminate }
@@ -127,9 +130,17 @@ final class MonitorWindowState: ObservableObject {
         sync()
     }
 
+    /// What the window holds for a section and a visibility: the section's
+    /// families and, on Processor only, the 3 s kext poll; nothing at all
+    /// while nobody can see the window.
+    nonisolated static func holds(section: MonitorSection,
+                                  isVisible: Bool) -> (needs: SystemMonitorPanelNeeds, liveSync: Bool) {
+        guard isVisible else { return (.none, false) }
+        return (section.monitorNeeds, section == .processor)
+    }
+
     private func sync() {
-        let wantsNeeds = isVisible ? section.monitorNeeds : .none
-        let wantsLiveSync = isVisible && section == .processor
+        let (wantsNeeds, wantsLiveSync) = Self.holds(section: section, isVisible: isVisible)
         if wantsNeeds != heldNeeds {
             heldNeeds = wantsNeeds
             SystemMonitor.shared.setDashboardNeeds(wantsNeeds)
@@ -160,6 +171,9 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
             if let section, section.isAvailable { state.section = section }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            // The same read as a new window: occlusion notifications report
+            // changes, so a state that missed one is set right here too.
+            state.setVisible(window.occlusionState.contains(.visible))
             return
         }
         let state = MonitorWindowState()

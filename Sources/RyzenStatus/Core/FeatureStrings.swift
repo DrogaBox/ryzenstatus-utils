@@ -3571,7 +3571,6 @@ struct MonitorAlertFeatureStrings {
 }
 
 public struct PerformanceSuiteFeatureStrings {
-    public let title: String
     public let dashboardTab: String
     public let cpuUtilization: String
     public let memoryFootprint: String
@@ -3599,7 +3598,6 @@ public struct PerformanceSuiteFeatureStrings {
 
 extension PerformanceSuiteFeatureStrings {
     static let enUS = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         cpuUtilization: "CPU Utilization",
         memoryFootprint: "RAM Used",
@@ -3625,7 +3623,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Cancel"
     )
     static let ptBR = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Painel",
         cpuUtilization: "Uso de CPU",
         memoryFootprint: "RAM Usada",
@@ -3651,7 +3648,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Cancelar"
     )
     static let es = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         cpuUtilization: "Uso de CPU",
         memoryFootprint: "RAM Usada",
@@ -3677,7 +3673,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Cancelar"
     )
     static let de = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Übersicht",
         cpuUtilization: "CPU-Auslastung",
         memoryFootprint: "RAM Belegt",
@@ -3703,7 +3698,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Abbrechen"
     )
     static let fr = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Tableau de bord",
         cpuUtilization: "Utilisation CPU",
         memoryFootprint: "RAM Utilisée",
@@ -3729,7 +3723,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Annuler"
     )
     static let it = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         cpuUtilization: "Utilizzo CPU",
         memoryFootprint: "RAM Usata",
@@ -3755,7 +3748,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "Annulla"
     )
     static let ja = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "ダッシュボード",
         cpuUtilization: "CPU使用率",
         memoryFootprint: "使用中メモリ",
@@ -3781,7 +3773,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "キャンセル"
     )
     static let ko = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "대시보드",
         cpuUtilization: "CPU 사용량",
         memoryFootprint: "사용 중인 RAM",
@@ -3807,7 +3798,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "취소"
     )
     static let zhHans = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus 性能控制中心",
         dashboardTab: "仪表盘",
         cpuUtilization: "CPU 使用率",
         memoryFootprint: "已用内存",
@@ -3833,7 +3823,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "取消"
     )
     static let zhTW = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus 效能控制中心",
         dashboardTab: "儀表板",
         cpuUtilization: "CPU 使用率",
         memoryFootprint: "已用記憶體",
@@ -3859,7 +3848,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "取消"
     )
     static let zhHK = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus 效能控制中心",
         dashboardTab: "儀表板",
         cpuUtilization: "CPU 使用率",
         memoryFootprint: "已用記憶體",
@@ -3885,7 +3873,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "取消"
     )
     static let tr = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performans Merkezi",
         dashboardTab: "Gösterge Paneli",
         cpuUtilization: "İşlemci Kullanımı",
         memoryFootprint: "Kullanılan Bellek",
@@ -3911,7 +3898,6 @@ extension PerformanceSuiteFeatureStrings {
         killCancel: "İptal"
     )
     static let ru = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Панель Производительности",
         dashboardTab: "Панель",
         cpuUtilization: "Загрузка CPU",
         memoryFootprint: "Память занято",
@@ -3938,7 +3924,6 @@ extension PerformanceSuiteFeatureStrings {
     )
 
     static let sk = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Prehľad",
         cpuUtilization: "Využitie CPU",
         memoryFootprint: "Využitá RAM",
@@ -3965,7 +3950,6 @@ extension PerformanceSuiteFeatureStrings {
     )
 
     static let uk = PerformanceSuiteFeatureStrings(
-        title: "RyzenStatus Performance Suite",
         dashboardTab: "Огляд",
         cpuUtilization: "Навантаження CPU",
         memoryFootprint: "Використано RAM",

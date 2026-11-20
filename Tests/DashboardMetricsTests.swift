@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 import IOKit
 
@@ -21,6 +22,7 @@ enum DashboardMetricsTests {
         pageActivity(suite)
         processTable(suite)
         monitorWindow(suite)
+        monitorWindowMenu(suite)
         curveOptimizerPlan(suite)
         longHistoryFallback(suite)
         fanCurveGeometry(suite)
@@ -259,6 +261,46 @@ enum DashboardMetricsTests {
         suite.expectClose(TrendChart.niceCeiling(61), 80, "61 rounds up to 80")
         suite.expectClose(TrendChart.niceCeiling(3.2), 4, "3.2 rounds up to 4")
         suite.expectClose(TrendChart.niceCeiling(0), 1, "an empty series still has a scale")
+    }
+
+    /// What the window holds while it is seen or not, and the View menu,
+    /// all without opening a window: no Monitor window exists in this run.
+    private static func monitorWindowMenu(_ suite: TestSuite) {
+        for section in MonitorSection.allCases {
+            let hidden = MonitorWindowState.holds(section: section, isVisible: false)
+            suite.expect(hidden.needs == .none && !hidden.liveSync,
+                         "hidden, minimized, covered or closed, the window holds no sampler on \(section)")
+            let shown = MonitorWindowState.holds(section: section, isVisible: true)
+            suite.expect(shown.needs == section.monitorNeeds && shown.liveSync == (section == .processor),
+                         "visible on \(section), the window holds that section's families, and the kext poll only on Processor")
+        }
+
+        MainActor.assumeIsolated {
+            for language in AppLanguage.allCases {
+                let strings = MonitorWindowStrings.localized(language)
+                let process = FeatureStrings.performanceSuite(language)
+                let menu = MonitorWindowController.viewMenuItem(language: language).submenu
+                let titles = menu?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
+                let expected = [strings.openMonitor] + MonitorSection.allCases.map { $0.title(strings) }
+                    + [process.inspectButton, process.killButton + "…"]
+                suite.expect(menu?.title == strings.viewMenu && titles == expected,
+                             "\(language.rawValue) View menu is built in that language")
+            }
+            let controller = MonitorWindowController.shared
+            let items = MonitorWindowController.viewMenuItem(language: .enUS).submenu?.items
+                .filter { !$0.isSeparatorItem } ?? []
+            suite.expect(items.count == MonitorSection.allCases.count + 3,
+                         "the View menu lists Open, every section, Inspect and Terminate")
+            suite.expect(items.first.map { controller.validateMenuItem($0) } == true,
+                         "Open Monitor is offered with no window open, so a closed window can come back")
+            suite.expect(items.dropFirst().allSatisfy { !controller.validateMenuItem($0) },
+                         "with no Monitor window key, the sections, Inspect and Terminate are off")
+        }
+
+        let delegate = source("Sources/RyzenStatus/App/AppDelegate.swift", suite)
+        suite.expect(delegate.contains("L10n.shared.$language") && delegate.contains("self?.installMainMenu()")
+                     && delegate.contains("MonitorWindowController.viewMenuItem(language: L10n.shared.language)"),
+                     "a language change rebuilds the main menu, the View menu with it")
     }
 
     // MARK: - Curve Optimizer

@@ -293,7 +293,7 @@ struct ProcessesSection: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 5)
         }
-        .searchable(text: $feed.search, placement: .toolbar)
+        .searchable(text: $state.processSearch, placement: .toolbar)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
@@ -338,6 +338,7 @@ struct ProcessesSection: View {
         }
         .onAppear {
             loadColumns()
+            feed.search = state.processSearch
             feed.setActive(state.isVisible)
             publishSelection()
         }
@@ -347,6 +348,7 @@ struct ProcessesSection: View {
             state.canTerminateSelection = false
         }
         .onChange(of: state.isVisible) { _, visible in feed.setActive(visible) }
+        .onChange(of: state.processSearch) { _, search in feed.search = search }
         .onChange(of: selection) { _, _ in publishSelection() }
         .onChange(of: feed.rows) { _, _ in publishSelection() }
         .onReceive(state.commands) { command in
