@@ -132,11 +132,30 @@ final class Engine: ObservableObject {
     @Published var lastActionTitle: String = ""
     @Published var needReboot = false
     @Published var planSheet: PlanResult? = nil
+    /// True when the parts came inside this app (Contents/Resources/GPU), as in the DMG.
+    /// Choosing a folder is then not offered: that is only for development builds.
+    @Published var rootInBundle = false
 
-    private static let rootDefaultsKey = "DrogaBoxGPURoot"
+    private static let rootDefaultsKey = "GPUToolsRoot"
+    /// The folder the DMG build puts the parts in, inside Contents/Resources.
+    static let bundledFolderName = "GPU"
 
     init() {
-        rootURL = Self.findRootNearBundle()
+        if let bundled = Self.bundledRoot() {
+            rootURL = bundled
+            rootInBundle = true
+        } else {
+            rootURL = Self.findRootNearBundle()
+        }
+    }
+
+    /// The parts inside this app: Contents/Resources/GPU, with install/ in it. Found from
+    /// the bundle itself, so it works from the mounted DMG, from Applications, or from a
+    /// translocated copy.
+    static func bundledRoot() -> URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let dir = resources.appendingPathComponent(bundledFolderName, isDirectory: true)
+        return isValidRoot(dir) ? dir : nil
     }
 
     static func isValidRoot(_ dir: URL) -> Bool {
@@ -165,8 +184,8 @@ final class Engine: ObservableObject {
 
     func chooseRootFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose the DrogaBoxGPU folder"
-        panel.message = "Select the folder that contains install/ (for example, the repository or release folder)."
+        panel.title = "Choose the GPU tools folder"
+        panel.message = "Select the folder that contains install/ (for example, the GPU folder of the repository)."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -183,7 +202,7 @@ final class Engine: ObservableObject {
 
     func recheck(preserveOutput: Bool = false) {
         guard let root = rootURL else {
-            phase = .failed("Select the DrogaBoxGPU folder to check this Mac.")
+            phase = .failed("Select the GPU tools folder to check this Mac.")
             return
         }
         phase = .checking
@@ -271,7 +290,7 @@ final class Engine: ObservableObject {
 
     func planInstall(withEncoder: Bool, withSensors: Bool) {
         guard let root = rootURL else {
-            phase = .failed("DrogaBoxGPU folder is not selected.")
+            phase = .failed("GPU tools folder is not selected.")
             return
         }
         phase = .running("Building install plan")
@@ -296,7 +315,7 @@ final class Engine: ObservableObject {
 
     func runAction(title: String, script: String, args: [String], setsReboot: Bool, doneMessage: String) {
         guard let root = rootURL else {
-            phase = .failed("DrogaBoxGPU folder is not selected.")
+            phase = .failed("GPU tools folder is not selected.")
             return
         }
         phase = .running(title)
@@ -400,6 +419,17 @@ struct StatusDot: View {
         Image(systemName: name)
             .foregroundStyle(color)
             .font(.system(size: 15, weight: .semibold))
+            // The row it belongs to says the status in words (statusWord).
+            .accessibilityHidden(true)
+    }
+
+    /// The status as VoiceOver reads it, in place of the symbol.
+    static func statusWord(_ status: String) -> String {
+        switch status {
+        case "ok":   return "OK"
+        case "warn": return "Warning"
+        default:     return "Problem"
+        }
     }
 }
 
@@ -418,6 +448,9 @@ struct CheckRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(c.label): \(StatusDot.statusWord(c.status))")
+        .accessibilityValue(c.detail)
     }
 }
 
@@ -437,17 +470,30 @@ struct ComponentSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 12)
-                StatusDot(status: badgeStatus)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
-                    Text(subtitle)
-                        .font(.system(size: 11))
+                HStack(spacing: 10) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .frame(width: 12)
+                    StatusDot(status: badgeStatus)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.system(size: 13, weight: .semibold))
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                // One element for VoiceOver: the part, its status in words, and whether
+                // its checks are shown; activating it shows or hides them, like a click.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title), \(StatusDot.statusWord(badgeStatus)). \(subtitle)")
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
@@ -527,7 +573,8 @@ struct ContentView: View {
             footer
             credit
         }
-        .frame(width: 600, height: 740)
+        // A minimum, not a fixed size: the window can grow when the text does.
+        .frame(minWidth: 600, idealWidth: 600, minHeight: 740, idealHeight: 740)
         .onAppear {
             if engine.rootURL != nil {
                 engine.recheck()
@@ -559,9 +606,9 @@ struct ContentView: View {
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
-            Text("DrogaBoxGPU folder not found")
+            Text("GPU tools folder not found")
                 .font(.system(size: 15, weight: .semibold))
-            Text("Choose the DrogaBoxGPU folder (the one that contains install/) so the app can run checks and installers.")
+            Text("Choose the GPU tools folder (the one that contains install/) so the app can run checks and installers.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -594,6 +641,8 @@ struct ContentView: View {
                         ProgressView().controlSize(.small)
                         Text("Checking this Mac…").foregroundStyle(.secondary)
                     }
+                    // Read as one: "Checking this Mac…", not a wordless "busy".
+                    .accessibilityElement(children: .combine)
                     .padding(.vertical, 12)
                 } else {
                     quickInstallCard
@@ -635,8 +684,10 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 Toggle("Encoding fix", isOn: $withEncoder)
                     .toggleStyle(.checkbox)
+                    .help("Full-speed HEVC/H.264 in the GPU's video engine")
                 Toggle("GPU sensors", isOn: $withSensors)
                     .toggleStyle(.checkbox)
+                    .help("Temperatures, clocks and fan speed in RyzenStatus")
             }
             .font(.system(size: 12))
             .disabled(busy)
@@ -816,7 +867,7 @@ struct ContentView: View {
                     .foregroundStyle(.white)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("DrogaBoxGPU Installer").font(.system(size: 18, weight: .bold))
+                Text("RyzenStatus GPU").font(.system(size: 18, weight: .bold))
                 Text("AMD RX 6000 decoders, encoding fix & GPU sensors")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -825,7 +876,9 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            if engine.rootURL != nil {
+            // A folder is chosen only in a development build; the app from the DMG carries
+            // its parts inside.
+            if engine.rootURL != nil && !engine.rootInBundle {
                 Button("Change Folder…") {
                     engine.chooseRootFolder()
                 }
@@ -877,7 +930,7 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Clear") {
+                Button("Clear log") {
                     engine.lastOutput = ""
                     engine.lastActionTitle = ""
                 }
@@ -948,7 +1001,7 @@ struct ContentView: View {
                 return Alert(
                     title: Text("This macOS build is NOT validated"),
                     message: Text("The GPU driver of this macOS version has not been checked. Installing can freeze the screen or hang the GPU while playing video."),
-                    primaryButton: .destructive(Text("I understand, install")) {
+                    primaryButton: .default(Text("I understand, install")) {
                         engine.runAction(
                             title: "Install decoder plug-ins (--force)",
                             script: "install/decoders.sh",
@@ -1097,8 +1150,8 @@ struct ContentView: View {
             )
         case .removeAll:
             return Alert(
-                title: Text("Remove all DrogaBoxGPU components?"),
-                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, and the decoder plug-ins. Reboot afterwards."),
+                title: Text("Remove all GPU components?"),
+                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, and the decoder plug-ins. Reboot afterwards. Kept: the log /var/log/vcnencodefix.log and the config.plist backups next to config.plist on the EFI."),
                 primaryButton: .destructive(Text("Remove all")) {
                     engine.runAction(
                         title: "Remove all components",
@@ -1181,10 +1234,27 @@ struct PlanSheetView: View {
 // MARK: - App
 
 @main
-struct DrogaBoxGPUInstallerApp: App {
+enum Launcher {
+    static func main() {
+        // --print-payload: says where the parts inside this app are and exits, without
+        // opening a window (Tools/make-dmg.sh runs it on the app it puts in the DMG).
+        // Exit status 0 when Contents/Resources/GPU holds them, 1 when it does not.
+        if CommandLine.arguments.dropFirst().contains("--print-payload") {
+            if let root = Engine.bundledRoot() {
+                print("bundled: \(root.path)")
+                exit(0)
+            }
+            print("no parts inside this app: Contents/Resources/\(Engine.bundledFolderName)/install is missing")
+            exit(1)
+        }
+        RyzenStatusGPUApp.main()
+    }
+}
+
+struct RyzenStatusGPUApp: App {
     init() { NSApplication.shared.setActivationPolicy(.regular) }
     var body: some Scene {
-        Window("DrogaBoxGPU Installer", id: "main") {
+        Window("RyzenStatus GPU", id: "main") {
             ContentView()
         }
         .windowResizability(.contentSize)
