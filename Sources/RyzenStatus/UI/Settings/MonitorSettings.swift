@@ -16,7 +16,6 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarCombineTemperatures) private var combineTemperatures = true
     @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMetrics = false
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
-    @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
     @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
@@ -88,7 +87,6 @@ struct MonitorSettings: View {
         .settingsPageActivity(.monitorSettings)
         .onAppear {
             interval = Defaults.sanitizedMonitorInterval(interval)
-            metricAppearance = Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)
             if TemperatureUnit(rawValue: temperatureUnit) == nil {
                 temperatureUnit = TemperatureUnit.celsius.rawValue
             }
@@ -112,10 +110,6 @@ struct MonitorSettings: View {
         FeatureStrings.menuBarAppearance(l10n.language)
     }
 
-    private var appearance: MenuBarMetricAppearance {
-        MenuBarMetricAppearance(rawValue: Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)) ?? .values
-    }
-
     /// What sits in the menu bar, in the order it appears there.
     private var menuBarCard: some View {
         SettingsCard {
@@ -130,15 +124,15 @@ struct MonitorSettings: View {
     /// How each usage reading is drawn, and the palettes the graphs use.
     private var menuBarStyleCard: some View {
         SettingsCard(title: appearanceStrings.label) {
-            styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: $appCPU,
-                     options: ["values", "bars", "pie", "sparkline", "histogram", "classic"])
-            styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: $appGPU,
-                     options: ["values", "bars", "pie", "sparkline", "classic"])
-            styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: $appRAM,
+            styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: shown($appCPU, .cpu),
+                     options: ["values", "bars", "pie", "sparkline", "histogram"])
+            styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: shown($appGPU, .gpu),
                      options: ["values", "bars", "pie", "sparkline"])
-            styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: $appNet,
+            styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: shown($appRAM, .memory),
+                     options: ["values", "bars", "pie", "sparkline"])
+            styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: shown($appNet, .network),
                      options: ["values", "sparkline"])
-            styleRow(MenuBarMetric.diskUsage.title(l10n.s), symbol: "internaldrive", selection: $appDisk,
+            styleRow(MenuBarMetric.diskUsage.title(l10n.s), symbol: "internaldrive", selection: shown($appDisk, .diskUsage),
                      options: ["values", "bars"])
             Text(appearanceStrings.caption)
                 .font(.caption)
@@ -156,7 +150,7 @@ struct MonitorSettings: View {
     /// How the readings share the menu bar with the icon and with each other.
     private var menuBarLayoutCard: some View {
         SettingsCard {
-            if appearance != .bars {
+            if combineApplies {
                 SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
                             caption: l10n.s.monitorCombineTemperaturesCaption) {
                     Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
@@ -176,11 +170,25 @@ struct MonitorSettings: View {
                 Toggle(l10n.s.menuBarHideIconToggle, isOn: $hideIconWithMetrics).labelsHidden()
             }
             SettingsRow(symbol: "rectangle.split.3x1", title: l10n.s.monitorSeparateMenuBarMetrics,
-                        caption: appearance.allowsCombinedTemperatures
-                            ? l10n.s.monitorSeparateMenuBarMetricsCaption : nil) {
+                        caption: l10n.s.monitorSeparateMenuBarMetricsCaption) {
                 Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics).labelsHidden()
             }
         }
+    }
+
+    /// The stored style as the metric draws it, so an old "classic" or a GPU
+    /// "histogram" shows as the option it looks like instead of a blank.
+    private func shown(_ storage: Binding<String>, _ metric: MenuBarMetric) -> Binding<String> {
+        Binding(get: { MenuBarStyleMigration.shownStyle(Defaults.sanitizedMenuBarMetricAppearance(storage.wrappedValue),
+                                                        for: metric) },
+                set: { storage.wrappedValue = $0 })
+    }
+
+    /// Combining applies only while CPU or GPU usage is text, or to a
+    /// built-in battery.
+    private var combineApplies: Bool {
+        _ = (appCPU, appGPU)
+        return MenuBarMetricAppearance.combineApplies(hasBattery: PowerSampler.hasInternalBattery)
     }
 
     private func styleRow(_ title: String, symbol: String, selection: Binding<String>,
@@ -202,28 +210,7 @@ struct MonitorSettings: View {
         case "pie": return appearanceStrings.pie
         case "sparkline": return appearanceStrings.sparkline
         case "histogram": return appearanceStrings.histogram
-        case "classic": return Self.classicTitle(l10n.language)
         default: return appearanceStrings.values
-        }
-    }
-
-    /// The classic menu bar style's name in each language.
-    private static func classicTitle(_ language: AppLanguage) -> String {
-        switch language {
-        case .enUS: return "Classic"
-        case .ptBR: return "Clássico"
-        case .tr: return "Klasik"
-        case .ru: return "Классика"
-        case .es: return "Clásico"
-        case .sk: return "Klasický"
-        case .de: return "Klassisch"
-        case .fr: return "Classique"
-        case .it: return "Classico"
-        case .ja: return "クラシック"
-        case .ko: return "클래식"
-        case .uk: return "Класика"
-        case .zhHans: return "经典"
-        case .zhTW, .zhHK: return "經典"
         }
     }
 
@@ -629,9 +616,16 @@ private struct MemoryMenuBarOrderOption: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.menuBarMemory) private var menuBarMemory = true
     @AppStorage(DefaultsKey.menuBarMemoryStyle) private var memoryStyle = "percent"
+    @AppStorage(MenuBarMetric.memory.styleKey) private var style = "values"
+
+    /// The dot is drawn only beside a value or a bar.
+    private var dotApplies: Bool {
+        _ = style
+        return [.values, .bars].contains(MenuBarMetricAppearance.stored(for: .memory))
+    }
 
     var body: some View {
-        if menuBarMemory {
+        if menuBarMemory && dotApplies {
             MetricRowOptionToggle(label: l10n.s.monitorMemoryPressureDot,
                                   isOn: Binding(
                                       get: { Defaults.sanitizedMenuBarMemoryStyle(memoryStyle) != "percent" },
@@ -647,9 +641,11 @@ private struct NetworkMenuBarOrderOption: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.menuBarNetwork) private var menuBarNetwork = true
     @AppStorage(DefaultsKey.menuBarNetworkUploadFirst) private var uploadFirst = false
+    @AppStorage(MenuBarMetric.network.styleKey) private var style = "values"
 
     var body: some View {
-        if menuBarNetwork {
+        // The graph draws upload and download in fixed places.
+        if menuBarNetwork && MenuBarMetricAppearance.stored(for: .network) == .values && style == style {
             MetricRowOptionToggle(label: l10n.s.monitorNetworkUploadFirst, isOn: $uploadFirst)
         }
     }

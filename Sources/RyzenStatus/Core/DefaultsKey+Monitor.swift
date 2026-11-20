@@ -38,7 +38,6 @@ extension DefaultsKey {
     static let menuBarBatteryTime = "menuBarBatteryTime"
     static let menuBarPeripheralBattery = "menuBarPeripheralBattery"
     static let menuBarPower = "menuBarPower"
-    static let menuBarPreset = "menuBarPreset"           // dense
     static let menuBarMetricSpacing = "menuBarMetricSpacing" // standard | compact
     static let menuBarMetricAppearance = "menuBarMetricAppearance" // values | bars
     static let menuBarUsageBarNormalColor = "menuBarUsageBarNormalColor" // #RRGGBB
@@ -60,7 +59,6 @@ extension DefaultsKey {
     static let menuBarSeparateMetricsCaptionVisible = "menuBarSeparateMetricsCaptionVisible"
     static let menuBarLayoutMode = "menuBarLayoutMode" // classic | modern
     static let menuBarNetworkUploadFirst = "menuBarNetworkUploadFirst" // network menu bar block shows upload above download
-    static let menuBarLabelStyle = "menuBarLabelStyle"     // compact | classic
     static let menuBarMemoryStyle = "menuBarMemoryStyle"   // dot | percent | both
     static let monitorInterval = "monitorIntervalSeconds"  // sampling cadence: 1/2/5
     // System monitor — which blocks appear in the panel.

@@ -153,6 +153,9 @@ enum SettingsBackup {
         for (key, value) in settings {
             defaults.set(value, forKey: key)
         }
+        // Backups and launch config files written before the per-metric
+        // styles existed convert on the way in; see MenuBarStyleMigration.
+        MenuBarStyleMigration.applyAfterImport(settings, to: defaults)
         if replacingMissing, let shared = SettingsBackupSupport.sharedSwitcherPauseList(in: settings) {
             defaults.set(shared, forKey: DefaultsKey.switcherPreviewExcludedApps)
         }

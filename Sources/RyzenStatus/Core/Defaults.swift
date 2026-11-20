@@ -208,7 +208,6 @@ enum Defaults {
     static let keyboardDebounceWindowStep = 1
     static let defaultMouseClickDebounceWindowMs = 25
     static let allowedMouseClickDebounceWindowRange = 5...100
-    static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
     static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
     static let defaultMenuBarMetricOrder = [
@@ -218,7 +217,6 @@ enum Defaults {
         "battery", "batteryTime", "batteryTemperature", "peripheralBattery",
         "network", "diskUsage", "diskActivity", "connectedDevices", "power",
     ]
-    static let allowedMenuBarLabelStyles = ["compact", "classic"]
     static let allowedMenuBarMemoryStyles = ["dot", "percent", "both"]
     static let allowedMonitorMemoryMetrics = ["used", "app"]
     static let allowedPreviewSizes = ["small", "normal", "large", "xlarge"]
@@ -716,9 +714,13 @@ enum Defaults {
         DefaultsKey.menuBarDiskUsage: false,
         DefaultsKey.menuBarDiskActivity: false,
         DefaultsKey.menuBarPeripheralBattery: false,
-        DefaultsKey.menuBarPreset: "dense",
         DefaultsKey.menuBarMetricSpacing: "compact",  // owner's call: compact by default in 3.1.8
         DefaultsKey.menuBarMetricAppearance: "values",
+        DefaultsKey.menuBarMetricAppearanceCPU: "values",
+        DefaultsKey.menuBarMetricAppearanceGPU: "values",
+        DefaultsKey.menuBarMetricAppearanceMemory: "values",
+        DefaultsKey.menuBarMetricAppearanceNetwork: "values",
+        DefaultsKey.menuBarMetricAppearanceDiskUsage: "values",
         DefaultsKey.menuBarUsageBarNormalColor: "#64D2FF",
         DefaultsKey.menuBarUsageBarElevatedColor: "#FFD60A",
         DefaultsKey.menuBarUsageBarCriticalColor: "#FF453A",
@@ -739,7 +741,6 @@ enum Defaults {
         DefaultsKey.menuBarSeparateMetrics: false,
         DefaultsKey.menuBarSeparateMetricsCaptionVisible: true,
         DefaultsKey.menuBarNetworkUploadFirst: false,
-        DefaultsKey.menuBarLabelStyle: "compact",
         DefaultsKey.menuBarMemoryStyle: "percent",
         DefaultsKey.monitorMemoryMetric: "used",
         DefaultsKey.monitorShowSystem: true,
@@ -1094,7 +1095,6 @@ enum Defaults {
         DefaultsKey.windowLayoutScreenGap: 0,
         DefaultsKey.windowLayoutMarginPercent: 5.0,
         DefaultsKey.windowLayoutSideRepeatCyclesThirds: false,
-        DefaultsKey.menuBarDiskStyle: "percent",
         DefaultsKey.monitorGraphScale: true,
         DefaultsKey.monitorSysCPUCores: true,
         DefaultsKey.monitorNetAddresses: true,
@@ -1211,6 +1211,7 @@ enum Defaults {
         // saved choice from a registered default.
         migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateBatteryTemperatureVisibility(in: defaults)
+        MenuBarStyleMigration.runIfNeeded(in: defaults)
         var defaultValues = registeredDefaults
 #if DEBUG
         defaultValues[DefaultsKey.screenshotSharingDeveloperEndpoint] = ""
@@ -1475,10 +1476,6 @@ enum Defaults {
             allowedClipboardMenuBarPreviewLengthRange.upperBound)
     }
 
-    static func sanitizedMenuBarPreset(_ preset: String) -> String {
-        allowedMenuBarPresets.contains(preset) ? preset : "dense"
-    }
-
     static func sanitizedMenuBarMetricSpacing(_ spacing: String) -> String {
         // Corrupt values fall back to the registered default (compact).
         allowedMenuBarMetricSpacings.contains(spacing) ? spacing : "compact"
@@ -1546,10 +1543,6 @@ enum Defaults {
                          forKey: DefaultsKey.menuBarMetricOrder)
         }
         defaults.removeObject(forKey: DefaultsKey.menuBarTemperature)
-    }
-
-    static func sanitizedMenuBarLabelStyle(_ style: String) -> String {
-        allowedMenuBarLabelStyles.contains(style) ? style : "compact"
     }
 
     static func sanitizedMenuBarMemoryStyle(_ style: String) -> String {
