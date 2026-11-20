@@ -79,7 +79,7 @@ extension GPUControlClockStrings {
         section: "Maks. GFX saati",
         toggle: "Maks. saati düşür",
         stockFormat: "Fabrika (%d MHz)",
-        footer: "Yalnızca fabrika değerinin altına; kext her isteği denetler. 200 W'ın altında hiçbir şey ölçülmedi: 200 W'tan az veren bir saat denenmedi.",
+        footer: "Yalnızca fabrika değerinin altında; kext her isteği denetler. 200 W'ın altında hiçbir şey ölçülmedi: 200 W'tan az veren bir saat denenmedi.",
         notePowerHeld: "Bir güç sınırı tutuluyor. Saat seçmek önce güç sınırını başlangıç değerine döndürür: kext ikisini birlikte tutmaz.",
         noteClockHeld: "Bir maks. saat tutuluyor. Güç sınırı seçmek önce saati fabrika değerine döndürür: kext ikisini birlikte tutmaz.",
         switching: "Önce güç sınırı başlangıç değerine dönüyor…",
