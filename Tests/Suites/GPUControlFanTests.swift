@@ -358,6 +358,7 @@ enum GPUControlFanTests {
         facts.ready = true
         facts.armed = true
         facts.bootW = 240
+        facts.powerRange = GPUControlPageTests.range(192, 240)
         facts.od8Ready = true
         let checked = "REL-072-2026-11-19"
         suite.expect(GPUControlRememberPolicy.request(remembered: .od8(want), active: true, facts: facts, stopped: nil,

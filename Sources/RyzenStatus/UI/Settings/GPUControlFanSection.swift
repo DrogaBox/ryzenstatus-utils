@@ -94,8 +94,7 @@ struct GPUControlFanSection: View {
             }
             if let note = refusal {
                 VStack(alignment: .leading, spacing: 2) {
-                    Label(note.sentence, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                    GPUControlProblemLabel(text: note.sentence, isProblem: true)
                     if let kext = note.kextText {
                         Text(kext)
                             .font(.caption)
@@ -199,7 +198,8 @@ struct GPUControlFanSection: View {
             Stepper("", value: value, step: 1)
                 .labelsHidden()
                 .accessibilityLabel(stepName)
-            Text(unit).foregroundStyle(.secondary)
+            // The field's name already says the unit (a11y A7).
+            Text(unit).foregroundStyle(.secondary).accessibilityHidden(true)
         }
     }
 
@@ -249,8 +249,13 @@ struct GPUControlFanSection: View {
     private var previewRow: some View {
         let (text, detail, ok) = previewText
         return VStack(alignment: .leading, spacing: 2) {
-            Label(text, systemImage: ok ? "checkmark.circle" : "exclamationmark.circle")
-                .foregroundStyle(ok ? Color.secondary : Color.orange)
+            // a11y A1: the symbol carries the orange, the words stay legible.
+            Label {
+                Text(text).foregroundStyle(ok ? Color.secondary : Color.primary)
+            } icon: {
+                Image(systemName: ok ? "checkmark.circle" : "exclamationmark.circle")
+                    .foregroundStyle(ok ? Color.secondary : Color.orange)
+            }
             if let detail {
                 Text(detail)
                     .font(.caption)
