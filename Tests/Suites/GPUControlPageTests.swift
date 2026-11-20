@@ -19,6 +19,30 @@ enum GPUControlPageTests {
         visibility(suite)
         strings(suite)
         reviewFixes(suite)
+        armWords(suite)
+    }
+
+    /// The arm flow's words (the owner's texts) and the warning's reach
+    /// (security review S-1: the kext checks no user, so "this Mac").
+    private static func armWords(_ suite: TestSuite) {
+        let en = GPUControlPageStrings.enUS
+        let es = GPUControlPageStrings.es
+        suite.expect(en.openWriting == "Allow GPU Changes…" && es.openWriting == "Permitir cambios en la GPU…",
+                     "the arm button names the consequence")
+        suite.expect(en.closed == "Control Closed" && es.closed == "Control cerrado", "the closed state says what is closed")
+        suite.expect(es.armPrompt == "Permitir cambios en el límite de potencia, el ventilador y el reloj de la GPU hasta reiniciar el Mac.",
+                     "the password prompt says how far the permission goes")
+        suite.expect(en.readyWarning.contains("any program on this Mac") && es.readyWarning.contains("cualquier programa de este Mac"),
+                     "S-1: the warning names every program on the Mac, not one user's")
+        for language in AppLanguage.allCases {
+            let t = FeatureStrings.gpuControlPage(language)
+            suite.expect(t.armPrompt != t.openWriting && !t.armPrompt.contains("RyzenStatus"),
+                         "\(language.rawValue): the prompt does not repeat the dialog's own app name")
+        }
+        let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                + "/Sources/RyzenStatus/UI/Settings/GPUControlSettingsView.swift", encoding: .utf8)) ?? ""
+        suite.expect(view.contains("Button(s.openWriting) { actions.openWriting() }\n                        .buttonStyle(.borderedProminent)"),
+                     "the only action while closed is the prominent one")
     }
 
     /// Fixes from the review of phase 2.

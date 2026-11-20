@@ -336,7 +336,12 @@ struct GPUControlPageContent: View {
                 HStack {
                     if input.isArming { ProgressView().controlSize(.small) }
                     Spacer()
+                    // "Buttons": the primary role goes to the button people
+                    // are most likely to choose. While the control is closed
+                    // this is the only action on the page. No Return key: it
+                    // raises the administrator password dialog.
                     Button(s.openWriting) { actions.openWriting() }
+                        .buttonStyle(.borderedProminent)
                         .disabled(input.isArming || !input.canChoose)
                 }
             case .unsafe(let reason, let path):
