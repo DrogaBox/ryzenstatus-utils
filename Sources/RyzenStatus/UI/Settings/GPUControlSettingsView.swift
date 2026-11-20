@@ -223,7 +223,10 @@ struct GPUControlPageContent: View {
         } else if let group {
             lines.append(s.sentence(group))
         }
-        if let text, !text.isEmpty { lines.append(text) }
+        // The kext's words under the translation, unless the sentence above
+        // already says them (English: "Off: <the kext's text>").
+        if let text, !text.isEmpty,
+           !lines.contains(where: { $0.lowercased().contains(text.lowercased()) }) { lines.append(text) }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
