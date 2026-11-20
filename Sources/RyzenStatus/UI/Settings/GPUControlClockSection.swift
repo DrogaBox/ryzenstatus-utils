@@ -70,14 +70,12 @@ struct GPUControlClockSection: View {
                     .foregroundStyle(.secondary)
             }
             if outOfRange, let range {
-                Label(String(format: clock.outOfRangeFormat, range.lowerBound, range.upperBound),
-                      systemImage: "exclamationmark.circle")
-                    .foregroundStyle(.orange)
+                GPUControlProblemLabel(text: String(format: clock.outOfRangeFormat, range.lowerBound, range.upperBound),
+                                       isProblem: true)
             }
             if let note = refusal {
                 VStack(alignment: .leading, spacing: 2) {
-                    Label(note.sentence, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                    GPUControlProblemLabel(text: note.sentence, isProblem: true)
                     if let kext = note.kextText {
                         Text(kext)
                             .font(.caption)
@@ -123,26 +121,31 @@ struct GPUControlClockSection: View {
     /// "Layout": "horizontally adjacent views may need to stack vertically":
     /// the field and the stepper go under the slider when the row does not
     /// fit on one line.
+    /// VoiceOver's names for the row's three controls.
+    static func accessibilityNames(_ clock: GPUControlClockStrings) -> (slider: String, field: String, stepper: String) {
+        (clock.section, clock.fieldLabel, String(format: clock.stepperFormat, GPUControlClockLogic.step))
+    }
+
     private func clockRow(range: ClosedRange<Int>, top: Int) -> some View {
+        let names = Self.accessibilityNames(clock)
         let slider = GPUControlTickSlider(value: draft, range: range,
                                           ticks: GPUControlClockLogic.tickCount(stockGfxMaxMHz: top),
-                                          label: clock.section,
+                                          label: names.slider,
                                           onChange: { draft = GPUControlClockLogic.snapped($0, stockGfxMaxMHz: top) },
                                           onRelease: { send(draft, top: top) })
-        let stepperLabel = String(format: clock.stepperFormat, GPUControlClockLogic.step)
         let entry = HStack(spacing: 8) {
-            TextField(clock.fieldLabel, text: $fieldText)
+            TextField(names.field, text: $fieldText)
                 .labelsHidden()
                 .multilineTextAlignment(.trailing)
                 .frame(width: 56)
                 .onSubmit { commitField(range: range, top: top) }
-                .accessibilityLabel(clock.fieldLabel)
-            Stepper(stepperLabel, value: Binding(get: { draft }, set: { value in
+                .accessibilityLabel(names.field)
+            Stepper(names.stepper, value: Binding(get: { draft }, set: { value in
                 draft = Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
                 send(draft, top: top)
             }), in: range, step: GPUControlClockLogic.step)
                 .labelsHidden()
-                .accessibilityLabel(stepperLabel)
+                .accessibilityLabel(names.stepper)
                 .accessibilityValue("\(draft) MHz")
             Text("MHz").foregroundStyle(.secondary)
         }

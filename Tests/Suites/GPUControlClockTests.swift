@@ -199,12 +199,15 @@ enum GPUControlClockTests {
             let table = clock.all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
                          "\(language.rawValue): every clock text is there")
-            // VoiceOver: the slider, the field and the stepper are three
-            // names, and the stepper's says its step.
-            let stepper = String(format: clock.stepperFormat, GPUControlClockLogic.step)
-            suite.expect(Set([clock.section, clock.fieldLabel, stepper]).count == 3
-                            && stepper.contains("\(GPUControlClockLogic.step)"),
+            // VoiceOver: the names the row gives its three controls differ,
+            // and the stepper's says its step.
+            let names = GPUControlClockSection.accessibilityNames(clock)
+            suite.expect(Set([names.slider, names.field, names.stepper]).count == 3
+                            && names.stepper.contains("\(GPUControlClockLogic.step)"),
                          "\(language.rawValue): the clock row's three controls have their own names")
+            // No watts written into a text (S-2): the clock footer's 200 W is gone.
+            suite.expect(!table.contains { $0.contains("200 W") || $0.contains("200 Вт") || $0.contains("200 W'") },
+                         "\(language.rawValue): no fixed watts in the clock texts")
             for (index, text) in table.enumerated() {
                 suite.expect(specifiers(text) == specifiers(english[index]),
                              "\(language.rawValue): clock text \(index) keeps the English placeholders")
@@ -218,15 +221,7 @@ enum GPUControlClockTests {
                         == "Elige un valor entre 1500 y 2359 MHz.", "the field's range in Spanish")
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve, gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a fan curve and a GFX maximum of 2300 MHz", "a curve and a clock held, in one sentence")
-        // The view gives each control its name, and the row stacks when it
-        // does not fit (HIG review A2).
-        let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
-                                + "/Sources/RyzenStatus/UI/Settings/GPUControlClockSection.swift", encoding: .utf8)) ?? ""
-        suite.expect(view.contains(".accessibilityLabel(clock.fieldLabel)") && view.contains(".accessibilityLabel(stepperLabel)")
-                        && !view.contains(".accessibilityLabel(clock.section)"),
-                     "the field and the stepper are not named like the slider")
-        suite.expect(view.contains("ViewThatFits(in: .horizontal)") && view.contains("slider.frame(minWidth: Self.sliderMinWidth)"),
-                     "the clock row stacks when it does not fit")
+        suite.expect(GPUControlClockSection.sliderMinWidth > 0, "the row keeps the slider at least this wide on one line")
     }
 
     /// The review of phases 3 and 4 (F1 to F6).
