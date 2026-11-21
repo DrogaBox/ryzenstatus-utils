@@ -6,7 +6,9 @@
 #   sudo install/undo.sh --yes ...       the same without the question
 #
 # It only removes what it finds installed, each part with its own tool:
-#   1. GPUSensors.kext from the EFI           install/sensors.sh uninstall
+#   1. GPUSensors.kext from the EFI, and gpucontrol and gpusensors from /usr/local/bin
+#                                             install/sensors.sh uninstall (when the kext is
+#                                             gone already: install/sensors.sh uninstall-tools)
 #   2. VCNVTLoader.kext from the EFI          install/loader.sh uninstall
 #   3. the encoding fix (service, and its kext from the EFI)   install/encoder.sh uninstall --efi
 #   4. the decoder plug-ins from the system volume (a new boot snapshot)   install/decoders.sh uninstall
@@ -68,18 +70,27 @@ encoder=no
   efi_has VCNEncodeFloor && encoder=yes
 decoders=no
 [[ -d /System/Library/Video/Plug-Ins/AV1VCNDecoder.bundle || -d /System/Library/Video/Plug-Ins/VP9VCNDecoder.bundle ]] && decoders=yes
+# gpucontrol and gpusensors in /usr/local/bin: only ours (signed with our identifiers) are
+# removed; another program under one of those names stays, and is named.
+gpu_tools_look
+tools=no
+(( ${#GPU_TOOLS_OURS} )) && tools=yes
 
 print -r -- "Found:"
 print -r -- "  GPU sensors kext   $sensors"
+print -r -- "  GPU commands       $tools${GPU_TOOLS_OURS:+ (${(j:, :)GPU_TOOLS_OURS})}"
 print -r -- "  loader kext        $loader"
 print -r -- "  encoding fix       $encoder"
 print -r -- "  decoder plug-ins   $decoders"
-[[ $sensors == no && $loader == no && $encoder == no && $decoders == no ]] && { print -r -- "Nothing to remove."; exit 0; }
+for f in $GPU_TOOLS_OTHER; do print -r -- "  (left alone: $f is not ours)"; done
+[[ $sensors == no && $tools == no && $loader == no && $encoder == no && $decoders == no ]] && { print -r -- "Nothing to remove."; exit 0; }
 
 efi_args=()
 [[ -n $EFI_ID ]] && efi_args=(--efi $EFI_ID)
 steps=()
-[[ $sensors != no ]] && steps+=("install/sensors.sh uninstall${efi_args:+ ${efi_args[*]}}")
+# sensors.sh uninstall takes the commands off too; without the kext only they are left
+if [[ $sensors != no ]]; then steps+=("install/sensors.sh uninstall${efi_args:+ ${efi_args[*]}}")
+elif [[ $tools == yes ]]; then steps+=("install/sensors.sh uninstall-tools"); fi
 [[ $loader != no ]] && steps+=("install/loader.sh uninstall${efi_args:+ ${efi_args[*]}}")
 if [[ $encoder == yes ]]; then
   # The partition for the encoding fix's kext: the one given, the one OpenCore started from,

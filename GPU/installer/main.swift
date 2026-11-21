@@ -12,7 +12,11 @@ struct CheckItem: Identifiable, Decodable {
 
 struct DecodersCheck: Decodable {
     let canInstall: Bool
-    let installed: String    // none | current | outdated
+    let installed: String    // none | current | outdated (what the running system has)
+    /// From the install record of this boot: these plug-ins are in the next boot's snapshot
+    /// ("install"), or ours are gone from it ("remove"), and the running system keeps what
+    /// it started with until the reboot. none | install | remove.
+    let pending: String?
     let overridable: Bool
     let repairable: Bool
     let validated: Bool
@@ -38,6 +42,8 @@ struct LoaderCheck: Decodable {
     let accepted: String
     let acceptedDetail: String
     let result: String
+    /// The right kext is on the EFI and the next boot starts it: nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -48,6 +54,9 @@ struct EncoderCheck: Decodable {
     let installed: String    // none | current | outdated
     let service: String
     let kext: String
+    /// The package's kext waits on an EFI (a mounted one, or from the install record of this
+    /// boot one that is not mounted now) and another one, or none, runs.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -57,6 +66,16 @@ struct SensorsCheck: Decodable {
     let version: String
     let running: String
     let result: String
+    /// gpucontrol and gpusensors in /usr/local/bin: current | missing | outdated | blocked.
+    let tools: String?
+    /// The kext needs nothing, only those commands: the row offers just them.
+    let toolsOnly: Bool?
+    /// At least one of them in /usr/local/bin is ours (signed with our identifier), so
+    /// Remove can take it even when the kext is gone.
+    let toolsInstalled: Bool?
+    /// This version is on the EFI and the next boot loads it (an older one, or none, runs
+    /// now): nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -77,6 +96,71 @@ struct PlanResult: Identifiable {
         exitCode == 0 && output.split(separator: "\n").contains { $0.hasPrefix("Nothing to install") }
     }
     var canInstall: Bool { exitCode == 0 && !nothingToDo }
+    /// The plan's only step copies gpucontrol and gpusensors: nothing to reboot for.
+    var onlyTools: Bool {
+        var steps: [Substring] = []
+        var inPlan = false
+        for line in output.split(separator: "\n") {
+            if line == "Plan:" { inPlan = true; continue }
+            if inPlan, line.hasPrefix("  "), !line.hasPrefix("  skip ") { steps.append(line) }
+        }
+        return steps.count == 1 && steps[0].hasPrefix("  copy gpucontrol and gpusensors")
+    }
+}
+
+/// Which optional parts the guided install offers ticked: the ones already installed in an
+/// older version than this app carries, and the GPU sensors when their kext is current but
+/// gpucontrol and gpusensors are missing from /usr/local/bin or older (toolsOnly). A part that
+/// is not installed stays unticked (it is optional), and one that is up to date has nothing
+/// to install.
+struct OptionalSuggestion: Equatable {
+    let encoder: Bool
+    let sensors: Bool
+
+    init(encoder: EncoderCheck?, sensors: SensorsCheck?) {
+        if let enc = encoder {
+            let kextOlder = Self.loadedVersion(enc.kext).map { Self.isOlder($0, than: enc.version) } ?? false
+            // A mounted EFI holds another build of the kext, or an old entry for it: the
+            // next boot loads that one (encoder.sh check offers the update, install.sh does it).
+            let efiOlder = enc.efis.contains { $0.kext == "outdated" || $0.entry == "old" }
+            // The package's kext is on a mounted EFI with its entry: an older one runs only
+            // until the next boot, so it is no reason to update.
+            let efiCurrent = enc.efis.contains { $0.kext == "current" && $0.entry == "yes" } || enc.pendingReboot == true
+            self.encoder = enc.installed == "outdated" || (kextOlder && !efiCurrent) || efiOlder
+        } else {
+            self.encoder = false
+        }
+        if let sns = sensors, sns.toolsOnly == true {
+            self.sensors = true
+        } else if let sns = sensors, sns.pendingReboot == true {
+            // this version is on the EFI already; the older one runs until the next boot
+            self.sensors = false
+        } else if let sns = sensors, let running = Self.loadedVersion(sns.running) {
+            self.sensors = Self.isOlder(running, than: sns.version)
+        } else {
+            self.sensors = false
+        }
+    }
+
+    /// "1.2.3" out of "loaded 1.2.3, active: ..." (the "running"/"kext" fields of the checks).
+    static func loadedVersion(_ line: String) -> String? {
+        guard line.hasPrefix("loaded ") else { return nil }
+        let rest = line.dropFirst("loaded ".count)
+        let version = rest.prefix { $0.isNumber || $0 == "." }
+        return version.isEmpty ? nil : String(version)
+    }
+
+    /// Dotted version numbers compared number by number ("0.7.2" < "0.8.0" < "0.10.0").
+    static func isOlder(_ a: String, than b: String) -> Bool {
+        let x = a.split(separator: ".").compactMap { Int($0) }
+        let y = b.split(separator: ".").compactMap { Int($0) }
+        guard !x.isEmpty, !y.isEmpty else { return false }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+            if l != r { return l < r }
+        }
+        return false
+    }
 }
 
 enum ConfirmAction: Identifiable {
@@ -88,7 +172,9 @@ enum ConfirmAction: Identifiable {
     case installEncoder
     case removeEncoder
     case installSensors
+    case installSensorsTools
     case removeSensors
+    case removeSensorsTools
     case removeAll
     case reboot
 
@@ -102,7 +188,9 @@ enum ConfirmAction: Identifiable {
         case .installEncoder: return "installEncoder"
         case .removeEncoder:  return "removeEncoder"
         case .installSensors: return "installSensors"
+        case .installSensorsTools: return "installSensorsTools"
         case .removeSensors:  return "removeSensors"
+        case .removeSensorsTools: return "removeSensorsTools"
         case .removeAll:      return "removeAll"
         case .reboot:         return "reboot"
         }
@@ -115,6 +203,15 @@ enum Phase: Equatable {
     case running(String)
     case done(String)
     case failed(String)
+    /// The administrator password prompt (or a restart) was cancelled: nothing changed,
+    /// and nothing failed.
+    case cancelled(String)
+}
+
+/// What a run with administrator privileges came to.
+enum PrivilegedResult {
+    case finished(ok: Bool, output: String)
+    case cancelled
 }
 
 // MARK: - Engine bridge
@@ -132,11 +229,32 @@ final class Engine: ObservableObject {
     @Published var lastActionTitle: String = ""
     @Published var needReboot = false
     @Published var planSheet: PlanResult? = nil
+    /// True when the parts came inside this app (Contents/Resources/GPU), as in the DMG.
+    /// Choosing a folder is then not offered: that is only for development builds.
+    @Published var rootInBundle = false
+    /// Set after every check that read all parts; the guided install takes it once.
+    @Published var suggestion: OptionalSuggestion? = nil
 
-    private static let rootDefaultsKey = "DrogaBoxGPURoot"
+    private static let rootDefaultsKey = "GPUToolsRoot"
+    /// The folder the DMG build puts the parts in, inside Contents/Resources.
+    static let bundledFolderName = "GPU"
 
     init() {
-        rootURL = Self.findRootNearBundle()
+        if let bundled = Self.bundledRoot() {
+            rootURL = bundled
+            rootInBundle = true
+        } else {
+            rootURL = Self.findRootNearBundle()
+        }
+    }
+
+    /// The parts inside this app: Contents/Resources/GPU, with install/ in it. Found from
+    /// the bundle itself, so it works from the mounted DMG, from Applications, or from a
+    /// translocated copy.
+    static func bundledRoot() -> URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let dir = resources.appendingPathComponent(bundledFolderName, isDirectory: true)
+        return isValidRoot(dir) ? dir : nil
     }
 
     static func isValidRoot(_ dir: URL) -> Bool {
@@ -165,8 +283,8 @@ final class Engine: ObservableObject {
 
     func chooseRootFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose the DrogaBoxGPU folder"
-        panel.message = "Select the folder that contains install/ (for example, the repository or release folder)."
+        panel.title = "Choose the GPU tools folder"
+        panel.message = "Select the folder that contains install/ (for example, the GPU folder of the repository)."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -183,7 +301,7 @@ final class Engine: ObservableObject {
 
     func recheck(preserveOutput: Bool = false) {
         guard let root = rootURL else {
-            phase = .failed("Select the DrogaBoxGPU folder to check this Mac.")
+            phase = .failed("Select the GPU tools folder to check this Mac.")
             return
         }
         phase = .checking
@@ -192,45 +310,27 @@ final class Engine: ObservableObject {
             lastActionTitle = ""
         }
         DispatchQueue.global().async {
-            let group = DispatchGroup()
-            var decOut = ""
-            var ldrOut = ""
-            var encOut = ""
-            var snsOut = ""
+            // One look at this Mac: check.sh runs each part's check once, prints the summary
+            // and writes each part's JSON answer, from that same look, into a folder of ours.
+            let fm = FileManager.default
+            let dir = fm.temporaryDirectory
+                .appendingPathComponent("gpu-check-\(UUID().uuidString)", isDirectory: true)
             var sumOut = ""
-
-            group.enter()
-            DispatchQueue.global().async {
-                decOut = self.runUser(root: root, script: "install/decoders.sh", args: ["check", "--json"])
-                group.leave()
+            var answers: [String: Data] = [:]
+            if (try? fm.createDirectory(at: dir, withIntermediateDirectories: false,
+                                        attributes: [.posixPermissions: 0o700])) != nil {
+                sumOut = self.runUser(root: root, script: "install/check.sh", args: ["--json-dir", dir.path])
+                for part in Self.checkParts {
+                    answers[part] = try? Data(contentsOf: dir.appendingPathComponent("\(part).json"))
+                }
+                try? fm.removeItem(at: dir)
             }
-            group.enter()
-            DispatchQueue.global().async {
-                ldrOut = self.runUser(root: root, script: "install/loader.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                encOut = self.runUser(root: root, script: "install/encoder.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                snsOut = self.runUser(root: root, script: "install/sensors.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                sumOut = self.runUser(root: root, script: "install/check.sh", args: [])
-                group.leave()
-            }
-            group.wait()
 
             let decoder = JSONDecoder()
-            let dec = decOut.data(using: .utf8).flatMap { try? decoder.decode(DecodersCheck.self, from: $0) }
-            let ldr = ldrOut.data(using: .utf8).flatMap { try? decoder.decode(LoaderCheck.self, from: $0) }
-            let enc = encOut.data(using: .utf8).flatMap { try? decoder.decode(EncoderCheck.self, from: $0) }
-            let sns = snsOut.data(using: .utf8).flatMap { try? decoder.decode(SensorsCheck.self, from: $0) }
+            let dec = answers["decoders"].flatMap { try? decoder.decode(DecodersCheck.self, from: $0) }
+            let ldr = answers["loader"].flatMap { try? decoder.decode(LoaderCheck.self, from: $0) }
+            let enc = answers["encoder"].flatMap { try? decoder.decode(EncoderCheck.self, from: $0) }
+            let sns = answers["sensors"].flatMap { try? decoder.decode(SensorsCheck.self, from: $0) }
             let (overall, left) = Self.parseCheckSummary(sumOut)
 
             DispatchQueue.main.async {
@@ -241,13 +341,19 @@ final class Engine: ObservableObject {
                 self.overallLine = overall
                 self.leftovers = left
                 if dec == nil || ldr == nil || enc == nil || sns == nil {
-                    self.phase = .failed("Could not read one or more check results from install/.")
-                } else if !preserveOutput {
-                    self.phase = .idle
+                    self.phase = .failed(self.rootInBundle
+                        ? "Could not read one or more check results."
+                        : "Could not read one or more check results from install/.")
+                } else {
+                    self.suggestion = OptionalSuggestion(encoder: enc, sensors: sns)
+                    if !preserveOutput { self.phase = .idle }
                 }
             }
         }
     }
+
+    /// The parts whose JSON answers check.sh --json-dir writes, as <part>.json.
+    static let checkParts = ["decoders", "loader", "encoder", "sensors"]
 
     private static func parseCheckSummary(_ output: String) -> (String, [String]) {
         var overall = ""
@@ -271,7 +377,7 @@ final class Engine: ObservableObject {
 
     func planInstall(withEncoder: Bool, withSensors: Bool) {
         guard let root = rootURL else {
-            phase = .failed("DrogaBoxGPU folder is not selected.")
+            phase = .failed("GPU tools folder is not selected.")
             return
         }
         phase = .running("Building install plan")
@@ -296,7 +402,7 @@ final class Engine: ObservableObject {
 
     func runAction(title: String, script: String, args: [String], setsReboot: Bool, doneMessage: String) {
         guard let root = rootURL else {
-            phase = .failed("DrogaBoxGPU folder is not selected.")
+            phase = .failed("GPU tools folder is not selected.")
             return
         }
         phase = .running(title)
@@ -307,24 +413,49 @@ final class Engine: ObservableObject {
         let inner = "/bin/zsh \(Self.shq(scriptPath))\(argStr.isEmpty ? "" : " " + argStr) 2>&1"
 
         DispatchQueue.global().async {
-            let (ok, output) = self.runPrivileged(inner)
+            let result = self.runPrivileged(inner)
             DispatchQueue.main.async {
-                self.lastOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                if ok {
-                    if setsReboot { self.needReboot = true }
-                    self.phase = .done(doneMessage)
-                } else {
-                    self.phase = .failed("\(title) failed.")
+                switch result {
+                case .cancelled:
+                    // The password prompt was cancelled: the script never ran.
+                    self.lastOutput = ""
+                    self.lastActionTitle = ""
+                    self.phase = .cancelled("\(title): cancelled. Nothing was changed.")
+                case .finished(let ok, let output):
+                    self.lastOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if ok {
+                        if setsReboot { self.needReboot = true }
+                        self.phase = .done(doneMessage)
+                    } else {
+                        self.phase = .failed("\(title) failed.")
+                    }
+                    self.recheck(preserveOutput: true)
                 }
-                self.recheck(preserveOutput: true)
             }
         }
     }
 
+    /// Restarts through System Events. When that does not happen the window says why,
+    /// instead of nothing: no permission to control System Events (Automation), or another
+    /// app or the person cancelled it.
     func reboot() {
-        let s = NSAppleScript(source: "tell application \"System Events\" to restart")
         var e: NSDictionary?
-        s?.executeAndReturnError(&e)
+        guard let s = NSAppleScript(source: "tell application \"System Events\" to restart") else {
+            phase = .failed("Could not restart this Mac. Restart it from the Apple menu.")
+            return
+        }
+        s.executeAndReturnError(&e)
+        guard let e else { return }
+        let number = (e[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+        let message = (e[NSAppleScript.errorMessage] as? String) ?? "no reason given"
+        switch number {
+        case -128:
+            phase = .cancelled("The restart was cancelled. Restart from the Apple menu when you are ready.")
+        case -1743:
+            phase = .failed("RyzenStatus GPU is not allowed to control System Events, so it could not restart this Mac. Restart it from the Apple menu, or allow it in System Settings > Privacy & Security > Automation.")
+        default:
+            phase = .failed("Could not restart this Mac (\(message)). Restart it from the Apple menu.")
+        }
     }
 
     private func runUser(root: URL, script: String, args: [String]) -> String {
@@ -354,16 +485,20 @@ final class Engine: ObservableObject {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
-    private func runPrivileged(_ inner: String) -> (Bool, String) {
+    private func runPrivileged(_ inner: String) -> PrivilegedResult {
         let wrapped = "\(inner); rc=$?; printf '\\n__DROGABOX_EXIT=%d\\n' \"$rc\"; exit 0"
         let src = "do shell script \"\(Self.asq(wrapped))\" with administrator privileges"
         let s = NSAppleScript(source: src)
         var err: NSDictionary?
         let r = s?.executeAndReturnError(&err)
         if let err = err {
+            // -128 is "User canceled": the password prompt was dismissed and nothing ran.
+            if (err[NSAppleScript.errorNumber] as? NSNumber)?.intValue == -128 {
+                return .cancelled
+            }
             let m = (err[NSAppleScript.errorMessage] as? String)
-                ?? "Authorization failed or the action was cancelled."
-            return (false, m)
+                ?? "Authorization failed."
+            return .finished(ok: false, output: m)
         }
         let raw = (r?.stringValue ?? "")
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -381,7 +516,7 @@ final class Engine: ObservableObject {
             }
         }
         let cleaned = lines.joined(separator: "\n")
-        return (exitCode == 0, cleaned)
+        return .finished(ok: exitCode == 0, output: cleaned)
     }
 }
 
@@ -400,6 +535,17 @@ struct StatusDot: View {
         Image(systemName: name)
             .foregroundStyle(color)
             .font(.system(size: 15, weight: .semibold))
+            // The row it belongs to says the status in words (statusWord).
+            .accessibilityHidden(true)
+    }
+
+    /// The status as VoiceOver reads it, in place of the symbol.
+    static func statusWord(_ status: String) -> String {
+        switch status {
+        case "ok":   return "OK"
+        case "warn": return "Warning"
+        default:     return "Problem"
+        }
     }
 }
 
@@ -418,6 +564,9 @@ struct CheckRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(c.label): \(StatusDot.statusWord(c.status))")
+        .accessibilityValue(c.detail)
     }
 }
 
@@ -437,17 +586,30 @@ struct ComponentSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 12)
-                StatusDot(status: badgeStatus)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
-                    Text(subtitle)
-                        .font(.system(size: 11))
+                HStack(spacing: 10) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .frame(width: 12)
+                    StatusDot(status: badgeStatus)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.system(size: 13, weight: .semibold))
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                // One element for VoiceOver: the part, its status in words, and whether
+                // its checks are shown; activating it shows or hides them, like a click.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title), \(StatusDot.statusWord(badgeStatus)). \(subtitle)")
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
@@ -497,6 +659,9 @@ struct ContentView: View {
     @State private var expanded: Set<ComponentID> = [.decoders]
     @State private var withEncoder = false
     @State private var withSensors = false
+    /// The first complete check ticks the optional parts that are installed in an older
+    /// version (OptionalSuggestion); after that the boxes are the user's.
+    @State private var suggestionTaken = false
 
     var busy: Bool {
         switch engine.phase {
@@ -527,15 +692,22 @@ struct ContentView: View {
             footer
             credit
         }
-        .frame(width: 600, height: 740)
+        // A minimum, not a fixed size: the window can grow when the text does.
+        .frame(minWidth: 600, idealWidth: 600, minHeight: 740, idealHeight: 740)
         .onAppear {
             if engine.rootURL != nil {
                 engine.recheck()
             }
         }
+        .onReceive(engine.$suggestion) { suggestion in
+            guard let suggestion, !suggestionTaken else { return }
+            suggestionTaken = true
+            withEncoder = suggestion.encoder
+            withSensors = suggestion.sensors
+        }
         .alert(item: $confirm) { action in alert(for: action) }
         .sheet(item: $engine.planSheet) { plan in
-            PlanSheetView(plan: plan) {
+            PlanSheetView(plan: plan, bundled: engine.rootInBundle) {
                 engine.planSheet = nil
             } onInstall: {
                 engine.planSheet = nil
@@ -546,8 +718,8 @@ struct ContentView: View {
                     title: "Install what this Mac needs",
                     script: "install/install.sh",
                     args: flags,
-                    setsReboot: true,
-                    doneMessage: "Installed. Reboot to apply."
+                    setsReboot: !plan.onlyTools,
+                    doneMessage: plan.onlyTools ? "Installed. No reboot needed." : "Installed. Reboot to apply."
                 )
             }
         }
@@ -559,9 +731,9 @@ struct ContentView: View {
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
-            Text("DrogaBoxGPU folder not found")
+            Text("GPU tools folder not found")
                 .font(.system(size: 15, weight: .semibold))
-            Text("Choose the DrogaBoxGPU folder (the one that contains install/) so the app can run checks and installers.")
+            Text("Choose the GPU tools folder (the one that contains install/) so the app can run checks and installers.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -594,6 +766,8 @@ struct ContentView: View {
                         ProgressView().controlSize(.small)
                         Text("Checking this Mac…").foregroundStyle(.secondary)
                     }
+                    // Read as one: "Checking this Mac…", not a wordless "busy".
+                    .accessibilityElement(children: .combine)
                     .padding(.vertical, 12)
                 } else {
                     quickInstallCard
@@ -635,8 +809,10 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 Toggle("Encoding fix", isOn: $withEncoder)
                     .toggleStyle(.checkbox)
+                    .help("Full-speed HEVC/H.264 in the GPU's video engine")
                 Toggle("GPU sensors", isOn: $withSensors)
                     .toggleStyle(.checkbox)
+                    .help("Temperatures, clocks and fan speed in RyzenStatus")
             }
             .font(.system(size: 12))
             .disabled(busy)
@@ -651,15 +827,22 @@ struct ContentView: View {
 
     @ViewBuilder var decodersSection: some View {
         if let dec = engine.decoders {
+            let pendingInstall = dec.pending == "install"
+            let pendingRemove = dec.pending == "remove"
+            // What the next boot has: plug-ins removed in this boot count as none.
+            let installed = pendingRemove ? "none" : dec.installed
             let status: String = {
+                if pendingInstall { return "ok" }
                 if dec.repairable { return "warn" }
-                if dec.installed == "current" { return "ok" }
+                if installed == "current" { return "ok" }
                 if dec.canInstall { return dec.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
                 return dec.overridable ? "warn" : "fail"
             }()
             let subtitle: String = {
+                if pendingInstall { return "Installed — loads at the next reboot" }
+                if pendingRemove { return "Removed — finishes at the next reboot" }
                 if dec.repairable { return "Apple's system video plug-ins need repair" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed and up to date"
                 case "outdated": return "Outdated version installed — click Update"
                 default:
@@ -669,16 +852,18 @@ struct ContentView: View {
                 }
             }()
             let installTitle: String = {
+                if pendingInstall { return "Installed" }
                 if dec.repairable { return "Repair" }
                 if dec.overridable && !dec.canInstall { return "Install anyway" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed"
                 case "outdated": return "Update"
                 default:         return "Install"
                 }
             }()
-            let installTint: Color = (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
-            let installDisabled = busy || (!dec.repairable && (dec.installed == "current" || (!dec.canInstall && !dec.overridable)))
+            let installTint: Color = !pendingInstall && (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
+            let installDisabled = busy || pendingInstall
+                || (!dec.repairable && (installed == "current" || (!dec.canInstall && !dec.overridable)))
 
             ComponentSection(
                 title: "Decoder plug-ins (AV1 + VP9)",
@@ -688,7 +873,7 @@ struct ContentView: View {
                 installTitle: installTitle,
                 installTint: installTint,
                 installDisabled: installDisabled,
-                removeDisabled: busy || dec.installed == "none",
+                removeDisabled: busy || (!pendingInstall && installed == "none"),
                 onInstall: {
                     if dec.repairable {
                         confirm = .repairDecoders
@@ -708,8 +893,10 @@ struct ContentView: View {
             let needed = ldr.checks.first(where: { $0.id == "loader-need" })?.detail.hasPrefix("yes:") ?? true
             let onEfi = ldr.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = ldr.running.hasPrefix("loaded")
-            // The EFI copy is this build's and it runs: nothing to update.
-            let upToDate = ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it starts at the next boot: nothing
+            // to update.
+            let upToDate = (ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:"))
+                || ldr.pendingReboot == true
             let status: String = {
                 if !needed { return "ok" }
                 if ldr.result.hasPrefix("working:") || ldr.result.hasPrefix("installed") { return "ok" }
@@ -728,7 +915,7 @@ struct ContentView: View {
                 installTitle: upToDate ? "Installed" : (onEfi ? "Update" : "Install"),
                 installTint: .accentColor,
                 installDisabled: busy || !ldr.canInstall || upToDate,
-                removeDisabled: busy || (!onEfi && !loaded),
+                removeDisabled: busy || (!onEfi && !loaded && ldr.pendingReboot != true),
                 onInstall: { confirm = .installLoader },
                 onRemove: { confirm = .removeLoader }
             ) {
@@ -740,7 +927,7 @@ struct ContentView: View {
     @ViewBuilder var encoderSection: some View {
         if let enc = engine.encoder {
             let onEfi = enc.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
-            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi
+            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi || enc.pendingReboot == true
             let status: String = {
                 if enc.installed == "current" && enc.service == "running" { return "ok" }
                 if enc.canInstall { return enc.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
@@ -770,7 +957,20 @@ struct ContentView: View {
         if let sns = engine.sensors {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
-            let upToDate = sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it loads at the next boot: nothing
+            // to update.
+            let upToDate = (sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:"))
+                || sns.pendingReboot == true
+            // The kext needs nothing; gpucontrol and gpusensors in /usr/local/bin do.
+            let toolsOnly = sns.toolsOnly == true
+            // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
+            // takes just those.
+            let kextThere = onEfi || loaded || sns.pendingReboot == true
+            let toolsInstalled = sns.toolsInstalled == true
+            let installTitle: String = {
+                if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
+                return upToDate ? "Installed" : (onEfi ? "Update" : "Install")
+            }()
             let status: String = {
                 if sns.result.hasPrefix("working:") || sns.result.hasPrefix("installed") { return "ok" }
                 return sns.canInstall ? "warn" : "fail"
@@ -781,12 +981,12 @@ struct ContentView: View {
                 subtitle: "Optional — " + sns.result,
                 badgeStatus: status,
                 isExpanded: binding(for: .sensors),
-                installTitle: upToDate ? "Installed" : (onEfi ? "Update" : "Install"),
+                installTitle: installTitle,
                 installTint: .accentColor,
-                installDisabled: busy || !sns.canInstall || upToDate,
-                removeDisabled: busy || (!onEfi && !loaded),
-                onInstall: { confirm = .installSensors },
-                onRemove: { confirm = .removeSensors }
+                installDisabled: busy || (!toolsOnly && (!sns.canInstall || upToDate)),
+                removeDisabled: busy || (!kextThere && !toolsInstalled),
+                onInstall: { confirm = toolsOnly ? .installSensorsTools : .installSensors },
+                onRemove: { confirm = kextThere ? .removeSensors : .removeSensorsTools }
             ) {
                 checkRows(sns.checks)
             }
@@ -816,7 +1016,7 @@ struct ContentView: View {
                     .foregroundStyle(.white)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("DrogaBoxGPU Installer").font(.system(size: 18, weight: .bold))
+                Text("RyzenStatus GPU").font(.system(size: 18, weight: .bold))
                 Text("AMD RX 6000 decoders, encoding fix & GPU sensors")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -825,7 +1025,9 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            if engine.rootURL != nil {
+            // A folder is chosen only in a development build; the app from the DMG carries
+            // its parts inside.
+            if engine.rootURL != nil && !engine.rootInBundle {
                 Button("Change Folder…") {
                     engine.chooseRootFolder()
                 }
@@ -855,6 +1057,8 @@ struct ContentView: View {
             banner(icon: "checkmark.seal.fill", color: .green, text: msg)
         case .failed(let msg):
             banner(icon: "exclamationmark.triangle.fill", color: .red, text: msg)
+        case .cancelled(let msg):
+            banner(icon: "info.circle", color: .secondary, text: msg)
         default:
             EmptyView()
         }
@@ -877,7 +1081,7 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Clear") {
+                Button("Clear log") {
                     engine.lastOutput = ""
                     engine.lastActionTitle = ""
                 }
@@ -948,7 +1152,7 @@ struct ContentView: View {
                 return Alert(
                     title: Text("This macOS build is NOT validated"),
                     message: Text("The GPU driver of this macOS version has not been checked. Installing can freeze the screen or hang the GPU while playing video."),
-                    primaryButton: .destructive(Text("I understand, install")) {
+                    primaryButton: .default(Text("I understand, install")) {
                         engine.runAction(
                             title: "Install decoder plug-ins (--force)",
                             script: "install/decoders.sh",
@@ -1080,6 +1284,21 @@ struct ContentView: View {
                 },
                 secondaryButton: .cancel()
             )
+        case .installSensorsTools:
+            return Alert(
+                title: Text("Install gpucontrol and gpusensors?"),
+                message: Text("Copies gpucontrol and gpusensors to /usr/local/bin, owned by root, where RyzenStatus looks for them. The GPU sensors kext stays as it is. No reboot needed."),
+                primaryButton: .default(Text("Install")) {
+                    engine.runAction(
+                        title: "Install GPU tools",
+                        script: "install/sensors.sh",
+                        args: ["tools"],
+                        setsReboot: false,
+                        doneMessage: "gpucontrol and gpusensors are in /usr/local/bin."
+                    )
+                },
+                secondaryButton: .cancel()
+            )
         case .removeSensors:
             return Alert(
                 title: Text("Remove GPUSensors.kext?"),
@@ -1095,10 +1314,25 @@ struct ContentView: View {
                 },
                 secondaryButton: .cancel()
             )
+        case .removeSensorsTools:
+            return Alert(
+                title: Text("Remove gpucontrol and gpusensors?"),
+                message: Text("GPUSensors.kext is not loaded and is not on a mounted EFI partition, so only these two commands are removed from /usr/local/bin. A program with one of those names that is not ours is left alone. No reboot needed."),
+                primaryButton: .destructive(Text("Remove")) {
+                    engine.runAction(
+                        title: "Remove GPU tools",
+                        script: "install/sensors.sh",
+                        args: ["uninstall-tools"],
+                        setsReboot: false,
+                        doneMessage: "gpucontrol and gpusensors are removed from /usr/local/bin."
+                    )
+                },
+                secondaryButton: .cancel()
+            )
         case .removeAll:
             return Alert(
-                title: Text("Remove all DrogaBoxGPU components?"),
-                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, and the decoder plug-ins. Reboot afterwards."),
+                title: Text("Remove all GPU components?"),
+                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, the decoder plug-ins, and gpucontrol and gpusensors from /usr/local/bin. Reboot afterwards. Kept: the log /var/log/vcnencodefix.log and the config.plist backups next to config.plist on the EFI."),
                 primaryButton: .destructive(Text("Remove all")) {
                     engine.runAction(
                         title: "Remove all components",
@@ -1125,6 +1359,8 @@ struct ContentView: View {
 
 struct PlanSheetView: View {
     let plan: PlanResult
+    /// The parts are inside the app: no script names in the words around the plan.
+    let bundled: Bool
     let onCancel: () -> Void
     let onInstall: () -> Void
 
@@ -1140,8 +1376,10 @@ struct PlanSheetView: View {
                     Text(plan.nothingToDo
                          ? "Everything you asked for is already in place on this Mac."
                          : plan.exitCode == 0
-                         ? "Review what install/install.sh will do, then click Install."
-                         : "install/install.sh plan exited with status \(plan.exitCode). Nothing can be installed.")
+                         ? (bundled ? "Review what will be installed, then click Install."
+                                    : "Review what install/install.sh will do, then click Install.")
+                         : (bundled ? "Nothing can be installed yet. The reasons are below."
+                                    : "install/install.sh plan exited with status \(plan.exitCode). Nothing can be installed."))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -1181,10 +1419,27 @@ struct PlanSheetView: View {
 // MARK: - App
 
 @main
-struct DrogaBoxGPUInstallerApp: App {
+enum Launcher {
+    static func main() {
+        // --print-payload: says where the parts inside this app are and exits, without
+        // opening a window (Tools/make-dmg.sh runs it on the app it puts in the DMG).
+        // Exit status 0 when Contents/Resources/GPU holds them, 1 when it does not.
+        if CommandLine.arguments.dropFirst().contains("--print-payload") {
+            if let root = Engine.bundledRoot() {
+                print("bundled: \(root.path)")
+                exit(0)
+            }
+            print("no parts inside this app: Contents/Resources/\(Engine.bundledFolderName)/install is missing")
+            exit(1)
+        }
+        RyzenStatusGPUApp.main()
+    }
+}
+
+struct RyzenStatusGPUApp: App {
     init() { NSApplication.shared.setActivationPolicy(.regular) }
     var body: some Scene {
-        Window("DrogaBoxGPU Installer", id: "main") {
+        Window("RyzenStatus GPU", id: "main") {
             ContentView()
         }
         .windowResizability(.contentSize)

@@ -80,6 +80,14 @@ while (( $# )); do
 done
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ $FORCE -eq 1 && $CMD != install && $CMD != repair ]] && usage_error "--force goes with install and repair only"
+# VCNVT_FAKE_RECORDS and VCNVT_FAKE_LIVE are for testing only (tests/loader_install.sh), and
+# like VCNVT_FAKE_BUILD they count for check only, which changes nothing: a folder of the
+# user's for the install record (common.zsh), and a folder that stands in for the plug-ins
+# of the running system.
+if [[ $CMD == check ]]; then
+  RECORD_FAKE_OK=1
+  [[ -n ${VCNVT_FAKE_LIVE:-} ]] && LIVE=${VCNVT_FAKE_LIVE:A}
+fi
 
 # ---- small helpers -------------------------------------------------------------------------
 plx() { /usr/bin/plutil -extract "$1" raw -o - "$BUILDS_JSON" 2>/dev/null; }
@@ -156,7 +164,7 @@ probe_accepts() {
 authroot_disabled() { csrutil authenticated-root status 2>/dev/null | grep -qi disabled; }
 
 # every graphics card of this Mac, one name per line
-gpu_models() { /usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{print $2}'; }
+gpu_models() { displays_report | awk -F': ' '/Chipset Model/{print $2}'; }
 
 # The device mounted at a folder; prints nothing when nothing is mounted there.
 mounted_device() { # folder
@@ -235,7 +243,7 @@ preflight() {
   elif amfipass_on; then
     add_check loading "$label" ok "AMFIPass is running"
   elif [[ ! -x $PROBE ]]; then
-    add_check loading "$label" fail "cannot ask macOS: $PROBE is missing. Run decode/build.sh, which builds it."
+    add_check loading "$label" fail "cannot ask macOS: $(pick "$PROBE is missing. Run decode/build.sh, which builds it." "$APP_DAMAGED.")"
     HARD_FAIL=1; HARD_OTHER=1
   else
     local kind=$(sig_kind "$BUNDLES/$AV1") lstate=$(loader_prop Status) oc
@@ -253,20 +261,20 @@ preflight() {
         if oc=$(pending_loader); then
           add_check loading "$label" ok "after a reboot from that EFI: the VCNVTLoader.kext in $oc lists them"
         elif [[ $kind == signed ]]; then
-          add_check loading "$label" fail "no: they are signed by '$(sig_authority "$BUNDLES/$AV1")', which this Mac does not trust. Load the kext that trusts that CA, or install the unsigned build from decode/build with VCNVTLoader or AMFIPass."
+          add_check loading "$label" fail "no: they are signed by '$(sig_authority "$BUNDLES/$AV1")', which this Mac does not trust. $(pick "Load the kext that trusts that CA, or install the unsigned build from decode/build with VCNVTLoader or AMFIPass." "Load the kext that trusts that CA, or use the loader kext (Loader kext > Install in this window) or AMFIPass.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ $lstate == active ]]; then
-          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build."
+          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. $(pick "Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build." "Update the loader first, in this window: Loader kext > Update. Then install the decoders here; if they still wait, reboot and open this window again. Install what this Mac needs does both in one go.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ -n $lstate ]]; then
           add_check loading "$label" fail "no: VCNVTLoader is loaded but not working ($lstate)."
           HARD_FAIL=1; HARD_OTHER=1
         else
-          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first."
+          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). $(pick "Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first." "Install the loader first, in this window: Loader kext > Install (it accepts only these plug-ins), or load AMFIPass. Then install the decoders here; if they still wait, reboot and open this window again. Install what this Mac needs does both in one go.")"
           HARD_FAIL=1; HARD_OTHER=1
         fi ;;
       *)
-        add_check loading "$label" fail "could not ask macOS (${PROBE_WHY:-lvprobe failed}). Build again with decode/build.sh."
+        add_check loading "$label" fail "could not ask macOS (${PROBE_WHY:-lvprobe failed}). $(pick "Build again with decode/build.sh." "$APP_DAMAGED.")"
         HARD_FAIL=1; HARD_OTHER=1 ;;
     esac
   fi
@@ -298,9 +306,9 @@ preflight() {
 
   # 7. bundles present
   if [[ -d "$BUNDLES/$AV1" && -d "$BUNDLES/$VP9" ]]; then
-    add_check bundles "Decoder bundles present" ok "AV1 + VP9 bundles found in $BUNDLES"
+    add_check bundles "Decoder bundles present" ok "AV1 + VP9 bundles found $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
   else
-    add_check bundles "Decoder bundles present" fail "missing $AV1 or $VP9 in $BUNDLES; build them with decode/build.sh"
+    add_check bundles "Decoder bundles present" fail "missing $AV1 or $VP9 $(pick "in $BUNDLES; build them with decode/build.sh" "inside RyzenStatus GPU.app; $APP_DAMAGED")"
     HARD_FAIL=1; HARD_OTHER=1
   fi
 
@@ -335,10 +343,66 @@ installed_state() {
   fi
 }
 
+# ---- the record of an install --------------------------------------------------------------
+# install, repair and uninstall change the system volume and bless a new boot snapshot, but
+# the running system keeps the plug-ins it started with until the reboot, and those are what
+# installed_state looks at. So that a check in the same boot does not offer again the update
+# just installed, or call installed the plug-ins just removed, each of them writes a record
+# once the snapshot is blessed (record_put in common.zsh):
+#   /Library/Application Support/RyzenStatus GPU/installed-decoders.txt
+# owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
+# the change ran in), action (install or remove), av1 and vp9 (the cdhashes put in place;
+# empty for remove). A check takes it only from the same boot session, and an install only
+# when both cdhashes are the plug-ins to install now.
+DEC_RECORD=decoders
+dec_record_write() { # install | remove
+  local av1="" vp9=""
+  if [[ $1 == install ]]; then
+    av1=$(cdhash_of "$MNT/$PLUGDIR/$AV1")
+    vp9=$(cdhash_of "$MNT/$PLUGDIR/$VP9")
+  fi
+  # a record that cannot be written must not leave an older one saying something else
+  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" || record_drop $DEC_RECORD
+  return 0
+}
+
+# Sets INSTALLED (installed_state) and PENDING, what the record of this boot says waits for
+# the reboot: install (these plug-ins are in the next boot's snapshot, other ones or none
+# run now), remove (they are gone from it, and still run now) or none. Looked at once.
+INSTALLED=""
+PENDING=none
+look_installed() {
+  [[ -n $INSTALLED ]] && return 0
+  INSTALLED=$(installed_state)
+  PENDING=none
+  local file line boot="" action="" av1="" vp9=""
+  local now=$(boot_session)
+  file=$(record_file $DEC_RECORD) || return 0
+  while IFS= read -r line; do
+    case $line in
+      boot=*)   boot=${line#*=} ;;
+      action=*) action=${line#*=} ;;
+      av1=*)    av1=${line#*=} ;;
+      vp9=*)    vp9=${line#*=} ;;
+    esac
+  done < "$file"
+  [[ -n $now && $boot == $now ]] || return 0
+  case $action in
+    install)
+      [[ $INSTALLED != current && -n $av1 && -n $vp9 &&
+         $av1 == "$(cdhash_of "$BUNDLES/$AV1")" && $vp9 == "$(cdhash_of "$BUNDLES/$VP9")" ]] && PENDING=install ;;
+    remove)
+      [[ $INSTALLED != none ]] && PENDING=remove ;;
+  esac
+  return 0
+}
+
 emit_check_json() {
   local can=$1 ovr=$2
+  look_installed
   print -rn -- "{\"canInstall\":$([[ $can -eq 1 ]] && echo true || echo false),"
-  print -rn -- "\"installed\":\"$(installed_state)\","
+  print -rn -- "\"installed\":\"$INSTALLED\","
+  print -rn -- "\"pending\":\"$PENDING\","
   print -rn -- "\"overridable\":$([[ $ovr -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"repairable\":$([[ $REPAIRABLE -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"validated\":$([[ $SOFT_FAIL -eq 0 ]] && echo true || echo false),"
@@ -353,25 +417,42 @@ emit_check_json() {
 }
 
 emit_check_text() {
+  look_installed
   print -r -- "macOS $(macos_product) ($(macos_build))"
   print -r -- "Plug-ins to install: $BUNDLES"
   print -rl -- "${CHECK_LINES[@]}"
-  case $(installed_state) in
-    none)     print -r -- "Installed now: no decoder plug-in in $LIVE" ;;
-    current)  print -r -- "Installed now: both plug-ins, the same code as the ones to install" ;;
-    outdated) print -r -- "Installed now: one or both plug-ins, not the same code as the ones to install" ;;
-    unknown)  print -r -- "Installed now: decoder plug-ins in $LIVE; none built in $BUNDLES to compare them with" ;;
+  local now=""
+  case $INSTALLED in
+    none)     now="no decoder plug-in in $LIVE" ;;
+    current)  now="both plug-ins, the same code as the ones to install" ;;
+    outdated) now="one or both plug-ins, not the same code as the ones to install" ;;
+    unknown)  now="decoder plug-ins in $LIVE; none built in $BUNDLES to compare them with" ;;
   esac
-  if [[ $CAN_INSTALL -eq 1 ]]; then
-    case $(installed_state) in
-      current)  print -r -- "Result: installed. Both plug-ins are the ones in $BUNDLES; nothing to do." ;;
-      outdated) print -r -- "Result: ready to update. 'sudo install/decoders.sh install' puts the plug-ins in $BUNDLES in place; it needs a reboot afterwards." ;;
-      *)        print -r -- "Result: ready. 'sudo install/decoders.sh install' can run; it needs a reboot afterwards." ;;
+  case $PENDING in
+    install) now+="; the new ones are in the next boot's snapshot and load at the next boot" ;;
+    remove)  now+="; they are gone from the next boot's snapshot and stop at the next boot" ;;
+  esac
+  print -r -- "Installed now: $now"
+  # An install or removal of this boot waits only for the reboot. Its result starts with
+  # "installed" or "removed", which check.sh reads.
+  if [[ $PENDING == install ]]; then
+    # A repair restores Apple's plug-ins in that snapshot, so the damage the checks see in
+    # the running system is gone at the next boot too; any other FAIL is not.
+    local still=""
+    (( CAN_INSTALL || REPAIRABLE )) || still=" The checks marked FAIL still stand."
+    print -r -- "Result: installed; they load at the next reboot.$still"
+  elif [[ $PENDING == remove ]]; then
+    print -r -- "Result: removed; the running system keeps them until the next reboot."
+  elif [[ $CAN_INSTALL -eq 1 ]]; then
+    case $INSTALLED in
+      current)  print -r -- "Result: installed. Both plug-ins are the ones $(pick "in $BUNDLES" "in this app"); nothing to do." ;;
+      outdated) print -r -- "Result: ready to update. $(pick "'sudo install/decoders.sh install' puts the plug-ins in $BUNDLES in place" "Decoder plug-ins > Update in this window puts these in place"); it needs a reboot afterwards." ;;
+      *)        print -r -- "Result: ready. $(pick "'sudo install/decoders.sh install' can run" "Decoder plug-ins > Install in this window can run"); it needs a reboot afterwards." ;;
     esac
   elif [[ $BLOCK_OVERRIDABLE -eq 1 ]]; then
-    print -r -- "Result: blocked, this macOS build is not validated. --force overrides it, at the risk of a GPU hang."
+    print -r -- "Result: blocked, this macOS build is not validated. $(pick "--force overrides it" "Decoder plug-ins > Install anyway overrides it"), at the risk of a GPU hang."
   elif [[ $REPAIRABLE -eq 1 ]]; then
-    print -r -- "Result: blocked, Apple's plug-ins are damaged. 'sudo install/decoders.sh repair' can restore them."
+    print -r -- "Result: blocked, Apple's plug-ins are damaged. $(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") can restore them."
   else
     print -r -- "Result: blocked. Fix the checks marked FAIL first."
   fi
@@ -485,7 +566,7 @@ safe_rm_bundle() { # path
 # cdhashes would be empty, and the comparison after the copy would pass on anything.
 source_ok() { # src-bundle-dir
   [[ -f "$1/Contents/Info.plist" && -n "$(cdhash_of "$1")" ]] \
-    || { echo "$1 is incomplete or not signed; build it again with decode/build.sh" >&2; return 1; }
+    || { echo "$1 is incomplete or not signed; $(pick "build it again with decode/build.sh" "$APP_DAMAGED")" >&2; return 1; }
 }
 
 install_one() { # src-bundle-dir  name
@@ -563,6 +644,7 @@ do_repair() {
     echo "driver build not validated: decoders NOT installed (Apple plug-ins repaired only)"
   fi
   bless_snapshot || exit 1
+  [[ $with_decoders -eq 1 ]] && dec_record_write install
   echo "OK: reboot to apply"
 }
 
@@ -585,10 +667,11 @@ do_install() {
   # sanity: the target must be the real system Plug-Ins folder, with Apple's plug-ins in it
   local -a mntbundles=( "$MNT/$PLUGDIR"/*.bundle(N) )
   [[ -d "$MNT/$PLUGDIR" && ! -e "$MNT/$PLUGDIR/Contents" && -d "$MNT/$PLUGDIR/AppleGVAHEVCDecoder.bundle" && ${#mntbundles} -ge 5 ]] \
-    || { echo "system Plug-Ins folder looks damaged; not touching it ('sudo install/decoders.sh repair' restores Apple's plug-ins)" >&2; exit 4; }
+    || { echo "system Plug-Ins folder looks damaged; not touching it ($(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") restores Apple's plug-ins)" >&2; exit 4; }
   install_one "$BUNDLES/$AV1" "$AV1" || exit 1
   install_one "$BUNDLES/$VP9" "$VP9" || exit 1
   bless_snapshot || exit 1
+  dec_record_write install
   echo "OK: reboot to load the decoders"
 }
 
@@ -604,6 +687,7 @@ do_uninstall() {
   safe_rm_bundle "$MNT/$PLUGDIR/$VP9" || exit 1
   echo "removed both bundles"
   bless_snapshot || exit 1
+  dec_record_write remove
   echo "OK: reboot to apply"
 }
 
@@ -612,10 +696,16 @@ trap unmount_system EXIT
 case "$CMD" in
   check)
     preflight
+    # check.sh's one look: the JSON answer too, from the same checks
+    JSON_TO=$(check_json_to)
+    [[ $JSON -eq 0 && -n $JSON_TO ]] && emit_check_json $CAN_INSTALL $BLOCK_OVERRIDABLE > "$JSON_TO"
     emit_check
     # the JSON form always ends with 0, as the front end expects; the text form tells a
-    # script whether install would go ahead
+    # script whether install would go ahead, or (an install of this boot that a repair
+    # made, see emit_check_text) whether it is done
+    look_installed
     if [[ $JSON -eq 1 || $CAN_INSTALL -eq 1 ]]; then exit 0
+    elif [[ $PENDING == install && $REPAIRABLE -eq 1 ]]; then exit 0
     elif [[ $BLOCK_OVERRIDABLE -eq 1 ]]; then exit 3
     else exit 2
     fi ;;

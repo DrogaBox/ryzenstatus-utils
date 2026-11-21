@@ -8,16 +8,6 @@ import Foundation
 /// machine it was made on or point back at the private repositories, and its licenses
 /// travel with it.
 enum GPUFolderTests {
-    /// Installer files that still use the old app name. Renaming the installer is its own
-    /// step; drop each file from here when that step renames it.
-    static let pendingInstallerRename: Set<String> = [
-        "installer/Info.plist",
-        "installer/README.md",
-        "installer/build.sh",
-        "installer/main.swift",
-        "tools/package.sh",
-    ]
-
     static func run(_ suite: TestSuite) {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("GPU")
@@ -29,6 +19,34 @@ enum GPUFolderTests {
         }
         privateText(suite, files)
         licenses(suite, files)
+        outsideText(suite)
+    }
+
+    /// The same names outside GPU/: Tests/ and Sources/ came from the same
+    /// private tree. Not the home folder rule: the app's tests hold made-up
+    /// home folder paths on purpose.
+    private static func outsideText(_ suite: TestSuite) {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let rules: [(String, Bool)] = [
+            ("DrogaBoxGPU(?!Sensors|ControlClient)", false),
+            ("github\\.com/DrogaBox/DrogaBox", true),
+        ]
+        var hits: [String] = []
+        var count = 0
+        for top in ["Tests", "Sources"] {
+            for (path, text) in files(under: root.appendingPathComponent(top)) {
+                count += 1
+                // This file holds the patterns themselves.
+                if top == "Tests" && path == "Suites/GPUFolderTests.swift" { continue }
+                for (rule, caseInsensitive) in rules {
+                    hits += lines(matching: rule, in: text, caseInsensitive: caseInsensitive).map { "\(top)/\(path):\($0)" }
+                }
+                // The private trust kext's name, found by its digest (see below).
+                hits += linesNamingPrivateKext(in: text).map { "\(top)/\(path):\($0)" }
+            }
+        }
+        suite.expect(count > 100, "Tests/ and Sources/ are walked from the repo root (\(count) files)")
+        suite.expect(hits.isEmpty, "no file in Tests/ or Sources/ names the private repositories: \(hits)")
     }
 
     /// Every file of GPU/ that git would track, by path relative to GPU/, as text. Build
@@ -108,20 +126,12 @@ enum GPUFolderTests {
                 .map { "\(path):\($0)" }
             // The kext registers its IOKit classes under these two names, and the app,
             // gpusensors and gpucontrol look them up by them: they stay.
-            let named = lines(matching: "DrogaBoxGPU(?!Sensors|ControlClient)", in: text)
-            if !pendingInstallerRename.contains(path) {
-                oldName += named.map { "\(path):\($0)" }
-            }
+            oldName += lines(matching: "DrogaBoxGPU(?!Sensors|ControlClient)", in: text).map { "\(path):\($0)" }
         }
         suite.expect(homePaths.isEmpty, "no file in GPU/ holds a home folder path: \(homePaths)")
         suite.expect(trust.isEmpty, "no file in GPU/ names the private trust kext: \(trust)")
         suite.expect(repoLinks.isEmpty, "no file in GPU/ links a private repository: \(repoLinks)")
         suite.expect(oldName.isEmpty, "no file in GPU/ names the private repository: \(oldName)")
-        for path in pendingInstallerRename.sorted() {
-            let text = files[path] ?? ""
-            suite.expect(!lines(matching: "DrogaBoxGPU(?!Sensors|ControlClient)", in: text).isEmpty,
-                         "GPU/\(path) still needs its exception; drop it from the list once renamed")
-        }
     }
 
     private static func licenses(_ suite: TestSuite, _ files: [String: String]) {

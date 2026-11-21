@@ -1969,8 +1969,15 @@ const char* GPUControl::writeText() {
     text = "armed: the Mac is between sleep and wake";
   else if (gOwner.isReverting() || gPendingRevert != 0)
     text = "armed: going back to the start-up limit";
-  else if (gOwner.owner() != 0 && gOwner.isChanged())
+  // One program holds one thing at a time, the power limit or an OD8 change,
+  // and Owner marks both as changed: say which one it is.
+  else if (gOwner.owner() != 0 && gOwner.isChanged() && gHeldW != 0)
     text = "armed: a program holds a lower limit";
+  else if (gOwner.owner() != 0 && gOwner.isChanged() && gOd8Dirty)
+    text = "armed: a program holds a fan or clock change (OD8Write); the "
+           "power limit is the start-up one";
+  else if (gOwner.owner() != 0 && gOwner.isChanged())
+    text = "armed: a program is setting a limit";
   else
     text = "armed: nothing held";
   IOLockUnlock(gStateLock);

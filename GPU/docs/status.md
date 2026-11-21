@@ -87,7 +87,7 @@ encoding.
 | Option | State |
 |---|---|
 | With AMFIPass or `amfi_get_out_of_my_way=0x1` (the bundles are ad-hoc signed) | what the public installer has always done |
-| Bundles signed with an own certificate authority and a kext that makes macOS trust it, AMFIPass loaded | runs on the owner's machine, Tahoe 26.7.3 |
+| Bundles signed with an own certificate authority and a kext that makes macOS trust it, AMFIPass loaded | runs on the test machine, Tahoe 26.7.3 |
 | The same with AMFIPass switched off (`-amfipassoff`) | one boot, 2026-11-18, RX 6800 XT, Tahoe 26.7.3: Safari played VP9 at 3840x2160 and a WebKit test page played AV1 at 3840x2160, both in hardware inside `com.apple.WebKit.GPU`; the encoding fix service kept running; no signature refusal in the log |
 | Ad-hoc bundles with nothing else (no AMFIPass, no kext) | refused, as expected: an ad-hoc library is not mapped into a program with library validation (measured with a test program, same boot) |
 | Ad-hoc bundles with the loader kext 1.1.0, no AMFIPass | one boot, 2026-11-18, RX 6800 XT, Tahoe 26.7.3: kext active; Safari played YouTube AV1 and VP9 at 3840x2160 in hardware (plug-ins mapped in `VTDecoderXPCService` and `com.apple.WebKit.GPU`); the kext's counter went up with each load; an unlisted ad-hoc library stayed refused. Entry check passes on the AMFI of 14.8.9, 15.8.2, 26.7.2 and 26.7.3. Not tried on Sequoia |

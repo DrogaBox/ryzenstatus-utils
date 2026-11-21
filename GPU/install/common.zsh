@@ -22,6 +22,17 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
   return 0
 }
 
+# ---- where the messages send you -------------------------------------------------------------
+# The RyzenStatus GPU app carries these files in RyzenStatus GPU.app/Contents/Resources/GPU.
+# Run from there, a message names the app's buttons instead of commands, build steps and
+# folders of a checkout, which the person in front of the app does not have.
+IN_APP=0
+[[ ${${(%):-%x}:A:h:h} == *.app/Contents/Resources/GPU ]] && IN_APP=1
+# pick <text for a checkout> <text for the app>
+pick() { if (( IN_APP )); then print -rn -- "$2"; else print -rn -- "$1"; fi; }
+# What a missing or broken file of the package means in the app.
+APP_DAMAGED="this copy of RyzenStatus GPU is incomplete; open it again from a new download of the RyzenStatus DMG"
+
 # ---- checks ----------------------------------------------------------------------------------
 # A string as the inside of a JSON string: backslash, quote and the control characters
 # that may appear in names and paths escaped; any other control character dropped.
@@ -44,6 +55,52 @@ add_check() { # id label status detail   (status: ok|warn|fail)
   [[ $3 == warn ]] && mark="warn"
   [[ $3 == fail ]] && mark="FAIL"
   CHECK_LINES+=("  $mark  $2: $4")
+}
+
+# One look per refresh: check.sh runs every part's text check once, and with
+# GPU_CHECK_JSON_TO set a part's text check also writes its 'check --json' answer to that
+# file, from the same look (the RyzenStatus GPU app reads both). Not as root: a root run
+# writes nothing it was not asked for on its command line.
+check_json_to() {
+  [[ -n ${GPU_CHECK_JSON_TO:-} && $EUID -ne 0 ]] && print -r -- "$GPU_CHECK_JSON_TO"
+}
+# system_profiler's display report, which the decoders', the encoding fix's and the GPU
+# sensors' checks read. check.sh runs them one after the other and lets them share one
+# answer through GPU_CHECK_CACHE, a folder of its own; a part run alone asks macOS itself.
+displays_report() {
+  local c=${GPU_CHECK_CACHE:-}
+  if [[ -n $c && -d $c && ! -L $c && -O $c && $EUID -ne 0 ]]; then
+    if [[ ! -f $c/displays ]]; then
+      /usr/sbin/system_profiler SPDisplaysDataType > "$c/displays.$$" 2>/dev/null
+      /bin/mv -f "$c/displays.$$" "$c/displays"
+    fi
+    cat "$c/displays"
+    return 0
+  fi
+  /usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null
+}
+
+# ---- the GPU sensors' commands in /usr/local/bin ---------------------------------------------
+# sensors.sh copies gpucontrol and gpusensors there. Ours are signed with the identifiers
+# com.droga.gpucontrol and com.droga.gpusensors; anything else under those names is someone
+# else's program and is never replaced or removed.
+GPU_TOOL_DIR=/usr/local/bin
+GPU_TOOL_NAMES=(gpucontrol gpusensors)
+gpu_tool_id() { /usr/bin/codesign -dv "$1" 2>&1 | sed -n 's/^Identifier=//p' | head -1; }
+# Sets GPU_TOOLS_OURS to the paths there that are ours and GPU_TOOLS_OTHER to the ones that
+# are not.
+GPU_TOOLS_OURS=()
+GPU_TOOLS_OTHER=()
+gpu_tools_look() {
+  local n f
+  GPU_TOOLS_OURS=()
+  GPU_TOOLS_OTHER=()
+  for n in $GPU_TOOL_NAMES; do
+    f=$GPU_TOOL_DIR/$n
+    [[ -e $f || -L $f ]] || continue
+    if [[ -f $f && ! -L $f && $(gpu_tool_id "$f") == com.droga.$n ]]; then GPU_TOOLS_OURS+=($f)
+    else GPU_TOOLS_OTHER+=($f); fi
+  done
 }
 
 # Prints the comment block at the top of a script, which is its help text.
@@ -139,12 +196,14 @@ OPEN_ID=""
 # the caller's exit trap unmounts it if the run is stopped.
 EFI_FOUND=""
 EFI_FIND_WHY=""
+EFI_FIND_KIND=""   # when it cannot tell: ambiguous | foreign | none (for efi_choice_help)
 EFI_CANDIDATES=()
 efi_find_opencore() {
   local id rc mp
   local -a unmountable=()
   EFI_FOUND=""
   EFI_FIND_WHY=""
+  EFI_FIND_KIND=""
   EFI_CANDIDATES=()
   id=$(efi_booted)
   rc=$?
@@ -155,6 +214,7 @@ efi_find_opencore() {
   fi
   if (( rc == 2 )); then
     EFI_FIND_WHY="OpenCore says this Mac started from partition $id, which is not one of the EFI partitions diskutil lists, so no other one is taken in its place"
+    EFI_FIND_KIND=foreign
     return 1
   fi
   for id in $(efi_ids); do
@@ -173,12 +233,14 @@ efi_find_opencore() {
   case ${#EFI_CANDIDATES} in
     1) EFI_FOUND=$EFI_CANDIDATES[1]
        EFI_FIND_WHY="the only EFI partition that holds OpenCore" ;;
-    0) if (( ${#unmountable} )); then
+    0) EFI_FIND_KIND=none
+       if (( ${#unmountable} )); then
          EFI_FIND_WHY="${(j:, :)unmountable} could not be mounted to look inside (this needs sudo)"
        else
          EFI_FIND_WHY="no EFI partition with OpenCore was found; if yours is on a disk that is not connected, connect it"
        fi ;;
-    *) EFI_FIND_WHY="more than one EFI partition holds OpenCore (${(j:, :)EFI_CANDIDATES}) and OpenCore does not say which one this Mac started from" ;;
+    *) EFI_FIND_KIND=ambiguous
+       EFI_FIND_WHY="more than one EFI partition holds OpenCore (${(j:, :)EFI_CANDIDATES}) and OpenCore does not say which one this Mac started from" ;;
   esac
   # A partition macOS cannot mount (a damaged or foreign FAT, another system's EFI) is not
   # where a kext can be put anyway; say it was skipped, so a wrong pick can be corrected
@@ -188,6 +250,91 @@ efi_find_opencore() {
   fi
   [[ -n $EFI_FOUND ]] && return 0
   return 1
+}
+
+# The same choice for a plan or a check, before any password: no root, and nothing is
+# mounted, so a partition that is not mounted is not looked into. Sets EFI_GUESS to one of
+#   found      EFI_GUESS_ID is the partition an install takes: the one OpenCore says it
+#              started from, or the only one that holds OpenCore when every EFI partition is
+#              mounted
+#   open       the install decides, after the password: it mounts the partitions that are
+#              not mounted now to look inside
+#   ambiguous  more than one mounted EFI partition holds OpenCore and OpenCore does not say
+#              which one this Mac started from
+#   foreign    OpenCore says it started from a partition that is not an EFI partition
+#   none       every EFI partition is mounted and none holds OpenCore
+# With ambiguous, foreign and none an install that is not told the partition stops before
+# its first change. EFI_GUESS_WHY says why, and EFI_CANDIDATES lists the mounted partitions
+# that hold OpenCore.
+EFI_GUESS=""
+EFI_GUESS_ID=""
+EFI_GUESS_WHY=""
+efi_guess() {
+  local id rc mp
+  local -a unmounted=()
+  EFI_GUESS=""
+  EFI_GUESS_ID=""
+  EFI_GUESS_WHY=""
+  EFI_CANDIDATES=()
+  id=$(efi_booted)
+  rc=$?
+  if (( rc == 0 )); then
+    EFI_GUESS=found
+    EFI_GUESS_ID=$id
+    EFI_GUESS_WHY="OpenCore says this Mac started from it"
+    return 0
+  fi
+  if (( rc == 2 )); then
+    EFI_GUESS=foreign
+    EFI_GUESS_WHY="OpenCore says this Mac started from partition $id, which is not one of the EFI partitions diskutil lists, so no other one is taken in its place"
+    return 0
+  fi
+  for id in $(efi_ids); do
+    if [[ $(efi_field $id Mounted) != Yes ]]; then
+      unmounted+=($id)
+      continue
+    fi
+    mp=$(efi_field $id 'Mount Point')
+    [[ -n $mp && -f $mp/EFI/OC/config.plist && -f $mp/EFI/OC/OpenCore.efi ]] && EFI_CANDIDATES+=($id)
+  done
+  if (( ${#EFI_CANDIDATES} > 1 )); then
+    EFI_GUESS=ambiguous
+    EFI_GUESS_WHY="more than one EFI partition holds OpenCore (${(j:, :)EFI_CANDIDATES}) and OpenCore does not say which one this Mac started from"
+  elif (( ${#unmounted} )); then
+    EFI_GUESS=open
+    if (( ${#EFI_CANDIDATES} )); then
+      EFI_GUESS_WHY="$EFI_CANDIDATES[1] holds OpenCore; ${(j:, :)unmounted} is not mounted, so it is looked into only when installing, after the password. If it holds OpenCore too, the install stops before changing anything and says what to do"
+    else
+      EFI_GUESS_WHY="no mounted EFI partition holds OpenCore; the install mounts ${(j:, :)unmounted} to look, after the password. If none or more than one holds OpenCore, it stops before changing anything and says what to do"
+    fi
+  elif (( ${#EFI_CANDIDATES} )); then
+    EFI_GUESS=found
+    EFI_GUESS_ID=$EFI_CANDIDATES[1]
+    EFI_GUESS_WHY="the only EFI partition that holds OpenCore"
+  else
+    EFI_GUESS=none
+    EFI_GUESS_WHY="no EFI partition with OpenCore was found; if yours is on a disk that is not connected, connect it"
+  fi
+  return 0
+}
+# What to do when the EFI partition cannot be chosen without being told, in plain words:
+# for a plan, a check, or an install that stopped. kind is EFI_GUESS or EFI_FIND_KIND;
+# the second argument is the script and its options, for the Terminal line ("install.sh
+# --with-sensors", "loader.sh install").
+efi_choice_help() { # kind "script [options]"
+  local kind=$1 script=${2%% *} opts=""
+  [[ $2 == *" "* ]] && opts=" ${2#* }"
+  local term
+  if (( IN_APP )); then
+    term="name the partition in Terminal: sudo '$SELF_DIR/$script'$opts --efi diskNsM (diskutil list shows them)"
+  else
+    term="name it: sudo install/$script$opts --efi diskNsM (diskutil list shows them)"
+  fi
+  case $kind in
+    ambiguous) print -rn -- "What to do: if the other OpenCore is on a USB stick or a disk you can disconnect, disconnect it and try again. Or set bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData and reboot: this Mac then says which EFI partition it started from, and the choice is made for you. Or $term." ;;
+    foreign)   print -rn -- "What to do: start this Mac from the EFI partition the kexts should go on and try again, or $term." ;;
+    *)         print -rn -- "What to do: connect the disk that holds your OpenCore EFI and try again, or $term." ;;
+  esac
 }
 
 # Mounts an EFI partition if needed and checks that it holds OpenCore. Sets EFI_MP to its
@@ -224,3 +371,132 @@ efi_close() { # id
     MOUNTED_BY_US=0
   fi
 }
+
+# ---- install records -------------------------------------------------------------------------
+# A check runs without root, so it cannot look into an EFI partition that is not mounted, and
+# an install unmounts the partition it mounted. So that the check after an install still
+# knows what the next boot loads, an install that put a kext on an EFI partition writes a
+# record of it, and its uninstall deletes it:
+#   /Library/Application Support/RyzenStatus GPU/installed-<kext name>.txt
+# owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
+# the install ran in), partition (the partition's UUID; disk numbers change between boots),
+# name (the volume name), id (diskNsM then), bundle, version and hash (SHA-256 of what
+# identifies the build). A check takes a record only from the same boot session, only for the
+# build it carries, and only for a partition it cannot look into now: a mounted EFI shows what
+# is really there, and that wins.
+#
+# The decoders keep a record of their own there, installed-decoders.txt, in its own format
+# (decoders.sh says which); record_put, record_file and record_drop are what it shares.
+#
+# VCNVT_FAKE_RECORDS is for testing only (tests/loader_install.sh): a folder of the user's
+# for the records instead, honoured only together with --efi-folder, or with RECORD_FAKE_OK
+# set to 1 by the script itself (decoders.sh does that for check only, which changes
+# nothing). The record of an install to a folder (partition "folder:<path>") is written
+# only then.
+RECORD_DIR="/Library/Application Support/RyzenStatus GPU"
+# set here, so a value from the environment never counts
+RECORD_FAKE_OK=0
+record_test() { [[ -n ${VCNVT_FAKE_RECORDS:-} && ( -n ${EFI_DIR:-} || $RECORD_FAKE_OK == 1 ) ]]; }
+record_dir() { if record_test; then print -r -- ${VCNVT_FAKE_RECORDS:A}; else print -r -- $RECORD_DIR; fi; }
+# The owner the folder and the records must have: root, or the user in test mode.
+record_owner() { if record_test; then /usr/bin/id -un; else print -r -- root; fi; }
+boot_session() { /usr/sbin/sysctl -n kern.bootsessionuuid 2>/dev/null; }
+# True when the path is a real folder (no link), owned by the expected owner and writable by
+# it only.
+record_safe_dir() { # path
+  [[ -d $1 && ! -L $1 ]] || return 1
+  [[ $(/usr/bin/stat -f '%Su' "$1") == $(record_owner) ]] || return 1
+  (( (8#$(/usr/bin/stat -f '%Lp' "$1") & 8#022) == 0 ))
+}
+# Writes the record installed-<name>.txt, one line per argument after the name; prints why
+# when it cannot (the install itself is done then). The new file takes the place of the old
+# one in one move, so a reader never sees half of it.
+record_put() { # record-name line...
+  local dir=$(record_dir) owner=$(record_owner)
+  local file=$dir/installed-$1.txt
+  local tmp=$dir/.installed-$1.txt.$$
+  shift
+  if ! record_test; then
+    (( EUID == 0 )) || { print -r -- "note: no install record written (not root)"; return 1; }
+    record_safe_dir "${dir:h}" || { print -r -- "note: no install record written: ${dir:h} is not a folder of root's"; return 1; }
+    if [[ ! -e $dir && ! -L $dir ]]; then
+      /bin/mkdir -m 755 "$dir" || { print -r -- "note: no install record written: cannot make $dir"; return 1; }
+    fi
+  fi
+  record_safe_dir "$dir" || { print -r -- "note: no install record written: $dir is not a folder of $owner's, writable by it only"; return 1; }
+  if [[ -L $file || ( -e $file && ! -f $file ) ]]; then
+    print -r -- "note: no install record written: $file is not a plain file"
+    return 1
+  fi
+  /bin/rm -f -- "$tmp"
+  ( umask 022
+    print -rl -- "$@" > "$tmp" ) &&
+    /bin/chmod 644 "$tmp" && /bin/mv -f -- "$tmp" "$file" ||
+    { /bin/rm -f -- "$tmp"; print -r -- "note: the install record could not be written to $file"; return 1; }
+}
+# Writes the record of a kext install; prints why when it cannot (the install itself is done
+# then).
+record_write() { # kext-name partition name id bundle version hash
+  record_put "$1" "boot=$(boot_session)" "partition=$2" "name=$3" "id=$4" "bundle=$5" "version=$6" "hash=$7"
+}
+# Deletes installed-<name>.txt, if it is a plain file in a safe folder, whoever asks.
+record_drop() { # record-name
+  local dir=$(record_dir)
+  local file=$dir/installed-$1.txt
+  record_safe_dir "$dir" || return 0
+  [[ -f $file && ! -L $file ]] && /bin/rm -f -- "$file"
+  return 0
+}
+# Deletes the record, if there is one (a plain file in a safe folder only).
+record_remove() { # kext-name
+  if ! record_test; then
+    # an uninstall from a folder leaves the record of a partition alone
+    [[ -z ${EFI_DIR:-} ]] && (( EUID == 0 )) || return 0
+  fi
+  record_drop "$1"
+}
+# Prints the path of installed-<name>.txt when it is safe to believe: a plain file of the
+# expected owner, writable by it only, in a safe folder. Returns 1 otherwise.
+record_file() { # record-name
+  local dir=$(record_dir)
+  local file=$dir/installed-$1.txt
+  record_safe_dir "$dir" || return 1
+  [[ -f $file && ! -L $file && $(/usr/bin/stat -f '%Su' "$file") == $(record_owner) ]] || return 1
+  (( (8#$(/usr/bin/stat -f '%Lp' "$file") & 8#022) == 0 )) || return 1
+  print -r -- "$file"
+}
+# Reads the record of this boot session. Sets REC_PARTITION, REC_NAME, REC_ID, REC_BUNDLE,
+# REC_VERSION and REC_HASH and returns 0; returns 1 when there is none, it is not safe to
+# believe (a link, another owner, writable by others) or it is from another boot.
+REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
+record_read() { # kext-name
+  REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
+  local file
+  file=$(record_file "$1") || return 1
+  local line boot=""
+  while IFS= read -r line; do
+    case $line in
+      boot=*)      boot=${line#*=} ;;
+      partition=*) REC_PARTITION=${line#*=} ;;
+      name=*)      REC_NAME=${line#*=} ;;
+      id=*)        REC_ID=${line#*=} ;;
+      bundle=*)    REC_BUNDLE=${line#*=} ;;
+      version=*)   REC_VERSION=${line#*=} ;;
+      hash=*)      REC_HASH=${line#*=} ;;
+    esac
+  done < "$file"
+  local now=$(boot_session)
+  [[ -n $now && $boot == $now && -n $REC_PARTITION && -n $REC_HASH ]]
+}
+# The partition a record names, as it is called now: its diskNsM when it is attached (found
+# by UUID), the record's own id for a folder (test mode). Returns 1 when it is not attached.
+record_where() {
+  if [[ $REC_PARTITION == folder:* ]]; then print -r -- $REC_ID; return 0; fi
+  local id
+  for id in $(efi_ids); do
+    [[ ${(U)$(efi_field $id 'Disk / Partition UUID')} == ${(U)REC_PARTITION} ]] && { print -r -- $id; return 0; }
+  done
+  return 1
+}
+# The SHA-256 of the given files together.
+files_hash() { /bin/cat -- "$@" 2>/dev/null | /usr/bin/shasum -a 256 | awk '{print $1}'; }

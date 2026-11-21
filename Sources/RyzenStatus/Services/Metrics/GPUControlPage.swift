@@ -254,8 +254,8 @@ enum GPUControlPageLogic {
 /// Whether the app may offer "Open writing…": it runs
 /// `/usr/local/bin/gpucontrol arm` as root through the administrator dialog,
 /// so nothing a program of this user can replace may be on that path. The
-/// checks are the ones DrogaBoxGPU's installer makes before it puts the tool
-/// there (`install/sensors.sh`, `tool_file_unsound` and `tool_dir_unsafe`):
+/// checks are the ones the RyzenStatus GPU installer makes before it puts the
+/// tool there (`GPU/install/sensors.sh`, `tool_file_unsound` and `tool_dir_unsafe`):
 /// a plain file, root's, no group or other write, no access control list;
 /// every folder above it root's, no group or other write, no access control
 /// list; the signature intact with the identifier `com.droga.gpucontrol`.
@@ -269,9 +269,6 @@ enum GPUControlArmTool {
     /// input from anyone.
     static let armCommand = installedPath + " arm"
     static let identifier = "com.droga.gpucontrol"
-
-    /// Where DrogaBoxGPU's build leaves the tool, under the home folder.
-    static let buildRelativePath = "Desktop/DrogaBoxGPU/sensors/build/gpucontrol"
 
     struct FileInfo: Equatable, Sendable {
         enum Kind: Equatable, Sendable { case regular, directory, symlink, other }
@@ -320,26 +317,20 @@ enum GPUControlArmTool {
         /// owner to run. `path`: the file or folder that failed.
         case unsafe(UnsafeReason, path: String)
 
-        /// Not installed. `buildPath`: the tool where DrogaBoxGPU builds it,
-        /// when it is there.
-        case missing(buildPath: String?)
+        /// Not installed in /usr/local/bin, the only place the app looks:
+        /// the RyzenStatus GPU installer puts it there.
+        case missing
 
         /// The command the page shows to copy.
         var command: String {
             switch self {
-            case .button, .unsafe: return "sudo " + GPUControlArmTool.armCommand
-            case .missing(let buildPath?): return "sudo " + buildPath + " arm"
-            case .missing(nil): return "sudo " + GPUControlArmTool.armCommand
+            case .button, .unsafe, .missing: return "sudo " + GPUControlArmTool.armCommand
             }
         }
     }
 
-    static func availability(lookup: Lookup = lstatInfo, signature: Signature = signingIdentifier,
-                             home: String) -> Availability {
-        guard lookup(installedPath) != nil else {
-            let build = (home as NSString).appendingPathComponent(buildRelativePath)
-            return .missing(buildPath: lookup(build)?.kind == .regular ? build : nil)
-        }
+    static func availability(lookup: Lookup = lstatInfo, signature: Signature = signingIdentifier) -> Availability {
+        guard lookup(installedPath) != nil else { return .missing }
         if let problem = problem(path: installedPath, lookup: lookup, signature: signature) {
             return .unsafe(problem.reason, path: problem.path)
         }

@@ -1,7 +1,7 @@
 # GPUSensors.kext property fixtures
 
 `ioreg-0.7.2-2026-11-20.plist`: the GPU control keys of `DrogaBoxGPUSensors`
-on the RX 6800 XT here, kext `REL-072-2026-11-19`, macOS 26.7.3, read with
+on a test RX 6800 XT, kext `REL-072-2026-11-19`, macOS 26.7.3, read with
 `ioreg -r -c DrogaBoxGPUSensors -l -w0 -a` on 2026-11-20 and cut to the keys
 the control reads (`VersionInfo`, `Control`, `Profile`, `Power`,
 `PowerWatch`, `Write`, `WriteState`, `OD8Write`, `OD8WriteState`, `OD8State`,
@@ -16,8 +16,9 @@ arrive signed (`PowerPercent.Min` = -6, `NotAllowed` = -212750), not as the
 ## curve-cases.jsonl
 
 100 OD8 states and what the kext's own `gpuctl::od8CheckWant` answers for
-each, from GPUSensors.kext's `control_logic.hpp` at 0.7.2 (DrogaBoxGPU commit
-e74ead6). The app's copy of the rules (`GPUControlCurveRules.swift`) must give
+each, from GPUSensors.kext's `control_logic.hpp` at GPUSensors 0.7.2
+(`GPU/sensors/kext/control_logic.hpp` in this repository holds the kext's
+source). The app's copy of the rules (`GPUControlCurveRules.swift`) must give
 the same answer for every line (`GPUControlFanTests`).
 
 Each line is `{"want": {...}, "muts": [...], "check": N}`:
@@ -38,12 +39,13 @@ The base state is the card's real OD8 table as `gpucontrol check` maps it
 Caps 212749); the same values as `ioreg-0.7.2-2026-11-20.plist`, which the
 test builds the state from.
 
-To regenerate after a kext change, from a folder of your own:
+To regenerate after a kext change, from the root of this repository:
 
 ```
-clang++ -std=c++17 -O0 -I <DrogaBoxGPU>/sensors/kext -o fixturegen <DrogaBoxGPU>/sensors/tests/curve_fixturegen.cpp
-./fixturegen > curve-cases.jsonl
+clang++ -std=c++17 -O0 -I GPU/sensors/kext -o /tmp/fixturegen GPU/sensors/tests/curve_fixturegen.cpp
+/tmp/fixturegen > Tests/Fixtures/GPUSensors/curve-cases.jsonl
 ```
 
-then copy the file here, add the new build's `VersionInfo` to
-`GPUControlCurveRules.checkedVersions`, and run `./build.sh --test`.
+and, if the file did not change, add the new version's digits to
+`GPUControlCurveRules.checkedReleases` ("080" for 0.8.0, whose source gives
+this same file), then run `./build.sh --test`.

@@ -102,10 +102,10 @@ preflight() {
 
   # 0. the package is there, and its files are the ones it was built with
   if [[ ! -x $TOOL || ! -f $PKG/install.sh ]]; then
-    add_check enc-bundle "Encoding fix package present" fail "no VCNEncodeFix package in $PKG; build it with encode/build.sh"
+    add_check enc-bundle "Encoding fix package present" fail "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")"
     CAN_INSTALL=0
   elif ! (cd "$PKG" && shasum -a 256 -c -s SHA256SUMS) >/dev/null 2>&1; then
-    add_check enc-bundle "Encoding fix package present" fail "the files in $PKG do not match their SHA256SUMS; build the package again with encode/build.sh"
+    add_check enc-bundle "Encoding fix package present" fail "$(pick "the files in $PKG do not match their SHA256SUMS; build the package again with encode/build.sh" "its files do not match their SHA256SUMS; $APP_DAMAGED")"
     CAN_INSTALL=0
   else
     add_check enc-bundle "Encoding fix package present" ok "VCNEncodeFix $(pkg_version)"
@@ -153,13 +153,13 @@ preflight() {
     if print -r -- "$st" | grep -q 'access  allowed'; then
       add_check enc-access "Access to the encoder process" ok "SIP Debugging Restrictions are off"
     elif print -r -- "$st" | grep -q 'access  REFUSED'; then
-      add_check enc-access "Access to the encoder process" warn "SIP Debugging Restrictions are on, so the service cannot patch the encoder: add 0x4 to csr-active-config in OpenCore and reboot (see encode/README.md, Requirements). The clock-floor kext works without it."
+      add_check enc-access "Access to the encoder process" warn "SIP Debugging Restrictions are on, so the service cannot patch the encoder: add 0x4 to csr-active-config in OpenCore and reboot$(pick " (see encode/README.md, Requirements)" ""). The clock-floor kext works without it."
     fi
   fi
 
   # 3. Navi 21 (the package's install.sh refuses anything else). Every card is looked at, as
   #    install.sh does: with integrated graphics the AMD card is not always the first one.
-  local -a gpus=( ${(f)"$(/usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
+  local -a gpus=( ${(f)"$(displays_report | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
   local g gpu=""
   for g in "${gpus[@]}"; do
     if print -rn -- "$g" | grep -qiE '\(0x73(a[0-9a-f]|bf)\)'; then gpu=$g; break; fi
@@ -232,9 +232,17 @@ kext_line() {
 # whether the partition holds OpenCore, the config entry and the kext.
 EFI_JSON=()   # one JSON object per partition
 EFI_LINES=()  # the same as text
+EFI_SEEN=()   # the UUIDs (upper case) of the partitions looked into
+EFI_SCANNED=0
+# The clock-floor kext in the package, and what identifies its build in the install record
+# (common.zsh): the SHA-256 of its program, the file the EFI rows compare.
+PKG_KEXT_BIN=$PKG/Kexts/VCNEncodeFloor.kext/Contents/MacOS/VCNEncodeFloor
 efi_scan() {
+  (( EFI_SCANNED )) && return 0
+  EFI_SCANNED=1
   EFI_JSON=()
   EFI_LINES=()
+  EFI_SEEN=()
   local id
   for id in $(/usr/sbin/diskutil list 2>/dev/null | awk '$2 == "EFI" {print $NF}'); do
     [[ $id =~ '^disk[0-9]+s[0-9]+$' ]] || continue
@@ -246,6 +254,7 @@ efi_scan() {
     local media=$(/usr/sbin/diskutil info "$whole" 2>/dev/null | awk -F': *' '/Device \/ Media Name:/{print $2; exit}')
     local oc=unknown entry=unknown kext=unknown
     if [[ $mounted == Yes && -n "$mp" ]]; then
+      EFI_SEEN+=("${(U)$(print -r -- "$info" | awk -F': *' '/Disk \/ Partition UUID:/{print $2; exit}')}")
       if [[ -f $mp/EFI/OC/config.plist ]]; then
         oc=yes
         entry=$(efi_entry "$mp/EFI/OC/config.plist")
@@ -267,13 +276,45 @@ efi_scan() {
       EFI_LINES+=("  $id  \"${name:-EFI}\" on ${media:-?}: not mounted, so not looked into")
     fi
   done
+  efi_state
+}
+
+# What the EFI rows and the kext that runs say together, for both forms of check. Sets
+# EFI_OLD (a mounted EFI holds another build or an old entry), EFI_BAD (an entry with other
+# settings), EFI_NEW (where the package's kext waits with its entry: a mounted EFI, or from
+# the install record of this boot a partition not mounted now), KX, KXV (the version that
+# runs) and PENDING_REBOOT (the package's kext is on EFI_NEW and another one, or none, runs:
+# the next boot loads it).
+EFI_OLD=0 EFI_BAD=0 EFI_NEW="" KX="" KXV="" PENDING_REBOOT=0
+efi_state() {
+  EFI_OLD=0 EFI_BAD=0 EFI_NEW="" PENDING_REBOOT=0
+  KX=$(kext_line)
+  KXV=${${KX#loaded }%%,*}
+  local row new_row=""
+  for row in "${EFI_JSON[@]}"; do
+    # a mounted EFI that holds the package's kext with its entry: the next boot loads that one
+    [[ -z $new_row && $row == *'"entry":"yes","kext":"current"'* ]] && new_row=${${row#*\"id\":\"}%%\"*}
+    [[ $row == *'"kext":"outdated"'* ]] && EFI_OLD=1
+    [[ $row == *'"entry":"old"'* ]] && EFI_OLD=1
+    [[ $row == *'"entry":"differs"'* ]] && EFI_BAD=1
+  done
+  EFI_NEW=$new_row
+  # none mounted shows it: the record of this boot's install, for a partition not looked into
+  if [[ -z $EFI_NEW && $EFI_OLD -eq 0 && -f $PKG_KEXT_BIN ]] && record_read VCNEncodeFloor &&
+     [[ $REC_BUNDLE == com.droga.VCNEncodeFloor && $REC_VERSION == "$(pkg_version)" &&
+        $REC_HASH == "$(files_hash "$PKG_KEXT_BIN")" ]] && (( ! ${EFI_SEEN[(Ie)${(U)REC_PARTITION}]} )); then
+    EFI_NEW=$(record_where) || EFI_NEW=""
+    [[ -n $EFI_NEW ]] && EFI_LINES+=("  $EFI_NEW  \"$REC_NAME\": not mounted; the package's kext was put there in this boot session (install record)")
+  fi
+  [[ -n $EFI_NEW && $EFI_OLD -eq 0 && ( $KX != loaded* || $KXV != "$(pkg_version)" ) ]] && PENDING_REBOOT=1
+  return 0
 }
 
 emit_check_json() {
   efi_scan
   print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"version\":\"$(jesc "$(pkg_version)")\",\"installed\":\"$(installed_state)\",\"service\":\"$(service_state)\","
-  print -rn -- "\"kext\":\"$(jesc "$(kext_line)")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":["
+  print -rn -- "\"kext\":\"$(jesc "$KX")\",\"pendingReboot\":$([[ $PENDING_REBOOT -eq 1 ]] && echo true || echo false),\"efis\":[${(j:,:)EFI_JSON}],\"checks\":["
   local first=1 c
   for c in "${CHECKS[@]}"; do
     [[ $first -eq 1 ]] || print -rn -- ","
@@ -295,33 +336,34 @@ emit_check_text() {
   print -r -- "Kext: $(kext_line)"
   print -r -- "EFI partitions:"
   if (( ${#EFI_LINES} )); then print -rl -- "${EFI_LINES[@]}"; else print -r -- "  none found"; fi
-  local svc=$(installed_state) run=$(service_state) kx=$(kext_line)
-  # from the JSON rows, which hold only the states (the text rows hold names too)
-  local efi_old=0 efi_bad=0 row
-  for row in "${EFI_JSON[@]}"; do
-    [[ $row == *'"kext":"outdated"'* ]] && efi_old=1
-    [[ $row == *'"entry":"old"'* ]] && efi_old=1
-    [[ $row == *'"entry":"differs"'* ]] && efi_bad=1
-  done
+  local svc=$(installed_state) run=$(service_state) kx=$KX
+  local efi_old=$EFI_OLD efi_bad=$EFI_BAD efi_new=$EFI_NEW
   # the kext that runs must be the package's version and active
   local kx_ok=0
   [[ $kx == "loaded $(pkg_version), active"* ]] && kx_ok=1
+  # another version of the kext runs, and the package's waits on EFI_NEW
+  local kx_next=0 kxv=$KXV
+  [[ $kx == loaded* && $PENDING_REBOOT -eq 1 ]] && kx_next=1
   if [[ $CAN_INSTALL -eq 1 && $svc == current && $run == running && $kx_ok -eq 1 && $efi_old -eq 0 && $efi_bad -eq 0 ]]; then
     print -r -- "Result: installed and working. The service and the kext are the ones in the package; nothing to do."
   elif [[ $CAN_INSTALL -eq 1 && $svc != none ]]; then
     local what=()
     [[ $svc == outdated ]] && what+=("the service")
     (( efi_old )) && what+=("the kext on the EFI")
-    [[ $kx == loaded* && $kx_ok -eq 0 && $efi_old -eq 0 ]] && what+=("the kext (${kx#loaded }; the package has $(pkg_version))")
+    [[ $kx == loaded* && $kx_ok -eq 0 && $efi_old -eq 0 && $kx_next -eq 0 ]] && what+=("the kext (${kx#loaded }; the package has $(pkg_version))")
     [[ $svc == current && $run != running ]] && what+=("the service, which is not running")
     (( efi_bad )) && print -r -- "Note: an EFI's config.plist lists the clock-floor kext with other settings; install refuses that EFI until the entry is fixed or removed by hand."
     if (( ${#what} )); then
-      print -r -- "Result: installed; an update is ready for ${(j: and :)what}: 'sudo install/encoder.sh install' (add --efi auto, or --efi diskNsM, for the kext)."
+      print -r -- "Result: installed; an update is ready for ${(j: and :)what}: $(pick "'sudo install/encoder.sh install' (add --efi auto, or --efi diskNsM, for the kext)" "Encoding fix > Update or Reinstall in this window")."
+    elif (( kx_next )); then
+      print -r -- "Result: installed. The kext on $efi_new is the package's ($(pkg_version)) and loads at the next boot; $kxv runs until then. Reboot from that EFI to start it."
+    elif [[ $efi_old -eq 0 && -n $efi_new && $kx != loaded* ]]; then
+      print -r -- "Result: installed. The kext is on $efi_new and loads at the next boot. Reboot from that EFI to start it."
     else
-      print -r -- "Result: installed. The kext is not loaded: 'sudo install/encoder.sh install --efi diskNsM' adds it, then reboot."
+      print -r -- "Result: installed. The kext is not loaded: $(pick "'sudo install/encoder.sh install --efi diskNsM'" "Encoding fix > Reinstall in this window") adds it, then reboot."
     fi
   elif [[ $CAN_INSTALL -eq 1 ]]; then
-    print -r -- "Result: ready. 'sudo install/encoder.sh install' can run (add --efi auto, or --efi diskNsM, for the kext)."
+    print -r -- "Result: ready. $(pick "'sudo install/encoder.sh install' can run (add --efi auto, or --efi diskNsM, for the kext)" "Encoding fix > Install in this window can run")."
   else
     print -r -- "Result: blocked. Fix the checks marked FAIL first."
   fi
@@ -345,9 +387,21 @@ resolve_efi() {
     EFI_ID=$EFI_FOUND
     echo "Using $EFI_ID: $EFI_FIND_WHY."
   else
-    echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY. Name it: sudo install/encoder.sh $CMD --efi diskNsM. Nothing was changed." >&2
+    echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY." >&2
+    echo "Nothing was changed." >&2
+    echo "$(efi_choice_help $EFI_FIND_KIND "encoder.sh $CMD")" >&2
     exit 1
   fi
+}
+# A check row for the EFI partition, only when --efi auto (what the app's Install and
+# Remove use) would stop at it: why, and what to do, before any password. Nothing is
+# mounted (efi_guess in common.zsh).
+efi_choice_check() {
+  efi_guess
+  case $EFI_GUESS in
+    ambiguous|foreign|none)
+      add_check enc-efi "EFI partition for the kext" warn "an install with --efi auto cannot tell which one to use: $EFI_GUESS_WHY. $(efi_choice_help $EFI_GUESS "encoder.sh install")" ;;
+  esac
 }
 
 do_install() {
@@ -368,6 +422,9 @@ do_install() {
     fi
     /bin/zsh "$PKG/install.sh" --efi "$EFI_MP" 2>&1
     rc=$?
+    # the record of this install, for the checks until the reboot (common.zsh)
+    (( rc == 0 )) && record_write VCNEncodeFloor "$(efi_field $EFI_ID 'Disk / Partition UUID')" "$(efi_field $EFI_ID 'Volume Name')" $EFI_ID \
+      com.droga.VCNEncodeFloor "$(pkg_version)" "$(files_hash "$PKG_KEXT_BIN")"
     enc_cleanup
   else
     /bin/zsh "$PKG/install.sh" 2>&1
@@ -379,13 +436,14 @@ do_install() {
 
 do_uninstall() {
   need_root uninstall
-  [[ -f $PKG/uninstall.sh ]] || { echo "no VCNEncodeFix package in $PKG; build it with encode/build.sh" >&2; exit 1; }
+  [[ -f $PKG/uninstall.sh ]] || { echo "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")" >&2; exit 1; }
   local rc
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     # taking the kext off needs no Lilu on that EFI
     OPEN_ID=$EFI_ID
     efi_open "$EFI_ID" || { OPEN_ID=""; exit 1; }
+    record_remove VCNEncodeFloor
     /bin/zsh "$PKG/uninstall.sh" --efi "$EFI_MP" 2>&1
     rc=$?
     enc_cleanup
@@ -400,6 +458,10 @@ do_uninstall() {
 case "$CMD" in
   check)
     preflight
+    efi_choice_check
+    # check.sh's one look: the JSON answer too, from the same checks
+    JSON_TO=$(check_json_to)
+    [[ $JSON -eq 0 && -n $JSON_TO ]] && emit_check_json > "$JSON_TO"
     emit_check
     # the JSON form always ends with 0, as the front end expects; the text form tells a
     # script whether install would go ahead
