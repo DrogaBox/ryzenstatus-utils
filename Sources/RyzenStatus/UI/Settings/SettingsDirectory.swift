@@ -10,12 +10,15 @@ struct SettingsSearchState: Equatable {
     }
 
     let hardware: Hardware
-    let bars, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
+    let bars, combineApplies, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
     private let switches: Set<String>
 
     init(defaults: UserDefaults, hardware: Hardware) {
         self.hardware = hardware
-        bars = defaults.string(forKey: DefaultsKey.menuBarMetricAppearance) == "bars"
+        bars = MenuBarMetricAppearance.styledMetrics.contains {
+            MenuBarMetricAppearance.stored(for: $0, in: defaults) == .bars
+        }
+        combineApplies = MenuBarMetricAppearance.combineApplies(in: defaults, hasBattery: hardware.battery)
         batteryRest = defaults.string(forKey: DefaultsKey.notchIdleContent) == NotchIdleContent.battery.rawValue
         capsule = defaults.string(forKey: DefaultsKey.notchSilhouette) != NotchSilhouette.notch.rawValue
         customSize = defaults.string(forKey: DefaultsKey.notchSize) == NotchSize.custom.rawValue
@@ -403,14 +406,16 @@ enum SettingsDirectory {
                                               when: state.hardware.bluetoothSleep && state.on(DefaultsKey.bluetoothSleepEnabled)),
                                        ]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
-                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle, barStyle.label,
-                                                  barStyle.bars, barStyle.values, s.monitorSeparateMenuBarMetrics,
+                                       keywords: [barStyle.itemWidth, s.menuBarHideIconToggle, barStyle.itemsTitle,
+                                                  barStyle.styleLabelAbove, barStyle.styleInline, barStyle.styleValueOnly,
+                                                  barStyle.bars, barStyle.graphColor, barStyle.highlightHighValues,
+                                                  barStyle.narrowText, s.monitorSeparateMenuBarMetrics,
                                                   s.monitorIntervalLabel, s.temperatures],
                                        featureKeywords: [
                                         (.monitorMemory, [s.monitorMemoryPressureDot, s.monitorMemoryMetricLabel]),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
                                        ], terms: [
-                                        .init([s.monitorCombineTemperatures], when: !state.bars),
+                                        .init([s.monitorCombineTemperatures], when: state.combineApplies),
                                         .init([barStyle.customize, barStyle.normalColor, barStyle.mediumColor, barStyle.highColor,
                                                barStyle.mediumFrom, barStyle.highFrom], when: state.bars),
                                        ]),

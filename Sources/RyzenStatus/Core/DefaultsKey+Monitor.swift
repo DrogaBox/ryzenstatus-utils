@@ -38,7 +38,6 @@ extension DefaultsKey {
     static let menuBarBatteryTime = "menuBarBatteryTime"
     static let menuBarPeripheralBattery = "menuBarPeripheralBattery"
     static let menuBarPower = "menuBarPower"
-    static let menuBarPreset = "menuBarPreset"           // dense
     static let menuBarMetricSpacing = "menuBarMetricSpacing" // standard | compact
     static let menuBarMetricAppearance = "menuBarMetricAppearance" // values | bars
     static let menuBarUsageBarNormalColor = "menuBarUsageBarNormalColor" // #RRGGBB
@@ -48,6 +47,9 @@ extension DefaultsKey {
     static let menuBarUsageBarHighThreshold = "menuBarUsageBarHighThreshold" // percent
     static let menuBarHideIconWithMetrics = "menuBarHideIconWithMetrics" // glyph hides while metrics render in the main item
     static let menuBarGraphShowsValue = "menuBarGraphShowsValue" // render numeric text inside graph blocks
+    static let menuBarGraphMonochrome = "menuBarGraphMonochrome" // menu bar graphs and bars in the text color
+    static let menuBarHighlightHighValues = "menuBarHighlightHighValues" // usage values take the level colors
+    static let menuBarNarrowText = "menuBarNarrowText" // condensed width for menu bar text
     static let menuBarGraphThemeLight = "menuBarGraphThemeLight" // MenuBarGraphTheme raw value
     static let menuBarGraphThemeDark = "menuBarGraphThemeDark"   // MenuBarGraphTheme raw value
     static let menuBarGraphLightBackground = "menuBarGraphLightBackground" // filled | outline
@@ -60,7 +62,6 @@ extension DefaultsKey {
     static let menuBarSeparateMetricsCaptionVisible = "menuBarSeparateMetricsCaptionVisible"
     static let menuBarLayoutMode = "menuBarLayoutMode" // classic | modern
     static let menuBarNetworkUploadFirst = "menuBarNetworkUploadFirst" // network menu bar block shows upload above download
-    static let menuBarLabelStyle = "menuBarLabelStyle"     // compact | classic
     static let menuBarMemoryStyle = "menuBarMemoryStyle"   // dot | percent | both
     static let monitorInterval = "monitorIntervalSeconds"  // sampling cadence: 1/2/5
     // System monitor — which blocks appear in the panel.

@@ -101,12 +101,17 @@ enum MenuBarGraphPainter {
     /// Call from inside an image drawing handler: there the current drawing
     /// appearance is the status button's, which is what the menu bar shows
     /// over the wallpaper, rather than the app's own appearance.
-    static func currentStyle(defaults: UserDefaults = .standard) -> Style {
+    /// `monochrome` comes from the render settings snapshot taken with the
+    /// block's cache key, so a drawing never disagrees with its key.
+    static func currentStyle(defaults: UserDefaults = .standard, monochrome: Bool? = nil) -> Style {
         let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let filled = !dark && MenuBarGraphLightBackground.current(defaults) == .filled
         let monoTone: Double = (dark || filled) ? 1 : 0
+        let theme = (monochrome ?? defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome))
+            ? .mono
+            : MenuBarGraphTheme.current(dark: dark, defaults: defaults)
         let colors = MenuBarGraphPalette.colors(
-            for: MenuBarGraphTheme.current(dark: dark, defaults: defaults),
+            for: theme,
             accent: accentRGB(),
             mono: MenuBarUsageBarSupport.RGB(red: monoTone, green: monoTone, blue: monoTone))
         return Style(isDark: dark, filledBox: filled, colors: colors)
@@ -122,6 +127,7 @@ enum MenuBarGraphPainter {
             MenuBarGraphTheme.current(dark: true, defaults: defaults).rawValue,
             MenuBarGraphLightBackground.current(defaults).rawValue,
             MenuBarUsageBarSupport.hex(red: accent.red, green: accent.green, blue: accent.blue),
+            defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome) ? "mono" : "color",
         ].joined(separator: ",")
     }
 

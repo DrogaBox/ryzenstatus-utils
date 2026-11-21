@@ -974,22 +974,9 @@ struct Strings {
     let obStepMenuBarTitle: String
     let obStepMenuBarBody: String
     let obStepMenuBarNote: String
-    let monitorMenuBarPresetLabel: String
-    let menuBarPresetReadable: String
-    let menuBarPresetDense: String
-    let menuBarSpacingLabel: String
-    let menuBarSpacingStandard: String
-    let menuBarSpacingCompact: String
     let menuBarHideIconToggle: String
     let menuBarHideIconCaption: String
-    let monitorLabelStyleLabel: String
-    let menuBarLabelStyleCompact: String
-    let menuBarLabelStyleClassic: String
-    let monitorMemoryStyleLabel: String
     let monitorMemoryPressureDot: String
-    let memoryStyleDot: String
-    let memoryStylePercent: String
-    let memoryStyleBoth: String
 
     // MARK: System uptime, battery health, speed test
     let systemUptime: String
@@ -2200,22 +2187,9 @@ extension Strings {
         obStepMenuBarTitle: "Métricas na barra de menus",
         obStepMenuBarBody: "Escolha o que mostrar ao lado do ícone. A prévia acima muda em tempo real.",
         obStepMenuBarNote: "Novidade: blocos de Rede e Energia e gráficos no painel. Ajuste tudo depois em Ajustes › Monitor.",
-        monitorMenuBarPresetLabel: "Estilo",
-        menuBarPresetReadable: "Legível",
-        menuBarPresetDense: "Denso",
-        menuBarSpacingLabel: "Espaçamento na barra",
-        menuBarSpacingStandard: "Padrão",
-        menuBarSpacingCompact: "Compacto",
         menuBarHideIconToggle: "Ocultar o ícone do app enquanto houver métricas",
         menuBarHideIconCaption: "O ícone volta sozinho quando as métricas saem da barra e quando há algo a avisar (atualização pronta ou microfone silenciado).",
-        monitorLabelStyleLabel: "Rótulos",
-        menuBarLabelStyleCompact: "Compactos",
-        menuBarLabelStyleClassic: "Clássicos",
-        monitorMemoryStyleLabel: "Mostrar memória como",
         monitorMemoryPressureDot: "Ponto de pressão",
-        memoryStyleDot: "Ponto",
-        memoryStylePercent: "%",
-        memoryStyleBoth: "Ambos",
 
         systemUptime: "Ativo há",
         systemLoadAverage: "Carga média (1, 5, 15 min)",
@@ -3409,22 +3383,9 @@ extension Strings {
         obStepMenuBarTitle: "Metrics in the menu bar",
         obStepMenuBarBody: "Pick what to show next to the icon. The preview above updates live.",
         obStepMenuBarNote: "New: Network and Power blocks and graphs in the panel. Fine-tune it all later in Settings › Monitor.",
-        monitorMenuBarPresetLabel: "Style",
-        menuBarPresetReadable: "Readable",
-        menuBarPresetDense: "Dense",
-        menuBarSpacingLabel: "Menu bar spacing",
-        menuBarSpacingStandard: "Standard",
-        menuBarSpacingCompact: "Compact",
         menuBarHideIconToggle: "Hide the app icon while metrics are shown",
         menuBarHideIconCaption: "The icon returns by itself when metrics leave the bar and when there is something to signal (an update ready or the microphone muted).",
-        monitorLabelStyleLabel: "Labels",
-        menuBarLabelStyleCompact: "Compact",
-        menuBarLabelStyleClassic: "Classic",
-        monitorMemoryStyleLabel: "Show memory as",
         monitorMemoryPressureDot: "Pressure dot",
-        memoryStyleDot: "Dot",
-        memoryStylePercent: "%",
-        memoryStyleBoth: "Both",
 
         systemUptime: "Up for",
         systemLoadAverage: "Load average (1, 5, 15 min)",

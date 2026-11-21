@@ -281,17 +281,14 @@ enum GPUSensorsTests {
         suite.expect(fired, "one cool sample shown on several ticks is one miss, so the 12 s wait still ends")
 
         // 3. The combined GPU menu bar item names a VRAM temperature.
-        let combineKey = DefaultsKey.menuBarCombineTemperatures
-        let previous = UserDefaults.standard.object(forKey: combineKey)
-        UserDefaults.standard.set(true, forKey: combineKey)
-        defer {
-            if let previous { UserDefaults.standard.set(previous, forKey: combineKey) }
-            else { UserDefaults.standard.removeObject(forKey: combineKey) }
-        }
+        var settings = MenuBarRenderSettings.current(defaults: UserDefaults(suiteName: "gpusensors-menubar-test")!)
+        settings.combineTemperatures = true
+        settings.styles[.gpu] = .values
 
         func labels(_ snapshot: SystemSnapshot) -> [String] {
-            MenuBarRenderer.segments(for: snapshot, metrics: [.gpu, .gpuTemperature]).compactMap {
-                if case .metricBlock(let label, _, _, _, _) = $0 { return label }
+            MenuBarRenderer.segments(for: snapshot, metrics: [.gpu, .gpuTemperature], settings: settings,
+                                     widthMemory: MenuBarWidthMemory()).compactMap {
+                if case .metricBlock(let label, _, _, _, _, _) = $0 { return label }
                 return nil
             }
         }
@@ -299,17 +296,27 @@ enum GPUSensorsTests {
         snapshot.gpuUsage = 0.4
         snapshot.gpuTemperature = 61
         suite.expect(!labels(snapshot).contains { $0.hasPrefix("VRAM") }, "the macOS temperature stays under GPU")
+        // A VRAM reading only arrives with VRAM chosen, and that setting is
+        // what keeps it out of the GPU block (combinesTemperature).
+        settings.gpuTemperatureSource = .memory
         snapshot.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
         suite.expect(labels(snapshot).contains { $0.hasPrefix("VRAM") },
                      "a VRAM temperature gets its own VRAM block in the combined item (got \(labels(snapshot)))")
+        settings.gpuTemperatureSource = .hotspot
 
         // 3b. GPU temp + power sizes its image from reserved lines, so the
         // "VRAM 000°" line must be reserved or its digits are clipped.
         func tempPowerWidth(_ snapshot: SystemSnapshot) -> CGFloat? {
-            for segment in MenuBarRenderer.segments(for: snapshot, metrics: [.gpuTempPower]) {
-                if case .customImage(let image) = segment { return image.size.width }
+            let title = MenuBarRenderer.render(for: snapshot, metrics: [.gpuTempPower], settings: settings,
+                                               widthMemory: MenuBarWidthMemory()).string
+            var width: CGFloat?
+            title.enumerateAttribute(.attachment, in: NSRange(location: 0, length: title.length)) { value, _, stop in
+                if let image = (value as? NSTextAttachment)?.image {
+                    width = image.size.width
+                    stop.pointee = true
+                }
             }
-            return nil
+            return width
         }
         var plain = SystemSnapshot()
         plain.gpuTemperature = 61
@@ -317,9 +324,7 @@ enum GPUSensorsTests {
         var vram = plain
         vram.gpuDisplayTemperature = GPUDisplayTemperature(celsius: 72, source: .memory)
         if let plainWidth = tempPowerWidth(plain), let vramWidth = tempPowerWidth(vram) {
-            let needed = ("VRAM 000°" as NSString).size(withAttributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: MenuBarRenderer.networkBlockFontSize(style: .dense),
-                                                   weight: .semibold)]).width
+            let needed = ("VRAM 000°" as NSString).size(withAttributes: [.font: MenuBarRenderer.rateLineFont()]).width
             suite.expect(vramWidth > plainWidth && vramWidth >= needed,
                          "the VRAM temp + power image is wide enough for its label (\(vramWidth) vs \(needed))")
         } else {
