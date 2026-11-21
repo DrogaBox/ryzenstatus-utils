@@ -134,6 +134,16 @@ struct GPUControlPageStrings {
     let listLastSeparator: String
     /// An OD8 hold in the panel row, where the whole list does not fit.
     let heldOD8Short: String
+    // Accessibility (a11y A6, A13, A15).
+    /// VoiceOver's hint on the power limit pop-up.
+    let powerHint: String
+    /// VoiceOver's hint on "Allow GPU Changes…".
+    let openWritingHint: String
+    /// %@ = the kext's own text, always English: said as the kext's, not as
+    /// a broken translation.
+    let kextSaysFormat: String
+    /// A reading of the live row that is missing, in words.
+    let noReading: String
 
     /// Why the arm button is not offered.
     func sentence(_ reason: GPUControlArmTool.UnsafeReason) -> String {
@@ -201,7 +211,7 @@ struct GPUControlPageStrings {
          unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat,
          listSeparator, listLastSeparator, unsafeSetID, heldOD8Short, closeChanges, closeChangesHelp, closedAgain,
          closeRefused, closeNotSupported, closedByOther, readOnlyTitle, readOnlyDetail, cardRangeFormat, floorUnknown,
-         nothingToLower, otherProgramChanged]
+         nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading]
     }
 }
 
@@ -317,7 +327,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "a GFX maximum of %d MHz",
         listSeparator: ", ",
         listLastSeparator: " and ",
-        heldOD8Short: "RyzenStatus is holding OD8 settings")
+        heldOD8Short: "RyzenStatus is holding OD8 settings",
+        powerHint: "Applies when chosen. Only lowers the limit, down to the card's minimum.",
+        openWritingHint: "Asks for an administrator password. Changes stay allowed until you close them or restart the Mac.",
+        kextSaysFormat: "From the kext: %@",
+        noReading: "no data")
 
     static let es = GPUControlPageStrings(
         stateSection: "Estado",
@@ -409,7 +423,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "un reloj máximo de GFX de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " y ",
-        heldOD8Short: "RyzenStatus mantiene ajustes OD8")
+        heldOD8Short: "RyzenStatus mantiene ajustes OD8",
+        powerHint: "Se aplica al elegir. Solo baja el límite, hasta el mínimo de la tarjeta.",
+        openWritingHint: "Pide la contraseña de un administrador. Los cambios quedan permitidos hasta que los cierres o reinicies el Mac.",
+        kextSaysFormat: "Del kext: %@",
+        noReading: "sin dato")
 
     static let ptBR = GPUControlPageStrings(
         stateSection: "Estado",
@@ -501,7 +519,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "um clock GFX máximo de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
-        heldOD8Short: "O RyzenStatus está mantendo ajustes OD8")
+        heldOD8Short: "O RyzenStatus está mantendo ajustes OD8",
+        powerHint: "Aplica ao escolher. Só reduz o limite, até o mínimo da placa.",
+        openWritingHint: "Pede a senha de um administrador. As alterações ficam liberadas até você fechá-las ou reiniciar o Mac.",
+        kextSaysFormat: "Do kext: %@",
+        noReading: "sem dado")
 
     static let tr = GPUControlPageStrings(
         stateSection: "Durum",
@@ -593,7 +615,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "maks. GFX saat hızı %d MHz",
         listSeparator: ", ",
         listLastSeparator: " ve ",
-        heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor")
+        heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor",
+        powerHint: "Seçildiğinde uygulanır. Sınırı yalnızca kartın minimumuna kadar düşürür.",
+        openWritingHint: "Bir yönetici parolası ister. Değişikliklere, siz kapatana ya da Mac yeniden başlatılana kadar izin verilir.",
+        kextSaysFormat: "Kext'ten: %@",
+        noReading: "veri yok")
 
     static let ru = GPUControlPageStrings(
         stateSection: "Состояние",
@@ -685,7 +711,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "макс. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " и ",
-        heldOD8Short: "RyzenStatus удерживает настройки OD8")
+        heldOD8Short: "RyzenStatus удерживает настройки OD8",
+        powerHint: "Применяется при выборе. Только снижает лимит, до минимума карты.",
+        openWritingHint: "Запрашивает пароль администратора. Изменения разрешены, пока вы их не закроете или не перезапустите Mac.",
+        kextSaysFormat: "Сообщение kext: %@",
+        noReading: "нет данных")
 
     static let sk = GPUControlPageStrings(
         stateSection: "Stav",
@@ -777,7 +807,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "maximálny takt GFX %d MHz",
         listSeparator: ", ",
         listLastSeparator: " a ",
-        heldOD8Short: "RyzenStatus drží nastavenia OD8")
+        heldOD8Short: "RyzenStatus drží nastavenia OD8",
+        powerHint: "Použije sa pri výbere. Limit iba znižuje, až po minimum karty.",
+        openWritingHint: "Vyžiada heslo správcu. Zmeny zostanú povolené, kým ich nezatvoríte alebo nereštartujete Mac.",
+        kextSaysFormat: "Od kextu: %@",
+        noReading: "bez údaja")
 
     static let de = GPUControlPageStrings(
         stateSection: "Status",
@@ -869,7 +903,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
         listSeparator: ", ",
         listLastSeparator: " und ",
-        heldOD8Short: "RyzenStatus hält OD8-Einstellungen")
+        heldOD8Short: "RyzenStatus hält OD8-Einstellungen",
+        powerHint: "Wird bei der Auswahl angewendet. Senkt das Limit nur, bis zum Minimum der Karte.",
+        openWritingHint: "Fragt nach einem Administratorpasswort. Änderungen bleiben erlaubt, bis Sie sie schließen oder den Mac neu starten.",
+        kextSaysFormat: "Vom Kext: %@",
+        noReading: "keine Daten")
 
     static let fr = GPUControlPageStrings(
         stateSection: "État",
@@ -961,7 +999,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "une fréquence GFX max de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " et ",
-        heldOD8Short: "RyzenStatus maintient des réglages OD8")
+        heldOD8Short: "RyzenStatus maintient des réglages OD8",
+        powerHint: "S’applique dès la sélection. Abaisse seulement la limite, jusqu’au minimum de la carte.",
+        openWritingHint: "Demande le mot de passe d’un administrateur. Les modifications restent autorisées jusqu’à ce que vous les fermiez ou redémarriez le Mac.",
+        kextSaysFormat: "Du kext : %@",
+        noReading: "aucune donnée")
 
     static let it = GPUControlPageStrings(
         stateSection: "Stato",
@@ -1053,7 +1095,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "un clock GFX massimo di %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
-        heldOD8Short: "RyzenStatus mantiene impostazioni OD8")
+        heldOD8Short: "RyzenStatus mantiene impostazioni OD8",
+        powerHint: "Si applica alla scelta. Abbassa solo il limite, fino al minimo della scheda.",
+        openWritingHint: "Chiede la password di un amministratore. Le modifiche restano abilitate finché non le chiudi o riavvii il Mac.",
+        kextSaysFormat: "Dal kext: %@",
+        noReading: "nessun dato")
 
     static let ja = GPUControlPageStrings(
         stateSection: "状態",
@@ -1145,7 +1191,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "GFX 最大クロック %d MHz",
         listSeparator: "、",
         listLastSeparator: "と",
-        heldOD8Short: "RyzenStatus が OD8 設定を保持中")
+        heldOD8Short: "RyzenStatus が OD8 設定を保持中",
+        powerHint: "選ぶとすぐに適用されます。制限はカードの最小値まで下げるだけです。",
+        openWritingHint: "管理者のパスワードを求めます。変更を閉じるか Mac を再起動するまで、変更が許可されます。",
+        kextSaysFormat: "kext から: %@",
+        noReading: "データなし")
 
     static let ko = GPUControlPageStrings(
         stateSection: "상태",
@@ -1237,7 +1287,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "최대 GFX 클록 %d MHz",
         listSeparator: ", ",
         listLastSeparator: " 및 ",
-        heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중")
+        heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중",
+        powerHint: "선택하면 적용됩니다. 한도는 카드 최소값까지 낮추기만 합니다.",
+        openWritingHint: "관리자 암호를 요청합니다. 변경을 닫거나 Mac을 재시동할 때까지 변경이 허용됩니다.",
+        kextSaysFormat: "kext 메시지: %@",
+        noReading: "데이터 없음")
 
     static let zhHans = GPUControlPageStrings(
         stateSection: "状态",
@@ -1329,7 +1383,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "GFX 最大时钟频率 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
-        heldOD8Short: "RyzenStatus 正在维持 OD8 设置")
+        heldOD8Short: "RyzenStatus 正在维持 OD8 设置",
+        powerHint: "选择后即应用。只会降低上限，最低至显卡的最低值。",
+        openWritingHint: "需要管理员密码。在你关闭更改或重新启动 Mac 之前，允许更改。",
+        kextSaysFormat: "来自 kext：%@",
+        noReading: "无数据")
 
     static let zhTW = GPUControlPageStrings(
         stateSection: "狀態",
@@ -1421,7 +1479,11 @@ extension GPUControlPageStrings {
         gfxItemFormat: "GFX 最大時脈 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
-        heldOD8Short: "RyzenStatus 正在維持 OD8 設定")
+        heldOD8Short: "RyzenStatus 正在維持 OD8 設定",
+        powerHint: "選擇後即套用。只會降低上限，最低至顯示卡的最低值。",
+        openWritingHint: "需要管理員密碼。在你關閉更改或重新啟動 Mac 之前，允許更改。",
+        kextSaysFormat: "來自 kext：%@",
+        noReading: "無資料")
 
     static let uk = GPUControlPageStrings(
         stateSection: "Стан",
@@ -1513,5 +1575,9 @@ extension GPUControlPageStrings {
         gfxItemFormat: "макс. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " і ",
-        heldOD8Short: "RyzenStatus утримує налаштування OD8")
+        heldOD8Short: "RyzenStatus утримує налаштування OD8",
+        powerHint: "Застосовується під час вибору. Лише знижує ліміт, до мінімуму картки.",
+        openWritingHint: "Запитує пароль адміністратора. Зміни дозволені, доки ви їх не закриєте або не перезапустите Mac.",
+        kextSaysFormat: "Повідомлення kext: %@",
+        noReading: "немає даних")
 }

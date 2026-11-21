@@ -404,7 +404,7 @@ enum GPUControlFanTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlFanStrings.enUS.all
-        suite.expect(english.count == 24, "24 texts")
+        suite.expect(english.count == 28, "28 texts")
         for language in AppLanguage.allCases {
             let fan = FeatureStrings.gpuControlFan(language)
             // Two buttons on one page never share a name.
@@ -416,8 +416,15 @@ enum GPUControlFanTests {
             for (index, text) in table.enumerated() {
                 suite.expect(specifiers(text) == specifiers(english[index]),
                              "\(language.rawValue): fan text \(index) keeps the English placeholders")
-                // Every literal percent in a format is written %%.
-                let formatted = String(format: text, 1, "x")
+                // Every literal percent in a format is written %%. Each
+                // placeholder gets an argument of its kind, by position.
+                let ordered = specifiers(text).enumerated().map { offset, spec -> (Int, String) in
+                    let position = spec.split(separator: "$").count == 2
+                        ? Int(spec.dropFirst().prefix { $0.isNumber }) ?? offset + 1 : offset + 1
+                    return (position, spec)
+                }.sorted { $0.0 < $1.0 }
+                let arguments: [CVarArg] = ordered.map { $0.1.hasSuffix("d") ? 1 as CVarArg : "x" as NSString }
+                let formatted = String(format: text, arguments: arguments)
                 suite.expect(!formatted.contains("%%") && !formatted.isEmpty, "\(language.rawValue): fan text \(index) formats")
             }
         }

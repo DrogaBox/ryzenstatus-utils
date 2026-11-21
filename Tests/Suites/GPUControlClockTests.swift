@@ -193,7 +193,7 @@ enum GPUControlClockTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlClockStrings.enUS.all
-        suite.expect(english.count == 10, "10 texts")
+        suite.expect(english.count == 11, "11 texts")
         for language in AppLanguage.allCases {
             let clock = FeatureStrings.gpuControlClock(language)
             let table = clock.all
