@@ -34,6 +34,44 @@ enum UpdateInstallerSupport {
         fi
         """
 
+    /// The installer's swap of the verified staged copy ($STAGE) into place
+    /// ($DEST, the DMG's bundle name next to the installed $APP). Runs only
+    /// after every check passed; sets LAUNCH to the new bundle on success.
+    /// Paths are compared as files, not strings: on a case-insensitive
+    /// volume (the APFS default) an installed `Ryzenstatus.app` and
+    /// `RyzenStatus.app` are the same directory, so after the swap "$APP"
+    /// names the NEW bundle and must not be removed.
+    static let swapScript = """
+        note fail-swap
+        # The backup name is unique per run: after an elevated
+        # install the old bundle is root-owned, a later user-run
+        # cannot delete that backup, and reusing a fixed name
+        # would make the NEXT swap fail on it. Strays from
+        # earlier runs are swept best-effort (an elevated run
+        # clears even the root-owned ones).
+        BACKUP="$DEST.update-old.$PID"
+        /bin/rm -rf "$DEST".update-old "$DEST".update-old.* 2>/dev/null
+        if { [ ! -d "$DEST" ] || /bin/mv "$DEST" "$BACKUP"; } \\
+            && /bin/mv "$STAGE" "$DEST"; then
+            LAUNCH="$DEST"
+            note ok
+            # Installed as root: hand the bundle to the user, or
+            # the next user-path update cannot replace it.
+            if [ "$(/usr/bin/id -u)" = "0" ] && [ -n "$ASUSER" ]; then
+                /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
+            fi
+            /bin/rm -rf "$BACKUP"
+            # If the bundle was renamed, remove the old-named one, only
+            # after the new bundle is in place and only when it is really
+            # another directory (a case-only difference is the new app).
+            if [ "$DEST" != "$APP" ] && [ -e "$APP" ] && ! [ "$APP" -ef "$DEST" ]; then
+                /bin/rm -rf "$APP"
+            fi
+        else
+            [ -d "$BACKUP" ] && [ ! -d "$DEST" ] && /bin/mv "$BACKUP" "$DEST"
+        fi
+        """
+
     /// The installer: waits for the app to exit, mounts the DMG, stages a
     /// copy of the new bundle, verifies its signature, swaps it in and
     /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
@@ -158,31 +196,7 @@ enum UpdateInstallerSupport {
                     note fail-version
                 fi
                 if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ] && [ "$VERSION_OK" = 1 ]; then
-                    note fail-swap
-                    # The backup name is unique per run: after an elevated
-                    # install the old bundle is root-owned, a later user-run
-                    # cannot delete that backup, and reusing a fixed name
-                    # would make the NEXT swap fail on it. Strays from
-                    # earlier runs are swept best-effort (an elevated run
-                    # clears even the root-owned ones).
-                    BACKUP="$DEST.update-old.$PID"
-                    /bin/rm -rf "$DEST".update-old "$DEST".update-old.* 2>/dev/null
-                    if { [ ! -d "$DEST" ] || /bin/mv "$DEST" "$BACKUP"; } \
-                        && /bin/mv "$STAGE" "$DEST"; then
-                        LAUNCH="$DEST"
-                        note ok
-                        # Installed as root: hand the bundle to the user, or
-                        # the next user-path update cannot replace it.
-                        if [ "$(/usr/bin/id -u)" = "0" ] && [ -n "$ASUSER" ]; then
-                            /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
-                        fi
-                        /bin/rm -rf "$BACKUP"
-                        # If the bundle was renamed, remove the old-named one.
-                        # This happens only after the new bundle is in place.
-                        [ "$DEST" != "$APP" ] && /bin/rm -rf "$APP"
-                    else
-                        [ -d "$BACKUP" ] && [ ! -d "$DEST" ] && /bin/mv "$BACKUP" "$DEST"
-                    fi
+                    \(swapScript)
                 fi
             fi
             /bin/rm -rf "$STAGE"

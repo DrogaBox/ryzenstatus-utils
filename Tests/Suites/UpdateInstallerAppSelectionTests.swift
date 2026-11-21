@@ -134,7 +134,94 @@ enum UpdateInstallerAppSelectionTests {
             suite.expect(picked.src.isEmpty, "a symlink in place of RyzenStatus.app is not picked, got \(picked.src)")
         }
 
-        // 5. The real installer embeds exactly this selection, with the
+        // Runs the installer's own swap text: $APP installed, $STAGE verified
+        // copy, $DEST the DMG's bundle name in the same folder.
+        func swap(app: URL, dest: URL, stage: URL) -> String {
+            let script = """
+                exec 2>/dev/null
+                note() { :; }
+                APP="$1"; DEST="$2"; STAGE="$3"; PID=4242; ASUSER=""; LAUNCH="$APP"
+                \(UpdateInstallerSupport.swapScript)
+                printf '%s' "$LAUNCH"
+                """
+            let result = BoundedProcessRunner.run("/bin/sh", ["-c", script, "swap", app.path, dest.path, stage.path],
+                                                  timeout: 10, maxOutputBytes: 64 * 1024)
+            return result.status == 0 ? String(decoding: result.output, as: UTF8.self) : "<status \(result.status)>"
+        }
+        func identifier(_ app: URL) -> String {
+            let plist = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
+            return plist?["CFBundleIdentifier"] as? String ?? ""
+        }
+        func entries(_ dir: URL) -> [String] {
+            ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+        }
+
+        // 5. Installed copy differs from the DMG's name only in case. On the
+        //    default (case-insensitive) volume both names are one directory:
+        //    the old cleanup compared strings and deleted the new app.
+        do {
+            let dir = root.appendingPathComponent("case-only")
+            let installed = dir.appendingPathComponent("Ryzenstatus.app")
+            let dest = dir.appendingPathComponent(appName)
+            let stage = dir.appendingPathComponent(".\(appName).update-new")
+            makeApp(installed, identifier: "old")
+            makeApp(stage, identifier: "new")
+            let caseInsensitive = fm.fileExists(atPath: dest.path)
+            let launch = swap(app: installed, dest: dest, stage: stage)
+            suite.expect(identifier(dest) == "new" && launch == dest.path,
+                         "a case-only rename keeps the newly installed app (case-insensitive volume: \(caseInsensitive)), "
+                            + "launch \(launch), left \(entries(dir))")
+            suite.expect(entries(dir) == [appName],
+                         "after a case-only rename exactly RyzenStatus.app is left (case-insensitive volume: "
+                            + "\(caseInsensitive)), got \(entries(dir))")
+        }
+
+        // 6. A real rename (another name) still removes the old bundle.
+        do {
+            let dir = root.appendingPathComponent("rename")
+            let installed = dir.appendingPathComponent("RyzenStatus Utils.app")
+            let dest = dir.appendingPathComponent(appName)
+            let stage = dir.appendingPathComponent(".\(appName).update-new")
+            makeApp(installed, identifier: "old")
+            makeApp(stage, identifier: "new")
+            let launch = swap(app: installed, dest: dest, stage: stage)
+            suite.expect(identifier(dest) == "new" && launch == dest.path && entries(dir) == [appName],
+                         "a real rename installs RyzenStatus.app and removes the old-named bundle, got \(entries(dir))")
+        }
+
+        // 7. Same name: replaced in place, backup and stage gone.
+        do {
+            let dir = root.appendingPathComponent("in-place")
+            let installed = dir.appendingPathComponent(appName)
+            let stage = dir.appendingPathComponent(".\(appName).update-new")
+            makeApp(installed, identifier: "old")
+            makeApp(stage, identifier: "new")
+            let launch = swap(app: installed, dest: installed, stage: stage)
+            suite.expect(identifier(installed) == "new" && launch == installed.path && entries(dir) == [appName],
+                         "a plain update replaces the bundle in place, got \(entries(dir))")
+        }
+
+        // 8. A failed swap keeps the old bundle (case-only names) and
+        //    relaunches it.
+        do {
+            let dir = root.appendingPathComponent("rollback")
+            let installed = dir.appendingPathComponent("Ryzenstatus.app")
+            let dest = dir.appendingPathComponent(appName)
+            makeApp(installed, identifier: "old")
+            let launch = swap(app: installed, dest: dest,
+                              stage: dir.appendingPathComponent(".missing.update-new"))
+            suite.expect(identifier(installed) == "old" && launch == installed.path && entries(dir).count == 1,
+                         "a failed swap keeps the old bundle and relaunches it, got \(entries(dir)), "
+                            + "identifier \(identifier(installed)), launch \(launch)")
+        }
+
+        do {
+            let script = UpdateInstallerSupport.installerScript(allowAdhoc: true)
+            suite.expect(script.components(separatedBy: UpdateInstallerSupport.swapScript).count == 2,
+                         "the installer embeds the tested swap text exactly once")
+        }
+
+        // 9. The real installer embeds exactly this selection, with the
         //    failure marker right after it, in both signing modes.
         for allowAdhoc in [false, true] {
             let script = UpdateInstallerSupport.installerScript(allowAdhoc: allowAdhoc)
