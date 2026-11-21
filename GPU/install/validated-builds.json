@@ -1,0 +1,66 @@
+{
+  "_comment": "macOS builds whose AMDRadeonVADriver2 was validated. Installing on an UNLISTED build is blocked by default (GPU-hang risk) and needs the explicit override (install/decoders.sh install --force). Add a build only after checking its driver: the same driverUUID (the LC_UUID of AMDRadeonVADriver2) as a listed build means the same binary; a new UUID needs the decode path compared first, and must also be added to kValidatedDrivers in decode/av1/vcnav1.c and decode/vp9/vcnvp9.c (install/check_lists.sh fails when the lists differ). av1/vp9: true = decoded bit-exact on a GPU, \"untested-on-gpu\" = driver validated but not run yet, false = the plug-in refuses this driver and macOS falls back to software. encode: true = the optional encoding fix (VCNEncodeFix) was validated on this build (its AMDRadeonVADriver2, AppleGVAHEVCEncoder and AMDRadeonX6000HWLibs / AMDRadeonX6800HWLibs match the patched builds); false = it stays off.",
+  "schema": 1,
+  "validated": [
+    {
+      "build": "23J631",
+      "product": "14.8.9",
+      "name": "Sonoma 14.8.9",
+      "driverUUID": "C637BF67BF5839FE937A827486BE9BFB",
+      "av1": false,
+      "vp9": false,
+      "encode": true
+    },
+    {
+      "build": "24H232",
+      "product": "15.8.2",
+      "name": "Sequoia 15.8.2",
+      "driverUUID": "5D90FED3BCBF34759F4B8FC00026D3AB",
+      "av1": true,
+      "vp9": true,
+      "encode": true
+    },
+    {
+      "build": "24H241",
+      "product": "15.8.3",
+      "name": "Sequoia 15.8.3",
+      "driverUUID": "5D90FED3BCBF34759F4B8FC00026D3AB",
+      "av1": "untested-on-gpu",
+      "vp9": "untested-on-gpu",
+      "encode": true
+    },
+    {
+      "build": "25G241",
+      "product": "26.7.1",
+      "name": "Tahoe 26.7.1",
+      "driverUUID": "8D3BA61E7BC73BDFADB3A7866360B6DE",
+      "av1": true,
+      "vp9": true,
+      "encode": false
+    },
+    {
+      "build": "25G332",
+      "product": "26.7.2",
+      "name": "Tahoe 26.7.2",
+      "driverUUID": "1181E2CA31B33DF090E23AE70552D753",
+      "av1": "untested-on-gpu",
+      "vp9": "untested-on-gpu",
+      "encode": false
+    },
+    {
+      "build": "25G342",
+      "product": "26.7.3",
+      "name": "Tahoe 26.7.3",
+      "driverUUID": "1181E2CA31B33DF090E23AE70552D753",
+      "av1": true,
+      "vp9": true,
+      "encode": true
+    }
+  ],
+  "supportedGPUs": [
+    "Radeon RX 6800",
+    "Radeon RX 6800 XT",
+    "Radeon RX 6900 XT",
+    "Radeon RX 6950 XT"
+  ]
+}

@@ -223,6 +223,8 @@ extension GPUControlStatus.Writing.Gate {
         if rest.hasPrefix("the last OD8 call was not taken") { return .unconfirmed }
         if rest.hasPrefix("going back") { return .reverting }
         if rest.hasPrefix("a program holds") { return .held }
+        // 0.8.0: a power request owned by a program, before the card confirms it.
+        if rest.hasPrefix("a program is setting") { return .held }
         if rest == "nothing held" || rest == "OD8 at stock" { return .idle }
         return .other(text)
     }
@@ -257,6 +259,13 @@ extension GPUControlStatus.Writing.OD8State {
 }
 
 extension GPUControlStatus.Writing.OD8Read {
+    /// The kext has not read OD8 yet (after boot or a wake) and will: its
+    /// texts "waiting ...", "no data: ..." and "not read: ..." (od8ReadText).
+    var isWaiting: Bool {
+        guard case .notClean(let text) = self else { return false }
+        return text.hasPrefix("waiting") || text.hasPrefix("no data") || text.hasPrefix("not read")
+    }
+
     /// The texts of `GPUControl::od8Text()`: only a bare "read" is a clean
     /// read ("read, but an entry is not as expected" is not).
     static func parse(_ text: String) -> Self {

@@ -61,7 +61,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
     var version: UInt64 = GPUControlWire.channelVersion
     var bootW: UInt32 = 240
     /// The card's `OD8.Settings.PowerPercent`: feature 0x8, its lower bound
-    /// (negative) and upper bound. The owner's card has -6 and 9 (floor 225 W
+    /// (negative) and upper bound. The test RX 6800 XT has -6 and 9 (floor 225 W
     /// at 240 W); the model's default -20 leaves the tests room (192 W).
     /// Feature 0: the card offers no lower limit, the floor is the start-up
     /// value.
