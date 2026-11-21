@@ -187,6 +187,19 @@ enum GPUControlFanTests {
                      "another kext build: not checked, Apply off")
         other.kextVersion = nil
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .notChecked, "no build name: not checked")
+        // GPUSensors 0.8.0: the build date follows the package build, so any
+        // date of a release build is the same checked source.
+        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05"] {
+            other.kextVersion = build
+            suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .accepted,
+                         "\(build): GPUSensors 0.8.0, checked")
+        }
+        for build in ["DBG-080-2026-11-21", "REL-081-2026-11-21", "REL-080", "REL-080-2026-11", "REL-080-2026-11-21x",
+                      "REL-080-2026-11-21-1", "REL-08-2026-11-21", "REL-072-2026-11-20", "rel-080-2026-11-21", ""] {
+            suite.expect(!GPUControlCurveRules.isChecked(build), "\(build.isEmpty ? "empty" : build): not checked")
+        }
+        suite.expect(GPUControlCurveRules.isChecked("REL-072-2026-11-19"), "0.7.2: the one checked build")
+        suite.expect(GPUControlCurveRules.release(of: "REL-080-2026-11-21") == "080", "the version digits of a release build")
         var odd = writing
         odd.od8Read = .notClean("read, but an entry is not as expected")
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: odd) == .unavailable, "OD8 not clean: unavailable")
