@@ -203,10 +203,18 @@ RUN_LINE=""
 RUN_VERSION=""
 look_running() {
   local version=$(kext_version com.droga.GPUSensors)
+  # VCNVT_FAKE_RUNNING is for testing only (tests/loader_install.sh): the version of a
+  # GPUSensors that runs and publishes no status, as one before 0.8.0. Like VCNVT_FAKE_GPU,
+  # only together with --efi-folder.
   RUN_STATE=""
   RUN_SAMPLES=0
   RUN_LINE="not loaded"
   RUN_VERSION=$version
+  if [[ -n ${VCNVT_FAKE_RUNNING:-} && -n $EFI_DIR ]]; then
+    RUN_VERSION=$VCNVT_FAKE_RUNNING
+    RUN_LINE="loaded $RUN_VERSION, no status, 0 readings since boot"
+    return 0
+  fi
   [[ -n $version ]] || return 0
   RUN_STATE=$(sensor_prop Status)
   RUN_SAMPLES=$(sensor_prop Samples)
@@ -217,21 +225,39 @@ look_running() {
 
 RESULT=""
 RESULT_OK=1
+# 1 when the result says that this version is on the EFI and the next boot loads it: an EFI
+# holds this build with its entry ok, no EFI holds another one, and the kext that runs (if
+# any) is another version. Nothing is left to install then; check --json calls it
+# "pendingReboot".
+PENDING_REBOOT=0
 conclude() {
   RESULT_OK=1
+  PENDING_REBOOT=0
+  local new=$(kext_file_version "$KEXT") on_efi=0
+  [[ -n $READY_ON && -z $STALE_ON && -n $new && $RUN_VERSION != "$new" ]] && on_efi=1
+  # what the next boot changes, for the results about a kext that runs now
+  local next=""
+  (( on_efi )) && next=" GPUSensors $new is on $READY_ON and loads at the next boot."
   local update=""
   [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one $(pick "in ${KEXT:h:t}: 'sudo install/sensors.sh install' updates it" "in this app: GPU sensors > Update in this window updates it")."
   # the kext that runs is what check is about; checks marked FAIL only stop a new install
   local blocked=""
   (( CAN_INSTALL )) || blocked=" The checks marked FAIL stop a new install."
   if [[ $RUN_STATE == active && ${RUN_SAMPLES:-0} -gt 0 ]]; then
-    RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$update$TOOLS_NOTE$blocked"
+    RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$next$update$TOOLS_NOTE$blocked"
+    PENDING_REBOOT=$on_efi
   elif [[ $RUN_STATE == active ]]; then
-    RESULT="GPUSensors is active but the driver has not read its sensors yet. Use the GPU a moment and check again.$TOOLS_NOTE$blocked"
+    RESULT="GPUSensors is active but the driver has not read its sensors yet. Use the GPU a moment and check again.$next$TOOLS_NOTE$blocked"
+    PENDING_REBOOT=$on_efi
   elif [[ -n $RUN_STATE ]]; then
-    RESULT="the kext is loaded but does nothing ($RUN_STATE)."
+    RESULT="the kext is loaded but does nothing ($RUN_STATE).$next"
     RESULT_OK=0
-  elif [[ -n $RUN_VERSION && $RUN_VERSION != "$(kext_file_version "$KEXT")" && $CAN_INSTALL -eq 1 ]]; then
+    PENDING_REBOOT=$on_efi
+  elif [[ -n $RUN_VERSION ]] && (( on_efi )); then
+    # an older (or other) GPUSensors runs, and this one is already on the EFI
+    RESULT="installed on $READY_ON: GPUSensors $new loads at the next boot; $RUN_VERSION runs until then. Reboot from that EFI to start it."
+    PENDING_REBOOT=1
+  elif [[ -n $RUN_VERSION && $RUN_VERSION != "$new" && $CAN_INSTALL -eq 1 ]]; then
     # an older (or other) GPUSensors runs, one that publishes no status
     RESULT="GPUSensors $RUN_VERSION is loaded; $(pick "${KEXT:h:h:t}/${KEXT:h:t} has" "this app has") $(kext_file_version "$KEXT"). $(pick "'sudo install/sensors.sh install' puts it on your EFI" "GPU sensors > Update in this window puts it on your EFI"); then reboot."
   elif [[ $CAN_INSTALL -eq 0 ]]; then
@@ -239,6 +265,7 @@ conclude() {
     RESULT_OK=0
   elif [[ -n $READY_ON && -z $STALE_ON ]]; then
     RESULT="installed on $READY_ON, not running yet. Reboot from that EFI to start it."
+    PENDING_REBOOT=1
   else
     RESULT="ready. $(pick "'sudo install/sensors.sh install'" "GPU sensors > Install in this window") puts the kext on your EFI; then reboot."
   fi
@@ -249,6 +276,7 @@ check_json() {
   print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
   print -rn -- "\"tools\":\"$TOOLS_STATE\",\"toolsOnly\":$([[ $TOOLS_ONLY -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"toolsInstalled\":$([[ $TOOLS_OURS -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"pendingReboot\":$([[ $PENDING_REBOOT -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
   print
 }

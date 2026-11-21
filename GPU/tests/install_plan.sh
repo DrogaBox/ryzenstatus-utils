@@ -66,6 +66,8 @@ SNS_TOOLS_OLD='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, act
 SNS_CURRENT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"current","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_TOOLS_BLOCKED='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"blocked","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_OLD_KEXT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.7.2, no status, 0 readings since boot","tools":"missing","toolsOnly":false,"result":"GPUSensors 0.7.2 is loaded"}'
+SNS_PENDING='{"canInstall":true,"version":"0.8.0","running":"loaded 0.7.2, no status, 0 readings since boot","tools":"missing","toolsOnly":false,"pendingReboot":true,"result":"installed on disk1s3: GPUSensors 0.8.0 loads at the next boot"}'
+LDR_PENDING='{"canInstall":true,"pendingReboot":true,"result":"installed on disk1s3, not running yet. Reboot from that EFI to start it."}'
 # the encoding fix installed, running and the package's version, with the kext on the EFI
 # the package's build, another build, or the service stopped
 enc_json() { # service efi-entry efi-kext
@@ -148,6 +150,18 @@ fake oldkext on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_OLD_KEXT"
 plan oldkext --with-sensors
 expect "the kext is a step" $(has "put GPUSensors.kext on the EFI")
 expect "the commands are not a step of their own" $(lacks "copy gpucontrol and gpusensors to /usr/local/bin:")
+
+print -r -- "this sensors kext is on the EFI, an older one runs until the reboot"
+fake pendingkext on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_PENDING"
+plan pendingkext --with-sensors
+expect "nothing to install (exit 0)" $(( RC == 0 && $(has "Nothing to install") && $(lacks "put GPUSensors.kext") ))
+expect "the kext is skipped, and said why" $(has "skip sensors: this version is on the EFI already; it loads at the next boot")
+
+print -r -- "the loader kext is on the EFI, not running yet"
+fake pendingloader on "$DEC_CURRENT" "" "$LDR_PENDING" "" "$ENC_NONE" "$SNS_CURRENT"
+plan pendingloader
+expect "nothing to install (exit 0)" $(( RC == 0 && $(has "Nothing to install") && $(lacks "put VCNVTLoader.kext") ))
+expect "the loader is skipped, and said why" $(has "skip loader kext: the right one is on the EFI already; it starts at the next boot")
 
 print -r -- "the encoding fix: skipped only when check would call it installed and working"
 fake enccurrent on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_CURRENT" "$SNS_CURRENT"

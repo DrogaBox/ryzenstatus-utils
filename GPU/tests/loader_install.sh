@@ -148,6 +148,20 @@ $SN install --efi-folder $T/m > $T/m.out 2>&1 && [[ -d $T/m/EFI/OC/Kexts/GPUSens
   ok "the sensors kext installs next to the loader" || bad "sensors install: $(cat $T/m.out)"
 $SN check --efi-folder $T/m 2>&1 | grep -q "config entry ok; kext the one in build/GPUSensors.kext" &&
   $L check --efi-folder $T/m 2>&1 | grep -q "config entry ok" && ok "both kexts are seen in place" || bad "both in place"
+# an older GPUSensors runs (VCNVT_FAKE_RUNNING, honoured only with --efi-folder) and this
+# version is on the EFI: the next boot loads it, so check offers no update. With another
+# build on the EFI it does.
+sjson() { VCNVT_FAKE_RUNNING=0.0.1 $SN check --json --efi-folder $T/$1; }
+spy() { /usr/bin/python3 -I -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if eval(sys.argv[1]) else 1)' "$1"; }
+sjson m | spy 'd["pendingReboot"] and d["result"].startswith("installed on folder: GPUSensors ") and "loads at the next boot; 0.0.1 runs until then" in d["result"]' &&
+  ok "an older sensors kext runs, this one on the EFI: installed, reboot" || bad "sensors pending: $(sjson m)"
+VCNVT_FAKE_RUNNING=0.0.1 $SN check --efi-folder $T/m 2>&1 | grep -q "Result: installed on folder: GPUSensors .* loads at the next boot" &&
+  ok "the text check says the same" || bad "sensors pending text"
+make_efi q
+$SN install --efi-folder $T/q > /dev/null 2>&1
+print -n x >> $T/q/EFI/OC/Kexts/GPUSensors.kext/Contents/MacOS/GPUSensors
+sjson q | spy 'not d["pendingReboot"] and d["result"].startswith("GPUSensors 0.0.1 is loaded; ") and "puts it on your EFI" in d["result"]' &&
+  ok "an older sensors kext runs, another build on the EFI: update offered" || bad "sensors old on EFI: $(sjson q)"
 $SN uninstall --efi-folder $T/m > /dev/null 2>&1 && cmp -s $T/m/with-loader.plist $T/m/EFI/OC/config.plist &&
   [[ ! -e $T/m/EFI/OC/Kexts/GPUSensors.kext && -d $T/m/EFI/OC/Kexts/VCNVTLoader.kext ]] &&
   ok "uninstalling the sensors leaves the loader exactly as it was" || bad "sensors uninstall"

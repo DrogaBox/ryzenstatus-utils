@@ -38,6 +38,8 @@ struct LoaderCheck: Decodable {
     let accepted: String
     let acceptedDetail: String
     let result: String
+    /// The right kext is on the EFI and the next boot starts it: nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -64,6 +66,9 @@ struct SensorsCheck: Decodable {
     /// At least one of them in /usr/local/bin is ours (signed with our identifier), so
     /// Remove can take it even when the kext is gone.
     let toolsInstalled: Bool?
+    /// This version is on the EFI and the next boot loads it (an older one, or none, runs
+    /// now): nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -111,12 +116,18 @@ struct OptionalSuggestion: Equatable {
             // A mounted EFI holds another build of the kext, or an old entry for it: the
             // next boot loads that one (encoder.sh check offers the update, install.sh does it).
             let efiOlder = enc.efis.contains { $0.kext == "outdated" || $0.entry == "old" }
-            self.encoder = enc.installed == "outdated" || kextOlder || efiOlder
+            // The package's kext is on a mounted EFI with its entry: an older one runs only
+            // until the next boot, so it is no reason to update.
+            let efiCurrent = enc.efis.contains { $0.kext == "current" && $0.entry == "yes" }
+            self.encoder = enc.installed == "outdated" || (kextOlder && !efiCurrent) || efiOlder
         } else {
             self.encoder = false
         }
         if let sns = sensors, sns.toolsOnly == true {
             self.sensors = true
+        } else if let sns = sensors, sns.pendingReboot == true {
+            // this version is on the EFI already; the older one runs until the next boot
+            self.sensors = false
         } else if let sns = sensors, let running = Self.loadedVersion(sns.running) {
             self.sensors = Self.isOlder(running, than: sns.version)
         } else {
@@ -866,8 +877,10 @@ struct ContentView: View {
             let needed = ldr.checks.first(where: { $0.id == "loader-need" })?.detail.hasPrefix("yes:") ?? true
             let onEfi = ldr.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = ldr.running.hasPrefix("loaded")
-            // The EFI copy is this build's and it runs: nothing to update.
-            let upToDate = ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it starts at the next boot: nothing
+            // to update.
+            let upToDate = (ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:"))
+                || ldr.pendingReboot == true
             let status: String = {
                 if !needed { return "ok" }
                 if ldr.result.hasPrefix("working:") || ldr.result.hasPrefix("installed") { return "ok" }
@@ -928,7 +941,10 @@ struct ContentView: View {
         if let sns = engine.sensors {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
-            let upToDate = sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it loads at the next boot: nothing
+            // to update.
+            let upToDate = (sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:"))
+                || sns.pendingReboot == true
             // The kext needs nothing; gpucontrol and gpusensors in /usr/local/bin do.
             let toolsOnly = sns.toolsOnly == true
             // No kext to take off, but our gpucontrol or gpusensors is still there: Remove

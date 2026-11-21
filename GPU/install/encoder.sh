@@ -300,8 +300,10 @@ emit_check_text() {
   if (( ${#EFI_LINES} )); then print -rl -- "${EFI_LINES[@]}"; else print -r -- "  none found"; fi
   local svc=$(installed_state) run=$(service_state) kx=$(kext_line)
   # from the JSON rows, which hold only the states (the text rows hold names too)
-  local efi_old=0 efi_bad=0 row
+  local efi_old=0 efi_bad=0 efi_new="" row
   for row in "${EFI_JSON[@]}"; do
+    # a mounted EFI that holds the package's kext with its entry: the next boot loads that one
+    [[ -z $efi_new && $row == *'"entry":"yes","kext":"current"'* ]] && efi_new=${${row#*\"id\":\"}%%\"*}
     [[ $row == *'"kext":"outdated"'* ]] && efi_old=1
     [[ $row == *'"entry":"old"'* ]] && efi_old=1
     [[ $row == *'"entry":"differs"'* ]] && efi_bad=1
@@ -309,17 +311,24 @@ emit_check_text() {
   # the kext that runs must be the package's version and active
   local kx_ok=0
   [[ $kx == "loaded $(pkg_version), active"* ]] && kx_ok=1
+  # another version of the kext runs, and the package's is on a mounted EFI with its entry
+  local kx_next=0 kxv=${${kx#loaded }%%,*}
+  [[ $kx == loaded* && $kxv != "$(pkg_version)" && -n $efi_new && $efi_old -eq 0 ]] && kx_next=1
   if [[ $CAN_INSTALL -eq 1 && $svc == current && $run == running && $kx_ok -eq 1 && $efi_old -eq 0 && $efi_bad -eq 0 ]]; then
     print -r -- "Result: installed and working. The service and the kext are the ones in the package; nothing to do."
   elif [[ $CAN_INSTALL -eq 1 && $svc != none ]]; then
     local what=()
     [[ $svc == outdated ]] && what+=("the service")
     (( efi_old )) && what+=("the kext on the EFI")
-    [[ $kx == loaded* && $kx_ok -eq 0 && $efi_old -eq 0 ]] && what+=("the kext (${kx#loaded }; the package has $(pkg_version))")
+    [[ $kx == loaded* && $kx_ok -eq 0 && $efi_old -eq 0 && $kx_next -eq 0 ]] && what+=("the kext (${kx#loaded }; the package has $(pkg_version))")
     [[ $svc == current && $run != running ]] && what+=("the service, which is not running")
     (( efi_bad )) && print -r -- "Note: an EFI's config.plist lists the clock-floor kext with other settings; install refuses that EFI until the entry is fixed or removed by hand."
     if (( ${#what} )); then
       print -r -- "Result: installed; an update is ready for ${(j: and :)what}: $(pick "'sudo install/encoder.sh install' (add --efi auto, or --efi diskNsM, for the kext)" "Encoding fix > Update or Reinstall in this window")."
+    elif (( kx_next )); then
+      print -r -- "Result: installed. The kext on $efi_new is the package's ($(pkg_version)) and loads at the next boot; $kxv runs until then. Reboot from that EFI to start it."
+    elif [[ $efi_old -eq 0 && -n $efi_new && $kx != loaded* ]]; then
+      print -r -- "Result: installed. The kext is on $efi_new and loads at the next boot. Reboot from that EFI to start it."
     else
       print -r -- "Result: installed. The kext is not loaded: $(pick "'sudo install/encoder.sh install --efi diskNsM'" "Encoding fix > Reinstall in this window") adds it, then reboot."
     fi

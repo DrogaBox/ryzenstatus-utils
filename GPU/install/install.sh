@@ -140,6 +140,8 @@ elif ! look loader; then
   block loader "its check did not answer"
 elif [[ $(jfield loader result) == working* ]]; then
   SKIPS+=("loader kext: already on the EFI, running, and it lets these plug-ins in")
+elif [[ $(jfield loader pendingReboot) == true ]]; then
+  SKIPS+=("loader kext: the right one is on the EFI already; it starts at the next boot")
 elif [[ $(jfield loader canInstall) != true ]]; then
   block loader "it is needed here (no AMFIPass, AMFI on) but cannot be installed:"$'\n'"$(failed_checks loader)"
 else
@@ -195,6 +197,9 @@ for part flag in encoder $WITH_ENCODER sensors $WITH_SENSORS; do
   elif in_place $part || [[ $part == sensors && $(jfield sensors toolsOnly) == true ]]; then
     SKIPS+=("$part: already installed and running, the same version")
     [[ $part == sensors ]] && plan_tools
+  elif [[ $part == sensors && $(jfield sensors pendingReboot) == true ]]; then
+    # this version is on the EFI; the commands are copied after the reboot, when it runs
+    SKIPS+=("sensors: this version is on the EFI already; it loads at the next boot")
   elif [[ $(jfield $part canInstall) != true ]]; then
     block $part "it cannot be installed on this Mac:"$'\n'"$(failed_checks $part)"
   else
