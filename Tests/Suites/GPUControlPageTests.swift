@@ -496,9 +496,8 @@ enum GPUControlPageTests {
             "/usr": rootDir, "/": Tool.FileInfo(kind: .directory, uid: 0, permissions: 0o1755),
         ]
         let ours: Tool.Signature = { _ in Tool.identifier }
-        func availability(_ table: [String: Tool.FileInfo], signature: @escaping Tool.Signature = ours,
-                          home: String = "/Users/someone") -> Tool.Availability {
-            Tool.availability(lookup: { table[$0] }, signature: signature, home: home)
+        func availability(_ table: [String: Tool.FileInfo], signature: @escaping Tool.Signature = ours) -> Tool.Availability {
+            Tool.availability(lookup: { table[$0] }, signature: signature)
         }
         suite.expect(availability(safe) == .button, "our signed tool, root's, in root's folders: the button")
         suite.expect(Tool.armCommand == "/usr/local/bin/gpucontrol arm", "the dialog runs a fixed command")
@@ -583,15 +582,35 @@ enum GPUControlPageTests {
         if case .unsafe = availability(unreadable) {} else { suite.expect(false, "a folder that cannot be read: no button") }
         var missing = safe
         missing["/usr/local/bin/gpucontrol"] = nil
-        suite.expect(availability(missing) == .missing(buildPath: nil), "not installed, no build: missing")
+        suite.expect(availability(missing) == .missing, "not installed: missing")
         suite.expect(availability(missing).command == "sudo /usr/local/bin/gpucontrol arm", "missing: the installed command")
-        missing["/Users/someone/Desktop/DrogaBoxGPU/sensors/build/gpucontrol"] =
-            Tool.FileInfo(kind: .regular, uid: 501, permissions: 0o755)
-        let build = availability(missing)
-        suite.expect(build == .missing(buildPath: "/Users/someone/Desktop/DrogaBoxGPU/sensors/build/gpucontrol"),
-                     "not installed, built: the build path")
-        suite.expect(build.command == "sudo /Users/someone/Desktop/DrogaBoxGPU/sensors/build/gpucontrol arm",
-                     "the build path's command to copy (never run by the app)")
+        // Only /usr/local/bin is looked at: a copy anywhere else, even a
+        // plain file the user built, is never offered as a command.
+        var asked: [String] = []
+        _ = Tool.availability(lookup: { asked.append($0); return missing[$0] }, signature: ours)
+        suite.expect(asked == [Tool.installedPath], "not installed: no other path is looked at (\(asked))")
+        let page = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
+                                    + "/Sources/RyzenStatus/Services/Metrics/GPUControlPage.swift", encoding: .utf8)) ?? ""
+        suite.expect(!page.isEmpty && !page.contains("Desktop/") && !page.contains("NSHomeDirectory"),
+                     "no build folder under the home folder is a fallback")
+        // B8: the page sends people to the RyzenStatus GPU app in the DMG,
+        // never to a source folder or a script.
+        for language in AppLanguage.allCases {
+            let t = FeatureStrings.gpuControlPage(language)
+            suite.expect(t.notInstalled.contains("RyzenStatus GPU") && t.notInstalled.contains("GPU RX 6000")
+                            && t.notInstalled.contains("/usr/local/bin") && t.notInstalled.contains("DMG"),
+                         "\(language.rawValue): not installed names the app, the DMG folder and /usr/local/bin")
+            suite.expect(t.unsafeOtherProgram.contains("RyzenStatus GPU"),
+                         "\(language.rawValue): another program is told apart from the one RyzenStatus GPU installs")
+            for text in t.all {
+                suite.expect(!text.contains("DrogaBox") && !text.contains("sensors.sh") && !text.contains("Desktop"),
+                             "\(language.rawValue): no text names the old source tree: \(text)")
+            }
+        }
+        suite.expect(GPUControlPageStrings.es.notInstalled.contains("Instálalo"), "Spanish: tú, like its neighbours")
+        suite.expect(!GPUControlPageStrings.zhTW.notInstalled.contains("应用") && GPUControlPageStrings.zhTW.unsafeOtherProgram.hasSuffix("。")
+                        && GPUControlPageStrings.zhHans.unsafeOtherProgram.hasSuffix("。"),
+                     "Chinese: traditional characters in zh-Hant, a full-width stop in both")
 
         realFiles(suite)
 
@@ -629,7 +648,7 @@ enum GPUControlPageTests {
         run("/bin/chmod", ["755", top])
         try? FileManager.default.copyItem(atPath: "/usr/bin/true", toPath: tool)
         run("/bin/chmod", ["755", tool])
-        // An ad hoc signature with our identifier, as DrogaBoxGPU signs it.
+        // An ad hoc signature with our identifier, as the tool is signed.
         let signed = run("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", Tool.identifier, tool])
         suite.expect(signed == 0, "the test's copy is signed ad hoc as com.droga.gpucontrol")
         let me = getuid()
