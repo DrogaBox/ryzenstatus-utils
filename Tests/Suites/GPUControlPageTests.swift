@@ -826,7 +826,7 @@ enum GPUControlPageTests {
             return pattern?.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } } ?? []
         }
         let english = GPUControlPageStrings.enUS.all
-        suite.expect(english.count == 90, "90 texts")
+        suite.expect(english.count == 94, "94 texts")
         for language in AppLanguage.allCases {
             let table = FeatureStrings.gpuControlPage(language).all
             suite.expect(table.count == english.count && table.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty },

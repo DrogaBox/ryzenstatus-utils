@@ -13520,6 +13520,7 @@ struct MetricsTests {
                 ("GPUControlPageTests", GPUControlPageTests.run),
                 ("GPUControlFanTests", GPUControlFanTests.run),
                 ("GPUControlClockTests", GPUControlClockTests.run),
+                ("GPUControlA11yTests", GPUControlA11yTests.run),
                 ("GPUFolderTests", GPUFolderTests.run),
                 ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
