@@ -15,34 +15,107 @@ enum MenuBarMetricSpacing: String, CaseIterable {
         return MenuBarMetricSpacing(rawValue: Defaults.sanitizedMenuBarMetricSpacing(raw)) ?? .standard
     }
 }
-/// How a metric is drawn in the menu bar. Values keep the numeric blocks;
-/// the graph styles replace a usage reading with a gauge, a ring, a history
-/// graph or one bar per core. "classic" is a former duplicate of values that
-/// old settings may still carry; it reads as values.
+/// How a metric is drawn in the menu bar.
+///
+/// Text styles: a small label above the value, label and value on one line,
+/// the value alone, or a symbol and the value. For readings with two values
+/// (temperature and power, network, disk activity, frequency) the label-above
+/// style is two lines with the name beside them, and value-only is the two
+/// lines alone. Graph styles replace a usage reading with a gauge, a ring, a
+/// history graph or one bar per core. "classic" is a former duplicate of
+/// values that old settings may still carry; it reads as values.
 enum MenuBarMetricAppearance: String, CaseIterable {
-    case values, bars, pie, sparkline, histogram, classic
+    case values, inline, valueOnly, iconValue, bars, pie, sparkline, histogram, classic
 
     /// Drawn as text, so a temperature can join it in the same block.
-    var isText: Bool { self == .values || self == .classic }
-
-    /// Metrics with a style of their own. The rest always draw as text.
-    static let styledMetrics: [MenuBarMetric] = [.cpu, .gpu, .memory, .network, .diskUsage]
-
-    /// The stored style of one metric. Every styled metric has a registered
-    /// value, written explicitly by `MenuBarStyleMigration` for older installs.
-    static func stored(for metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> MenuBarMetricAppearance {
-        let raw = Defaults.sanitizedMenuBarMetricAppearance(defaults.string(forKey: metric.styleKey) ?? "")
-        // What the metric actually draws for the stored value ("classic" is
-        // values, a GPU "histogram" is history), so a picker never shows a
-        // value it does not offer.
-        return MenuBarMetricAppearance(rawValue: MenuBarStyleMigration.shownStyle(raw, for: metric)) ?? .values
+    var isText: Bool {
+        switch self {
+        case .values, .inline, .valueOnly, .iconValue, .classic: return true
+        case .bars, .pie, .sparkline, .histogram: return false
+        }
     }
 
-    /// Whether a usage reading takes its temperature into the same block:
-    /// only while "combine temperatures" is on and the usage draws as text.
-    /// The renderer, the sampler, Settings and search all ask this.
-    static func usageCombinesTemperature(_ metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures) && stored(for: metric, in: defaults).isText
+    /// Every metric has a style of its own.
+    static let styledMetrics: [MenuBarMetric] = MenuBarMetric.allCases
+
+    /// The styles one metric can be drawn in, text styles first. A symbol is
+    /// offered only where it is unique to the metric: there is no GPU symbol,
+    /// and a thermometer or a bolt would read the same for CPU and GPU.
+    static func allowed(for metric: MenuBarMetric) -> [MenuBarMetricAppearance] {
+        switch metric {
+        case .cpu: return [.values, .inline, .valueOnly, .bars, .pie, .sparkline, .histogram]
+        case .gpu: return [.values, .inline, .valueOnly, .bars, .pie, .sparkline]
+        case .memory: return [.values, .inline, .valueOnly, .iconValue, .bars, .pie, .sparkline]
+        case .diskUsage: return [.values, .inline, .valueOnly, .iconValue, .bars, .pie]
+        case .network: return [.values, .inline, .valueOnly, .sparkline]
+        case .battery, .connectedDevices: return [.values, .inline, .valueOnly, .iconValue]
+        default: return [.values, .inline, .valueOnly]
+        }
+    }
+
+    /// What each metric showed before it had a choice, so an install that
+    /// never picks a style keeps its menu bar as it was.
+    static func defaultStyle(for metric: MenuBarMetric) -> MenuBarMetricAppearance {
+        switch metric {
+        case .cpuFrequency, .cpuTempPower, .gpuTempPower, .diskActivity: return .valueOnly
+        case .battery: return .iconValue
+        default: return .values
+        }
+    }
+
+    /// Registered values for every per-metric style key.
+    static var registeredStyleDefaults: [String: Any] {
+        Dictionary(uniqueKeysWithValues: styledMetrics.map { ($0.styleKey, defaultStyle(for: $0).rawValue as Any) })
+    }
+
+    /// Whether the metric shows two values (two lines unless drawn inline).
+    static func isDual(_ metric: MenuBarMetric) -> Bool {
+        switch metric {
+        case .cpuFrequency, .cpuTempPower, .gpuTempPower, .network, .diskActivity: return true
+        default: return false
+        }
+    }
+
+    /// The stored style of one metric, limited to the styles it offers.
+    static func stored(for metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> MenuBarMetricAppearance {
+        var style = MenuBarMetricAppearance(rawValue: defaults.string(forKey: metric.styleKey) ?? "")
+            ?? defaultStyle(for: metric)
+        if style == .classic { style = .values }
+        // Older builds drew every graph style on network as its history
+        // graph, and "histogram" as history on GPU and memory.
+        if !allowed(for: metric).contains(style) {
+            switch (metric, style) {
+            case (.network, .bars), (.network, .pie), (.network, .histogram),
+                 (.gpu, .histogram), (.memory, .histogram):
+                style = .sparkline
+            default:
+                style = defaultStyle(for: metric)
+            }
+        }
+        return style
+    }
+
+    /// Whether a temperature reading is drawn inside its usage block right
+    /// now (combine on, both pinned, usage drawn as text), so its own style
+    /// does not apply. The same rule as `MenuBarRenderSettings.combinesTemperature`.
+    static func drawnWithUsage(_ temperature: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
+        let usage: MenuBarMetric
+        switch temperature {
+        case .cpuTemperature: usage = .cpu
+        case .gpuTemperature:
+            // With VRAM chosen the temperature always keeps its own block
+            // and style, kext or no kext: the renderer decides from the same
+            // setting (MenuBarRenderSettings.gpuTemperatureSource).
+            if GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)) == .memory {
+                return false
+            }
+            usage = .gpu
+        case .batteryTemperature: usage = .battery
+        default: return false
+        }
+        return defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
+            && defaults.bool(forKey: usage.defaultsKey) && defaults.bool(forKey: temperature.defaultsKey)
+            && (usage == .battery || stored(for: usage, in: defaults).isText)
     }
 
     /// Whether the "combine temperatures" switch can change anything: CPU or

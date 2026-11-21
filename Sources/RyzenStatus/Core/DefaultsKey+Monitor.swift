@@ -47,6 +47,9 @@ extension DefaultsKey {
     static let menuBarUsageBarHighThreshold = "menuBarUsageBarHighThreshold" // percent
     static let menuBarHideIconWithMetrics = "menuBarHideIconWithMetrics" // glyph hides while metrics render in the main item
     static let menuBarGraphShowsValue = "menuBarGraphShowsValue" // render numeric text inside graph blocks
+    static let menuBarGraphMonochrome = "menuBarGraphMonochrome" // menu bar graphs and bars in the text color
+    static let menuBarHighlightHighValues = "menuBarHighlightHighValues" // usage values take the level colors
+    static let menuBarNarrowText = "menuBarNarrowText" // condensed width for menu bar text
     static let menuBarGraphThemeLight = "menuBarGraphThemeLight" // MenuBarGraphTheme raw value
     static let menuBarGraphThemeDark = "menuBarGraphThemeDark"   // MenuBarGraphTheme raw value
     static let menuBarGraphLightBackground = "menuBarGraphLightBackground" // filled | outline

@@ -406,8 +406,10 @@ enum SettingsDirectory {
                                               when: state.hardware.bluetoothSleep && state.on(DefaultsKey.bluetoothSleepEnabled)),
                                        ]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
-                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle, barStyle.label,
-                                                  barStyle.bars, barStyle.values, s.monitorSeparateMenuBarMetrics,
+                                       keywords: [barStyle.itemWidth, s.menuBarHideIconToggle, barStyle.itemsTitle,
+                                                  barStyle.styleLabelAbove, barStyle.styleInline, barStyle.styleValueOnly,
+                                                  barStyle.bars, barStyle.graphColor, barStyle.highlightHighValues,
+                                                  barStyle.narrowText, s.monitorSeparateMenuBarMetrics,
                                                   s.monitorIntervalLabel, s.temperatures],
                                        featureKeywords: [
                                         (.monitorMemory, [s.monitorMemoryPressureDot, s.monitorMemoryMetricLabel]),

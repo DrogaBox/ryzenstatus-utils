@@ -13,7 +13,17 @@ import AppKit
 struct MenuBarRenderSettings: Equatable {
     var styles: [MenuBarMetric: MenuBarMetricAppearance]
     var combineTemperatures: Bool
+    /// The GPU temperature the user chose to show. The setting, not the
+    /// reading that arrived: with VRAM chosen and the kext silent, the
+    /// macOS fallback must not be folded into the GPU usage block either.
+    var gpuTemperatureSource: GPUTemperatureSource
     var graphShowsValue: Bool
+    /// Graphs and usage bars in the text color, like the system's icons.
+    var graphMonochrome: Bool
+    /// Usage values take the level colors past the bar thresholds.
+    var highlightHighValues: Bool
+    /// Condensed text, so more readings fit.
+    var narrowText: Bool
     var spacing: MenuBarMetricSpacing
     var memoryStyle: MemoryMenuBarStyle
     var memoryMetric: MonitorMemoryMetric
@@ -38,18 +48,41 @@ struct MenuBarRenderSettings: Equatable {
     var appearanceName: String
 
     func style(for metric: MenuBarMetric) -> MenuBarMetricAppearance {
-        styles[metric] ?? .values
+        styles[metric] ?? MenuBarMetricAppearance.defaultStyle(for: metric)
+    }
+
+    /// The level a usage value is highlighted at ("elevated", "critical"),
+    /// or nil for the text color. System orange and red, not the bar colors:
+    /// they keep their contrast on a light menu bar as well as a dark one.
+    func highlightHex(for fraction: Double?) -> String? {
+        guard highlightHighValues, let fraction else { return nil }
+        switch MenuBarUsageBarSupport.level(for: fraction,
+                                            mediumPercent: usageBarMediumThreshold,
+                                            highPercent: usageBarHighThreshold) {
+        case .normal: return nil
+        case .elevated: return "elevated"
+        case .critical: return "critical"
+        }
     }
 
     /// Usage and temperature share one block only while the usage reading is
     /// drawn as text. Decided once per component from the usage metric's own
     /// style, so the order of the pinned list can never draw a reading twice.
-    func combinesTemperature(of component: MenuBarComponent) -> Bool {
+    ///
+    /// Only while both readings are pinned: a temperature shown without its
+    /// usage keeps its own style and name.
+    ///
+    /// A VRAM temperature is not the GPU's, so with VRAM chosen the GPU
+    /// temperature always keeps its own labelled block and style, also while
+    /// the kext is silent and the macOS reading stands in for it. Settings
+    /// asks the same question in `MenuBarMetricAppearance.drawnWithUsage`.
+    func combinesTemperature(of component: MenuBarComponent, enabled: Set<MenuBarMetric>) -> Bool {
         guard combineTemperatures else { return false }
         switch component {
-        case .cpu: return style(for: .cpu).isText
-        case .gpu: return style(for: .gpu).isText
-        case .battery: return true
+        case .cpu: return enabled.contains(.cpu) && enabled.contains(.cpuTemperature) && style(for: .cpu).isText
+        case .gpu: return gpuTemperatureSource != .memory
+            && enabled.contains(.gpu) && enabled.contains(.gpuTemperature) && style(for: .gpu).isText
+        case .battery: return enabled.contains(.battery) && enabled.contains(.batteryTemperature)
         }
     }
 
@@ -66,7 +99,11 @@ struct MenuBarRenderSettings: Equatable {
         return MenuBarRenderSettings(
             styles: styles,
             combineTemperatures: defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures),
+            gpuTemperatureSource: GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)),
             graphShowsValue: defaults.bool(forKey: DefaultsKey.menuBarGraphShowsValue),
+            graphMonochrome: defaults.bool(forKey: DefaultsKey.menuBarGraphMonochrome),
+            highlightHighValues: defaults.bool(forKey: DefaultsKey.menuBarHighlightHighValues),
+            narrowText: defaults.bool(forKey: DefaultsKey.menuBarNarrowText),
             spacing: MenuBarMetricSpacing(
                 rawValue: Defaults.sanitizedMenuBarMetricSpacing(
                     defaults.string(forKey: DefaultsKey.menuBarMetricSpacing) ?? "")) ?? .standard,
@@ -133,6 +170,13 @@ final class MenuBarWidthMemory: @unchecked Sendable {
 
     private var digitHighWater: [String: Int] = [:]
 
+    /// Forgets every block's widest value, when the render settings change
+    /// (a unit, a style, a spacing): the old widths no longer apply.
+    func reset() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        digitHighWater.removeAll()
+    }
+
     /// The reserve compact mode uses for a metric block: the current value's
     /// shape, widened to at least `MenuBarSpacingSupport.compactMinimumDigits`
     /// digits and to the block's session high-water mark.
@@ -160,11 +204,15 @@ enum MenuBarStyleMigration {
     /// missing (see `SettingsBackup.apply`).
     static let markerKey = "menuBarStyleMigration1"
 
+    /// The metrics that had a style before every metric had one; only they
+    /// read the old global key.
+    static let convertedMetrics: [MenuBarMetric] = [.cpu, .gpu, .memory, .network, .diskUsage]
+
     /// Keys the conversion reads, so callers can collect them from defaults
     /// or from a backup file.
     static var inputKeys: [String] {
         [DefaultsKey.menuBarMetricAppearance, DefaultsKey.menuBarLayoutMode]
-            + MenuBarMetricAppearance.styledMetrics.map(\.styleKey)
+            + convertedMetrics.map(\.styleKey)
     }
 
     /// What `stored` (saved values only, no registered defaults) becomes.
@@ -173,11 +221,17 @@ enum MenuBarStyleMigration {
     static func migratedValues(stored: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
         let global = validStyle(stored[DefaultsKey.menuBarMetricAppearance])
-        let namesStyle = global != nil
-            || MenuBarMetricAppearance.styledMetrics.contains { validStyle(stored[$0.styleKey]) != nil }
+        let namesStyle = global != nil || convertedMetrics.contains { validStyle(stored[$0.styleKey]) != nil }
         // Settings that name no style (a classic-only config file) leave the
         // current per-metric styles alone.
-        for metric in MenuBarMetricAppearance.styledMetrics where namesStyle {
+        //
+        // Deliberately `convertedMetrics`, not `MenuBarMetricAppearance.styledMetrics`
+        // (every metric since per-metric styles): only these five ever read the
+        // old global key, so only they have an old look to keep. Every other
+        // metric must stay unsaved and resolve to `defaultStyle(for:)`. Widening
+        // this loop would write a style for all of them under the same marker,
+        // with no second pass to undo it; the conversion tests catch that.
+        for metric in convertedMetrics where namesStyle {
             let effective = validStyle(stored[metric.styleKey]) ?? global ?? "values"
             result[metric.styleKey] = shownStyle(effective, for: metric)
         }
@@ -201,6 +255,11 @@ enum MenuBarStyleMigration {
     /// `MenuBarRenderer.blockSegments` as it stood before the conversion.
     static func shownStyle(_ stored: String, for metric: MenuBarMetric) -> String {
         let value = stored == "classic" ? "values" : stored
+        // Styles that only newer builds write mean what they say wherever
+        // the metric offers them.
+        if let style = MenuBarMetricAppearance(rawValue: value), [.inline, .valueOnly, .iconValue].contains(style) {
+            return MenuBarMetricAppearance.allowed(for: metric).contains(style) ? value : "values"
+        }
         switch metric {
         case .cpu:
             return value
@@ -218,9 +277,10 @@ enum MenuBarStyleMigration {
         }
     }
 
+    /// Any style a build ever wrote: a file that pairs the old global key
+    /// with a newer per-metric style ("inline") keeps that style.
     private static func validStyle(_ raw: Any?) -> String? {
-        guard let raw = raw as? String,
-              Defaults.allowedMenuBarMetricAppearances.contains(raw) else { return nil }
+        guard let raw = raw as? String, MenuBarMetricAppearance(rawValue: raw) != nil else { return nil }
         return raw
     }
 
@@ -265,9 +325,9 @@ enum MenuBarStyleMigration {
     /// Whether `settings` (a backup or config file) still speaks the old
     /// vocabulary.
     static func needsConversion(_ settings: [String: Any]) -> Bool {
-        // Current exports carry all five; with fewer, the rest inherit the
-        // old global style.
-        let hasPerMetric = MenuBarMetricAppearance.styledMetrics.allSatisfy { settings[$0.styleKey] != nil }
+        // Exports carry all five; with fewer, the rest inherit the old
+        // global style.
+        let hasPerMetric = convertedMetrics.allSatisfy { settings[$0.styleKey] != nil }
         let hasGlobal = settings[DefaultsKey.menuBarMetricAppearance] != nil
         let hasClassic = settings[DefaultsKey.menuBarLayoutMode] as? String == "classic"
         return (hasGlobal && !hasPerMetric) || hasClassic

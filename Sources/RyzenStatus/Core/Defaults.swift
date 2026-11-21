@@ -209,7 +209,7 @@ enum Defaults {
     static let defaultMouseClickDebounceWindowMs = 25
     static let allowedMouseClickDebounceWindowRange = 5...100
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
+    static let allowedMenuBarMetricAppearances = MenuBarMetricAppearance.allCases.map(\.rawValue)
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature", "cpuPower", "cpuFrequency", "cpuTempPower",
         "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
@@ -228,7 +228,13 @@ enum Defaults {
     static let defaultClipboardMenuBarPreviewLength = 20
     static let allowedMonitorAlertCooldowns = [2, 5, 15, 30, 60]
 
-    static let registeredDefaults: [String: Any] = [
+    /// Every registered default: the table below plus one style key per
+    /// menu bar metric, registered at the look the metric had before it had
+    /// a style of its own.
+    static let registeredDefaults: [String: Any] = baseRegisteredDefaults
+        .merging(MenuBarMetricAppearance.registeredStyleDefaults) { base, _ in base }
+
+    private static let baseRegisteredDefaults: [String: Any] = [
         DefaultsKey.clamshellPreferred: false,
         DefaultsKey.appearance: AppAppearance.fallback.rawValue,
         DefaultsKey.liquidGlassEnabled: false,
@@ -716,11 +722,6 @@ enum Defaults {
         DefaultsKey.menuBarPeripheralBattery: false,
         DefaultsKey.menuBarMetricSpacing: "compact",  // owner's call: compact by default in 3.1.8
         DefaultsKey.menuBarMetricAppearance: "values",
-        DefaultsKey.menuBarMetricAppearanceCPU: "values",
-        DefaultsKey.menuBarMetricAppearanceGPU: "values",
-        DefaultsKey.menuBarMetricAppearanceMemory: "values",
-        DefaultsKey.menuBarMetricAppearanceNetwork: "values",
-        DefaultsKey.menuBarMetricAppearanceDiskUsage: "values",
         DefaultsKey.menuBarUsageBarNormalColor: "#64D2FF",
         DefaultsKey.menuBarUsageBarElevatedColor: "#FFD60A",
         DefaultsKey.menuBarUsageBarCriticalColor: "#FF453A",
@@ -729,6 +730,9 @@ enum Defaults {
         DefaultsKey.menuBarHideIconWithMetrics: false,
         DefaultsKey.menuBarLayoutMode: "modern",
         DefaultsKey.menuBarGraphShowsValue: false,
+        DefaultsKey.menuBarGraphMonochrome: false,
+        DefaultsKey.menuBarHighlightHighValues: false,
+        DefaultsKey.menuBarNarrowText: false,
         DefaultsKey.menuBarGraphThemeLight: "system",
         DefaultsKey.menuBarGraphThemeDark: "system",
         DefaultsKey.menuBarGraphLightBackground: "filled",
