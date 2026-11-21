@@ -26,9 +26,14 @@
 //      it (common/avd.h), and every create that fails part way releases what
 //      it made in the same order as a full close;
 //   9. (VP9) a driver handle whose VAContext is NULL fails the create and is
-//      released, without a read through it.
+//      released, without a read through it;
+//  10. with a second clip whose samples pack a hidden frame with a shown one:
+//      the hidden frame sent alone (as FFmpeg sends frames) shows nothing and
+//      leaves its picture in *_hidden_picture, the rest of the sample then
+//      shows one frame and clears it; a frame whose reference was never
+//      decoded is a reference failure, not a stream failure.
 //
-// usage: sessiontest <first frames of a small IVF clip of the codec>
+// usage: sessiontest <small IVF clip of the codec> [clip with hidden frames]
 // Exit status 0 = pass.
 #include <IOKit/IOKitLib.h>
 #include <dispatch/dispatch.h>
@@ -53,8 +58,11 @@ typedef VcnAV1 Vcn;
 #define ARMED vcnav1_gpu_armed
 #define FAIL_DEVICE VCNAV1_FAIL_DEVICE
 #define FAIL_STREAM VCNAV1_FAIL_STREAM
+#define FAIL_REFERENCE VCNAV1_FAIL_REFERENCE
+#define HIDDEN vcnav1_hidden_picture
 static void on_out(void* c, CVPixelBufferRef f, const AV1Parser* p, int64_t t) {
-  (void)c, (void)f, (void)p, (void)t;
+  (void)f, (void)p, (void)t;
+  if (c) ++*(int*)c;
 }
 #elif defined(TEST_VP9)
 #include "vcnvp9.h"
@@ -68,9 +76,12 @@ typedef VcnVP9 Vcn;
 #define ARMED vcnvp9_gpu_armed
 #define FAIL_DEVICE VCNVP9_FAIL_DEVICE
 #define FAIL_STREAM VCNVP9_FAIL_STREAM
+#define FAIL_REFERENCE VCNVP9_FAIL_REFERENCE
+#define HIDDEN vcnvp9_hidden_picture
 static void on_out(void* c, CVPixelBufferRef f, const VP9Parser* p, uint32_t w,
                    uint32_t h, int64_t t) {
-  (void)c, (void)f, (void)p, (void)w, (void)h, (void)t;
+  (void)f, (void)p, (void)w, (void)h, (void)t;
+  if (c) ++*(int*)c;
 }
 #else
 #error "build with -DTEST_AV1 or -DTEST_VP9"
@@ -349,6 +360,137 @@ static bool closed_in_background(Vcn* d) {
          !st.gateTimedOut;
 }
 
+// ---- samples split the way FFmpeg sends them
+typedef struct {
+  uint8_t* data;
+  size_t size;
+} Sample;
+static Sample clip[64];
+static int clipCount;
+static bool read_clip(const char* path) {
+  FILE* f = fopen(path, "rb");
+  uint8_t h[32], fh[12];
+  if (!f || fread(h, 1, 32, f) != 32 || memcmp(h, "DKIF", 4)) {
+    if (f) fclose(f);
+    return false;
+  }
+  while (clipCount < 64 && fread(fh, 1, 12, f) == 12) {
+    size_t n = fh[0] | fh[1] << 8 | fh[2] << 16 | (size_t)fh[3] << 24;
+    uint8_t* b = n && n < kFakeBuffer - 256 ? malloc(n) : NULL;
+    if (!b || fread(b, 1, n, f) != n) {
+      free(b);
+      break;
+    }
+    clip[clipCount++] = (Sample){b, n};
+  }
+  fclose(f);
+  return clipCount > 0;
+}
+// Where the second frame of a sample starts, or 0 when it holds one frame.
+static size_t second_frame(const uint8_t* b, size_t n) {
+#if defined(TEST_AV1)
+  // OBUs with sizes; frames are OBU_FRAME_HEADER (3) or OBU_FRAME (6).
+  size_t o = 0;
+  int frames = 0;
+  while (o < n) {
+    uint8_t hd = b[o];
+    int type = hd >> 3 & 15;
+    size_t q = o + 1 + (hd >> 2 & 1), len = 0;
+    if (!(hd >> 1 & 1)) return 0;
+    for (int k = 0; k < 8 && q < n; k++, q++) {
+      len |= (size_t)(b[q] & 0x7f) << (7 * k);
+      if (!(b[q] & 0x80)) {
+        q++;
+        break;
+      }
+    }
+    if (type == 3 || type == 6) {
+      if (++frames == 2) return o;
+    }
+    o = q + len;
+  }
+  return 0;
+#else
+  // A superframe index at the end; the first frame's size is its first entry.
+  uint8_t m = b[n - 1];
+  if ((m & 0xe0) != 0xc0) return 0;
+  int count = (m & 7) + 1, mag = (m >> 3 & 3) + 1;
+  size_t index = 2 + (size_t)mag * count;
+  if (n < index || b[n - index] != m || count < 2) return 0;
+  size_t first = 0;
+  for (int k = 0; k < mag; k++)
+    first |= (size_t)b[n - index + 1 + k] << (8 * k);
+  return first < n - index ? first : 0;
+#endif
+}
+
+static void hidden_frames(const char* path) {
+  if (!read_clip(path)) {
+    expect("the clip with hidden frames reads", false);
+    return;
+  }
+  int at = -1;
+  size_t cut = 0;
+  for (int i = 0; i < clipCount && at < 0; i++)
+    if ((cut = second_frame(clip[i].data, clip[i].size))) at = i;
+  expect("the clip has a sample with a hidden frame packed in", at >= 0);
+  if (at < 0) return;
+  const Sample* s = &clip[at];
+#if defined(TEST_AV1)
+  // The rest of an AV1 temporal unit is its later frames' OBUs.
+  const uint8_t* rest = s->data + cut;
+  size_t restSize = s->size - cut;
+#else
+  // The rest of a superframe: the following frames, without the index.
+  uint8_t m = s->data[s->size - 1];
+  size_t index = 2 + (size_t)((m >> 3 & 3) + 1) * ((m & 7) + 1);
+  const uint8_t* rest = s->data + cut;
+  size_t restSize = s->size - index - cut;
+#endif
+  reset();
+  Vcn* d = make();
+  int shown = 0, r = 0;
+  for (int i = 0; d && i < at && !r; i++)
+    r = DECODE(d, clip[i].data, clip[i].size, i, on_out, &shown);
+  expect("the samples before it decode", d && r == 0);
+  shown = 0;
+  int rh = d ? DECODE(d, s->data, cut, at, on_out, &shown) : -1;
+  if (rh) printf("     hidden frame alone: %s\n", d ? LASTERR(d) : "");
+  expect("its hidden frame alone shows nothing and keeps its picture",
+         d && rh == 0 && shown == 0 && HIDDEN(d) != NULL);
+  shown = 0;
+  int rr = d ? DECODE(d, rest, restSize, at, on_out, &shown) : -1;
+  if (rr) printf("     rest of the sample: %s\n", d ? LASTERR(d) : "");
+  expect("the rest of the sample shows one frame, no hidden picture left",
+         d && rr == 0 && shown == 1 && HIDDEN(d) == NULL);
+  if (d) DESTROY(d);
+  expect("and that session closes fully", all_released());
+
+  // A new session that starts on the rest of the sample: its frame refers to
+  // pictures this session never decoded.
+  reset();
+  d = make();
+  int rm = -1;
+  if (d) {
+    r = DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);  // headers
+#if defined(TEST_AV1)
+    vcnav1_flush(d);
+#else
+    DESTROY(d);
+    d = make();
+#endif
+    rm =
+        d ? DECODE(d, clip[at + 1 < clipCount ? at + 1 : at].data,
+                   clip[at + 1 < clipCount ? at + 1 : at].size, 0, on_out, NULL)
+          : -1;
+  }
+  if (d) printf("     after the references were dropped: %s\n", LASTERR(d));
+  expect("a frame whose reference was never decoded is a reference failure",
+         d && rm != 0 && FAILURE(d) == FAIL_REFERENCE);
+  if (d) DESTROY(d);
+  for (int i = 0; i < clipCount; i++) free(clip[i].data);
+}
+
 static void hung(int sig) {
   (void)sig;
   static const char msg[] = "FAIL a test hung\n";
@@ -357,8 +499,10 @@ static void hung(int sig) {
 }
 
 int main(int argc, char** argv) {
-  if (argc != 2 || !read_first_frame(argv[1])) {
-    fprintf(stderr, "usage: sessiontest <small IVF clip of the codec>\n");
+  if ((argc != 2 && argc != 3) || !read_first_frame(argv[1])) {
+    fprintf(stderr,
+            "usage: sessiontest <small IVF clip of the codec> [clip with "
+            "hidden frames]\n");
     return 1;
   }
   signal(SIGALRM, hung);
@@ -500,6 +644,8 @@ int main(int argc, char** argv) {
   expect("a damaged sample is a stream failure",
          d && rj != 0 && FAILURE(d) == FAIL_STREAM && st.schedules == 0);
   if (d) DESTROY(d);
+
+  if (argc == 3) hidden_frames(argv[2]);
 
   free(frame0);
   return failures ? 1 : 0;

@@ -192,7 +192,10 @@ static int parse_header(VP9Parser* p, const uint8_t* data, size_t size) {
       for (int i = 0; i < 3 && !found; i++)
         if (f(b, 1)) {
           const VP9Ref* r = &p->ref[h->ref_frame_idx[i]];
-          if (!r->valid) return fail(p, "frame size from a missing reference");
+          if (!r->valid) {
+            p->missing_ref = true;
+            return fail(p, "frame size from a missing reference");
+          }
           h->width = r->width;
           h->height = r->height;
           found = true;
@@ -265,6 +268,7 @@ int vp9_parse_frame_header(VP9Parser* p, const uint8_t* data, size_t size) {
   VP9Parser saved = *p;
   if (parse_header(p, data, size)) {
     memcpy(saved.err, p->err, sizeof(saved.err));
+    saved.missing_ref = p->missing_ref;  // why it failed outlives the rollback
     *p = saved;
     return -1;
   }
@@ -323,6 +327,7 @@ void vp9_lf_adj_levels(const VP9Parser* p, uint8_t out[8][4][2]) {
 int vp9_parse_chunk(VP9Parser* p, const uint8_t* data, size_t size,
                     VP9FrameFn fn, void* ctx) {
   if (!p) return -1;
+  p->missing_ref = false;
   if (!size) return 0;
   if (!data || !fn) return fail(p, "invalid chunk input");
   size_t sizes[8], count = 0;

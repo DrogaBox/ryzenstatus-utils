@@ -122,11 +122,12 @@ step "decoders: accelerator rule"
 check "only AMD's accelerator is taken" decode/build/tests/acceltest
 check "a decode command that never finishes times out" decode/build/tests/waittest
 sessions() {
-  decode/build/tests/sessiontest-av1 tests/media/av1/av1-1-b8-01-size-16x16.ivf > decode/build/tests/sessiontest-av1.txt &&
-    decode/build/tests/sessiontest-vp9 tests/media/vp9/vp90-2-12-droppable_1.ivf > decode/build/tests/sessiontest-vp9.txt ||
+  decode/build/tests/sessiontest-av1 tests/media/av1/av1-1-b8-01-size-16x16.ivf tests/media/av1/av1-1-b8-05-mv.ivf > decode/build/tests/sessiontest-av1.txt &&
+    decode/build/tests/sessiontest-vp9 tests/media/vp9/vp90-2-12-droppable_1.ivf \
+      tests/media/vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf > decode/build/tests/sessiontest-vp9.txt ||
     { cat decode/build/tests/sessiontest-av1.txt decode/build/tests/sessiontest-vp9.txt 2>/dev/null | grep -v ^PASS; return 1; }
 }
-check "decoder sessions release the driver once, also after failures and a stuck GPU (made-up driver)" sessions
+check "decoder sessions release the driver once, also after failures and a stuck GPU; hidden frames keep their picture (made-up driver)" sessions
 
 step "decoders: loader kext"
 check "the kext's decisions" decode/build/tests/loadertest

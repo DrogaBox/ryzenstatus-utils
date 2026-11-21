@@ -5,8 +5,11 @@
 //   1. the factory refuses a NULL result pointer;
 //   2. a second session start replaces the decoder of the first;
 //   3. a format of another codec is not accepted;
-//   4. a shown frame, a sample with no shown frame (dropped, no error) and a
-//      sample that fails after showing a frame (an error, no picture);
+//   4. a shown frame, a sample with no shown frame (dropped, no error), a
+//      sample that holds only a hidden frame (its picture, no error: FFmpeg
+//      makes a new session on a decode with no picture), a sample that fails
+//      after showing a frame (an error, no picture) and a frame with a missing
+//      reference (kVTVideoDecoderReferenceMissingErr, which FFmpeg skips);
 //   5. calls made from inside the output callback (finish delayed frames, a
 //      synchronous decode, more asynchronous decodes than the queue holds) do
 //      not trap or hang;
@@ -155,7 +158,8 @@ OSStatus VTDecoderSessionEmitDecodedFrame(VTVideoDecoderSession session,
 // ------------------------------------------------- A sample's first byte says
 // what it does: 0 shows nothing, 1 shows a frame, 2 shows a frame and then
 // fails as a bad stream, 3 fails as a broken device, 4 runs out of memory, 5
-// shows a frame after waiting (at most 3 s) for the test to let it go.
+// shows a frame after waiting (at most 3 s) for the test to let it go, 6
+// decodes only a hidden frame, 7 fails on a missing reference.
 struct Fake {
   int unused;
 };
@@ -178,6 +182,7 @@ static int fake_failure(uint8_t what);
 static int configureResult;
 #endif
 static CVPixelBufferRef picture;
+static bool hiddenOnly;  // the last decode decoded only a hidden frame
 
 // Decodes running in the stand-in session; a session destroyed while one runs
 // sets destroyedWhileDecoding. A session is freed when it is destroyed, so a
@@ -234,13 +239,18 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t tag,
   fake_decode_begin(d);
   if (tu[0] == 5) slow_decode();
   if (tu[0] == 1 || tu[0] == 2 || tu[0] == 5) fn(ctx, picture, NULL, tag);
+  hiddenOnly = tu[0] == 6;
   lastFailure = fake_failure(tu[0]);
   fake_decode_end();
-  return tu[0] >= 2 && tu[0] <= 4 ? -1 : 0;
+  return (tu[0] >= 2 && tu[0] <= 4) || tu[0] == 7 ? -1 : 0;
 }
 int vcnav1_failure(VcnAV1* d) {
   (void)d;
   return lastFailure;
+}
+CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d) {
+  (void)d;
+  return hiddenOnly ? picture : NULL;
 }
 #else
 int vcnvp9_gpu_armed;
@@ -269,13 +279,18 @@ int vcnvp9_decode(VcnVP9* d, const uint8_t* chunk, size_t size, int64_t tag,
   if (chunk[0] == 5) slow_decode();
   if (chunk[0] == 1 || chunk[0] == 2 || chunk[0] == 5)
     fn(ctx, picture, NULL, 16, 16, tag);
+  hiddenOnly = chunk[0] == 6;
   lastFailure = fake_failure(chunk[0]);
   fake_decode_end();
-  return chunk[0] >= 2 && chunk[0] <= 4 ? -1 : 0;
+  return (chunk[0] >= 2 && chunk[0] <= 4) || chunk[0] == 7 ? -1 : 0;
 }
 int vcnvp9_failure(VcnVP9* d) {
   (void)d;
   return lastFailure;
+}
+CVPixelBufferRef vcnvp9_hidden_picture(VcnVP9* d) {
+  (void)d;
+  return hiddenOnly ? picture : NULL;
 }
 #endif
 
@@ -283,12 +298,14 @@ int vcnvp9_failure(VcnVP9* d) {
 static int fake_failure(uint8_t what) {
   return what == 3   ? VCNAV1_FAIL_DEVICE
          : what == 4 ? VCNAV1_FAIL_MEMORY
+         : what == 7 ? VCNAV1_FAIL_REFERENCE
                      : VCNAV1_FAIL_STREAM;
 }
 #else
 static int fake_failure(uint8_t what) {
   return what == 3   ? VCNVP9_FAIL_DEVICE
          : what == 4 ? VCNVP9_FAIL_MEMORY
+         : what == 7 ? VCNVP9_FAIL_REFERENCE
                      : VCNVP9_FAIL_STREAM;
 }
 #endif
@@ -296,8 +313,9 @@ static int fake_failure(uint8_t what) {
 // ---- helpers
 // ------------------------------------------------------------------
 static CMSampleBufferRef sample(uint8_t what) {
-  static uint8_t bytes[6][4] = {{0, 1, 2, 3}, {1, 1, 2, 3}, {2, 1, 2, 3},
-                                {3, 1, 2, 3}, {4, 1, 2, 3}, {5, 1, 2, 3}};
+  static uint8_t bytes[8][4] = {{0, 1, 2, 3}, {1, 1, 2, 3}, {2, 1, 2, 3},
+                                {3, 1, 2, 3}, {4, 1, 2, 3}, {5, 1, 2, 3},
+                                {6, 1, 2, 3}, {7, 1, 2, 3}};
   CMBlockBufferRef bb = NULL;
   if (CMBlockBufferCreateWithMemoryBlock(NULL, bytes[what], 4, kCFAllocatorNull,
                                          NULL, 0, 4, 0, &bb))
@@ -447,15 +465,28 @@ int main(void) {
   dec_decode_frame(dec, NULL, hidden, 0, NULL);
   expect("a sample with no shown frame is dropped, with no error",
          emits == e + 2 && !lastStatus && emitDropped == 1 && emitImages == 1);
+  CMSampleBufferRef hiddenAlone = sample(6), noRef = sample(7);
+  int dropped = emitDropped;
+  dec_decode_frame(dec, NULL, hiddenAlone, 0, NULL);
+  expect("a sample of only a hidden frame hands back its picture, no error",
+         emits == e + 3 && !lastStatus && emitImages == 2 &&
+             emitDropped == dropped);
+  dec_decode_frame(dec, NULL, noRef, 0, NULL);
+  expect("a missing reference is kVTVideoDecoderReferenceMissingErr",
+         emits == e + 4 && lastStatus == kVTVideoDecoderReferenceMissingErr &&
+             emitImages == 2);
+  CFRelease(hiddenAlone);
+  CFRelease(noRef);
+  e += 2;
   dec_decode_frame(dec, NULL, broken, 0, NULL);
   expect("a sample that fails after showing a frame is an error, no picture",
          emits == e + 3 && lastStatus == kVTVideoDecoderBadDataErr &&
-             emitImages == 1);
+             emitImages == 2);
   CMSampleBufferRef stuck = sample(3);
   dec_decode_frame(dec, NULL, stuck, 0, NULL);
   expect("a sample failed by a stuck GPU or a driver call is a malfunction",
          emits == e + 4 && lastStatus == kVTVideoDecoderMalfunctionErr &&
-             emitImages == 1);
+             emitImages == 2);
   CFRelease(stuck);
   expect("after a device failure the format is not accepted",
          !dec_can_accept_format(dec, fmt));

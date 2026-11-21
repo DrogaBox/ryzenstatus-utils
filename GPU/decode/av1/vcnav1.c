@@ -60,11 +60,13 @@ struct VcnAV1 {
       pool;  // decode targets; references live in the driver's internal DPB
   uint32_t poolW, poolH;
   bool poolTen;
-  bool stuck;         // a command never finished: the GPU may still hold it
-  bool broken;        // stuck, or a driver call failed: nothing more goes out
-  int failure;        // VCNAV1_FAIL_* of the last error
-  unsigned fwErrors;  // decodes the firmware reported as failed
-  unsigned done;      // decode commands that finished
+  bool stuck;   // a command never finished: the GPU may still hold it
+  bool broken;  // stuck, or a driver call failed: nothing more goes out
+  int failure;  // VCNAV1_FAIL_* of the last error
+  bool shown;   // the current decode call output a frame
+  CVPixelBufferRef hidden;  // retained: last frame it decoded without showing
+  unsigned fwErrors;        // decodes the firmware reported as failed
+  unsigned done;            // decode commands that finished
 };
 
 #define FN(name) ((AVD_##name##_fn)d->s.accel->fn[AVD_FN_##name])
@@ -245,6 +247,7 @@ static void destroy_now(VcnAV1* d) {
   // The pictures go after the driver: a stuck command may still write one.
   for (int i = 0; i < NUM_DPB; i++)
     if (d->dpb[i]) CVPixelBufferRelease(d->dpb[i]);
+  if (d->hidden) CVPixelBufferRelease(d->hidden);
   if (d->pool) CVPixelBufferPoolRelease(d->pool);
   av1_parser_free(&d->parser);
   free(d->seq);
@@ -265,6 +268,10 @@ const char* vcnav1_last_error(VcnAV1* d) { return d ? d->err : ""; }
 unsigned vcnav1_firmware_errors(VcnAV1* d) { return d ? d->fwErrors : 0; }
 
 int vcnav1_failure(VcnAV1* d) { return d ? d->failure : VCNAV1_FAIL_DEVICE; }
+
+CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d) {
+  return d && !d->shown ? d->hidden : NULL;
+}
 
 static inline void S32(uint8_t* base, int idx, int v) {
   ((int32_t*)base)[idx] = v;
@@ -558,8 +565,10 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
     if (!r->valid || r->dpb_slot < 0 || r->dpb_slot >= NUM_DPB ||
         !d->dpb[r->dpb_slot]) {
       snprintf(d->err, sizeof(d->err), "show_existing of a missing reference");
+      d->failure = VCNAV1_FAIL_REFERENCE;
       return -1;
     }
+    d->shown = true;
     if (d->out) d->out(d->outCtx, d->dpb[r->dpb_slot], p, d->tag);
     if (h->frame_type == AV1_KEY_FRAME) {
       av1_reference_update(p, r->dpb_slot);
@@ -587,6 +596,7 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
       if (!r->valid || r->dpb_slot < 0 || r->dpb_slot >= NUM_DPB ||
           !d->dpb[r->dpb_slot]) {
         snprintf(d->err, sizeof(d->err), "missing reference");
+        d->failure = VCNAV1_FAIL_REFERENCE;
         return -1;
       }
     }
@@ -671,8 +681,12 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
             p->tile_data_size, tf1 - tf0, tSched, tWait);
   av1_reference_update(p, slot);
   release_slot_refs(d);
-  if (h->show_frame && d->out) {
-    d->out(d->outCtx, d->dpb[slot], p, d->tag);
+  if (h->show_frame) {
+    d->shown = true;
+    if (d->out) d->out(d->outCtx, d->dpb[slot], p, d->tag);
+  } else {
+    if (d->hidden) CVPixelBufferRelease(d->hidden);
+    d->hidden = CVPixelBufferRetain(d->dpb[slot]);
   }
   return 0;
 }
@@ -710,6 +724,11 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
   d->tag = userTag;
   d->err[0] = 0;
   d->failure = VCNAV1_FAIL_STREAM;
+  d->shown = false;
+  if (d->hidden) {
+    CVPixelBufferRelease(d->hidden);
+    d->hidden = NULL;
+  }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
              d->stuck ? "the GPU did not finish an earlier frame"

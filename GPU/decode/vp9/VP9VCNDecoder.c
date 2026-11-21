@@ -475,13 +475,18 @@ static OSStatus decode_status(int failure) {
       return kVTVideoDecoderMalfunctionErr;
     case VCNVP9_FAIL_MEMORY:
       return kVTAllocationFailedErr;
+    // VideoToolbox's own code for it: FFmpeg goes on with the next frame on
+    // this one, and makes a new session on any other error.
+    case VCNVP9_FAIL_REFERENCE:
+      return kVTVideoDecoderReferenceMissingErr;
     default:
       return kVTVideoDecoderBadDataErr;
   }
 }
 
 // Decode one chunk and hand its shown frame to VideoToolbox. A chunk with only
-// hidden frames is valid and has nothing to show.
+// hidden frames is valid: it hands back the last hidden frame's picture (see
+// below).
 static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
                             CMSampleBufferRef sbuf, double enqueued) {
   double started = now_ms();
@@ -522,6 +527,15 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
   }
   CVPixelBufferRef out = s->lastFrame;
   s->lastFrame = NULL;
+  // A sample that holds only a hidden frame (a caller that sends frames one by
+  // one, as FFmpeg does) hands back that frame's picture. FFmpeg makes a new
+  // session whenever a decode returns no picture, and the new session has
+  // lost the references. A temporal unit or superframe always shows one frame,
+  // so Safari and Chrome never get here.
+  if (!status && !out && s->vcn) {
+    CVPixelBufferRef hidden = vcnvp9_hidden_picture(s->vcn);
+    if (hidden) out = CVPixelBufferRetain(hidden);
+  }
   stats_add(s, started - enqueued, now_ms() - started);
   pthread_mutex_unlock(&s->lock);
   free(copy);

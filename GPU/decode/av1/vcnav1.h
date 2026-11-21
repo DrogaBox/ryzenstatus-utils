@@ -35,9 +35,22 @@ void vcnav1_flush(VcnAV1* d);
 const char* vcnav1_last_error(VcnAV1* d);
 // What made the last configure or decode fail: the stream (it cannot be
 // decoded as it is), the device (a driver call failed or the GPU did not
-// finish a command; the session takes no more frames) or memory.
-enum { VCNAV1_FAIL_STREAM = 0, VCNAV1_FAIL_DEVICE = 1, VCNAV1_FAIL_MEMORY = 2 };
+// finish a command; the session takes no more frames), memory, or a frame
+// whose reference was never decoded in this session (after a seek, or a new
+// session in the middle of a stream).
+enum {
+  VCNAV1_FAIL_STREAM = 0,
+  VCNAV1_FAIL_DEVICE = 1,
+  VCNAV1_FAIL_MEMORY = 2,
+  VCNAV1_FAIL_REFERENCE = 3
+};
 int vcnav1_failure(VcnAV1* d);
+// The picture of the last frame the last vcnav1_decode decoded without
+// showing it, when that call showed nothing; NULL otherwise. It happens when a
+// caller sends the frames of a temporal unit one by one (FFmpeg does): a hidden
+// frame then comes alone. Valid until the next decode or destroy; retain it to
+// keep it.
+CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d);
 // Decodes the GPU firmware reported as failed (the picture was still output).
 unsigned vcnav1_firmware_errors(VcnAV1* d);
 // Attributes of the pixel buffers the decoder outputs (caller releases).

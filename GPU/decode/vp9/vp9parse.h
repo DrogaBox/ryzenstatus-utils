@@ -49,6 +49,9 @@ typedef struct {
   uint32_t last_width, last_height;
   int last_show_frame, last_intra_only, have_last;
   char err[128];
+  // The last chunk failed on a reference never decoded. After err, so the
+  // parser test's digest (everything before err) is the same as before.
+  bool missing_ref;
 } VP9Parser;
 
 typedef enum { VP9_PARSE_DECODE, VP9_PARSE_SHOW_EXISTING } VP9ParseResult;

@@ -35,7 +35,20 @@ const char* vcnvp9_last_error(VcnVP9* d);
 // What made the last decode fail: the stream (it cannot be decoded as it is),
 // the device (a driver call failed or the GPU did not finish a command; the
 // session takes no more frames) or memory.
-enum { VCNVP9_FAIL_STREAM = 0, VCNVP9_FAIL_DEVICE = 1, VCNVP9_FAIL_MEMORY = 2 };
+// VCNVP9_FAIL_REFERENCE: a frame whose reference was never decoded in this
+// session (after a seek, or a new session in the middle of a stream).
+enum {
+  VCNVP9_FAIL_STREAM = 0,
+  VCNVP9_FAIL_DEVICE = 1,
+  VCNVP9_FAIL_MEMORY = 2,
+  VCNVP9_FAIL_REFERENCE = 3
+};
 int vcnvp9_failure(VcnVP9* d);
+// The picture of the last frame the last vcnvp9_decode decoded without showing
+// it, when that call showed nothing; NULL otherwise. It happens when a caller
+// sends the frames of a superframe one by one (FFmpeg does): a hidden frame
+// then comes alone. Valid until the next decode or destroy; retain it to keep
+// it.
+CVPixelBufferRef vcnvp9_hidden_picture(VcnVP9* d);
 // Decodes the GPU firmware reported as failed (the picture was still output).
 unsigned vcnvp9_firmware_errors(VcnVP9* d);

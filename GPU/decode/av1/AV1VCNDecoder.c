@@ -501,6 +501,10 @@ static OSStatus decode_status(int failure) {
       return kVTVideoDecoderMalfunctionErr;
     case VCNAV1_FAIL_MEMORY:
       return kVTAllocationFailedErr;
+    // VideoToolbox's own code for it: FFmpeg goes on with the next frame on
+    // this one, and makes a new session on any other error.
+    case VCNAV1_FAIL_REFERENCE:
+      return kVTVideoDecoderReferenceMissingErr;
     default:
       return kVTVideoDecoderBadDataErr;
   }
@@ -547,12 +551,21 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
   }
   CVPixelBufferRef out = s->lastFrame;
   s->lastFrame = NULL;
+  // A sample that holds only a hidden frame (a caller that sends frames one by
+  // one, as FFmpeg does) hands back that frame's picture. FFmpeg makes a new
+  // session whenever a decode returns no picture, and the new session has
+  // lost the references. A temporal unit or superframe always shows one frame,
+  // so Safari and Chrome never get here.
+  if (!status && !out && s->vcn) {
+    CVPixelBufferRef hidden = vcnav1_hidden_picture(s->vcn);
+    if (hidden) out = CVPixelBufferRetain(hidden);
+  }
   stats_add(s, started - enqueued, now_ms() - started);
   pthread_mutex_unlock(&s->lock);
   free(copy);
   // A sample that failed hands back no picture, even one it showed before. A
-  // temporal unit that shows no frame is emitted as dropped, with no error, as
-  // the VP9 plug-in does with a chunk of hidden frames.
+  // sample that decoded nothing to show (none of its frames was decoded) is
+  // emitted as dropped, with no error.
   if (status && out) {
     CVPixelBufferRelease(out);
     out = NULL;
