@@ -186,186 +186,302 @@ struct ProcessesSection: View {
     @AppStorage("monitorEnergyHiddenByGate") private var energyHiddenByGate = false
     @State private var columns = TableColumnCustomization<ProcessTableRow>()
 
+    // The body is split into layers (content, toolbar, dialogs, lifecycle)
+    // and the table into its own builders: one long expression made the
+    // Xcode 16 type checker give up ("unable to type-check this expression
+    // in reasonable time"). Each piece below is type-checked on its own.
     var body: some View {
-        let suite = FeatureStrings.performanceSuite(l10n.language)
-        let strings = MonitorWindowStrings.localized(l10n.language)
-        let dash = l10n.dashboard
-        let energyAvailable = AppFeature.monitorEnergy.isAvailable
+        syncLayer
+    }
+
+    // MARK: Layers
+
+    /// The CPU line, the table and the status bar.
+    private var content: some View {
         VStack(spacing: 0) {
             // The CPU split, one line above the table (the approved plan).
-            Text(feed.cpuLoad.map { load in
-                String(format: strings.cpuLoadFormat,
-                       MetricFormat.fixed(load.user * 100, decimals: 1, unit: "%"),
-                       MetricFormat.fixed(load.system * 100, decimals: 1, unit: "%"),
-                       MetricFormat.fixed(load.total * 100, decimals: 1, unit: "%"))
-            } ?? " ")
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            cpuLine
             Divider()
-            Table(feed.rows, selection: $state.processSelection, sortOrder: $state.processSortOrder,
-                  columnCustomization: $columns) {
-                TableColumn(suite.processColumn, value: \.name) { row in
-                    HStack(spacing: 6) {
-                        Image(nsImage: ResponsibleProcess.icon(for: row.pid, pointSize: 16))
-                            .resizable()
-                            .frame(width: 16, height: 16)
-                            .accessibilityHidden(true)
-                        Text(row.name).lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .width(min: 160, ideal: 240)
-                .customizationID("name")
-                .disabledCustomizationBehavior(.visibility)
-
-                TableColumn(suite.cpuColumn, value: \.cpu) { row in
-                    number(MetricFormat.fixed(row.cpu, decimals: 1, unit: ""))
-                }
-                .width(min: 56, ideal: 70)
-                .customizationID("cpu")
-
-                TableColumn(suite.memoryColumn, value: \.memory) { row in
-                    number(row.memory > 0 ? MetricFormat.bytes(UInt64(row.memory)) : "—")
-                }
-                .width(min: 70, ideal: 90)
-                .customizationID("memory")
-
-                TableColumn(strings.gpuColumn, value: \.gpuSortValue) { row in
-                    number(row.gpu.map { MetricFormat.fixed($0, decimals: 1, unit: "") } ?? "—")
-                }
-                .width(min: 56, ideal: 70)
-                .customizationID("gpu")
-
-                TableColumn(suite.energyScoreColumn, value: \.energy) { row in
-                    number(MetricFormat.fixed(row.energy, decimals: 1, unit: ""))
-                }
-                .width(min: 70, ideal: 100)
-                .customizationID("energy")
-                // With its feature off the column is neither shown nor offered.
-                .disabledCustomizationBehavior(energyAvailable ? [] : .visibility)
-
-                TableColumn(suite.typeColumn) { row in
-                    Text(category(row.category)).foregroundStyle(.secondary)
-                }
-                .width(min: 70, ideal: 100)
-                .customizationID("type")
-
-                TableColumn(suite.pidColumn, value: \.pid) { row in
-                    number(String(row.pid)).foregroundStyle(.secondary)
-                }
-                .width(min: 50, ideal: 60)
-                .customizationID("pid")
-            }
-            .tableStyle(.inset(alternatesRowBackgrounds: true))
-            .contextMenu(forSelectionType: pid_t.self) { pids in
-                if let row = row(pids) {
-                    Button(suite.inspectButton) { inspect(row) }
-                    if canKill(row) {
-                        Divider()
-                        Button(suite.killButton + "…") { requestKill(row) }
-                    }
-                }
-            } primaryAction: { pids in
-                if let row = row(pids) { inspect(row) }
-            }
-            .overlay {
-                if !feed.loaded {
-                    ProgressView(dash.loadingProcesses).controlSize(.small)
-                } else if state.processSortOrder.first?.keyPath == \ProcessTableRow.gpuSortValue,
-                          !feed.rows.isEmpty, feed.rows.allSatisfy({ ($0.gpu ?? 0) == 0 }),
-                          ProcessUsageService.shared.hasGPUDeltaSample {
-                    // A driver that bills GPU time to no process says so,
-                    // instead of a column of zeros that reads as "idle".
-                    Text(dash.noGPUProcesses)
-                        .foregroundStyle(.secondary)
-                        .padding(8)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                }
-            }
+            processTable
 
             // A one-line status bar, like Finder's: the count shown.
             Divider()
-            Text(String(format: dash.processCountFormat, feed.rows.count))
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
+            statusBar
         }
-        .searchable(text: $state.processSearch, placement: .toolbar)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    if let row = selectedRow { inspect(row) }
-                } label: {
-                    Label(suite.inspectButton, systemImage: "info.circle")
-                }
-                .help(suite.inspectButton)
-                .disabled(selectedRow == nil)
+    }
 
-                Button {
-                    if let row = selectedRow { requestKill(row) }
-                } label: {
-                    Label(suite.killButton, systemImage: "xmark.octagon")
-                }
-                .help(suite.killButton)
-                .disabled(selectedRow.map { !canKill($0) } ?? true)
-            }
-        }
-        .confirmationDialog(suite.killConfirmTitle, isPresented: Binding(
-            get: { killRequest != nil }, set: { if !$0 { killRequest = nil } }
-        ), titleVisibility: .visible, presenting: killRequest) { request in
-            Button(suite.killButton, role: .destructive) {
-                KillProcessService.shared.kill(pid: request.pid, name: request.name,
-                                               startedAt: request.startedAt, force: false) {
-                    Task { @MainActor in feed.refreshNow() }
+    private var toolbarLayer: some View {
+        let suite = FeatureStrings.performanceSuite(l10n.language)
+        return content
+            .searchable(text: $state.processSearch, placement: .toolbar)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    toolbarButtons(suite)
                 }
             }
-            Button(suite.killCancel, role: .cancel) {}
-        } message: { request in
-            Text(String(format: suite.killConfirmMessage, request.name, Int(request.pid)))
+    }
+
+    private var dialogLayer: some View {
+        let suite = FeatureStrings.performanceSuite(l10n.language)
+        let strings = MonitorWindowStrings.localized(l10n.language)
+        return toolbarLayer
+            .confirmationDialog(suite.killConfirmTitle, isPresented: killDialogShown,
+                                titleVisibility: .visible, presenting: killRequest) { (request: ProcessKillRequest) in
+                killDialogButtons(request, suite: suite)
+            } message: { (request: ProcessKillRequest) in
+                Text(String(format: suite.killConfirmMessage, request.name, Int(request.pid)))
+            }
+            .alert(suite.killButton, isPresented: $killUnavailable) {
+                Button(strings.ok) {}
+            } message: {
+                Text(strings.killUnavailable)
+            }
+            .alert(suite.inspectButton, isPresented: $processGone) {
+                Button(strings.ok) {}
+            } message: {
+                Text(strings.processGone)
+            }
+    }
+
+    private var lifecycleLayer: some View {
+        dialogLayer
+            .onAppear {
+                loadColumns()
+                feed.search = state.processSearch
+                feed.sortOrder = state.processSortOrder
+                feed.setActive(state.isVisible)
+                publishSelection()
+            }
+            .onDisappear {
+                feed.setActive(false)
+                state.canInspectSelection = false
+                state.canTerminateSelection = false
+            }
+            .onChange(of: state.isVisible) { _, visible in feed.setActive(visible) }
+            .onChange(of: state.processSearch) { _, search in feed.search = search }
+            .onChange(of: state.processSortOrder) { _, order in feed.sortOrder = order }
+    }
+
+    private var syncLayer: some View {
+        lifecycleLayer
+            .onChange(of: state.processSelection) { _, _ in publishSelection() }
+            .onChange(of: feed.rows) { _, _ in publishSelection() }
+            .onReceive(state.commands) { command in
+                guard let row = selectedRow else { return }
+                switch command {
+                case .inspect: inspect(row)
+                case .terminate: requestKill(row)
+                }
+            }
+            .onChange(of: columns) { _, value in
+                if let data = try? JSONEncoder().encode(value) { columnData = data }
+            }
+            .onChange(of: runtime.revision) { _, _ in applyEnergyGate() }
+    }
+
+    // MARK: Pieces
+
+    private var cpuLine: some View {
+        Text(cpuLoadText)
+            .font(.callout)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+    }
+
+    private var cpuLoadText: String {
+        let strings = MonitorWindowStrings.localized(l10n.language)
+        guard let load = feed.cpuLoad else { return " " }
+        let user: String = MetricFormat.fixed(load.user * 100, decimals: 1, unit: "%")
+        let system: String = MetricFormat.fixed(load.system * 100, decimals: 1, unit: "%")
+        let total: String = MetricFormat.fixed(load.total * 100, decimals: 1, unit: "%")
+        return String(format: strings.cpuLoadFormat, user, system, total)
+    }
+
+    private var statusBar: some View {
+        Text(String(format: l10n.dashboard.processCountFormat, feed.rows.count))
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+    }
+
+    private var processTable: some View {
+        Table(feed.rows, selection: $state.processSelection, sortOrder: $state.processSortOrder,
+              columnCustomization: $columns) {
+            tableColumns
         }
-        .alert(suite.killButton, isPresented: $killUnavailable) {
-            Button(strings.ok) {}
-        } message: {
-            Text(strings.killUnavailable)
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .contextMenu(forSelectionType: pid_t.self) { (pids: Set<pid_t>) in
+            contextMenuItems(pids)
+        } primaryAction: { (pids: Set<pid_t>) in
+            if let row = row(pids) { inspect(row) }
         }
-        .alert(suite.inspectButton, isPresented: $processGone) {
-            Button(strings.ok) {}
-        } message: {
-            Text(strings.processGone)
+        .overlay {
+            tableOverlay
         }
-        .onAppear {
-            loadColumns()
-            feed.search = state.processSearch
-            feed.sortOrder = state.processSortOrder
-            feed.setActive(state.isVisible)
-            publishSelection()
+    }
+
+    @TableColumnBuilder<ProcessTableRow, KeyPathComparator<ProcessTableRow>>
+    private var tableColumns: some TableColumnContent<ProcessTableRow, KeyPathComparator<ProcessTableRow>> {
+        let suite = FeatureStrings.performanceSuite(l10n.language)
+        let strings = MonitorWindowStrings.localized(l10n.language)
+        // With its feature off the energy column is neither shown nor offered.
+        let energyBehavior: TableColumnCustomizationBehavior =
+            AppFeature.monitorEnergy.isAvailable ? [] : .visibility
+
+        TableColumn(suite.processColumn, value: \ProcessTableRow.name) { (row: ProcessTableRow) in
+            nameCell(row)
         }
-        .onDisappear {
-            feed.setActive(false)
-            state.canInspectSelection = false
-            state.canTerminateSelection = false
+        .width(min: 160, ideal: 240)
+        .customizationID("name")
+        .disabledCustomizationBehavior(.visibility)
+
+        TableColumn(suite.cpuColumn, value: \ProcessTableRow.cpu) { (row: ProcessTableRow) in
+            cpuCell(row)
         }
-        .onChange(of: state.isVisible) { _, visible in feed.setActive(visible) }
-        .onChange(of: state.processSearch) { _, search in feed.search = search }
-        .onChange(of: state.processSortOrder) { _, order in feed.sortOrder = order }
-        .onChange(of: state.processSelection) { _, _ in publishSelection() }
-        .onChange(of: feed.rows) { _, _ in publishSelection() }
-        .onReceive(state.commands) { command in
-            guard let row = selectedRow else { return }
-            switch command {
-            case .inspect: inspect(row)
-            case .terminate: requestKill(row)
+        .width(min: 56, ideal: 70)
+        .customizationID("cpu")
+
+        TableColumn(suite.memoryColumn, value: \ProcessTableRow.memory) { (row: ProcessTableRow) in
+            memoryCell(row)
+        }
+        .width(min: 70, ideal: 90)
+        .customizationID("memory")
+
+        TableColumn(strings.gpuColumn, value: \ProcessTableRow.gpuSortValue) { (row: ProcessTableRow) in
+            gpuCell(row)
+        }
+        .width(min: 56, ideal: 70)
+        .customizationID("gpu")
+
+        TableColumn(suite.energyScoreColumn, value: \ProcessTableRow.energy) { (row: ProcessTableRow) in
+            energyCell(row)
+        }
+        .width(min: 70, ideal: 100)
+        .customizationID("energy")
+        .disabledCustomizationBehavior(energyBehavior)
+
+        TableColumn(suite.typeColumn) { (row: ProcessTableRow) in
+            typeCell(row)
+        }
+        .width(min: 70, ideal: 100)
+        .customizationID("type")
+
+        TableColumn(suite.pidColumn, value: \ProcessTableRow.pid) { (row: ProcessTableRow) in
+            pidCell(row)
+        }
+        .width(min: 50, ideal: 60)
+        .customizationID("pid")
+    }
+
+    private func nameCell(_ row: ProcessTableRow) -> some View {
+        HStack(spacing: 6) {
+            Image(nsImage: ResponsibleProcess.icon(for: row.pid, pointSize: 16))
+                .resizable()
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+            Text(row.name).lineLimit(1).truncationMode(.middle)
+        }
+    }
+
+    private func cpuCell(_ row: ProcessTableRow) -> some View {
+        number(MetricFormat.fixed(row.cpu, decimals: 1, unit: ""))
+    }
+
+    private func memoryCell(_ row: ProcessTableRow) -> some View {
+        let text: String = row.memory > 0 ? MetricFormat.bytes(UInt64(row.memory)) : "—"
+        return number(text)
+    }
+
+    private func gpuCell(_ row: ProcessTableRow) -> some View {
+        let text: String = row.gpu.map { (gpu: Double) -> String in
+            MetricFormat.fixed(gpu, decimals: 1, unit: "")
+        } ?? "—"
+        return number(text)
+    }
+
+    private func energyCell(_ row: ProcessTableRow) -> some View {
+        number(MetricFormat.fixed(row.energy, decimals: 1, unit: ""))
+    }
+
+    private func typeCell(_ row: ProcessTableRow) -> some View {
+        Text(category(row.category)).foregroundStyle(.secondary)
+    }
+
+    private func pidCell(_ row: ProcessTableRow) -> some View {
+        number(String(row.pid)).foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func contextMenuItems(_ pids: Set<pid_t>) -> some View {
+        let suite = FeatureStrings.performanceSuite(l10n.language)
+        if let row = row(pids) {
+            Button(suite.inspectButton) { inspect(row) }
+            if canKill(row) {
+                Divider()
+                Button(suite.killButton + "…") { requestKill(row) }
             }
         }
-        .onChange(of: columns) { _, value in
-            if let data = try? JSONEncoder().encode(value) { columnData = data }
+    }
+
+    @ViewBuilder
+    private var tableOverlay: some View {
+        if !feed.loaded {
+            ProgressView(l10n.dashboard.loadingProcesses).controlSize(.small)
+        } else if showsNoGPUNote {
+            // A driver that bills GPU time to no process says so,
+            // instead of a column of zeros that reads as "idle".
+            Text(l10n.dashboard.noGPUProcesses)
+                .foregroundStyle(.secondary)
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         }
-        .onChange(of: runtime.revision) { _, _ in applyEnergyGate() }
+    }
+
+    /// Sorted by GPU, with rows, a GPU sample to compare, and every row at 0.
+    private var showsNoGPUNote: Bool {
+        guard state.processSortOrder.first?.keyPath == \ProcessTableRow.gpuSortValue else { return false }
+        return !feed.rows.isEmpty && feed.rows.allSatisfy({ ($0.gpu ?? 0) == 0 })
+            && ProcessUsageService.shared.hasGPUDeltaSample
+    }
+
+    @ViewBuilder
+    private func toolbarButtons(_ suite: PerformanceSuiteFeatureStrings) -> some View {
+        Button {
+            if let row = selectedRow { inspect(row) }
+        } label: {
+            Label(suite.inspectButton, systemImage: "info.circle")
+        }
+        .help(suite.inspectButton)
+        .disabled(selectedRow == nil)
+
+        Button {
+            if let row = selectedRow { requestKill(row) }
+        } label: {
+            Label(suite.killButton, systemImage: "xmark.octagon")
+        }
+        .help(suite.killButton)
+        .disabled(selectedRow.map { !canKill($0) } ?? true)
+    }
+
+    private var killDialogShown: Binding<Bool> {
+        Binding(get: { killRequest != nil }, set: { if !$0 { killRequest = nil } })
+    }
+
+    @ViewBuilder
+    private func killDialogButtons(_ request: ProcessKillRequest,
+                                   suite: PerformanceSuiteFeatureStrings) -> some View {
+        Button(suite.killButton, role: .destructive) {
+            KillProcessService.shared.kill(pid: request.pid, name: request.name,
+                                           startedAt: request.startedAt, force: false) {
+                Task { @MainActor in feed.refreshNow() }
+            }
+        }
+        Button(suite.killCancel, role: .cancel) {}
     }
 
     /// What the View menu may offer for the current selection.
