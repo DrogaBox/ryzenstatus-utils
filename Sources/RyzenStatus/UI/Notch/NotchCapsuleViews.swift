@@ -114,10 +114,8 @@ struct NotchCapsuleNoticeView: View {
             NotchMeter(value: level, height: CapsuleLayout.meterHeight, tint: tint)
                 .frame(width: CapsuleLayout.meterWidth)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: level)
-            Text(notice.detail)
-                .font(Font(CapsuleLayout.levelFont as CTFont))
-                .lineLimit(1)
-                .contentTransition(.numericText())
+            // The capsule row's white.
+            RollingDigitsText(notice.detail, style: .font(CapsuleLayout.levelFont), color: .white, duration: 0.14)
                 .frame(width: CapsuleLayout.levelReadingWidth(notice.detail), alignment: .trailing)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: notice.detail)
@@ -297,9 +295,8 @@ struct NotchCapsuleRestingView: View {
                                         .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
                                 } else {
                                     NotchMarquee(key: center) {
-                                        Text(center).font(Font(CapsuleLayout.levelFont as CTFont))
-                                            .foregroundStyle(.white.opacity(0.85))
-                                            .contentTransition(.numericText())
+                                        RollingDigitsText(center, style: .font(CapsuleLayout.levelFont),
+                                                          color: .white.opacity(0.85))
                                     }
                                     .transition(.opacity)
                                 }
@@ -393,9 +390,8 @@ struct NotchCapsuleMusicStrip: View {
                                               tint: tint?.color ?? .white)
                             .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
                     } else if let center {
-                        Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
-                            .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
-                            .contentTransition(.numericText()).transition(.opacity)
+                        RollingDigitsText(center, style: .font(CapsuleLayout.levelFont), color: .white.opacity(0.85))
+                            .transition(.opacity)
                     } else { Color.clear }
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
@@ -491,11 +487,9 @@ struct NotchCapsuleTimerStrip: View {
     private var reading: some View {
         let text = NotchTimerSupport.compactText(for: timer.session, at: timer.now,
                                                  locale: Locale(identifier: l10n.language.rawValue))
-        return Text(text)
-            .font(Font(CapsuleLayout.readingFont as CTFont))
-            .foregroundStyle(.orange)
-            .lineLimit(1).fixedSize()
-            .modifier(NotchRollingDigits(value: text, countsDown: !timer.session.countsUp, everySecond: false))
+        return NotchRollingReading(value: text, style: .font(CapsuleLayout.readingFont), color: .orange,
+                                   countsDown: !timer.session.countsUp, everySecond: false)
+            .fixedSize()
             // A reading that gains or loses a character, like 10m becoming
             // 9m, resizes the capsule; the service measures the same reading.
             .onChange(of: NotchAgentSupport.readingShape(text)) { _, _ in
@@ -770,11 +764,9 @@ struct NotchCapsuleCalendarStrip: View {
     /// Time left in an event under way takes the agenda's "happening now"
     /// color, so it never reads as a wait for the next one.
     private static func clock(_ remaining: String, ongoing: Bool) -> some View {
-        Text(remaining)
-            .font(Font(CapsuleLayout.readingFont as CTFont))
-            .lineLimit(1).fixedSize()
-            .foregroundStyle(ongoing ? Color.mint : Color.white)
-            .modifier(NotchRollingDigits(value: remaining, countsDown: true, everySecond: false))
+        NotchRollingReading(value: remaining, style: .font(CapsuleLayout.readingFont),
+                            color: ongoing ? Color.mint : Color.white, countsDown: true, everySecond: false)
+            .fixedSize()
     }
 }
 

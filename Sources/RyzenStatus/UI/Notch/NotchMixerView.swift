@@ -177,10 +177,8 @@ private struct NotchEditablePercent: View {
                 if boosting {
                     Image(systemName: "bolt.fill").font(.system(size: 7, weight: .bold)).foregroundStyle(tint)
                 }
-                Text("\(percent)%")
-                    .font(.system(size: height > 18 ? 12 : 10, weight: .medium)).monospacedDigit()
-                    .foregroundStyle(tint)
-                    .contentTransition(.numericText())
+                RollingDigitsText("\(percent)%", style: RollingDigitsStyle(size: height > 18 ? 12 : 10, weight: .medium),
+                                  color: tint, duration: 0.2)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: percent)
             }
             .frame(maxWidth: .infinity, minHeight: height)

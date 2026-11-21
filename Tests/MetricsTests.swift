@@ -13525,6 +13525,7 @@ struct MetricsTests {
                 ("NotchMascotDisplaysTests", NotchMascotDisplaysTests.run),
                 ("NotchMascotAlarmTests", NotchMascotAlarmTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
+                ("RollingDigitsTests", RollingDigitsTests.run),
                 ("ClipboardTextCaseTransformTests", ClipboardTextCaseTransformTests.run),
                 ("HomebrewOperationLogRetentionTests", HomebrewOperationLogRetentionTests.run),
                 ("Batch180Tests", Batch180Tests.run),

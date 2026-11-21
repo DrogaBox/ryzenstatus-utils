@@ -89,8 +89,12 @@ struct NotchNoticeView: View {
                                    width: wings.leading - notice.inset(wing: wings.leading) - notice.cameraGap - 26,
                                    alignment: .leading, monospacedDigits: true)
                         .id(notice.clickTarget)
+                } else if notice.level != nil {
+                    // A level changes many times a second while a key is held.
+                    RollingDigitsText(notice.detail, style: RollingDigitsStyle(size: 11, weight: .medium),
+                                      color: textTint, duration: 0.14)
                 } else {
-                    Text(notice.level == nil ? notice.title : notice.detail)
+                    Text(notice.title)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(textTint)
                         .monospacedDigit()
