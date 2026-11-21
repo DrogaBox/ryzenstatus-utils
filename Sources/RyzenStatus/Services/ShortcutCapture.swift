@@ -17,8 +17,9 @@ import Foundation
 enum ShortcutCapture {
     private(set) static var isCapturing = false
 
-    /// Releases every global key the app holds. Main thread only, like the
-    /// services it drives.
+    /// Releases every global key the app holds. Main actor, like the
+    /// services it drives, so the compiler checks every new caller.
+    @MainActor
     static func begin() {
         guard !isCapturing else { return }
         isCapturing = true
@@ -35,11 +36,18 @@ enum ShortcutCapture {
 
     /// Gives every key back. Safe to call when nothing was suspended, and safe
     /// to call twice; the features re-read their own preferences, so a feature
-    /// switched off in the meantime simply stays off.
+    /// switched off in the meantime simply stays off. Main actor, like
+    /// `begin`; the callers that are not isolated but run on main say so
+    /// where they call (the recorder field's deinit, the session-resign
+    /// handler, the command bar).
+    @MainActor
     static func end() {
         guard isCapturing else { return }
         isCapturing = false
         AppSwitcher.shared.setCapturingShortcut(false)
         FeatureRuntime.shared.sync(GlobalShortcutRole.featuresToSilenceWhileRecording)
+        // `begin` released it with every quick tool key, and no feature
+        // binding owns it to give it back.
+        MonitorWindowShortcut.shared.syncWithPreferences()
     }
 }

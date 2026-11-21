@@ -170,11 +170,25 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
 
     private override init() {}
 
-    func show(section: MonitorSection? = nil) {
+    /// `toActiveSpace` is for the global shortcut: an open window on another
+    /// Space comes to the one in use instead of the screen switching Spaces
+    /// (`NSWindow.CollectionBehavior.moveToActiveSpace`). Clicks in the app
+    /// keep the usual behavior. Not yet checked with a second Space.
+    func show(section: MonitorSection? = nil, toActiveSpace: Bool = false) {
         if let window, let state {
             if let section, section.isAvailable { state.section = section }
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            // The global shortcut brings the window back from the Dock too.
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            // Taken off again once the window is key (windowDidBecomeKey).
+            // Any other open takes off a flag an earlier one left behind
+            // (a window that never became key), so a click never pulls the
+            // window across Spaces.
+            if toActiveSpace, !window.isOnActiveSpace {
+                window.collectionBehavior.insert(.moveToActiveSpace)
+            } else {
+                window.collectionBehavior.remove(.moveToActiveSpace)
+            }
+            bringToFront(window)
             // The same read as a new window: occlusion notifications report
             // changes, so a state that missed one is set right here too.
             state.setVisible(window.occlusionState.contains(.visible))
@@ -228,8 +242,7 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
 
         self.window = window
         self.state = state
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        bringToFront(window)
         // Only occlusion says whether anyone can see it: a window opened
         // behind another one starts hidden, and the notification above
         // reports every later change.
@@ -237,6 +250,15 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
     }
 
     private static let frameName = "RyzenStatusMonitorWindow"
+
+    /// Makes the window key with the app in front. From the global shortcut,
+    /// with another app in front, this is enough on macOS 26: the app becomes
+    /// frontmost and the window takes the keyboard (checked 2026-11-19 with
+    /// Finder in front, then ⌘2 switching the section).
+    private func bringToFront(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     // MARK: View menu
 
@@ -302,6 +324,21 @@ final class MonitorWindowController: NSObject, NSWindowDelegate {
         state?.setVisible(false)
         state = nil
         self.window = nil
+    }
+
+    /// The shortcut's `moveToActiveSpace` lasts one activation, so a later
+    /// click in the Dock from another Space switches Spaces as usual. The
+    /// flag comes off one main-queue turn later, so a move AppKit makes after
+    /// this notification is not cancelled.
+    nonisolated func windowDidBecomeKey(_ notification: Notification) {
+        let becameKey = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+        MainActor.assumeIsolated {
+            guard let window = self.window, ObjectIdentifier(window) == becameKey,
+                  window.collectionBehavior.contains(.moveToActiveSpace) else { return }
+            DispatchQueue.main.async { [weak window] in
+                window?.collectionBehavior.remove(.moveToActiveSpace)
+            }
+        }
     }
 }
 
@@ -380,19 +417,42 @@ struct MonitorWindowView: View {
 
 /// The Settings page for the Dashboard row: the Dashboard lives in its own
 /// window (HIG Settings: the settings window holds settings), so the page
-/// offers the button that opens it, without taking focus on its own.
+/// offers the button that opens it, without taking focus on its own, and the
+/// global shortcut that opens it from any app. The section follows the
+/// quick tools' layout: action, caption, shortcut switch, recorder.
 struct MonitorLauncherPage: View {
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var shortcut = MonitorWindowShortcut.shared
+    @AppStorage(DefaultsKey.monitorWindowShortcutEnabled) private var shortcutEnabled = true
 
     var body: some View {
         let strings = MonitorWindowStrings.localized(l10n.language)
-        ContentUnavailableView {
-            Label(strings.windowTitle, systemImage: "gauge.with.dots.needle.33percent")
-        } description: {
-            Text(strings.openMonitorCaption)
-        } actions: {
-            Button(strings.openMonitor) { MonitorWindowController.shared.show() }
-                .buttonStyle(.borderedProminent)
+        Form {
+            Section {
+                Button {
+                    MonitorWindowController.shared.show()
+                } label: {
+                    Label(strings.openMonitor, systemImage: MonitorWindowShortcut.symbolName)
+                }
+                Text(strings.openMonitorCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
+                    .onChange(of: shortcutEnabled) { _, _ in
+                        MonitorWindowShortcut.shared.syncWithPreferences()
+                    }
+                ShortcutPreferenceRow(role: .monitorWindow, isEnabled: shortcutEnabled) {
+                    MonitorWindowShortcut.shared.syncWithPreferences()
+                }
+                if shortcutEnabled, shortcut.registrationFailed {
+                    Text(l10n.s.shortcutUnavailable)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(strings.windowTitle)
+            }
         }
+        .formStyle(.grouped)
     }
 }
