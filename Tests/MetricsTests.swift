@@ -272,7 +272,9 @@ struct MetricsTests {
                    && !npStrings.providerMusic.isEmpty
                    && !npStrings.providerSpotify.isEmpty
                    && !npStrings.providerKaset.isEmpty
-                   && !npStrings.searchKasetPlaceholder.isEmpty,
+                   && !npStrings.searchKasetPlaceholder.isEmpty
+                   && !npStrings.providerTidal.isEmpty
+                   && !npStrings.searchTidalPlaceholder.isEmpty,
                    "\(language.rawValue) Now Playing strings are localized")
 
             let amdStrings = FeatureStrings.amdPower(language)
@@ -1938,10 +1940,336 @@ struct MetricsTests {
                "bar appearance is a valid stored choice")
         expect(Defaults.sanitizedMenuBarMetricAppearance("banana") == "values",
                "unknown menu bar appearances fall back to numeric values")
-        expect(MenuBarMetricAppearance.values.allowsCombinedTemperatures,
-               "numeric menu bar values may combine usage and temperature")
-        expect(!MenuBarMetricAppearance.bars.allowsCombinedTemperatures,
-               "menu bar bars keep usage and temperature separate")
+        expect(MenuBarMetricAppearance.values.isText && MenuBarMetricAppearance.classic.isText,
+               "numeric menu bar values (and the old classic duplicate) draw as text")
+        expect(!MenuBarMetricAppearance.bars.isText && !MenuBarMetricAppearance.sparkline.isText,
+               "menu bar graph styles are not text")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy {
+                   registeredDefaults[$0.styleKey] as? String == MenuBarMetricAppearance.defaultStyle(for: $0).rawValue
+               },
+               "every menu bar metric has a registered style, so none inherits the old global key")
+        expect(MenuBarMetricAppearance.styledMetrics.count == MenuBarMetric.allCases.count,
+               "every menu bar metric has a style of its own")
+        expect(MenuBarMetricAppearance.defaultStyle(for: .cpuTempPower) == .valueOnly
+               && MenuBarMetricAppearance.defaultStyle(for: .battery) == .iconValue
+               && MenuBarMetricAppearance.defaultStyle(for: .cpuTemperature) == .values,
+               "each metric's default style is the look it had before it had a choice")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy {
+                   let allowed = MenuBarMetricAppearance.allowed(for: $0)
+                   return allowed.contains(MenuBarMetricAppearance.defaultStyle(for: $0))
+                       && allowed.contains(.values) && allowed.contains(.inline) && allowed.contains(.valueOnly)
+               },
+               "every metric offers the text styles, and its default among them")
+        expect(!MenuBarMetricAppearance.allowed(for: .gpu).contains(.iconValue)
+               && !MenuBarMetricAppearance.allowed(for: .cpuTemperature).contains(.iconValue),
+               "no symbol for readings that would share it (no GPU symbol; one thermometer for CPU and GPU)")
+        do {
+            let suite = UserDefaults(suiteName: "menubar-style-read-test")!
+            suite.removePersistentDomain(forName: "menubar-style-read-test")
+            suite.set("pie", forKey: MenuBarMetric.network.styleKey)
+            suite.set("histogram", forKey: MenuBarMetric.gpu.styleKey)
+            suite.set("bars", forKey: MenuBarMetric.cpuTemperature.styleKey)
+            suite.set("classic", forKey: MenuBarMetric.cpu.styleKey)
+            expect(MenuBarMetricAppearance.stored(for: .network, in: suite) == .sparkline
+                   && MenuBarMetricAppearance.stored(for: .gpu, in: suite) == .sparkline,
+                   "styles a metric never drew read as what it showed for them")
+            expect(MenuBarMetricAppearance.stored(for: .cpuTemperature, in: suite) == .values
+                   && MenuBarMetricAppearance.stored(for: .cpu, in: suite) == .values,
+                   "a style a metric does not offer falls back to its default; classic reads as values")
+            suite.removePersistentDomain(forName: "menubar-style-read-test")
+        }
+        do {
+            // The renderer read one stored value differently per metric;
+            // the conversion writes what each one actually showed.
+            let migrated = MenuBarStyleMigration.migratedValues(stored: [
+                DefaultsKey.menuBarMetricAppearance: "pie",
+                MenuBarMetric.cpu.styleKey: "histogram",
+                MenuBarMetric.gpu.styleKey: "histogram",
+                MenuBarMetric.memory.styleKey: "classic",
+            ])
+            expect(migrated[MenuBarMetric.cpu.styleKey] as? String == "histogram",
+                   "a CPU histogram stays the per-core graph")
+            expect(migrated[MenuBarMetric.gpu.styleKey] as? String == "sparkline",
+                   "a GPU histogram was drawn as history and is written as history")
+            expect(migrated[MenuBarMetric.memory.styleKey] as? String == "values",
+                   "classic is written as values, which it always looked like")
+            expect(migrated[MenuBarMetric.network.styleKey] as? String == "sparkline",
+                   "an unset network style inherits the old global ring, which network drew as its graph")
+            expect(migrated[MenuBarMetric.diskUsage.styleKey] as? String == "values",
+                   "disk drew every style but bars as a value")
+            expect(migrated[DefaultsKey.menuBarCPU] == nil,
+                   "without the hidden classic layout no visibility changes")
+            // Only the five metrics that had a style get one written. Battery,
+            // frequency and the two-line readings keep no saved style, so
+            // their registered defaults (their old looks) still decide.
+            let unconverted = MenuBarMetric.allCases.filter { !MenuBarStyleMigration.convertedMetrics.contains($0) }
+            expect(Set(migrated.keys) == Set(MenuBarStyleMigration.convertedMetrics.map(\.styleKey))
+                   && !unconverted.isEmpty && unconverted.allSatisfy { migrated[$0.styleKey] == nil },
+                   "the conversion writes a style for the five converted metrics and for no other reading")
+            let fresh = MenuBarStyleMigration.migratedValues(stored: [:])
+            expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { fresh[$0.styleKey] == nil },
+                   "settings that name no style write none; the registered values apply")
+            let classic = MenuBarStyleMigration.migratedValues(stored: [DefaultsKey.menuBarLayoutMode: "classic"])
+            expect(classic[DefaultsKey.menuBarCPU] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUTemperature] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUFrequency] as? Bool == true
+                   && classic[DefaultsKey.menuBarCPUPower] as? Bool == true
+                   && classic[DefaultsKey.menuBarGPU] as? Bool == false,
+                   "the hidden classic layout becomes the four CPU readings it forced")
+            expect(classic[DefaultsKey.menuBarLayoutMode] as? String == "modern"
+                   && classic[DefaultsKey.menuBarHideIconWithMetrics] as? Bool == false,
+                   "classic converts once and keeps the glyph it forced on")
+        }
+        do {
+            // Both ways onto this build keep the old look. Saved on a build
+            // before any conversion: the old global ring and a CPU per-core
+            // graph. Straight to this build, the conversion runs here; through
+            // the build that first ran it (PR 101), that build already wrote
+            // the five styles and set the shared marker, so nothing runs here.
+            // Either way every other reading has no saved style and keeps its
+            // registered default, which is its old look.
+            let expected: [MenuBarMetric: MenuBarMetricAppearance] = [
+                .cpu: .histogram, .gpu: .pie, .memory: .pie, .network: .sparkline, .diskUsage: .values,
+            ]
+            func check(_ name: String, _ path: String) {
+                let suite = UserDefaults(suiteName: name)!
+                MenuBarStyleMigration.runIfNeeded(in: suite)
+                let saved = suite.persistentDomain(forName: name) ?? [:]
+                for metric in MenuBarMetric.allCases {
+                    let old = expected[metric] ?? MenuBarMetricAppearance.defaultStyle(for: metric)
+                    expect(MenuBarMetricAppearance.stored(for: metric, in: suite) == old,
+                           "\(path): \(metric.rawValue) keeps its old look")
+                    expect(expected[metric] != nil || saved[metric.styleKey] == nil,
+                           "\(path): \(metric.rawValue) has no saved style, so its default applies")
+                }
+                expect(suite.bool(forKey: MenuBarStyleMigration.markerKey)
+                       && suite.object(forKey: DefaultsKey.menuBarMetricAppearance) == nil,
+                       "\(path): converted once, the old global style gone")
+                suite.removePersistentDomain(forName: name)
+            }
+            let direct = UserDefaults(suiteName: "menubar-upgrade-direct-test")!
+            direct.removePersistentDomain(forName: "menubar-upgrade-direct-test")
+            direct.set("pie", forKey: DefaultsKey.menuBarMetricAppearance)
+            direct.set("histogram", forKey: MenuBarMetric.cpu.styleKey)
+            check("menubar-upgrade-direct-test", "straight from an old build")
+            // What PR 101's conversion leaves for the same saved values: the
+            // five styles in its own vocabulary and its marker (its test pins
+            // that it writes no other style key).
+            let through = UserDefaults(suiteName: "menubar-upgrade-through-test")!
+            through.removePersistentDomain(forName: "menubar-upgrade-through-test")
+            through.set("histogram", forKey: MenuBarMetric.cpu.styleKey)
+            through.set("pie", forKey: MenuBarMetric.gpu.styleKey)
+            through.set("pie", forKey: MenuBarMetric.memory.styleKey)
+            through.set("sparkline", forKey: MenuBarMetric.network.styleKey)
+            through.set("values", forKey: MenuBarMetric.diskUsage.styleKey)
+            through.set(true, forKey: MenuBarStyleMigration.markerKey)
+            check("menubar-upgrade-through-test", "through the first conversion")
+        }
+        do {
+            // Usage and temperature combine only while the usage is text, so
+            // a graph never comes back as a second "CPU 23% 58°" block.
+            var settings = MenuBarRenderSettings.current(defaults: UserDefaults(suiteName: "menubar-settings-test")!)
+            settings.combineTemperatures = true
+            settings.styles[.cpu] = .values
+            settings.styles[.gpu] = .sparkline
+            let all = Set(MenuBarMetric.allCases)
+            expect(settings.combinesTemperature(of: .cpu, enabled: all), "text CPU usage takes its temperature along")
+            expect(!settings.combinesTemperature(of: .gpu, enabled: all), "a GPU graph leaves its temperature as its own block")
+            expect(settings.combinesTemperature(of: .battery, enabled: all), "battery charge always combines when asked")
+            expect(!settings.combinesTemperature(of: .cpu, enabled: [.cpuTemperature]),
+                   "a temperature pinned without its usage keeps its own style and name")
+            settings.combineTemperatures = false
+            expect(!settings.combinesTemperature(of: .cpu, enabled: all), "nothing combines with the option off")
+            let kept = MenuBarStyleMigration.translatingOldKeys([DefaultsKey.menuBarMetricAppearance: "bars",
+                                                                MenuBarMetric.cpu.styleKey: "inline"])
+            expect(kept[MenuBarMetric.cpu.styleKey] as? String == "inline"
+                   && kept[MenuBarMetric.gpu.styleKey] as? String == "bars",
+                   "an old global style next to a newer per-metric style keeps the newer one")
+            expect(MenuBarRenderer.narrowerReserve("↓8888888B ↑8B", "↓000B ↑000B") == "↓000B ↑000B"
+                   && MenuBarRenderer.narrowerReserve("88%", "100%") == "88%",
+                   "fitting to the value is never wider than the fixed width")
+            let memory = MenuBarWidthMemory()
+            _ = memory.compactReserve(key: "unit", value: "136°")
+            memory.reset()
+            expect(memory.compactReserve(key: "unit", value: "58°") == "88°",
+                   "after a settings change (°F to °C) the width memory starts over")
+            let suite = UserDefaults(suiteName: "menubar-drawn-with-usage-test")!
+            suite.removePersistentDomain(forName: "menubar-drawn-with-usage-test")
+            suite.set(true, forKey: DefaultsKey.menuBarCombineTemperatures)
+            suite.set(true, forKey: DefaultsKey.menuBarCPU)
+            suite.set(true, forKey: DefaultsKey.menuBarCPUTemperature)
+            expect(MenuBarMetricAppearance.drawnWithUsage(.cpuTemperature, in: suite),
+                   "with combine on and both pinned, the CPU temperature rides in the usage block")
+            suite.set("sparkline", forKey: MenuBarMetric.cpu.styleKey)
+            expect(!MenuBarMetricAppearance.drawnWithUsage(.cpuTemperature, in: suite),
+                   "a CPU graph leaves the temperature on its own, with its own style")
+            suite.set(true, forKey: DefaultsKey.menuBarGPU)
+            suite.set(true, forKey: DefaultsKey.menuBarGPUTemperature)
+            expect(MenuBarMetricAppearance.drawnWithUsage(.gpuTemperature, in: suite),
+                   "the GPU temperature rides in the GPU block when combined")
+            suite.set(GPUTemperatureSource.memory.rawValue, forKey: DefaultsKey.gpuTemperatureSource)
+            expect(!MenuBarMetricAppearance.drawnWithUsage(.gpuTemperature, in: suite),
+                   "a VRAM reading keeps its own block, so its style menu stays active")
+            suite.removePersistentDomain(forName: "menubar-drawn-with-usage-test")
+        }
+        do {
+            // The tests run on the main thread, which the memory requires.
+            let memory = MenuBarWidthMemory()
+            _ = memory.compactReserve(key: "cpuPower", value: "105W")
+            expect(memory.compactReserve(key: "cpu", value: "4%") == "88%",
+                   "a three digit power reading no longer widens the CPU usage block")
+            expect(memory.compactReserve(key: "cpuPower", value: "45W") == "888W",
+                   "each block keeps its own high-water mark")
+        }
+        expect(MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+               == MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a"),
+               "an unchanged title has an unchanged key, so it is not written again")
+        expect(MenuBarSpacingSupport.titleKey(glyphHidden: true, countdown: "", metricsKey: "a")
+               != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+               && MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "5 min", metricsKey: "a")
+               != MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "4 min", metricsKey: "a"),
+               "the glyph spacing and a running countdown change the title key")
+        do {
+            // The write memo both status item sites run through.
+            let key = MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "a")
+            let other = MenuBarSpacingSupport.titleKey(glyphHidden: false, countdown: "", metricsKey: "b")
+            expect(!MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: key, currentTitleLength: 3),
+                   "an unchanged key on a drawn title is not written again")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: other, lastWrittenKey: key, currentTitleLength: 3),
+                   "a new key writes the title")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: key, currentTitleLength: 0),
+                   "an unchanged key still writes when the button title was cleared")
+            expect(MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: nil, currentTitleLength: 3)
+                   && MenuBarSpacingSupport.needsTitleWrite(key: key, lastWrittenKey: "", currentTitleLength: 3),
+                   "a new item or a reset memo writes the title")
+        }
+        do {
+            // The status item rewrites its title only when the render key
+            // changes, so everything that changes the pixels must change it.
+            let suite = UserDefaults(suiteName: "menubar-title-key-test")!
+            suite.removePersistentDomain(forName: "menubar-title-key-test")
+            var settings = MenuBarRenderSettings.current(defaults: suite)
+            settings.styles[.cpu] = .values
+            var snapshot = SystemSnapshot()
+            snapshot.cpuUsage = 0.23
+            snapshot.cpuHistory = [0.1, 0.4, 0.23]
+            func key(_ settings: MenuBarRenderSettings, _ snapshot: SystemSnapshot) -> String {
+                MenuBarRenderer.render(for: snapshot, metrics: [.cpu], settings: settings,
+                                       widthMemory: MenuBarWidthMemory()).key
+            }
+            let base = key(settings, snapshot)
+            expect(!base.isEmpty && base == key(settings, snapshot),
+                   "two renders of the same reading have the same key, though their attachments differ")
+            var newValue = snapshot
+            newValue.cpuUsage = 0.24
+            expect(key(settings, newValue) != base, "a new value changes the title key")
+            var dark = settings
+            dark.appearanceName = "NSAppearanceNameDarkAqua"
+            expect(settings.appearanceName != dark.appearanceName && key(dark, snapshot) != base,
+                   "a light/dark change rewrites the title")
+            var graph = settings
+            graph.styles[.cpu] = .sparkline
+            let graphBase = key(graph, snapshot)
+            var newTheme = graph
+            newTheme.graphToken = graph.graphToken + "|other"
+            expect(graphBase != base && key(newTheme, snapshot) != graphBase,
+                   "a style change and a graph theme or accent change rewrite the title")
+            var newHistory = snapshot
+            newHistory.cpuHistory = [0.4, 0.23, 0.9]
+            expect(key(graph, newHistory) != graphBase, "new graph samples rewrite the title")
+            var inline = settings
+            inline.styles[.cpu] = .inline
+            expect(key(inline, snapshot) != base, "a text style change rewrites the title")
+            // 69.6 % and 70.4 % both read "70%"; with highlighting on, only
+            // the second is orange, so the key must tell them apart.
+            var highlight = settings
+            highlight.highlightHighValues = true
+            highlight.usageBarMediumThreshold = 70
+            highlight.usageBarHighThreshold = 90
+            var below = snapshot
+            below.cpuUsage = 0.696
+            var above = snapshot
+            above.cpuUsage = 0.704
+            expect(highlight.highlightHex(for: 0.696) == nil
+                   && highlight.highlightHex(for: 0.704) == "elevated"
+                   && highlight.highlightHex(for: 0.9) == "critical"
+                   && settings.highlightHex(for: 0.95) == nil,
+                   "values are highlighted from the bar thresholds, and only with the option on")
+            expect(key(settings, below) == key(settings, above) && key(highlight, below) != key(highlight, above),
+                   "crossing a threshold repaints a value whose text did not change")
+            suite.removePersistentDomain(forName: "menubar-title-key-test")
+        }
+        do {
+            // Settings (drawnWithUsage) and the renderer (combinesTemperature)
+            // each encode when a temperature rides in its usage block; they
+            // must agree on every combination, the GPU temperature source too.
+            let name = "menubar-combine-agreement-test"
+            let suite = UserDefaults(suiteName: name)!
+            let pairs: [(usage: MenuBarMetric, temperature: MenuBarMetric, component: MenuBarComponent)] = [
+                (.cpu, .cpuTemperature, .cpu), (.gpu, .gpuTemperature, .gpu), (.battery, .batteryTemperature, .battery),
+            ]
+            var disagreements: [String] = []
+            var checked = 0
+            for pair in pairs {
+                for combine in [false, true] {
+                    for usagePinned in [false, true] {
+                        for temperaturePinned in [false, true] {
+                            for style in [MenuBarMetricAppearance.values, .inline, .valueOnly, .sparkline] {
+                                for source in GPUTemperatureSource.allCases {
+                                    suite.removePersistentDomain(forName: name)
+                                    suite.set(combine, forKey: DefaultsKey.menuBarCombineTemperatures)
+                                    suite.set(usagePinned, forKey: pair.usage.defaultsKey)
+                                    suite.set(temperaturePinned, forKey: pair.temperature.defaultsKey)
+                                    suite.set(style.rawValue, forKey: pair.usage.styleKey)
+                                    suite.set(source.rawValue, forKey: DefaultsKey.gpuTemperatureSource)
+                                    let enabled = Set(MenuBarMetric.allCases.filter { suite.bool(forKey: $0.defaultsKey) })
+                                    let renderer = MenuBarRenderSettings.current(defaults: suite)
+                                        .combinesTemperature(of: pair.component, enabled: enabled)
+                                    checked += 1
+                                    if MenuBarMetricAppearance.drawnWithUsage(pair.temperature, in: suite) != renderer {
+                                        disagreements.append("\(pair.usage.rawValue)/\(style.rawValue)/\(combine)"
+                                                             + "/\(usagePinned)/\(temperaturePinned)/\(source.rawValue)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            suite.removePersistentDomain(forName: name)
+            expect(checked == 288 && disagreements.isEmpty,
+                   "Settings and the renderer agree on when a temperature joins its usage (got \(disagreements))")
+        }
+        do {
+            // VRAM chosen, kext silent: the snapshot carries only the macOS
+            // reading, labelled "GPU". The temperature still keeps its own
+            // block, exactly as with combine off, and is never folded into
+            // the GPU usage block.
+            let name = "menubar-vram-silent-test"
+            let suite = UserDefaults(suiteName: name)!
+            suite.removePersistentDomain(forName: name)
+            var settings = MenuBarRenderSettings.current(defaults: suite)
+            settings.styles[.gpu] = .values
+            settings.styles[.gpuTemperature] = .values
+            var snapshot = SystemSnapshot()
+            snapshot.gpuUsage = 0.42
+            snapshot.gpuTemperature = 61
+            // What the monitor resolves with VRAM chosen and no kext sample.
+            snapshot.gpuDisplayTemperature = GPUDisplayTemperature.resolve(source: .memory, macOS: 61, sample: nil)
+            func key(combine: Bool, source: GPUTemperatureSource) -> String {
+                var s = settings
+                s.combineTemperatures = combine
+                s.gpuTemperatureSource = source
+                return MenuBarRenderer.render(for: snapshot, metrics: [.gpu, .gpuTemperature], settings: s,
+                                              widthMemory: MenuBarWidthMemory()).key
+            }
+            expect(snapshot.gpuDisplayLabel == "GPU"
+                   && key(combine: true, source: .hotspot) != key(combine: false, source: .hotspot),
+                   "with the macOS source, combine folds the GPU temperature into the usage block")
+            expect(key(combine: true, source: .memory) == key(combine: false, source: .memory),
+                   "with VRAM chosen and the kext silent, the fallback temperature keeps its own block")
+            suite.removePersistentDomain(forName: name)
+        }
         expectClose(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 4) ?? -1, 0.75,
                     "menu bar memory bars use the current used fraction")
         expect(MenuBarUsageBarSupport.memoryFraction(used: 3, total: 0) == nil,
@@ -2168,12 +2496,10 @@ struct MetricsTests {
                "a three digit value raises the floor")
         expect(MenuBarSpacingSupport.compactFloor(currentDigits: 2, highWater: 3) == 3,
                "the session high-water mark keeps a block from shrinking back and wobbling")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: false, spacing: .standard) == " ",
-               "standard dense spacing keeps the full space between blocks")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: false, spacing: .compact) == "\u{200A}",
-               "compact dense spacing joins blocks with a hair space")
-        expect(MenuBarSpacingSupport.blockGlue(readableStyle: true, spacing: .compact) == " ",
-               "compact readable spacing tightens the double space to a single one")
+        expect(MenuBarSpacingSupport.blockGlue(spacing: .standard) == " ",
+               "standard spacing keeps the full space between blocks")
+        expect(MenuBarSpacingSupport.blockGlue(spacing: .compact) == "\u{200A}",
+               "compact spacing joins blocks with a hair space")
         expect(StatusItemAnchorSupport.anchorDriftX(clickX: 1135, reportedMidX: 1452, buttonWidth: 38) == -317,
                "a click far left of the status item's reported frame re-anchors the panel at the click")
         expect(StatusItemAnchorSupport.anchorDriftX(clickX: 1452, reportedMidX: 1135, buttonWidth: 38) == 317,
@@ -2326,8 +2652,6 @@ struct MetricsTests {
                "separate menu bar metric items are opt-in")
         expect(registeredDefaults[DefaultsKey.menuBarNetworkUploadFirst] as? Bool == false,
                "network menu bar upload-first layout is opt-in")
-        expect(registeredDefaults[DefaultsKey.menuBarLabelStyle] as? String == "compact",
-               "menu bar label style defaults to compact")
         expect(registeredDefaults[DefaultsKey.menuBarMemoryStyle] as? String == "percent",
                "memory menu bar style defaults to percent")
         expect(registeredDefaults[DefaultsKey.monitorPwrTimeRemaining] as? Bool == true,
@@ -2846,8 +3170,6 @@ struct MetricsTests {
                "valid debounce window is preserved")
         expect(Defaults.sanitizedKeyboardDebounceWindow(999) == Defaults.defaultKeyboardDebounceWindowMs,
                "invalid debounce window falls back to default")
-        expect(Defaults.sanitizedMenuBarLabelStyle("classic") == "classic", "valid label style is preserved")
-        expect(Defaults.sanitizedMenuBarLabelStyle("bad") == "compact", "invalid label style falls back to compact")
         expect(Defaults.sanitizedMenuBarMemoryStyle("percent") == "percent", "percent memory style is preserved")
         expect(Defaults.sanitizedMenuBarMemoryStyle("dot") == "dot", "valid memory style is preserved")
         expect(Defaults.sanitizedMenuBarMemoryStyle("both") == "both", "combined memory style is preserved")
@@ -8541,6 +8863,65 @@ struct MetricsTests {
                 && backupKeys.contains(DefaultsKey.keepAwakeActiveIcon)
                 && backupKeys.contains(AppFeature.dockPreview.availabilityKey),
                "backup carries preferences, menu bar pins, Keep Awake appearance, language and hub availability")
+        expect(MenuBarMetricAppearance.styledMetrics.allSatisfy { backupKeys.contains($0.styleKey) }
+                && !backupKeys.contains(MenuBarStyleMigration.markerKey),
+               "each menu bar metric's style travels with the backup; the conversion marker stays local")
+        do {
+            // A backup written before the per-metric styles existed carries
+            // only the old global style; importing it converts again.
+            let suite = UserDefaults(suiteName: "menubar-style-import-test")!
+            suite.removePersistentDomain(forName: "menubar-style-import-test")
+            MenuBarStyleMigration.applyAfterImport([DefaultsKey.menuBarMetricAppearance: "bars"], to: suite)
+            expect(suite.string(forKey: MenuBarMetric.cpu.styleKey) == "bars"
+                   && suite.string(forKey: MenuBarMetric.network.styleKey) == "sparkline",
+                   "an old backup's global style becomes what each metric showed")
+            suite.set("pie", forKey: MenuBarMetric.cpu.styleKey)
+            MenuBarStyleMigration.applyAfterImport([MenuBarMetric.cpu.styleKey: "pie"], to: suite)
+            expect(suite.string(forKey: MenuBarMetric.cpu.styleKey) == "pie",
+                   "a backup with per-metric styles is applied as it is")
+            // A launch config file (applied without clearing) from an older
+            // build: only its old keys convert, and a file that says nothing
+            // about styles leaves them alone.
+            SettingsBackup.apply(settings: [DefaultsKey.menuBarMetricAppearance: "sparkline"],
+                                 replacingMissing: false, in: suite)
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "sparkline"
+                   && suite.string(forKey: MenuBarMetric.diskUsage.styleKey) == "values",
+                   "an old config file's global style converts on a new Mac")
+            SettingsBackup.apply(settings: [DefaultsKey.language: "es"], replacingMissing: false, in: suite)
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "sparkline",
+                   "a config file without style keys keeps the current styles")
+            // A classic-only launch config file: translated in the file, so it
+            // converges after one apply and keeps the styles chosen on this Mac.
+            suite.set("pie", forKey: MenuBarMetric.gpu.styleKey)
+            let classicFile = SettingsBackupSupport.configOverrides(from: [DefaultsKey.menuBarLayoutMode: "classic"])
+            expect(classicFile[DefaultsKey.menuBarLayoutMode] == nil
+                   && classicFile[DefaultsKey.menuBarCPUFrequency] as? Bool == true
+                   && classicFile[MenuBarMetric.gpu.styleKey] == nil,
+                   "a classic config file reads as the readings it showed, naming no style")
+            SettingsBackup.apply(settings: classicFile, replacingMissing: false, in: suite)
+            let localAfterFirst = classicFile.keys.reduce(into: [String: Any]()) { $0[$1] = suite.object(forKey: $1) }
+            expect(classicFile.allSatisfy { localAfterFirst[$0.key] as? NSObject == $0.value as? NSObject },
+                   "after one apply the classic file matches this Mac, so the next launch changes nothing")
+            expect(suite.string(forKey: MenuBarMetric.gpu.styleKey) == "pie",
+                   "a classic config file keeps the GPU style chosen on this Mac")
+            let globalDefault = SettingsBackupSupport.configOverrides(from: [DefaultsKey.menuBarMetricAppearance: "values"])
+            expect(globalDefault[DefaultsKey.menuBarMetricAppearance] == nil
+                   && globalDefault[MenuBarMetric.gpu.styleKey] as? String == "values",
+                   "an old file's global style equal to the default still converts, so the diff sees it")
+            let partial = MenuBarStyleMigration.translatingOldKeys([DefaultsKey.menuBarMetricAppearance: "bars",
+                                                                   MenuBarMetric.cpu.styleKey: "pie"])
+            expect(partial[MenuBarMetric.cpu.styleKey] as? String == "pie"
+                   && partial[MenuBarMetric.memory.styleKey] as? String == "bars",
+                   "with some per-metric styles, the others inherit the old global one")
+            expect(suite.object(forKey: DefaultsKey.menuBarMetricAppearance) == nil,
+                   "the stale global style is removed after converting")
+            suite.set("classic", forKey: MenuBarMetric.cpu.styleKey)
+            suite.set("histogram", forKey: MenuBarMetric.gpu.styleKey)
+            expect(MenuBarMetricAppearance.stored(for: .cpu, in: suite) == .values
+                   && MenuBarMetricAppearance.stored(for: .gpu, in: suite) == .sparkline,
+                   "a stored style reads as what the metric draws, so its picker is never blank")
+            suite.removePersistentDomain(forName: "menubar-style-import-test")
+        }
         expect(backupKeys.contains(DefaultsKey.launchAtLoginWanted),
                "the launch at login choice travels with the settings backup")
         expect(backupKeys.contains(DefaultsKey.textSnippets)
@@ -9229,6 +9610,457 @@ struct MetricsTests {
             expect(NowPlayingSearch.resolvedProvider(snapshot: kasetSnap) == .kaset, "NowPlayingSearch resolves Kaset provider")
 
             checks += 28
+        }
+
+        // 7. TIDAL and the media session reader (macOS 15.4+)
+        do {
+            let tidal = NowPlayingProvider.tidal
+            expect(tidal.accepts("com.tidal.desktop"), "TIDAL provider accepts the TIDAL desktop app")
+            expect(!tidal.accepts("com.tidal.desktop.player") && !tidal.accepts("com.spotify.client") && !tidal.accepts(nil),
+                   "TIDAL provider rejects its audio helper, other players and no app")
+            expect(NowPlayingProvider(rawValue: 4) == .tidal, "TIDAL keeps stored provider value 4")
+            expect(!tidal.isScripted && !NowPlayingProvider.auto.isScripted
+                   && NowPlayingProvider.music.isScripted && NowPlayingProvider.spotify.isScripted && NowPlayingProvider.kaset.isScripted,
+                   "Only Music, Spotify and Kaset are read over AppleScript")
+            expect(NowPlayingProvider.scripted(for: "com.tidal.desktop") == nil
+                   && NowPlayingProvider.scripted(for: "com.apple.Music") == .music
+                   && NowPlayingProvider.scripted(for: "com.spotify.client") == .spotify
+                   && NowPlayingProvider.scripted(for: "com.sertacozercan.kaset") == .kaset,
+                   "A session's scripted provider is found by its bundle")
+
+            var tidalSnap = NowPlayingSnapshot()
+            tidalSnap.title = "Sunlight"
+            tidalSnap.appBundleID = "com.tidal.desktop"
+            tidalSnap.duration = 338
+            expect(NowPlayingSearch.resolvedProvider(snapshot: tidalSnap) == .tidal, "NowPlayingSearch resolves a TIDAL session to TIDAL")
+            expect(!tidalSnap.acceptsSeek, "TIDAL ignores seeks, so its position is not a control")
+            expect(NowPlayingPlayback.make(from: tidalSnap, pid: 7, sampledAt: Date())?.canSeek == false,
+                   "Island feed: a TIDAL song is not seekable")
+            var musicSnap = tidalSnap
+            musicSnap.appBundleID = "com.apple.Music"
+            expect(musicSnap.acceptsSeek, "A player that seeks keeps its position control")
+            musicSnap.duration = nil
+            expect(!musicSnap.acceptsSeek, "No duration means no position control")
+            expectEqual(NowPlayingTidal.searchURL(for: "max richter")?.absoluteString ?? "",
+                        "tidal:///search?q=max%20richter", "TIDAL search opens its own search page")
+
+            expect(NowPlayingCommand.seekToPlaybackPosition.rawValue == 24 && NowPlayingCommand.nextTrack.rawValue == 4
+                   && NowPlayingCommand.previousTrack.rawValue == 5 && NowPlayingCommand.togglePlayPause.rawValue == 2,
+                   "MediaRemote commands: seek is 24 (20 is RateTrack)")
+
+            // Playing state: TIDAL sends a rate and no "is playing" key.
+            expect(NowPlayingSessionReading.isPlaying(flag: nil, rate: 1), "No playing key: a running rate is playing")
+            expect(!NowPlayingSessionReading.isPlaying(flag: nil, rate: 0) && !NowPlayingSessionReading.isPlaying(flag: nil, rate: nil),
+                   "No playing key: a stopped or missing rate is paused")
+            expect(!NowPlayingSessionReading.isPlaying(flag: true, rate: 0) && NowPlayingSessionReading.isPlaying(flag: true, rate: nil)
+                   && !NowPlayingSessionReading.isPlaying(flag: false, rate: 1),
+                   "A playing key wins, held back by a stopped rate")
+
+            // The session keeps the elapsed time of the last state change.
+            let stamp = Date(timeIntervalSince1970: 1_000)
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 338,
+                                                         now: stamp.addingTimeInterval(162)) ?? -1, 212,
+                        "Session elapsed moves on from its timestamp while playing")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: false, duration: 338,
+                                                         now: stamp.addingTimeInterval(162)) ?? -1, 50,
+                        "Session elapsed stays put while paused")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 100,
+                                                         now: stamp.addingTimeInterval(500)) ?? -1, 100,
+                        "Session elapsed is clamped to the duration")
+            expectClose(NowPlayingSessionReading.elapsed(50, at: stamp, rate: 1, isPlaying: true, duration: 338,
+                                                         now: stamp.addingTimeInterval(-30)) ?? -1, 50,
+                        "A timestamp in the future does not move the playhead back")
+            expect(NowPlayingSessionReading.elapsed(nil, at: stamp, rate: 1, isPlaying: true, duration: 338, now: stamp) == nil
+                   && NowPlayingSessionReading.elapsed(-.infinity, at: stamp, rate: 1, isPlaying: true, duration: 338, now: stamp) == nil,
+                   "Missing or invalid elapsed time stays unknown")
+
+            // A reader line, as the script prints it for TIDAL on macOS 26.
+            let line = #"{"seq":3,"playing":1,"bundle":"com.tidal.desktop","pid":12262,"title":" Richter: Sunlight ","artist":"Louisa Fuller","album":"Voyager","elapsed":50.648,"duration":338.24,"rate":1,"timestamp":1795062276}"#
+            let readAt = Date(timeIntervalSince1970: 1_795_062_286)
+            let parsed = NowPlayingSessionReading.parse(line: Data(line.utf8), now: readAt)
+            expect(parsed?.sequence == 3 && parsed?.pid == 12262, "Reader line: sequence and player pid")
+            expect(parsed?.snapshot.title == "Richter: Sunlight" && parsed?.snapshot.artist == "Louisa Fuller"
+                   && parsed?.snapshot.album == "Voyager" && parsed?.snapshot.appBundleID == "com.tidal.desktop",
+                   "Reader line: trimmed song fields and the owning app")
+            expect(parsed?.snapshot.isPlaying == true && parsed?.snapshot.sampledAt == readAt, "Reader line: playing, sampled now")
+            expectClose(parsed?.snapshot.elapsed ?? -1, 60.648, "Reader line: elapsed at the time of reading", tol: 0.001)
+            expectClose(parsed?.snapshot.duration ?? -1, 338.24, "Reader line: duration")
+            let paused = NowPlayingSessionReading.parse(line: Data(#"{"seq":4,"playing":0,"bundle":"com.tidal.desktop","title":"Sunlight","elapsed":102.354,"rate":0,"duration":0}"#.utf8), now: readAt)
+            expect(paused?.snapshot.isPlaying == false && paused?.snapshot.duration == nil && paused?.pid == nil,
+                   "Reader line: paused, a zero duration is no duration, no pid")
+            let nothing = NowPlayingSessionReading.parse(line: Data(#"{"seq":5,"playing":0}"#.utf8))
+            expect(nothing?.snapshot.hasTrack == false && nothing?.sequence == 5, "Reader line: nothing playing is an empty reading")
+            expect(NowPlayingSessionReading.parse(line: Data("not json".utf8)) == nil
+                   && NowPlayingSessionReading.parse(line: Data(#"{"title":"x"}"#.utf8)) == nil
+                   && NowPlayingSessionReading.parse(line: Data(#"{"seq":"1","title":"x"}"#.utf8)) == nil,
+                   "Reader line: malformed or unnumbered lines are dropped")
+            expect(NowPlayingSessionReader.script.contains("MRNowPlayingRequest")
+                   && NowPlayingSessionReader.script.contains("if (!received) $.exit(0);"),
+                   "Reader script reads the session and ends with its input")
+
+            // The music app opened when nothing plays.
+            let installed: Set<String> = ["com.tidal.desktop", "com.apple.Music"]
+            expect(NowPlayingPreferredPlayer.known.contains("com.tidal.desktop"), "TIDAL is a known music app")
+            expect(NowPlayingPreferredPlayer.resolve(choice: "", lastPlayed: nil, isInstalled: { installed.contains($0) }) == "com.tidal.desktop",
+                   "Without a choice, an installed TIDAL comes before Apple Music")
+            expect(NowPlayingPreferredPlayer.resolve(choice: "", lastPlayed: "com.apple.Music", isInstalled: { installed.contains($0) }) == "com.apple.Music",
+                   "The app that played last still wins over TIDAL")
+
+            // Covers through the perl helper, once per song.
+            let coverLine = #"perl: warning: Setting locale failed."# + "\n"
+                + #"{"bundle":"com.tidal.desktop","title":" Richter: Sunlight ","artist":"Louisa Fuller","album":"Voyager","mime":"image/jpeg","artwork":"AQID"}"# + "\n"
+            let cover = NowPlayingCoverReader.parse(Data(coverLine.utf8))
+            expect(cover?.title == "Richter: Sunlight" && cover?.bundleID == "com.tidal.desktop" && cover?.data == Data([1, 2, 3]),
+                   "Cover helper: the JSON line after perl's warnings, cover decoded")
+            expect(NowPlayingCoverReader.parse(Data(#"{"title":"Song"}"#.utf8))?.data == nil,
+                   "Cover helper: a song without a cover has no data")
+            expect(NowPlayingCoverReader.parse(Data(#"{"error":"MediaRemote did not answer"}"#.utf8)) == nil
+                   && NowPlayingCoverReader.parse(Data("error: no entry point\n".utf8)) == nil
+                   && NowPlayingCoverReader.parse(Data()) == nil,
+                   "Cover helper: errors and empty output are no cover")
+            var onScreen = NowPlayingSnapshot()
+            onScreen.title = "Richter: Sunlight"
+            onScreen.artist = "Louisa Fuller"
+            onScreen.appBundleID = "com.tidal.desktop"
+            if let cover {
+                expect(NowPlayingCoverReader.cover(cover, belongsTo: onScreen), "A cover for the song on screen is used")
+                var nextSong = onScreen
+                nextSong.title = "On the Nature of Daylight"
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: nextSong), "A cover read at a track change is not put on the next song")
+                var otherApp = onScreen
+                otherApp.appBundleID = "com.google.Chrome"
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: otherApp), "A cover from another player is not used")
+                var noPlayer = onScreen
+                noPlayer.appBundleID = nil
+                expect(!NowPlayingCoverReader.cover(cover, belongsTo: noPlayer),
+                       "A cover that names its player is not used for a reading that names none")
+                var unnamed = cover
+                unnamed.bundleID = nil
+                expect(NowPlayingCoverReader.cover(unnamed, belongsTo: onScreen),
+                       "A cover without a player still matches by title")
+            }
+            var pausedSong = onScreen
+            pausedSong.isPlaying = false
+            pausedSong.elapsed = 99
+            expect(NowPlayingCoverReader.key(for: pausedSong) == NowPlayingCoverReader.key(for: onScreen),
+                   "Play, pause and the playhead do not ask for the cover again")
+            var renamed = onScreen
+            renamed.album = "Voyager (Deluxe)"
+            expect(NowPlayingCoverReader.key(for: renamed) != NowPlayingCoverReader.key(for: onScreen),
+                   "A new song or album asks for its cover")
+            // N11: the turn on the cover queue hands the reader's readyAt to
+            // the poll queue after a read too, not only after a skip. A
+            // missing helper turns covers off inside the read, no perl run.
+            let turnedOff = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            let read = NowPlayingService.attemptCover(with: turnedOff, for: onScreen)
+            if case .read(_, let data) = read.result {
+                expect(data == nil && read.readyAt == .infinity,
+                       "Cover turn: a read that turns covers off hands that on at once, so the next poll does not hop to the cover queue")
+            } else {
+                expect(false, "Cover turn: a ready reader runs the read")
+            }
+            let skipped = NowPlayingService.attemptCover(with: turnedOff, for: onScreen)
+            if case .skipped(let coversOff) = skipped.result {
+                expect(coversOff && skipped.readyAt == .infinity, "Cover turn: covers off are skipped and say so")
+            } else {
+                expect(false, "Cover turn: covers off are skipped without a read")
+            }
+            let service = (try? String(contentsOfFile: "Sources/RyzenStatus/Services/NowPlaying/NowPlayingService.swift",
+                                       encoding: .utf8)) ?? ""
+            let handOff = service.range(of: "self.coversReadyAt = attempt.readyAt")
+            let sameSong = service.range(of: "guard self.sessionCover?.key == key else { return }\n                let data: Data")
+            expect(handOff != nil && sameSong != nil && handOff!.lowerBound < sameSong!.lowerBound,
+                   "Cover turn: the poll queue takes readyAt from every turn, before the same-song check")
+            let missing = NowPlayingCoverReader(libraryURL: URL(fileURLWithPath: "/nonexistent/NowPlayingCover.dylib"))
+            let readyBefore = missing.readyAt
+            expect(missing.read() == nil && missing.gaveUp && missing.read() == nil,
+                   "Without the helper, covers stop at once and are not asked again")
+            expect(readyBefore == 0 && missing.readyAt == .infinity,
+                   "Covers off for the run are never ready again, so polls stop asking the cover queue")
+            expect(NowPlayingCoverReader.loader.contains("dl_load_file") && NowPlayingCoverReader.loader.contains("exit 2")
+                   && NowPlayingCoverReader.loader.contains("ryzenstatus_now_playing_cover"),
+                   "Cover loader loads the library and names its entry point")
+            // build.sh: the helper is built and bundled, and every signature of
+            // a bundle is preceded by its libraries' signatures.
+            // Paths from this file, so the checks hold from any directory.
+            let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            let buildScript = (try? String(contentsOf: repoRoot.appendingPathComponent("build.sh"), encoding: .utf8)) ?? ""
+            let buildLines = buildScript.components(separatedBy: "\n")
+            expect(buildScript.contains("Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib")
+                   && buildScript.contains("cp build/NowPlayingCover.dylib \"$STAGE/Contents/Frameworks/NowPlayingCover.dylib\"")
+                   && buildScript.contains("-fsyntax-only Sources/NowPlayingCover/NowPlayingCover.m"),
+                   "build.sh compiles the cover helper, checks it in --test and copies it into Frameworks")
+            let bundleSignings = buildLines.indices.filter { buildLines[$0].trimmingCharacters(in: .whitespaces) == "codesign_target \"$bundle\"" }
+            expect(bundleSignings.count == 2 && bundleSignings.allSatisfy { index in
+                index > 0 && buildLines[index - 1].trimmingCharacters(in: .whitespaces) == "sign_libraries \"$bundle\""
+            }, "build.sh signs the bundle's libraries right before each signature of the bundle")
+            if let finalize = buildLines.firstIndex(where: { $0.hasPrefix("finalize_installed_bundle_after_child()") }),
+               let finalizeEnd = buildLines[finalize...].firstIndex(where: { $0 == "}" }) {
+                let body = Array(buildLines[finalize...finalizeEnd])
+                let libraryLoop = body.firstIndex(where: { $0.contains("Contents/Frameworks/*.dylib(N)") })
+                let bundleSign = body.firstIndex(where: { $0.contains("--sign \"$devid\" \"$bundle\"") })
+                expect(libraryLoop != nil && bundleSign != nil && libraryLoop! < bundleSign!,
+                       "build.sh --install signs the libraries again before the installed bundle")
+                if let libraryLoop, let loopEnd = body[libraryLoop...].firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "done" }) {
+                    let loop = body[libraryLoop...loopEnd].joined(separator: "\n")
+                    expect(loop.contains("--sign \"$devid\" \"$library\"")
+                           && loop.contains("--sign \"$LEGACY_IDENTITY\" \"$library\"")
+                           && loop.contains("--sign - \"$library\""),
+                           "build.sh --install signs the libraries with Developer ID, the legacy identity or ad-hoc")
+                } else {
+                    expect(false, "build.sh --install keeps its library signing loop")
+                }
+            } else {
+                expect(false, "build.sh keeps finalize_installed_bundle_after_child")
+            }
+            let helperSource = (try? String(contentsOf: repoRoot.appendingPathComponent("Sources/NowPlayingCover/NowPlayingCover.m"), encoding: .utf8)) ?? ""
+            expect(helperSource.contains("void ryzenstatus_now_playing_cover(void *interpreter, void *sub)"),
+                   "The cover helper exports the entry point the loader calls")
+
+            // The reader script compiles as JavaScript for Automation.
+            let scriptCheck = Process()
+            scriptCheck.executableURL = URL(fileURLWithPath: "/usr/bin/osacompile")
+            let compiled = FileManager.default.temporaryDirectory.appendingPathComponent("now-playing-reader-\(ProcessInfo.processInfo.processIdentifier).scpt")
+            scriptCheck.arguments = ["-l", "JavaScript", "-e", NowPlayingSessionReader.script, "-o", compiled.path]
+            scriptCheck.standardOutput = FileHandle.nullDevice
+            scriptCheck.standardError = FileHandle.nullDevice
+            let scriptCompiles = (try? scriptCheck.run()) != nil && { scriptCheck.waitUntilExit(); return scriptCheck.terminationStatus == 0 }()
+            try? FileManager.default.removeItem(at: compiled)
+            expect(scriptCompiles, "The session reader's JavaScript compiles (osacompile)")
+            expect(NowPlayingSessionReader.script.contains("} catch (error) {")
+                   && NowPlayingSessionReader.script.contains("isKindOfClass($.NSNumber)")
+                   && NowPlayingSessionReader.script.contains("isKindOfClass($.NSDate)"),
+                   "The reader script checks value types and catches errors instead of ending")
+
+            // Reader replies: late replies and malformed lines are dropped, a
+            // partial line waits.
+            var replies = Data((#"{"seq":6,"title":"Old"}"# + "\n" + "garbage\n" + #"{"seq":7,"title":"New"}"# + "\n" + #"{"seq":8,"ti"#).utf8)
+            let reply = NowPlayingSessionReader.takeReply(to: 7, from: &replies, now: readAt)
+            expect(reply?.snapshot.title == "New" && String(decoding: replies, as: UTF8.self) == #"{"seq":8,"ti"#,
+                   "Reader replies: the expected reply is found and a partial line is kept")
+            var stale = Data((#"{"seq":6,"title":"Old"}"# + "\n").utf8)
+            expect(NowPlayingSessionReader.takeReply(to: 7, from: &stale, now: readAt) == nil && stale.isEmpty,
+                   "Reader replies: a reply to a timed-out request is dropped")
+
+            // Reader lines with JSON escapes, emoji and wrongly typed numbers.
+            let escaped = NowPlayingSessionReading.parse(line: Data(#"{"seq":9,"title":"Say \"hi\"\n🎧","artist":"Sigur Rós","elapsed":"12","duration":"300","rate":"1","playing":1}"#.utf8), now: readAt)
+            expect(escaped?.snapshot.title == "Say \"hi\"\n🎧" && escaped?.snapshot.artist == "Sigur Rós",
+                   "Reader line: quotes, newlines, accents and emoji survive")
+            expect(escaped?.snapshot.elapsed == nil && escaped?.snapshot.duration == nil && escaped?.snapshot.isPlaying == true,
+                   "Reader line: numbers sent as text are unknown, the playing key still counts")
+            let textRate = NowPlayingSessionReading.parse(line: Data(#"{"seq":10,"title":"T","rate":"1"}"#.utf8), now: readAt)
+            expect(textRate != nil && textRate?.snapshot.isPlaying == false,
+                   "Reader line: a rate sent as text, with no playing key, is not playing")
+
+            // Reader health: three failures in a row rest it for a minute.
+            var health = NowPlayingReaderHealth()
+            health.recordFailure(at: 100)
+            health.recordFailure(at: 101)
+            expect(health.allows(at: 102), "Reader health: two failures do not rest the reader")
+            health.recordSuccess()
+            health.recordFailure(at: 103)
+            health.recordFailure(at: 104)
+            expect(health.allows(at: 105), "Reader health: a success starts the count again")
+            health.recordFailure(at: 105)
+            expect(!health.allows(at: 106) && !health.allows(at: 164) && health.allows(at: 165),
+                   "Reader health: the third failure in a row rests it for 60 s")
+
+            // Cover backoff: a library that cannot load stops covers; other
+            // failures rest them and they come back.
+            var backoff = NowPlayingCoverBackoff()
+            expect(backoff.record(.transientFailure, at: 10) == .none && backoff.allows(at: 11),
+                   "Cover backoff: one failure changes nothing")
+            expect(backoff.record(.transientFailure, at: 12) == .resting && !backoff.allows(at: 13)
+                   && !backoff.allows(at: 311) && backoff.allows(at: 312),
+                   "Cover backoff: two failures in a row rest covers for 300 s, then they try again")
+            _ = backoff.record(.transientFailure, at: 400)
+            expect(backoff.record(.success, at: 401) == .none && backoff.record(.transientFailure, at: 402) == .none,
+                   "Cover backoff: a success starts the count again")
+            backoff.clearRest()
+            expect(backoff.record(.unavailable, at: 500) == .stopped && !backoff.allows(at: 10_000)
+                   && backoff.record(.unavailable, at: 501) == .none,
+                   "Cover backoff: a library that does not load stops covers, logged once")
+            backoff.clearRest()
+            expect(!backoff.allows(at: 20_000), "Cover backoff: clearing the cache does not bring back a library that cannot load")
+            var launch = NowPlayingCoverBackoff()
+            expect(launch.record(.notStarting, at: 600) == .stopped && !launch.allows(at: 10_000) && launch.stopped,
+                   "Cover backoff: a perl that will not start turns covers off")
+            launch.clearRest()
+            expect(launch.allows(at: 601) && !launch.stopped,
+                   "Cover backoff: clearing the cache tries a perl that would not start again")
+
+            // A song's cover is asked once more if it was not ready, never more.
+            var songCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            expect(songCover.shouldAsk(at: 50), "Song cover: a new song is asked for at once")
+            songCover.pending = true
+            expect(!songCover.shouldAsk(at: 60), "Song cover: no second request while one waits")
+            songCover.recordRead(at: 50, data: nil)
+            expect(songCover.tries == 1 && !songCover.pending, "Song cover: a read that ran counts as a try")
+            expect(!songCover.shouldAsk(at: 52) && songCover.shouldAsk(at: 53),
+                   "Song cover: a missing cover is asked again after 3 s")
+            songCover.recordRead(at: 53, data: nil)
+            expect(!songCover.shouldAsk(at: 100), "Song cover: never a third time")
+            var cachedCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            cachedCover.recordRead(at: 50, data: Data([1]))
+            expect(!cachedCover.shouldAsk(at: 100) && cachedCover.data == Data([1]),
+                   "Song cover: a cover in hand is not asked for again")
+            // Covers resting: the request reads nothing and costs the song no try.
+            var restingCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            restingCover.pending = true
+            restingCover.recordSkip(coversOff: false)
+            restingCover.pending = true
+            restingCover.recordSkip(coversOff: false)
+            expect(restingCover.tries == 0 && restingCover.shouldAsk(at: 52),
+                   "Song cover: requests made while covers rest keep both tries for later")
+            restingCover.recordRead(at: 400, data: nil)
+            expect(!restingCover.shouldAsk(at: 402) && restingCover.shouldAsk(at: 403),
+                   "Song cover: after the rest, the first real read still leaves the retry")
+            var offCover = NowPlayingSessionCover(key: "k", askedAt: 50)
+            offCover.recordSkip(coversOff: true)
+            expect(!offCover.shouldAsk(at: 1_000), "Song cover: with covers off for the run, the song is not asked again")
+
+            // A stopped run is retired at once, for work already queued.
+            let retiredRuns = NowPlayingRetiredRuns()
+            expect(!retiredRuns.isRetired(1), "Retired runs: nothing is retired at first")
+            retiredRuns.retire(3)
+            expect(retiredRuns.isRetired(3) && retiredRuns.isRetired(2) && !retiredRuns.isRetired(4),
+                   "Retired runs: a stopped run and older ones are retired, the next one is not")
+            retiredRuns.retire(1)
+            expect(retiredRuns.isRetired(3), "Retired runs: an older stop never brings a run back")
+
+            // TIDAL readings settle for a new title, the first one included.
+            var settling = NowPlayingSnapshot()
+            settling.title = "Sunlight"
+            settling.appBundleID = NowPlayingTidal.bundleID
+            expect(NowPlayingTidal.shouldSettle(settling, lastTitle: nil),
+                   "TIDAL settle: the first song the reader sees is read again before it shows")
+            expect(NowPlayingTidal.shouldSettle(settling, lastTitle: "Other")
+                   && !NowPlayingTidal.shouldSettle(settling, lastTitle: "Sunlight"),
+                   "TIDAL settle: a new title settles, the same title does not")
+            var otherPlayer = settling
+            otherPlayer.appBundleID = "com.google.Chrome"
+            var noSong = settling
+            noSong.title = nil
+            expect(!NowPlayingTidal.shouldSettle(otherPlayer, lastTitle: nil) && !NowPlayingTidal.shouldSettle(noSong, lastTitle: nil),
+                   "TIDAL settle: other players and readings without a song show at once")
+            expect(!NowPlayingTidal.shouldSettle(settling, lastTitle: "Other", afterFailedSettle: true),
+                   "TIDAL settle: the poll after a failed settle shows a new title without waiting again")
+
+            // A reader that cannot reach MediaRemote says so, and that counts as a failure.
+            let unavailableLine = NowPlayingSessionReading.parse(line: Data(#"{"seq":11,"error":"MediaRemote unavailable"}"#.utf8), now: readAt)
+            expect(unavailableLine?.unavailable == true && unavailableLine?.sequence == 11 && unavailableLine?.snapshot.hasTrack == false,
+                   "Reader line: an error reply is an unavailable reading")
+            var unavailableReplies = Data((#"{"seq":12,"error":"MediaRemote unavailable"}"# + "\n").utf8)
+            expect(NowPlayingSessionReader.takeReply(to: 12, from: &unavailableReplies, now: readAt)?.unavailable == true,
+                   "Reader replies: an error reply answers its request at once")
+            expect(NowPlayingSessionReading.parse(line: Data(#"{"seq":13,"title":"T"}"#.utf8), now: readAt)?.unavailable == false,
+                   "Reader line: an ordinary reading is not unavailable")
+            expect(NowPlayingSessionReader.script.contains(#"error: "MediaRemote unavailable""#),
+                   "The reader script answers with an error when MediaRemote does not load")
+
+            // A perl that cannot start twice in a row ends covers like a
+            // missing library; once may be a passing problem.
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data()) == .transientFailure,
+                   "Cover helper: one perl that cannot start only counts as a failure")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: false, output: Data(), didNotStartBefore: true) == .notStarting,
+                   "Cover helper: a perl that cannot start twice in a row turns covers off until the cache is cleared")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data(), didNotStartBefore: true) == .transientFailure
+                   && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data(), didNotStartBefore: true) == .transientFailure,
+                   "Cover helper: after a failed start, a timeout or another exit only rests covers")
+            expect(NowPlayingCoverReader.outcome(status: -1, timedOut: true, output: Data()) == .transientFailure
+                   && NowPlayingCoverReader.outcome(status: 1, timedOut: false, output: Data("x".utf8)) == .transientFailure,
+                   "Cover helper: a timeout or another exit only rests covers")
+            // The reader keeps whether the last run started: a success, a
+            // timeout or any run that started forgets a failed start.
+            func notStarted(_ reader: NowPlayingCoverReader, at uptime: TimeInterval) {
+                reader.record(status: -1, timedOut: false, output: Data(), gotCover: false, at: uptime)
+            }
+            let twice = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(twice, at: 700)
+            expect(!twice.gaveUp, "Cover reader: one perl that cannot start keeps covers on")
+            notStarted(twice, at: 701)
+            expect(twice.gaveUp && twice.readyAt == .infinity, "Cover reader: two in a row turn covers off")
+            twice.clearRest()
+            expect(!twice.gaveUp && twice.readyAt == 0 && twice.isReady(at: 702),
+                   "Cover reader: \"Clear media cache\" brings back covers a perl that would not start turned off")
+            notStarted(twice, at: 703)
+            expect(!twice.gaveUp, "Cover reader: after clearing, one failed start is a passing problem again")
+            let afterSuccess = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(afterSuccess, at: 800)
+            afterSuccess.record(status: 0, timedOut: false, output: Data("{}".utf8), gotCover: true, at: 801)
+            notStarted(afterSuccess, at: 802)
+            expect(!afterSuccess.gaveUp, "Cover reader: a cover between two failed starts keeps covers on")
+            let afterTimeout = NowPlayingCoverReader(libraryURL: nil, frameworksURL: nil)
+            notStarted(afterTimeout, at: 900)
+            afterTimeout.record(status: -1, timedOut: true, output: Data(), gotCover: false, at: 901)
+            notStarted(afterTimeout, at: 902)
+            expect(!afterTimeout.gaveUp, "Cover reader: a timeout between two failed starts keeps covers on")
+            expect(NowPlayingCoverReader.outcome(status: 2, timedOut: false, output: Data()) == .unavailable
+                   && NowPlayingCoverReader.outcome(status: 3, timedOut: false, output: Data()) == .unavailable,
+                   "Cover helper: a library that does not load turns covers off")
+
+            // The library perl loads must sit directly in the app's Frameworks.
+            let frameworks = FileManager.default.temporaryDirectory
+                .appendingPathComponent("np-cover-\(ProcessInfo.processInfo.processIdentifier)/Frameworks")
+            try? FileManager.default.createDirectory(at: frameworks.appendingPathComponent("sub"), withIntermediateDirectories: true)
+            let inside = frameworks.appendingPathComponent("NowPlayingCover.dylib")
+            FileManager.default.createFile(atPath: inside.path, contents: Data())
+            let outsideFile = frameworks.deletingLastPathComponent().appendingPathComponent("elsewhere.dylib")
+            FileManager.default.createFile(atPath: outsideFile.path, contents: Data())
+            let link = frameworks.appendingPathComponent("Linked.dylib")
+            try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideFile)
+            expect(NowPlayingCoverReader.isInside(inside, frameworks: frameworks), "Cover library: a file in Frameworks is accepted")
+            expect(!NowPlayingCoverReader.isInside(link, frameworks: frameworks),
+                   "Cover library: a link out of Frameworks is refused")
+            expect(!NowPlayingCoverReader.isInside(frameworks.appendingPathComponent("sub/x.dylib"), frameworks: frameworks)
+                   && !NowPlayingCoverReader.isInside(frameworks.appendingPathComponent("../elsewhere.dylib"), frameworks: frameworks)
+                   && !NowPlayingCoverReader.isInside(inside, frameworks: nil),
+                   "Cover library: subfolders, parent paths and no Frameworks folder are refused")
+            expect(!NowPlayingCoverReader.isSignedLikeThisApp(inside), "Cover library: an unsigned file fails the signature check")
+
+            // A signed library passes; one whose other slice was changed does
+            // not (perl may load a slice the app does not run).
+            let signedCopy = frameworks.appendingPathComponent("Signed.dylib")
+            try? FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: signedCopy)
+            let signer = Process()
+            signer.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            signer.arguments = ["--force", "--sign", "-", signedCopy.path]
+            signer.standardOutput = FileHandle.nullDevice
+            signer.standardError = FileHandle.nullDevice
+            let signed = (try? signer.run()) != nil && { signer.waitUntilExit(); return signer.terminationStatus == 0 }()
+            expect(signed && NowPlayingCoverReader.isSignedLikeThisApp(signedCopy),
+                   "Cover library: an ad-hoc signed universal file passes the signature check")
+            if signed, var bytes = try? Data(contentsOf: signedCopy), bytes.count > 8,
+               bytes[0] == 0xCA, bytes[1] == 0xFE, bytes[2] == 0xBA, bytes[3] == 0xBE {
+                func word(_ at: Int) -> Int { bytes[at..<at + 4].reduce(0) { $0 << 8 | Int($1) } }
+                #if arch(x86_64)
+                let otherCPU = 0x0100_000C   // arm64
+                #else
+                let otherCPU = 0x0100_0007   // x86_64
+                #endif
+                let slices = (0..<word(4)).map { 8 + 20 * $0 }
+                if let slice = slices.first(where: { word($0) == otherCPU }) {
+                    let changed = word(slice + 8) + 0x1000
+                    bytes[changed] ^= 0xFF
+                    let tampered = frameworks.appendingPathComponent("Tampered.dylib")
+                    try? bytes.write(to: tampered)
+                    expect(!NowPlayingCoverReader.isSignedLikeThisApp(tampered),
+                           "Cover library: a change in the slice the app does not run fails the signature check")
+                } else {
+                    expect(false, "/usr/bin/true carries both architectures")
+                }
+            } else {
+                expect(false, "/usr/bin/true is a universal file that codesign signs")
+            }
+            let wrongPlace = NowPlayingCoverReader(libraryURL: outsideFile, frameworksURL: frameworks)
+            expect(wrongPlace.read() == nil && wrongPlace.gaveUp, "Cover library: perl is never started for a library outside Frameworks")
+            try? FileManager.default.removeItem(at: frameworks.deletingLastPathComponent())
+
+            expectEqual(NowPlayingTidal.webSearchURL(for: "max richter")?.absoluteString ?? "",
+                        "https://listen.tidal.com/search?q=max%20richter", "TIDAL search falls back to the web player")
+            var withPID = onScreen
+            withPID.appPID = 12262
+            expect(withPID != onScreen, "The session's player process is part of a reading")
         }
 
         // MARK: Now Playing island feed (playback mapping, song changes, timed lyrics, scripting)
@@ -13509,6 +14341,15 @@ struct MetricsTests {
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("LeakHistoryTests", LeakHistoryTests.run),
                 ("GPUSensorsTests", GPUSensorsTests.run),
+                ("GPUControlTests", GPUControlTests.run),
+                ("GPUControlChannelTests", GPUControlChannelTests.run),
+                ("GPUControlKext080Tests", GPUControlKext080Tests.run),
+                ("GPUControlPageTests", GPUControlPageTests.run),
+                ("GPUControlFanTests", GPUControlFanTests.run),
+                ("GPUControlClockTests", GPUControlClockTests.run),
+                ("GPUControlA11yTests", GPUControlA11yTests.run),
+                ("GPUFolderTests", GPUFolderTests.run),
+                ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),
                 ("MonitorShortcutTests", MonitorShortcutTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
@@ -13521,10 +14362,12 @@ struct MetricsTests {
                 ("NotchMascotDisplaysTests", NotchMascotDisplaysTests.run),
                 ("NotchMascotAlarmTests", NotchMascotAlarmTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
+                ("RollingDigitsTests", RollingDigitsTests.run),
                 ("ClipboardTextCaseTransformTests", ClipboardTextCaseTransformTests.run),
                 ("HomebrewOperationLogRetentionTests", HomebrewOperationLogRetentionTests.run),
                 ("Batch180Tests", Batch180Tests.run),
                 ("Batch185Tests", Batch185Tests.run),
+                ("UpdateInstallerAppSelectionTests", UpdateInstallerAppSelectionTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

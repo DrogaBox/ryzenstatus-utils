@@ -498,6 +498,7 @@ enum DashboardMetricsTests {
                      && processes.contains("startedAt: checked.startedAt"),
                      "the Inspector force quits only the start time read while checking the pid still names the app")
         for path in ["Sources/RyzenStatus/UI/Settings/MonitorSettings.swift",
+                     "Sources/RyzenStatus/UI/Settings/MenuBarSettings.swift",
                      "Sources/RyzenStatus/UI/Settings/AmdOverclockingSettingsView.swift",
                      "Sources/RyzenStatus/UI/Settings/SensorsView.swift"] {
             suite.expect(!source(path, suite).contains("@AppStorage(\""), "\(path) keys come from DefaultsKey")

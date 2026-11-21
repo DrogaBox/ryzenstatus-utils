@@ -477,6 +477,8 @@ extension AppFeature {
             case (.monitorGPU, .notifications):
                 return boolFor(DefaultsKey.monitorAlertGPUTemperature)
                     || boolFor(DefaultsKey.monitorAlertGPUPower)
+                    || boolFor(DefaultsKey.monitorAlertGPUMemoryTemperature)
+                    || boolFor(DefaultsKey.monitorAlertGPUThrottle)
             case (.cleaner, .notifications):
                 return (stringFor(DefaultsKey.cleanerScheduleFrequency) ?? "off") != "off"
                     && boolFor(DefaultsKey.cleanerScheduleNotify)
@@ -507,6 +509,10 @@ extension AppFeature {
         // stopped the snapshot sink and the Settings toggles did nothing.
         (DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
         (DefaultsKey.monitorAlertGPUPower, .monitorGPU),
+        // GPUSensors.kext alerts. Their sampling need is added only while the
+        // kext is present (`SystemMonitorPanelNeeds.alerts`).
+        (DefaultsKey.monitorAlertGPUMemoryTemperature, .monitorGPU),
+        (DefaultsKey.monitorAlertGPUThrottle, .monitorGPU),
     ]
 
     static func anyMonitorAlertEnabled(isAvailable: (AppFeature) -> Bool,

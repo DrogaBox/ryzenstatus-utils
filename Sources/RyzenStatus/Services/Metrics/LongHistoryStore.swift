@@ -9,6 +9,10 @@ import Foundation
 enum LongHistoryMetric: Int, CaseIterable {
     case cpu, gpu, memory, networkDown, networkUp, diskRead, diskWrite
     case cpuTemperature, gpuTemperature, systemPower
+    // New metrics go last: the file stores tiers by this order, so a case
+    // added in between would hand old history to the wrong metric.
+    /// VRAM temperature from GPUSensors.kext; empty on other Macs.
+    case gpuMemoryTemperature
 }
 
 /// How far back a long-history graph reaches. Every range is drawn with the
@@ -53,9 +57,18 @@ struct LongHistoryTier {
     /// The newest slot written, or nil while the ring is empty.
     private(set) var newestSlot: Int64?
 
+    /// The slots are allocated on the first write, so a metric this Mac
+    /// never records (battery on a desktop, a sensor it does not have) costs
+    /// no memory. Reads go through `newestSlot`, which stays nil until then.
     init(step: TimeInterval, capacity: Int) {
         self.step = step
         self.capacity = capacity
+        means = []
+        counts = []
+    }
+
+    private mutating func allocateIfNeeded() {
+        guard means.isEmpty else { return }
         means = [Float](repeating: 0, count: capacity)
         counts = [UInt16](repeating: 0, count: capacity)
     }
@@ -70,6 +83,7 @@ struct LongHistoryTier {
 
     mutating func record(_ value: Double, at time: TimeInterval) {
         guard value.isFinite else { return }
+        allocateIfNeeded()
         let current = slot(at: time)
         if let newest = newestSlot {
             // A sample older than the ring is dropped (the clock went back);
@@ -126,6 +140,7 @@ struct LongHistoryTier {
 
     /// Restores slot means read from disk, oldest first, ending at `newest`.
     mutating func restore(means stored: [Float], newest: Int64) {
+        allocateIfNeeded()
         let kept = stored.suffix(capacity)
         var slot = newest - Int64(kept.count) + 1
         for value in kept {

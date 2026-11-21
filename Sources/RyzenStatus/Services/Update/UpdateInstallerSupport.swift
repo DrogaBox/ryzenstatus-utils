@@ -17,6 +17,61 @@ enum UpdateInstallerSupport {
         return trimmed
     }
 
+    /// File name of the app bundle at the root of a release DMG.
+    static let dmgAppBundleName = "RyzenStatus.app"
+
+    /// The installer's choice of what to copy out of the mounted DMG ($MNT):
+    /// `RyzenStatus.app` by exact name at the root, or nothing (SRC empty,
+    /// reported as fail-no-app-in-dmg). Release DMGs also carry other content
+    /// (a GPU installer app in a subfolder, `Kexts/`); picking "the first
+    /// .app" depends on directory order and could copy the installer. Nothing
+    /// else in the DMG is read or copied. A symlink in that place is refused
+    /// so the copy cannot be redirected outside the image.
+    static let appSelectionScript = """
+        SRC=""
+        if [ -d "$MNT/\(dmgAppBundleName)" ] && [ ! -L "$MNT/\(dmgAppBundleName)" ]; then
+            SRC="$MNT/\(dmgAppBundleName)"
+        fi
+        """
+
+    /// The installer's swap of the verified staged copy ($STAGE) into place
+    /// ($DEST, the DMG's bundle name next to the installed $APP). Runs only
+    /// after every check passed; sets LAUNCH to the new bundle on success.
+    /// Paths are compared as files, not strings: on a case-insensitive
+    /// volume (the APFS default) an installed `Ryzenstatus.app` and
+    /// `RyzenStatus.app` are the same directory, so after the swap "$APP"
+    /// names the NEW bundle and must not be removed.
+    static let swapScript = """
+        note fail-swap
+        # The backup name is unique per run: after an elevated
+        # install the old bundle is root-owned, a later user-run
+        # cannot delete that backup, and reusing a fixed name
+        # would make the NEXT swap fail on it. Strays from
+        # earlier runs are swept best-effort (an elevated run
+        # clears even the root-owned ones).
+        BACKUP="$DEST.update-old.$PID"
+        /bin/rm -rf "$DEST".update-old "$DEST".update-old.* 2>/dev/null
+        if { [ ! -d "$DEST" ] || /bin/mv "$DEST" "$BACKUP"; } \\
+            && /bin/mv "$STAGE" "$DEST"; then
+            LAUNCH="$DEST"
+            note ok
+            # Installed as root: hand the bundle to the user, or
+            # the next user-path update cannot replace it.
+            if [ "$(/usr/bin/id -u)" = "0" ] && [ -n "$ASUSER" ]; then
+                /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
+            fi
+            /bin/rm -rf "$BACKUP"
+            # If the bundle was renamed, remove the old-named one, only
+            # after the new bundle is in place and only when it is really
+            # another directory (a case-only difference is the new app).
+            if [ "$DEST" != "$APP" ] && [ -e "$APP" ] && ! [ "$APP" -ef "$DEST" ]; then
+                /bin/rm -rf "$APP"
+            fi
+        else
+            [ -d "$BACKUP" ] && [ ! -d "$DEST" ] && /bin/mv "$BACKUP" "$DEST"
+        fi
+        """
+
     /// The installer: waits for the app to exit, mounts the DMG, stages a
     /// copy of the new bundle, verifies its signature, swaps it in and
     /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
@@ -73,14 +128,14 @@ enum UpdateInstallerSupport {
             cleanup_script
             exit 1
         fi
-        SRC="$(/usr/bin/find "$MNT" -maxdepth 1 -name '*.app' -print -quit)"
+        \(appSelectionScript)
         LAUNCH="$APP"
         if [ -z "$SRC" ]; then
             note fail-no-app-in-dmg
         else
-            # Install under the name the DMG ships, in the same folder. A rebrand
-            # changes the bundle filename, so this renames it on disk too; a plain
-            # update keeps the same name and replaces it in place.
+            # Install under the bundle name the DMG ships, in the same folder.
+            # When the installed copy carries another name it is renamed on
+            # disk; a plain update keeps the same name and replaces it in place.
             DIR="$(/usr/bin/dirname "$APP")"
             NAME="$(/usr/bin/basename "$SRC")"
             DEST="$DIR/$NAME"
@@ -141,31 +196,7 @@ enum UpdateInstallerSupport {
                     note fail-version
                 fi
                 if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ] && [ "$VERSION_OK" = 1 ]; then
-                    note fail-swap
-                    # The backup name is unique per run: after an elevated
-                    # install the old bundle is root-owned, a later user-run
-                    # cannot delete that backup, and reusing a fixed name
-                    # would make the NEXT swap fail on it. Strays from
-                    # earlier runs are swept best-effort (an elevated run
-                    # clears even the root-owned ones).
-                    BACKUP="$DEST.update-old.$PID"
-                    /bin/rm -rf "$DEST".update-old "$DEST".update-old.* 2>/dev/null
-                    if { [ ! -d "$DEST" ] || /bin/mv "$DEST" "$BACKUP"; } \
-                        && /bin/mv "$STAGE" "$DEST"; then
-                        LAUNCH="$DEST"
-                        note ok
-                        # Installed as root: hand the bundle to the user, or
-                        # the next user-path update cannot replace it.
-                        if [ "$(/usr/bin/id -u)" = "0" ] && [ -n "$ASUSER" ]; then
-                            /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
-                        fi
-                        /bin/rm -rf "$BACKUP"
-                        # If the bundle was renamed, remove the old-named one.
-                        # This happens only after the new bundle is in place.
-                        [ "$DEST" != "$APP" ] && /bin/rm -rf "$APP"
-                    else
-                        [ -d "$BACKUP" ] && [ ! -d "$DEST" ] && /bin/mv "$BACKUP" "$DEST"
-                    fi
+                    \(swapScript)
                 fi
             fi
             /bin/rm -rf "$STAGE"

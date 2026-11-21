@@ -149,7 +149,7 @@ extension DefaultsKey {
     static let nowPlayingMarqueeSlide = "nowPlayingMarqueeSlide" // slide the text in when the track changes
     static let nowPlayingArtworkSize = "nowPlayingArtworkSize" // popup artwork tile size in pt (120–260)
     static let nowPlayingUnloadWhenHidden = "nowPlayingUnloadWhenHidden" // drop the popup content while the popover is hidden
-    static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify)
+    static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify, 3 kaset, 4 tidal)
     static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
     static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section
     static let nowPlayingArtworkAnimation = "nowPlayingArtworkAnimation" // crossfade when the artwork changes
@@ -504,11 +504,6 @@ extension DefaultsKey {
     static let panelWidgetShowMemory = "istats_show_memory"      // Bool, memory card of the widget style
     static let panelWidgetShowCores = "istats_show_cores"        // Bool, core grid of the widget style
     static let panelWidgetOrder = "istatsCardOrder"              // String, the widget cards' order, comma separated
-    static let menuBarMetricAppearanceCPU = "menuBarMetricAppearance_cpu"
-    static let menuBarMetricAppearanceGPU = "menuBarMetricAppearance_gpu"
-    static let menuBarMetricAppearanceMemory = "menuBarMetricAppearance_memory"
-    static let menuBarMetricAppearanceNetwork = "menuBarMetricAppearance_network"
-    static let menuBarMetricAppearanceDiskUsage = "menuBarMetricAppearance_diskUsage"
     static let curveOptimizerUnlocked = "coUnlocked"             // Bool, Curve Optimizer controls shown
     static let pboUnlocked = "pboUnlocked"                       // Bool, PBO limit controls shown
     static let pboLastPPTWatts = "pboLastPPTWatts"               // Double, last applied PPT (slider seed)
@@ -907,7 +902,6 @@ extension DefaultsKey {
     static let panelToggleMicMute = "panelUtilityMicMute"
     static let menuBarConnectedDevices = "menuBarConnectedDevices"
     static let menuBarIconSymbol = "menuBarIconSymbol" // system symbol name drawn instead of the glyph; empty keeps the glyph
-    static let menuBarDiskStyle = "menuBarDiskStyle"       // percent | free | used
     static let monitorGraphScale = "monitorGraphScale"
     static let monitorSysCPUCores = "monitorSysCPUCores"
     static let monitorNetAddresses = "monitorNetAddresses"
@@ -1097,4 +1091,12 @@ extension DefaultsKey {
     static let notchHoverGrows = "notchHoverGrows"
     // Whether an agent's finish notice carries the API-equivalent cost.
     static let notchAgentsFinishCost = "notchAgentsFinishCost"
+    // GPU control (GPUSensors.kext): ask again for the held setting after a
+    // launch and a wake. Off by default; saved only once the kext confirms.
+    static let gpuControlRemember = "gpuControlRemember"
+    static let gpuControlRememberedKind = "gpuControlRememberedKind"   // "none", "power" or "od8"
+    static let gpuControlRememberedWatts = "gpuControlRememberedWatts"
+    static let gpuControlRememberedCurve = "gpuControlRememberedCurve"   // [C, %] x 5, flat
+    static let gpuControlRememberedZeroRpmOff = "gpuControlRememberedZeroRpmOff"
+    static let gpuControlRememberedGfxMHz = "gpuControlRememberedGfxMHz"
 }

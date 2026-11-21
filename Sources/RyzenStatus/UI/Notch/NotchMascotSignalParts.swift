@@ -348,20 +348,20 @@ final class NotchMascotSignalParts {
         if style == .hologram {
             let breathe = keyframes("opacity", [1, 0.7, 1], [0, 0.5, 1])
             breathe.duration = 2.8
-            breathe.repeatCount = .infinity
+            breathe.loopsForever()
             for layer in [beam, platform] { layer.add(breathe, forKey: "idle") }
             let blip = keyframes("opacity", [0, 0, 1, 0, 0.8, 0], [0, 0.9, 0.915, 0.93, 0.95, 0.97])
             blip.duration = 6.5
-            blip.repeatCount = .infinity
+            blip.loopsForever()
             glitch.add(blip, forKey: "idle")
         } else {
             let pulse = keyframes("transform.scale", [1, 1.18, 1], [0, 0.5, 1])
             pulse.duration = 1.8
-            pulse.repeatCount = .infinity
+            pulse.loopsForever()
             core.add(centered(pulse, at: NotchMascotCreatures.androidCoreCenter), forKey: "idle")
             let flicker = keyframes("opacity", [1, 0.75, 1, 0.85, 1], [0, 0.25, 0.5, 0.75, 1])
             flicker.duration = 0.5
-            flicker.repeatCount = .infinity
+            flicker.loopsForever()
             thrusters.add(flicker, forKey: "idle")
         }
     }
@@ -498,6 +498,7 @@ final class NotchMascotSignalParts {
         move.timingFunction = scale.timingFunction
         move.duration = scale.duration
         move.repeatCount = scale.repeatCount
+        move.preferredFrameRateRange = scale.preferredFrameRateRange
         return move
     }
 }

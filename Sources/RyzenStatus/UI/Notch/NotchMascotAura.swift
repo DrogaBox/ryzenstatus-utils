@@ -133,7 +133,7 @@ final class NotchMascotAura {
         }
         flicker.keyTimes = [0, 0.25, 0.5, 0.75, 1]
         flicker.duration = form == .goldenFury ? 0.32 : 0.45
-        flicker.repeatCount = .infinity
+        flicker.loopsForever()
         glow.add(flicker, forKey: "flicker")
 
         // Flames: soft dots born along the feet that rise and fade.
@@ -171,7 +171,7 @@ final class NotchMascotAura {
             crackle.calculationMode = .discrete
             crackle.duration = [1.3, 1.75, 2.2][index] / (form == .goldenFury ? 1.4 : 1)
             crackle.beginTime = CACurrentMediaTime() + Double(index) * 0.37
-            crackle.repeatCount = .infinity
+            crackle.loopsForever()
             bolt.add(crackle, forKey: "crackle")
             front.addSublayer(bolt)
             bolts.append(bolt)

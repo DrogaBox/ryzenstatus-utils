@@ -97,7 +97,22 @@ struct SystemSnapshot {
     var avgCPUFreq: Double?
     /// GPU devices reported by the kext (selectors 27-30).
     var gpuDevices: [GPUDeviceSnapshot] = []
+    /// Readings from the optional GPUSensors.kext; nil without it.
+    var gpuSensors: GPUSensorsSample?
+    /// When `gpuSensors` was read (system uptime), so consumers can tell a
+    /// fresh sample from one carried over between strides.
+    var gpuSensorsTakenAt: TimeInterval?
+    /// The GPU temperature the menu bar and the island show: the user's
+    /// choice of hotspot, edge or VRAM, or the macOS reading as a fallback.
+    var gpuDisplayTemperature: GPUDisplayTemperature?
 
+    /// The GPU temperature for compact displays (menu bar, island, panel
+    /// card): the user's choice when GPUSensors.kext reports it, otherwise
+    /// the macOS reading, so without the kext nothing changes.
+    var gpuDisplayCelsius: Double? { gpuDisplayTemperature?.celsius ?? gpuTemperature }
+    /// "VRAM" when that is what `gpuDisplayCelsius` shows, else "GPU", so the
+    /// figure never changes sensor under the same name.
+    var gpuDisplayLabel: String { gpuDisplayTemperature?.source == .memory ? "VRAM" : "GPU" }
     /// Temperature for CCD0 (°C) if reported by kext, nil otherwise
     var ccd0Temperature: Float? {
         ccdTemperatures.indices.contains(0) ? ccdTemperatures[0] : nil
@@ -154,7 +169,8 @@ struct SystemMonitorPanelNeeds: Equatable {
     /// on and reads both, so an alerts-only plan must not starve it.
     static func alerts(boolFor: (String) -> Bool,
                        isAvailable: (AppFeature) -> Bool,
-                       hasInternalBattery: Bool) -> SystemMonitorPanelNeeds {
+                       hasInternalBattery: Bool,
+                       gpuSensorsPresent: Bool = GPUSensorsService.shared.isPresentNow) -> SystemMonitorPanelNeeds {
         var needs = SystemMonitorPanelNeeds()
         for pair in AppFeature.monitorAlertPairs where boolFor(pair.key) && isAvailable(pair.feature) {
             if pair.feature == .monitorPower && !hasInternalBattery { continue }
@@ -168,6 +184,10 @@ struct SystemMonitorPanelNeeds: Equatable {
             // The GPU power reading comes with the kext power read, which
             // GPU usage switches on.
             case DefaultsKey.monitorAlertGPUPower: needs.gpu = true
+            // Read from GPUSensors.kext on the GPU temperature stride; without
+            // the kext these alerts cannot fire, so they wake nothing.
+            case DefaultsKey.monitorAlertGPUMemoryTemperature, DefaultsKey.monitorAlertGPUThrottle:
+                if gpuSensorsPresent { needs.gpuTemperature = true }
             default: break
             }
         }
@@ -239,6 +259,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// would otherwise sweep the SMC on every tick.
     private var lastCPUTemperatureSeed: TimeInterval = -.infinity
     private var lastGPUTemperatureSeed: TimeInterval = -.infinity
+    /// The last GPUSensors.kext reading and when it was taken, bridged like
+    /// the other temperatures so a stride-skipped tick does not blank it.
+    private var gpuSensorsCache: (sample: GPUSensorsSample, at: TimeInterval)?
     /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
     private var tickCount = 0
@@ -333,6 +356,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             self.previousCPUTicksAt = nil
             self.previousCoreTicks = []
             self.previousCoreTicksAt = nil
+            // A reading from before the sleep is not current.
+            self.gpuSensorsCache = nil
         }
     }
 
@@ -368,6 +393,19 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The GPUSensors.kext sample a tick carries, with the time the driver
+    /// took it. A due tick replaces it with the fresh reading, or drops it
+    /// when there is none (the kext went away or its sample went stale), so a
+    /// dead reading never stands in for a current one. Between strides it is
+    /// carried, but never past the driver's own 5 s age limit.
+    static func nextGPUSensors(cache: (sample: GPUSensorsSample, at: TimeInterval)?,
+                               due: Bool,
+                               fresh: (sample: GPUSensorsSample, at: TimeInterval)?,
+                               now: TimeInterval) -> (sample: GPUSensorsSample, at: TimeInterval)? {
+        let current = due ? fresh : cache
+        guard let current, now - current.at <= GPUSensorsReading.maxSampleAge else { return nil }
+        return current
+    }
     /// The anti-glitch bridge for temperatures spans a couple of temperature
     /// sampling gaps, never less than 12 s, so one bad SMC read on the slow
     /// background stride does not blank the reading.
@@ -608,7 +646,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// would sit on its placeholder until the next wake (up to 60 s), so a
     /// changed plan resamples right away.
     private func resyncIfPlanChanged() {
-        guard shouldSample() else { return }
+        guard shouldSample() else {
+            // The plan shrank to nothing (the kext went away with only its
+            // alerts on): stop the timer instead of ticking for nothing.
+            stopTimerIfIdle()
+            return
+        }
         let plan = currentPlan(defaults: .standard)
         guard plan != lastSyncedPlan else { return }
         if let oldPlan = lastSyncedPlan {
@@ -638,7 +681,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
         }
         syncTimerCadence(plan: plan)
+        // The plan can grow from nothing after launch (a kext alert whose
+        // GPUSensors.kext appears later, a metric switched on in the hub);
+        // the cadence sync only restarts a running timer, so start one here.
+        if Self.needsTimerStart(shouldSample: true, timerExists: timer != nil) {
+            startTimer()
+        }
         refresh()
+    }
+    /// Sampling is needed but no timer runs: the resync must start one.
+    static func needsTimerStart(shouldSample: Bool, timerExists: Bool) -> Bool {
+        shouldSample && !timerExists
     }
 
     /// The hub switching a metric on or off changes the plan without touching
@@ -836,11 +889,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     }
 
     private func apply(_ metric: MenuBarMetric, to plan: inout SamplingPlan) {
-        let combineTemps = UserDefaults.standard.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
         switch metric {
         case .cpu:
             plan.needCPU = true
-            if combineTemps { plan.needCPUTemperature = true }
         case .cpuPower, .cpuFrequency:
             plan.needCPU = true
         case .cpuTempPower, .cpuTemperature:
@@ -848,7 +899,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             plan.needCPUTemperature = true
         case .gpu:
             plan.needGPUUsage = true
-            if combineTemps { plan.needGPUTemperature = true }
         case .gpuTemperature:
             plan.needGPUTemperature = true
         case .gpuPower:
@@ -1261,6 +1311,26 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 } else {
                     next.gpuTemperature = self.gpuTemperatureCache?.value
                 }
+                // GPUSensors.kext rides on the GPU temperature stride. Without
+                // the kext `isPresentNow` is false and nothing is read.
+                // A kext that went away drops its sample at once, not at
+                // the next stride.
+                let present = GPUSensorsService.shared.isPresentNow
+                let reading = temperatureDue && present ? GPUSensorsService.shared.currentReading(now: now) : nil
+                let fresh = reading.map { (sample: $0.sample, at: $0.takenAt) }
+                let carried = Self.nextGPUSensors(cache: self.gpuSensorsCache, due: temperatureDue || !present,
+                                                  fresh: fresh, now: now)
+                // A new driver sample (not the cached copy seen last tick)
+                // publishes and reaches the history once.
+                if let fresh, carried?.at == fresh.at, fresh.at != self.gpuSensorsCache?.at {
+                    sampledAnything = true
+                    if let memory = fresh.sample.memory {
+                        LongHistoryStore.shared.record(.gpuMemoryTemperature, memory)
+                    }
+                }
+                self.gpuSensorsCache = carried
+                next.gpuSensors = carried?.sample
+                next.gpuSensorsTakenAt = carried?.at
             }
             if plan.needBatteryTemperature {
                 if temperatureDue {
@@ -1345,6 +1415,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
             if gpuTemperatureRead, let temp = next.gpuTemperature {
                 LongHistoryStore.shared.record(.gpuTemperature, temp)
+            }
+            if plan.needGPUTemperature {
+                let source = GPUTemperatureSource.from(UserDefaults.standard.string(forKey: DefaultsKey.gpuTemperatureSource))
+                next.gpuDisplayTemperature = GPUDisplayTemperature.resolve(source: source,
+                                                                           macOS: next.gpuTemperature,
+                                                                           sample: next.gpuSensors)
             }
             let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
             if !freqs.isEmpty {

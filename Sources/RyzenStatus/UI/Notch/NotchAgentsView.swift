@@ -212,12 +212,8 @@ private struct NotchAgentLimitReading: View {
     }
 
     private var reading: some View {
-        Text(share)
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(tint)
+        RollingDigitsText(share, style: .rounded(12, .semibold), color: tint)
             .fixedSize()
-            .contentTransition(.numericText())
             .accessibilityIdentifier("notch.agentLimitShare")
     }
 }
@@ -512,12 +508,8 @@ private struct NotchAgentSpendCard: View {
             VStack(alignment: .leading, spacing: 5) {
                 NotchAgentCardHeader(title: text.spendCard, symbol: NotchAgentCard.spend.symbol) { periodMenu }
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text((usage.fullyPriced ? "" : "≥ ") + AgentFormat.cost(usage.total.cost))
-                        .font(.system(size: 22, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                    RollingDigitsText((usage.fullyPriced ? "" : "≥ ") + AgentFormat.cost(usage.total.cost),
+                                      style: .rounded(22, .medium), color: .white, minimumScaleFactor: 0.7)
                     Text(text.apiValue)
                         .font(.system(size: 9.5))
                         .foregroundStyle(.secondary)

@@ -15,29 +15,119 @@ enum MenuBarMetricSpacing: String, CaseIterable {
         return MenuBarMetricSpacing(rawValue: Defaults.sanitizedMenuBarMetricSpacing(raw)) ?? .standard
     }
 }
-/// How percentage based monitor readings appear in the menu bar. Values keep
-/// the existing numeric blocks; bars replace CPU, GPU, memory and disk usage
-/// with a compact vertical gauge. Readings without a fixed 0...100 scale stay
-/// numeric in either mode.
+/// How a metric is drawn in the menu bar.
+///
+/// Text styles: a small label above the value, label and value on one line,
+/// the value alone, or a symbol and the value. For readings with two values
+/// (temperature and power, network, disk activity, frequency) the label-above
+/// style is two lines with the name beside them, and value-only is the two
+/// lines alone. Graph styles replace a usage reading with a gauge, a ring, a
+/// history graph or one bar per core. "classic" is a former duplicate of
+/// values that old settings may still carry; it reads as values.
 enum MenuBarMetricAppearance: String, CaseIterable {
-    case values, bars, pie, sparkline, histogram, classic
+    case values, inline, valueOnly, iconValue, bars, pie, sparkline, histogram, classic
 
-    var allowsCombinedTemperatures: Bool { self == .values || self == .classic }
-    var isClassic: Bool { self == .classic }
-
-    static var current: MenuBarMetricAppearance {
-        let raw = UserDefaults.standard.string(forKey: DefaultsKey.menuBarMetricAppearance) ?? ""
-        let appearance = Defaults.sanitizedMenuBarMetricAppearance(raw)
-        return MenuBarMetricAppearance(rawValue: appearance) ?? .values
-    }
-
-    static func appearance(for metricKey: String) -> MenuBarMetricAppearance {
-        let specificRaw = UserDefaults.standard.string(forKey: "menuBarMetricAppearance_\(metricKey)") ?? ""
-        if !specificRaw.isEmpty, let specific = MenuBarMetricAppearance(rawValue: specificRaw) {
-            return specific
+    /// Drawn as text, so a temperature can join it in the same block.
+    var isText: Bool {
+        switch self {
+        case .values, .inline, .valueOnly, .iconValue, .classic: return true
+        case .bars, .pie, .sparkline, .histogram: return false
         }
-        return current
     }
+
+    /// Every metric has a style of its own.
+    static let styledMetrics: [MenuBarMetric] = MenuBarMetric.allCases
+
+    /// The styles one metric can be drawn in, text styles first. A symbol is
+    /// offered only where it is unique to the metric: there is no GPU symbol,
+    /// and a thermometer or a bolt would read the same for CPU and GPU.
+    static func allowed(for metric: MenuBarMetric) -> [MenuBarMetricAppearance] {
+        switch metric {
+        case .cpu: return [.values, .inline, .valueOnly, .bars, .pie, .sparkline, .histogram]
+        case .gpu: return [.values, .inline, .valueOnly, .bars, .pie, .sparkline]
+        case .memory: return [.values, .inline, .valueOnly, .iconValue, .bars, .pie, .sparkline]
+        case .diskUsage: return [.values, .inline, .valueOnly, .iconValue, .bars, .pie]
+        case .network: return [.values, .inline, .valueOnly, .sparkline]
+        case .battery, .connectedDevices: return [.values, .inline, .valueOnly, .iconValue]
+        default: return [.values, .inline, .valueOnly]
+        }
+    }
+
+    /// What each metric showed before it had a choice, so an install that
+    /// never picks a style keeps its menu bar as it was.
+    static func defaultStyle(for metric: MenuBarMetric) -> MenuBarMetricAppearance {
+        switch metric {
+        case .cpuFrequency, .cpuTempPower, .gpuTempPower, .diskActivity: return .valueOnly
+        case .battery: return .iconValue
+        default: return .values
+        }
+    }
+
+    /// Registered values for every per-metric style key.
+    static var registeredStyleDefaults: [String: Any] {
+        Dictionary(uniqueKeysWithValues: styledMetrics.map { ($0.styleKey, defaultStyle(for: $0).rawValue as Any) })
+    }
+
+    /// Whether the metric shows two values (two lines unless drawn inline).
+    static func isDual(_ metric: MenuBarMetric) -> Bool {
+        switch metric {
+        case .cpuFrequency, .cpuTempPower, .gpuTempPower, .network, .diskActivity: return true
+        default: return false
+        }
+    }
+
+    /// The stored style of one metric, limited to the styles it offers.
+    static func stored(for metric: MenuBarMetric, in defaults: UserDefaults = .standard) -> MenuBarMetricAppearance {
+        var style = MenuBarMetricAppearance(rawValue: defaults.string(forKey: metric.styleKey) ?? "")
+            ?? defaultStyle(for: metric)
+        if style == .classic { style = .values }
+        // Older builds drew every graph style on network as its history
+        // graph, and "histogram" as history on GPU and memory.
+        if !allowed(for: metric).contains(style) {
+            switch (metric, style) {
+            case (.network, .bars), (.network, .pie), (.network, .histogram),
+                 (.gpu, .histogram), (.memory, .histogram):
+                style = .sparkline
+            default:
+                style = defaultStyle(for: metric)
+            }
+        }
+        return style
+    }
+
+    /// Whether a temperature reading is drawn inside its usage block right
+    /// now (combine on, both pinned, usage drawn as text), so its own style
+    /// does not apply. The same rule as `MenuBarRenderSettings.combinesTemperature`.
+    static func drawnWithUsage(_ temperature: MenuBarMetric, in defaults: UserDefaults = .standard) -> Bool {
+        let usage: MenuBarMetric
+        switch temperature {
+        case .cpuTemperature: usage = .cpu
+        case .gpuTemperature:
+            // With VRAM chosen the temperature always keeps its own block
+            // and style, kext or no kext: the renderer decides from the same
+            // setting (MenuBarRenderSettings.gpuTemperatureSource).
+            if GPUTemperatureSource.from(defaults.string(forKey: DefaultsKey.gpuTemperatureSource)) == .memory {
+                return false
+            }
+            usage = .gpu
+        case .batteryTemperature: usage = .battery
+        default: return false
+        }
+        return defaults.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
+            && defaults.bool(forKey: usage.defaultsKey) && defaults.bool(forKey: temperature.defaultsKey)
+            && (usage == .battery || stored(for: usage, in: defaults).isText)
+    }
+
+    /// Whether the "combine temperatures" switch can change anything: CPU or
+    /// GPU usage drawn as text, or a built-in battery.
+    static func combineApplies(in defaults: UserDefaults = .standard, hasBattery: Bool) -> Bool {
+        stored(for: .cpu, in: defaults).isText || stored(for: .gpu, in: defaults).isText || hasBattery
+    }
+}
+
+extension MenuBarMetric {
+    /// The defaults key holding this metric's menu bar style.
+    var styleKey: String { "menuBarMetricAppearance_\(rawValue)" }
 }
 
 enum MenuBarUsageBarSupport {
@@ -159,13 +249,6 @@ enum MenuBarSpacingSupport {
     /// without ever moving.
     static let compactMinimumDigits = 2
 
-    /// Highest digit count each block has shown this session, so a spike to
-    /// three digits widens that block once and keeps it there instead of
-    /// letting the width oscillate while the value hovers at the boundary.
-    /// Touched only on the main thread (status item refresh and the settings
-    /// preview both render there).
-    private static var digitHighWater: [String: Int] = [:]
-
     /// A finite Keep Awake countdown is the only menu-bar content whose text
     /// changes just because time passed. Everything else refreshes from its
     /// publisher or preference change, so no timer should live at rest.
@@ -173,17 +256,6 @@ enum MenuBarSpacingSupport {
                                        showsCountdown: Bool,
                                        hasEndDate: Bool) -> Bool {
         keepAwakeActive && showsCountdown && hasEndDate
-    }
-
-    /// The reserve compact mode uses for a metric block: the current value's
-    /// shape, widened to at least `compactMinimumDigits` digits and to the
-    /// block's session high-water mark. Stable by construction; still far
-    /// narrower than reserving each metric's absolute maximum.
-    static func compactReserve(label: String, value: String) -> String {
-        let digits = value.filter(\.isNumber).count
-        let floor = compactFloor(currentDigits: digits, highWater: digitHighWater[label])
-        digitHighWater[label] = floor
-        return digitMatchedReserve(for: value, minimumDigits: floor)
     }
 
     static func compactFloor(currentDigits: Int, highWater: Int?) -> Int {
@@ -212,11 +284,29 @@ enum MenuBarSpacingSupport {
     }
 
     /// The glue string drawn between two metric blocks.
-    static func blockGlue(readableStyle: Bool, spacing: MenuBarMetricSpacing) -> String {
+    static func blockGlue(spacing: MenuBarMetricSpacing) -> String {
         switch spacing {
-        case .standard: return readableStyle ? "  " : " "
-        case .compact: return readableStyle ? " " : "\u{200A}"
+        case .standard: return " "
+        case .compact: return "\u{200A}"
         }
+    }
+
+    /// What the main item's title is made of, as a key that changes exactly
+    /// when the title would look different: the glyph spacing, a running
+    /// countdown and the metrics' render key (see `MenuBarRender`).
+    static func titleKey(glyphHidden: Bool, countdown: String, metricsKey: String) -> String {
+        [glyphHidden ? "-" : "+", countdown, metricsKey].joined(separator: "\u{1E}")
+    }
+
+    /// Whether a status item's title must be written again. Every write
+    /// re-lays out and redraws the status window, so an unchanged key on a
+    /// title that is already drawn is skipped. A nil or empty last key means
+    /// nothing has been written since the item was made or its memo reset,
+    /// and an empty button title means something else cleared it: both
+    /// write. Shared by the main item and the separate metric items.
+    static func needsTitleWrite(key: String, lastWrittenKey: String?, currentTitleLength: Int) -> Bool {
+        guard let lastWrittenKey, !lastWrittenKey.isEmpty else { return true }
+        return key != lastWrittenKey || currentTitleLength == 0
     }
 
     /// Whether the app glyph may hide so the menu bar shows metrics only

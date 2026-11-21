@@ -208,9 +208,8 @@ enum Defaults {
     static let keyboardDebounceWindowStep = 1
     static let defaultMouseClickDebounceWindowMs = 25
     static let allowedMouseClickDebounceWindowRange = 5...100
-    static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
+    static let allowedMenuBarMetricAppearances = MenuBarMetricAppearance.allCases.map(\.rawValue)
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature", "cpuPower", "cpuFrequency", "cpuTempPower",
         "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
@@ -218,7 +217,6 @@ enum Defaults {
         "battery", "batteryTime", "batteryTemperature", "peripheralBattery",
         "network", "diskUsage", "diskActivity", "connectedDevices", "power",
     ]
-    static let allowedMenuBarLabelStyles = ["compact", "classic"]
     static let allowedMenuBarMemoryStyles = ["dot", "percent", "both"]
     static let allowedMonitorMemoryMetrics = ["used", "app"]
     static let allowedPreviewSizes = ["small", "normal", "large", "xlarge"]
@@ -230,7 +228,13 @@ enum Defaults {
     static let defaultClipboardMenuBarPreviewLength = 20
     static let allowedMonitorAlertCooldowns = [2, 5, 15, 30, 60]
 
-    static let registeredDefaults: [String: Any] = [
+    /// Every registered default: the table below plus one style key per
+    /// menu bar metric, registered at the look the metric had before it had
+    /// a style of its own.
+    static let registeredDefaults: [String: Any] = baseRegisteredDefaults
+        .merging(MenuBarMetricAppearance.registeredStyleDefaults) { base, _ in base }
+
+    private static let baseRegisteredDefaults: [String: Any] = [
         DefaultsKey.clamshellPreferred: false,
         DefaultsKey.appearance: AppAppearance.fallback.rawValue,
         DefaultsKey.liquidGlassEnabled: false,
@@ -712,12 +716,12 @@ enum Defaults {
         DefaultsKey.menuBarNetwork: true,
         DefaultsKey.menuBarCPUTemperature: false,
         DefaultsKey.menuBarGPUTemperature: false,
+        DefaultsKey.gpuTemperatureSource: GPUTemperatureSource.hotspot.rawValue,
         DefaultsKey.menuBarBatteryTemperature: false,
         DefaultsKey.menuBarBatteryTime: false,
         DefaultsKey.menuBarDiskUsage: false,
         DefaultsKey.menuBarDiskActivity: false,
         DefaultsKey.menuBarPeripheralBattery: false,
-        DefaultsKey.menuBarPreset: "dense",
         DefaultsKey.menuBarMetricSpacing: "compact",  // owner's call: compact by default in 3.1.8
         DefaultsKey.menuBarMetricAppearance: "values",
         DefaultsKey.menuBarUsageBarNormalColor: "#64D2FF",
@@ -728,6 +732,9 @@ enum Defaults {
         DefaultsKey.menuBarHideIconWithMetrics: false,
         DefaultsKey.menuBarLayoutMode: "modern",
         DefaultsKey.menuBarGraphShowsValue: false,
+        DefaultsKey.menuBarGraphMonochrome: false,
+        DefaultsKey.menuBarHighlightHighValues: false,
+        DefaultsKey.menuBarNarrowText: false,
         DefaultsKey.menuBarGraphThemeLight: "system",
         DefaultsKey.menuBarGraphThemeDark: "system",
         DefaultsKey.menuBarGraphLightBackground: "filled",
@@ -740,7 +747,6 @@ enum Defaults {
         DefaultsKey.menuBarSeparateMetrics: false,
         DefaultsKey.menuBarSeparateMetricsCaptionVisible: true,
         DefaultsKey.menuBarNetworkUploadFirst: false,
-        DefaultsKey.menuBarLabelStyle: "compact",
         DefaultsKey.menuBarMemoryStyle: "percent",
         DefaultsKey.monitorMemoryMetric: "used",
         DefaultsKey.monitorShowSystem: true,
@@ -789,6 +795,8 @@ enum Defaults {
         DefaultsKey.monitorAlertCPUTemperature: false,
         DefaultsKey.monitorAlertGPUTemperature: false,
         DefaultsKey.monitorAlertGPUPower: false,
+        DefaultsKey.monitorAlertGPUMemoryTemperature: false,
+        DefaultsKey.monitorAlertGPUThrottle: false,
         DefaultsKey.monitorAlertMemory: false,
         DefaultsKey.monitorAlertDisk: false,
         DefaultsKey.monitorAlertBattery: false,
@@ -796,6 +804,7 @@ enum Defaults {
         DefaultsKey.monitorAlertCPUTemperatureThreshold: 90,
         DefaultsKey.monitorAlertGPUTemperatureThreshold: 85,
         DefaultsKey.monitorAlertGPUPowerThreshold: 250,
+        DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold: 90,
         DefaultsKey.monitorAlertDiskFreePercent: 10,
         DefaultsKey.monitorAlertBatteryPercent: 15,
         DefaultsKey.monitorAlertCooldownMinutes: 15,
@@ -1092,7 +1101,6 @@ enum Defaults {
         DefaultsKey.windowLayoutScreenGap: 0,
         DefaultsKey.windowLayoutMarginPercent: 5.0,
         DefaultsKey.windowLayoutSideRepeatCyclesThirds: false,
-        DefaultsKey.menuBarDiskStyle: "percent",
         DefaultsKey.monitorGraphScale: true,
         DefaultsKey.monitorSysCPUCores: true,
         DefaultsKey.monitorNetAddresses: true,
@@ -1209,6 +1217,7 @@ enum Defaults {
         // saved choice from a registered default.
         migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateBatteryTemperatureVisibility(in: defaults)
+        MenuBarStyleMigration.runIfNeeded(in: defaults)
         var defaultValues = registeredDefaults
 #if DEBUG
         defaultValues[DefaultsKey.screenshotSharingDeveloperEndpoint] = ""
@@ -1473,10 +1482,6 @@ enum Defaults {
             allowedClipboardMenuBarPreviewLengthRange.upperBound)
     }
 
-    static func sanitizedMenuBarPreset(_ preset: String) -> String {
-        allowedMenuBarPresets.contains(preset) ? preset : "dense"
-    }
-
     static func sanitizedMenuBarMetricSpacing(_ spacing: String) -> String {
         // Corrupt values fall back to the registered default (compact).
         allowedMenuBarMetricSpacings.contains(spacing) ? spacing : "compact"
@@ -1544,10 +1549,6 @@ enum Defaults {
                          forKey: DefaultsKey.menuBarMetricOrder)
         }
         defaults.removeObject(forKey: DefaultsKey.menuBarTemperature)
-    }
-
-    static func sanitizedMenuBarLabelStyle(_ style: String) -> String {
-        allowedMenuBarLabelStyles.contains(style) ? style : "compact"
     }
 
     static func sanitizedMenuBarMemoryStyle(_ style: String) -> String {

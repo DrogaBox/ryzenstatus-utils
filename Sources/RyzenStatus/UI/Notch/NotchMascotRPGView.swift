@@ -94,10 +94,8 @@ struct NotchMascotPocketCard: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 52, alignment: .leading)
                 NotchMascotPartsView(parts: NotchMascotRPGShapes.coin(at: CGPoint(x: 6, y: 6), radius: 5), side: 12)
-                Text(String(format: "%06d", rpg.goldCoins))
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(Self.lit)
-                    .contentTransition(.numericText())
+                RollingDigitsText(String(format: "%06d", rpg.goldCoins),
+                                  style: RollingDigitsStyle(size: 11, weight: .heavy, design: .monospaced), color: Self.lit)
             }
         }
     }

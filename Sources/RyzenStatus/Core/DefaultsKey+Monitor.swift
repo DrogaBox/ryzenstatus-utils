@@ -26,6 +26,9 @@ extension DefaultsKey {
     static let menuBarMemory = "menuBarMemory"
     static let menuBarCPUTemperature = "menuBarCPUTemperature"
     static let menuBarGPUTemperature = "menuBarGPUTemperature"
+    /// Which GPU temperature the menu bar and the island show (`GPUTemperatureSource`); only
+    /// hotspot means anything without GPUSensors.kext.
+    static let gpuTemperatureSource = "gpuTemperatureSource"
     static let menuBarBatteryTemperature = "menuBarBatteryTemperature"
     static let menuBarTemperature = "menuBarTemperature" // legacy Developer key for the old generic temperature metric
     static let menuBarNetwork = "menuBarNetwork"
@@ -35,7 +38,6 @@ extension DefaultsKey {
     static let menuBarBatteryTime = "menuBarBatteryTime"
     static let menuBarPeripheralBattery = "menuBarPeripheralBattery"
     static let menuBarPower = "menuBarPower"
-    static let menuBarPreset = "menuBarPreset"           // dense
     static let menuBarMetricSpacing = "menuBarMetricSpacing" // standard | compact
     static let menuBarMetricAppearance = "menuBarMetricAppearance" // values | bars
     static let menuBarUsageBarNormalColor = "menuBarUsageBarNormalColor" // #RRGGBB
@@ -45,6 +47,9 @@ extension DefaultsKey {
     static let menuBarUsageBarHighThreshold = "menuBarUsageBarHighThreshold" // percent
     static let menuBarHideIconWithMetrics = "menuBarHideIconWithMetrics" // glyph hides while metrics render in the main item
     static let menuBarGraphShowsValue = "menuBarGraphShowsValue" // render numeric text inside graph blocks
+    static let menuBarGraphMonochrome = "menuBarGraphMonochrome" // menu bar graphs and bars in the text color
+    static let menuBarHighlightHighValues = "menuBarHighlightHighValues" // usage values take the level colors
+    static let menuBarNarrowText = "menuBarNarrowText" // condensed width for menu bar text
     static let menuBarGraphThemeLight = "menuBarGraphThemeLight" // MenuBarGraphTheme raw value
     static let menuBarGraphThemeDark = "menuBarGraphThemeDark"   // MenuBarGraphTheme raw value
     static let menuBarGraphLightBackground = "menuBarGraphLightBackground" // filled | outline
@@ -57,7 +62,6 @@ extension DefaultsKey {
     static let menuBarSeparateMetricsCaptionVisible = "menuBarSeparateMetricsCaptionVisible"
     static let menuBarLayoutMode = "menuBarLayoutMode" // classic | modern
     static let menuBarNetworkUploadFirst = "menuBarNetworkUploadFirst" // network menu bar block shows upload above download
-    static let menuBarLabelStyle = "menuBarLabelStyle"     // compact | classic
     static let menuBarMemoryStyle = "menuBarMemoryStyle"   // dot | percent | both
     static let monitorInterval = "monitorIntervalSeconds"  // sampling cadence: 1/2/5
     // System monitor — which blocks appear in the panel.
@@ -111,6 +115,11 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperature = "monitorAlertCPUTemperature"
     static let monitorAlertGPUTemperature = "monitorAlertGPUTemperature"
     static let monitorAlertGPUPower = "monitorAlertGPUPower"
+    /// GPUSensors.kext alerts: VRAM temperature, and clocks held back by heat or current.
+    static let monitorAlertGPUMemoryTemperature = "monitorAlertGPUMemoryTemperature"
+    static let monitorAlertGPUThrottle = "monitorAlertGPUThrottle"
+    /// The alerts that read GPUSensors.kext and mean nothing without it.
+    static let gpuSensorsAlertKeys: Set<String> = [monitorAlertGPUMemoryTemperature, monitorAlertGPUThrottle]
     static let monitorAlertMemory = "monitorAlertMemory"
     static let monitorAlertDisk = "monitorAlertDisk"
     static let monitorAlertBattery = "monitorAlertBattery"
@@ -118,6 +127,7 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperatureThreshold = "monitorAlertCPUTemperatureThreshold"
     static let monitorAlertGPUTemperatureThreshold = "monitorAlertGPUTemperatureThreshold"
     static let monitorAlertGPUPowerThreshold = "monitorAlertGPUPowerThreshold"
+    static let monitorAlertGPUMemoryTemperatureThreshold = "monitorAlertGPUMemoryTemperatureThreshold"
     static let monitorAlertDiskFreePercent = "monitorAlertDiskFreePercent"
     static let monitorAlertBatteryPercent = "monitorAlertBatteryPercent"
     static let monitorAlertCooldownMinutes = "monitorAlertCooldownMinutes"

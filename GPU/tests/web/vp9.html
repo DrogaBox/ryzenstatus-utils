@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<!--
+  Open in Safari as vp9.html?src=<file.webm>. It shows how WebKit answers for VP9 and plays the
+  clip, with the count of decoded and dropped frames updated twice a second.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>VP9 test</title>
+    <style>
+      body {
+        background: #111;
+        color: #eee;
+        font: 22px/1.35 Menlo, monospace;
+        margin: 16px;
+      }
+
+      video {
+        width: 640px;
+        display: block;
+        margin: 8px 0;
+        background: #000;
+      }
+
+      td {
+        padding: 0 18px 0 0;
+      }
+
+      #status {
+        color: #7f7;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="status">...</pre>
+    <video id="v" muted autoplay playsinline></video>
+    <table id="out"></table>
+    <script>
+      const query = new URLSearchParams(location.search);
+      const src = query.get('src');
+      const video = document.getElementById('v');
+      const out = document.getElementById('out');
+      const status = document.getElementById('status');
+
+      function log(key, value) {
+        const row = out.insertRow();
+        row.insertCell().textContent = key;
+        row.insertCell().textContent = value;
+      }
+
+      async function caps(type, contentType, width, height, framerate, bitrate) {
+        try {
+          const info = await navigator.mediaCapabilities.decodingInfo({
+            type: type,
+            video: {
+              contentType: contentType,
+              width: width,
+              height: height,
+              framerate: framerate,
+              bitrate: bitrate,
+            },
+          });
+          return (info.supported ? 'supported' : 'NO') + ' ' +
+              (info.smooth ? 'smooth' : 'not-smooth') + ' ' +
+              (info.powerEfficient ? 'efficient' : 'not-efficient');
+        } catch (error) {
+          return 'error ' + error.message;
+        }
+      }
+
+      (async () => {
+        log('UA', navigator.userAgent.replace(/^.*\) /, ''));
+        const codecTypes = [
+          'video/webm; codecs="vp09.00.51.08"',
+          'video/webm; codecs="vp09.02.51.10"',
+          'video/mp4; codecs="vp09.00.51.08"',
+        ];
+        for (const codecType of codecTypes) {
+          log(
+              'MSE ' + codecType.replace('video/', ''),
+              String(window.MediaSource && MediaSource.isTypeSupported(codecType)));
+        }
+        log(
+            'canPlayType webm vp9',
+            video.canPlayType('video/webm; codecs="vp09.00.51.08"'));
+        log(
+            'caps MSE vp9 4K60',
+            await caps(
+                'media-source', 'video/webm; codecs="vp09.00.51.08"', 3840, 2160,
+                60, 20000000));
+        log(
+            'caps MSE vp9 4K60 10bit',
+            await caps(
+                'media-source', 'video/webm; codecs="vp09.02.51.10"', 3840, 2160,
+                60, 25000000));
+        log(
+            'caps file vp9 4K60',
+            await caps(
+                'file', 'video/webm; codecs="vp09.00.51.08"', 3840, 2160, 60,
+                20000000));
+        video.onerror = () => {
+          status.style.color = '#f77';
+          status.textContent = 'ERROR ' +
+              (video.error && (video.error.code + ' ' + video.error.message));
+        };
+        if (!src) {
+          status.textContent = 'no clip given (?src=file.webm): capabilities only';
+          return;
+        }
+        video.src = src;
+        setInterval(() => {
+          if (video.error) {
+            return;
+          }
+          const quality = video.getVideoPlaybackQuality();
+          status.textContent =
+              video.videoWidth + 'x' + video.videoHeight + ' t=' +
+              video.currentTime.toFixed(1) + 's ready=' + video.readyState +
+              ' paused=' + video.paused + '\n' +
+              'decoded=' + quality.totalVideoFrames +
+              ' dropped=' + quality.droppedVideoFrames;
+        }, 500);
+      })();
+    </script>
+  </body>
+</html>

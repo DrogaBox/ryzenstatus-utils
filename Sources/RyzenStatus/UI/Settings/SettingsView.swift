@@ -784,6 +784,7 @@ struct SettingsView: View {
         case .amdPower: AmdPowerSettingsView()
         case .amdOverclocking: AmdOverclockingSettingsView()
         case .amdValidation: AmdValidationSettingsView()
+        case .gpuControl: GPUControlSettingsView()
         case .dashboard: MonitorLauncherPage()
         case .sensors: SensorsView()
         }

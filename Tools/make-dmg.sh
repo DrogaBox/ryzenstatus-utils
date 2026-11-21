@@ -4,17 +4,32 @@
 
 # Packages the built app into a styled, distributable DMG
 # (dist/RyzenStatus-<version>.dmg): a window with the app icon, an arrow and
-# the Applications folder for drag-and-drop install. Run ./build.sh first.
+# the Applications folder for drag-and-drop install, the kexts for OpenCore, a
+# short README and, in its own folder, the "RyzenStatus GPU" installer with the
+# GPU parts inside it. Run ./build.sh first.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="RyzenStatus"
 APP="build/stage/$APP_NAME.app"
 VOLUME="$APP_NAME"
+# The GPU installer. It never sits at the top of the DMG: the in-app updater of
+# 1.85.0 and older copies the first .app it finds there, and "RyzenStatus GPU.app"
+# sorts before "RyzenStatus.app". GPU_FOLDER is written here only.
+GPU_FOLDER="GPU RX 6000"
+GPU_APP_NAME="RyzenStatus GPU"
+GPU_APP_BUILD="GPU/installer/build/$GPU_APP_NAME.app"
+GPU_ZIP="ReleaseAssets/GPU-Package.zip"
+# SHA-256 of the SHA256SUMS inside GPU_ZIP, which lists every file of the parts.
+# Tools/build-gpu-assets.sh prints it; refresh it in the same commit as the zip.
+# The zip's own hash is not pinned: ditto stores modification times, so the same
+# files give another zip (the same lesson as the kext zip below).
+GPU_PAYLOAD_SUMS_SHA256="94352d9799190a5ecb82b36c093055fb6255b1a927028c80b36565f2272cd7e9"
 STAGING=""
 WORK=""
 MOUNT=""
 KEXT_TEMP=""
+GPU_TEMP=""
 
 cleanup() {
     if [[ -n "$MOUNT" ]]; then
@@ -25,6 +40,7 @@ cleanup() {
     [[ -n "$STAGING" ]] && rm -rf "$STAGING"
     [[ -n "$WORK" ]] && rm -rf "$WORK"
     [[ -n "$KEXT_TEMP" ]] && rm -rf "$KEXT_TEMP"
+    [[ -n "$GPU_TEMP" ]] && rm -rf "$GPU_TEMP"
 }
 trap cleanup EXIT
 
@@ -278,6 +294,86 @@ if [[ -d "$STAGING/Kexts" ]]; then
         exit 1
     fi
 fi
+# The GPU parts (AMD Radeon RX 6000): the "RyzenStatus GPU" installer, built here
+# (pure Swift, so CI can), with the parts from ReleaseAssets/GPU-Package.zip inside
+# it in Contents/Resources/GPU, where the app looks first. The parts are built only
+# by Tools/build-gpu-assets.sh on a Mac with Lilu; this script checks them against
+# the pinned SHA256SUMS and compiles none of them.
+echo "▸ GPU parts…"
+zsh GPU/installer/build.sh > /dev/null
+codesign --verify --deep --strict "$GPU_APP_BUILD"
+if [[ ! -f "$GPU_ZIP" ]]; then
+    echo "✗ Error: $GPU_ZIP is missing; build it with Tools/build-gpu-assets.sh." >&2
+    exit 1
+fi
+GPU_ZIP_ROOTS="$(zipinfo -1 "$GPU_ZIP" | awk -F/ 'NF>0 {print $1}' | sort -u)"
+if [[ "$GPU_ZIP_ROOTS" != "GPU" ]]; then
+    echo "✗ Error: $GPU_ZIP must hold exactly one folder, GPU/, at its top; found:" >&2
+    printf '%s\n' "$GPU_ZIP_ROOTS" | sed 's/^/    /' >&2
+    exit 1
+fi
+GPU_TEMP="$(mktemp -d)"
+ditto -x -k "$GPU_ZIP" "$GPU_TEMP"
+GPU_PARTS="$GPU_TEMP/GPU"
+GPU_SUMS_ACTUAL="$(shasum -a 256 "$GPU_PARTS/SHA256SUMS" | awk '{print $1}')"
+if [[ "$GPU_SUMS_ACTUAL" != "$GPU_PAYLOAD_SUMS_SHA256" ]]; then
+    echo "✗ Error: the SHA256SUMS in $GPU_ZIP is not the pinned one." >&2
+    echo "    pinned: $GPU_PAYLOAD_SUMS_SHA256" >&2
+    echo "    found : $GPU_SUMS_ACTUAL" >&2
+    echo "  These are not the reviewed GPU parts. For an intentional update, run" >&2
+    echo "  Tools/build-gpu-assets.sh and commit the zip with the GPU_PAYLOAD_SUMS_SHA256 it prints." >&2
+    exit 1
+fi
+if ! (cd "$GPU_PARTS" && shasum -a 256 -c -s SHA256SUMS); then
+    echo "✗ Error: a file of the GPU parts does not match SHA256SUMS." >&2
+    exit 1
+fi
+# shasum -c checks only what is listed: an extra file, or a link out of the
+# folder, would ride along unchecked.
+GPU_LISTED="$(cd "$GPU_PARTS" && awk '{ sub(/^[0-9a-f]+  /, ""); print }' SHA256SUMS | LC_ALL=C sort)"
+GPU_PRESENT="$(cd "$GPU_PARTS" && find . -type f ! -path ./SHA256SUMS | LC_ALL=C sort)"
+if [[ "$GPU_LISTED" != "$GPU_PRESENT" || -n "$(find "$GPU_PARTS" -type l)" ]]; then
+    echo "✗ Error: the GPU parts hold files or links that SHA256SUMS does not list." >&2
+    exit 1
+fi
+mkdir "$STAGING/$GPU_FOLDER"
+GPU_APP="$STAGING/$GPU_FOLDER/$GPU_APP_NAME.app"
+ditto "$GPU_APP_BUILD" "$GPU_APP"
+ditto "$GPU_PARTS" "$GPU_APP/Contents/Resources/GPU"
+xattr -cr "$GPU_APP"
+# Sign again: the parts are now resources of the app, and its seal must cover them.
+# codesign's own words are kept for the log when it fails ("replacing existing
+# signature" is all it says when it works).
+if ! GPU_SIGN_OUT="$(codesign -f -s - "$GPU_APP" 2>&1)"; then
+    echo "✗ Error: $GPU_APP_NAME.app could not be signed again:" >&2
+    printf '%s\n' "$GPU_SIGN_OUT" | sed 's/^/    /' >&2
+    exit 1
+fi
+codesign --verify --deep --strict "$GPU_APP"
+# The app itself says where it finds its parts (no window opens).
+GPU_FOUND="$("$GPU_APP/Contents/MacOS/RyzenStatusGPUInstaller" --print-payload)" || {
+    echo "✗ Error: $GPU_APP_NAME does not find its parts: $GPU_FOUND" >&2
+    exit 1
+}
+if [[ "$GPU_FOUND" != "bundled: "*"/$GPU_FOLDER/$GPU_APP_NAME.app/Contents/Resources/GPU" ]]; then
+    echo "✗ Error: $GPU_APP_NAME found its parts somewhere else: $GPU_FOUND" >&2
+    exit 1
+fi
+GPU_INFO="$(head -n 1 "$GPU_PARTS/BUILD-INFO.txt")"
+echo "  ✓ $GPU_FOLDER/$GPU_APP_NAME.app, parts verified against the pinned SHA256SUMS (${GPU_INFO%%:*})"
+# The three GPU kexts also go to Kexts/, for those who put kexts on their EFI by
+# hand, with the license and notices that must travel with them (Lilu's BSD
+# 3-Clause, compiled into all three, is in NOTICE.md). Copied from the verified parts.
+mkdir -p "$STAGING/Kexts"
+GPU_ENC="encode/dist/VCNEncodeFix-$(cat "$GPU_PARTS/encode/VERSION")"
+for gpu_kext in sensors/build/GPUSensors.kext decode/build/VCNVTLoader.kext "$GPU_ENC/Kexts/VCNEncodeFloor.kext"; do
+    ditto "$GPU_PARTS/$gpu_kext" "$STAGING/Kexts/${gpu_kext:t}"
+    codesign --verify --deep --strict "$STAGING/Kexts/${gpu_kext:t}"
+done
+cp "$GPU_PARTS/LICENSE" "$STAGING/Kexts/GPU-LICENSE.txt"
+cp "$GPU_PARTS/NOTICE.md" "$STAGING/Kexts/GPU-NOTICE.md"
+echo "  ✓ GPUSensors.kext, VCNVTLoader.kext and VCNEncodeFloor.kext added to Kexts/, with GPU-LICENSE.txt and GPU-NOTICE.md"
+cp Tools/dmg-README.txt "$STAGING/README.txt"
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
 # Seed the window layout from a checked-in .DS_Store.
@@ -333,6 +429,10 @@ fi
 echo "▸ Arranging window (icons, arrow, background)…"
 # Finder automation lays out the window; best-effort so a headless hiccup never
 # fails the release (the DMG is still valid, just unstyled that once).
+# The same window size and positions as Tools/dmg-layout.DS_Store (regenerate it
+# with Tools/dmg-layout.py after changing them) and the arrow of
+# Tools/MakeDMGBackground.swift. The GPU folder goes last: a wrong item name stops
+# the rest of the tell block, so it can only cost its own position.
 KEXT_POSITION=""
 if [[ -d "$STAGING/Kexts" ]]; then
     KEXT_POSITION='set position of item "Kexts" of container window to {150, 120}'
@@ -344,7 +444,7 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set the bounds of container window to {200, 120, 800, 600}
+        set the bounds of container window to {200, 120, 800, 680}
         set theOptions to the icon view options of container window
         set arrangement of theOptions to not arranged
         set icon size of theOptions to 128
@@ -353,6 +453,8 @@ tell application "Finder"
 $KEXT_POSITION
         set position of item "$APP_NAME.app" of container window to {150, 275}
         set position of item "Applications" of container window to {450, 275}
+        set position of item "README.txt" of container window to {300, 400}
+        set position of item "$GPU_FOLDER" of container window to {450, 120}
 
         update without registering applications
         delay 1
@@ -393,4 +495,36 @@ mkdir -p dist
 rm -f "$OUT"
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$OUT" -quiet
 
-echo "✓ DMG ready: $OUT"
+# Check the image people download, mounted read-only, not the staging folder.
+echo "▸ Checking the finished image…"
+ATTACH_OUTPUT="$(hdiutil attach "$OUT" -readonly -nobrowse -noautoopen)"
+MOUNT="$(printf '%s\n' "$ATTACH_OUTPUT" | awk '/\/Volumes\// {print substr($0, index($0, "/Volumes/")); exit}')"
+image_fail() {
+    echo "✗ Error: $1" >&2
+    rm -f "$OUT"
+    exit 1
+}
+[[ -n "$MOUNT" && -d "$MOUNT" ]] || image_fail "could not mount $OUT to check it"
+for item in "$APP_NAME.app" Applications Kexts README.txt "$GPU_FOLDER"; do
+    [[ -e "$MOUNT/$item" ]] || image_fail "$item is missing from the DMG"
+done
+# The rule the old updaters need: one .app at the top, and it is RyzenStatus.app.
+ROOT_APPS="$(cd "$MOUNT" && find . -maxdepth 1 -name '*.app' | sort | tr '\n' ' ')"
+[[ "$ROOT_APPS" == "./$APP_NAME.app " ]] \
+    || image_fail "the top of the DMG must hold only $APP_NAME.app; it holds: $ROOT_APPS"
+MOUNTED_GPU_APP="$MOUNT/$GPU_FOLDER/$GPU_APP_NAME.app"
+GPU_VERIFY_OUT="$(codesign --verify --deep --strict "$MOUNTED_GPU_APP" 2>&1)" \
+    || image_fail "$GPU_FOLDER/$GPU_APP_NAME.app does not verify in the DMG: ${GPU_VERIFY_OUT//$'\n'/; }"
+[[ "$("$MOUNTED_GPU_APP/Contents/MacOS/RyzenStatusGPUInstaller" --print-payload)" \
+        == "bundled: $MOUNTED_GPU_APP/Contents/Resources/GPU" ]] \
+    || image_fail "$GPU_APP_NAME does not find its parts inside itself in the DMG"
+(cd "$MOUNTED_GPU_APP/Contents/Resources/GPU" && shasum -a 256 -c -s SHA256SUMS) \
+    || image_fail "the GPU parts in the DMG do not match SHA256SUMS"
+for item in GPUSensors.kext VCNVTLoader.kext VCNEncodeFloor.kext GPU-LICENSE.txt GPU-NOTICE.md; do
+    [[ -e "$MOUNT/Kexts/$item" ]] || image_fail "Kexts/$item is missing from the DMG"
+done
+hdiutil detach "$MOUNT" -quiet || hdiutil detach "$MOUNT" -force -quiet
+MOUNT=""
+echo "  ✓ one app at the top, $GPU_FOLDER/$GPU_APP_NAME.app finds its parts, Kexts/ complete"
+
+echo "✓ DMG ready: $OUT ($(stat -f %z "$OUT") bytes)"

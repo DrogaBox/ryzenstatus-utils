@@ -250,7 +250,7 @@ final class NotchMascotSpriteLayer: CALayer {
     func run(toward direction: CGFloat?) {
         guard let direction else { removeAnimation(forKey: "run"); return }
         guard let animation = cycle(direction > 0 ? .runRight : .runLeft, speed: 1) else { return }
-        animation.repeatCount = .infinity
+        animation.loopsForever()
         add(animation, forKey: "run")
     }
 
@@ -317,7 +317,7 @@ final class NotchMascotSpriteLayer: CALayer {
             removeAnimation(forKey: "loop")
             return
         }
-        animation.repeatCount = .infinity
+        animation.loopsForever()
         add(animation, forKey: "loop")
     }
 

@@ -7,15 +7,20 @@ import Foundation
 struct SettingsSearchState: Equatable {
     struct Hardware: Equatable {
         let battery, notchedDisplay, plainDisplay, keyboardLight, bluetoothSleep, brightnessOSD: Bool
+        /// GPUSensors.kext with its write path: the GPU control page exists.
+        var gpuControl = false
     }
 
     let hardware: Hardware
-    let bars, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
+    let bars, combineApplies, batteryRest, capsule, customSize, minimalMascot, groupsMinimizedWindows: Bool
     private let switches: Set<String>
 
     init(defaults: UserDefaults, hardware: Hardware) {
         self.hardware = hardware
-        bars = defaults.string(forKey: DefaultsKey.menuBarMetricAppearance) == "bars"
+        bars = MenuBarMetricAppearance.styledMetrics.contains {
+            MenuBarMetricAppearance.stored(for: $0, in: defaults) == .bars
+        }
+        combineApplies = MenuBarMetricAppearance.combineApplies(in: defaults, hasBattery: hardware.battery)
         batteryRest = defaults.string(forKey: DefaultsKey.notchIdleContent) == NotchIdleContent.battery.rawValue
         capsule = defaults.string(forKey: DefaultsKey.notchSilhouette) != NotchSilhouette.notch.rawValue
         customSize = defaults.string(forKey: DefaultsKey.notchSize) == NotchSize.custom.rawValue
@@ -48,7 +53,8 @@ extension SettingsSearchState {
             plainDisplay: NotchSupport.hasDisplayWithoutNotch, keyboardLight: BrightnessService.keyboardLightIsSupported,
             bluetoothSleep: BluetoothSleepService.isSupported,
             brightnessOSD: AppFeature.brightness.isAvailable && UserDefaults.standard.bool(forKey: DefaultsKey.brightnessControlEnabled)
-                && BrightnessService.shared.brightnessOSDSupported))
+                && BrightnessService.shared.brightnessOSDSupported,
+            gpuControl: GPUControlVisibility.isVisible))
     }
 }
 
@@ -94,7 +100,7 @@ enum SettingsDirectory {
     /// The AMD Ryzen pages: the machine this app is built around, so they get
     /// a section of their own right below the essentials.
     private static let amdPages: Set<SettingsPage> = [
-        .dashboard, .fans, .amdPower, .amdOverclocking, .sensors, .amdValidation,
+        .dashboard, .fans, .amdPower, .amdOverclocking, .sensors, .gpuControl, .amdValidation,
     ]
 
     /// Shared pages whose tools cover the page without a separate overview row.
@@ -109,10 +115,14 @@ enum SettingsDirectory {
                                 superKeySource: SuperKeySource = SuperKeyService.shared.source,
                                 isAvailable: (AppFeature) -> Bool) -> [SettingsSidebarSection] {
         let hub = FeatureStrings.hub(language)
+        let state = SettingsSearchState.current
         let grouped: [SettingsSidebarSection] = sections(
             s, language: language, superKeySource: superKeySource,
-            state: .current
-        ).enumerated().compactMap { index, section -> SettingsSidebarSection? in
+            state: state
+        ).map { section in
+            // The GPU control page only with a kext that can write.
+            (title: section.title, items: section.items.filter { $0.page != .gpuControl || state.hardware.gpuControl })
+        }.enumerated().compactMap { index, section -> SettingsSidebarSection? in
                 let items = section.items.flatMap { pageItem -> [SettingsSidebarItem] in
                     var rows = SettingsSidebarSupport.items(
                         page: pageItem.page, title: pageItem.title, icon: pageItem.icon,
@@ -210,7 +220,9 @@ enum SettingsDirectory {
                              state: SettingsSearchState = .current) -> [SettingsSearchItem] {
         let pageItems = sections(s, language: language, superKeySource: superKeySource,
                                  state: state)
-            .flatMap(\.items).map { item in
+            .flatMap(\.items)
+            .filter { $0.page != .gpuControl || state.hardware.gpuControl }
+            .map { item in
                 SettingsSearchItem(id: .page(item.page),
                                    destination: FeatureSettingsDestination(item.page),
                                    title: item.title,
@@ -403,14 +415,16 @@ enum SettingsDirectory {
                                               when: state.hardware.bluetoothSleep && state.on(DefaultsKey.bluetoothSleepEnabled)),
                                        ]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
-                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle, barStyle.label,
-                                                  barStyle.bars, barStyle.values, s.monitorSeparateMenuBarMetrics,
+                                       keywords: [barStyle.itemWidth, s.menuBarHideIconToggle, barStyle.itemsTitle,
+                                                  barStyle.styleLabelAbove, barStyle.styleInline, barStyle.styleValueOnly,
+                                                  barStyle.bars, barStyle.graphColor, barStyle.highlightHighValues,
+                                                  barStyle.narrowText, s.monitorSeparateMenuBarMetrics,
                                                   s.monitorIntervalLabel, s.temperatures],
                                        featureKeywords: [
                                         (.monitorMemory, [s.monitorMemoryPressureDot, s.monitorMemoryMetricLabel]),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
                                        ], terms: [
-                                        .init([s.monitorCombineTemperatures], when: !state.bars),
+                                        .init([s.monitorCombineTemperatures], when: state.combineApplies),
                                         .init([barStyle.customize, barStyle.normalColor, barStyle.mediumColor, barStyle.highColor,
                                                barStyle.mediumFrom, barStyle.highFrom], when: state.bars),
                                        ]),
@@ -425,6 +439,13 @@ enum SettingsDirectory {
                                                  "frequency", "cHTC", "smu", "undervolt"]),
                 SettingsDirectoryItem(page: .sensors, title: FeatureStrings.fanControl(language).sensorsSidebarTitle,
                                       icon: "thermometer.sun.fill"),
+                // Listed always so the directory stays complete; the sidebar
+                // and the search leave it out without GPUSensors.kext's
+                // write path.
+                SettingsDirectoryItem(page: .gpuControl, title: FeatureStrings.gpuControl(language).title,
+                                      icon: "gauge.with.dots.needle.50percent",
+                                      keywords: ["GPU", "power limit", "watts", "GPUSensors",
+                                                 FeatureStrings.gpuControlPage(language).powerSection]),
                 SettingsDirectoryItem(page: .amdValidation, title: FeatureStrings.validation(language).sidebarTitle,
                                       icon: "checkmark.seal",
                                       keywords: ["validation", "probe", "kextstat", "hardware",

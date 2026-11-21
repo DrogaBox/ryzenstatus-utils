@@ -131,26 +131,27 @@ enum NotchMascotAlarmArt {
             spin.fromValue = 0
             spin.toValue = -2 * Double.pi
             spin.duration = 0.7
-            spin.repeatCount = .infinity
+            // A turn in 0.7 s keeps the display's rate; 30 fps would step 17° a frame.
+            spin.loopsForever(paced: false)
             beams.add(spin, forKey: "sweep")
             let flash = CAKeyframeAnimation(keyPath: "backgroundColor")
             flash.values = [red, amber, red]
             flash.keyTimes = [0, 0.5, 1]
             flash.calculationMode = .discrete
             flash.duration = 0.5
-            flash.repeatCount = .infinity
+            flash.loopsForever()
             board.add(flash, forKey: "flash")
             let glow = CAKeyframeAnimation(keyPath: "fillColor")
             glow.values = [red, amber, red]
             glow.keyTimes = [0, 0.5, 1]
             glow.calculationMode = .discrete
             glow.duration = 0.35
-            glow.repeatCount = .infinity
+            glow.loopsForever()
             dome.add(glow, forKey: "flash")
             let shake = CAKeyframeAnimation(keyPath: "transform.rotation.z")
             shake.values = [0, 0.05, -0.05, 0.03, -0.03, 0]
             shake.duration = 0.45
-            shake.repeatCount = .infinity
+            shake.loopsForever()
             shake.isAdditive = true
             board.add(shake, forKey: "shake")
         }
@@ -218,7 +219,7 @@ enum NotchMascotAlarmArt {
             pulse.values = [0.1, 0.55, 0.1]
             pulse.keyTimes = [0, 0.5, 1]
             pulse.duration = 0.9
-            pulse.repeatCount = .infinity
+            pulse.loopsForever()
             holder.add(pulse, forKey: "pulse")
         }
         parent.addSublayer(holder)
