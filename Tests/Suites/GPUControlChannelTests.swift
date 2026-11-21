@@ -182,6 +182,8 @@ enum GPUControlChannelTests {
             ("armed: the last OD8 call was not taken; going back to stock", .unconfirmed),
             ("armed: a program holds a lower limit", .held),
             ("armed: a program holds a fan or clock change", .held),
+            ("armed: a program holds a fan or clock change (OD8Write); the power limit is the start-up one", .held),
+            ("armed: a program is setting a limit", .held),
             ("armed: nothing held", .idle),
             ("armed: OD8 at stock", .idle),
             ("armed: something new", .other("armed: something new")),
