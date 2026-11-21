@@ -57,6 +57,10 @@ struct SensorsCheck: Decodable {
     let version: String
     let running: String
     let result: String
+    /// gpucontrol and gpusensors in /usr/local/bin: current | missing | outdated | blocked.
+    let tools: String?
+    /// The kext needs nothing, only those commands: the row offers just them.
+    let toolsOnly: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -77,11 +81,23 @@ struct PlanResult: Identifiable {
         exitCode == 0 && output.split(separator: "\n").contains { $0.hasPrefix("Nothing to install") }
     }
     var canInstall: Bool { exitCode == 0 && !nothingToDo }
+    /// The plan's only step copies gpucontrol and gpusensors: nothing to reboot for.
+    var onlyTools: Bool {
+        var steps: [Substring] = []
+        var inPlan = false
+        for line in output.split(separator: "\n") {
+            if line == "Plan:" { inPlan = true; continue }
+            if inPlan, line.hasPrefix("  "), !line.hasPrefix("  skip ") { steps.append(line) }
+        }
+        return steps.count == 1 && steps[0].hasPrefix("  copy gpucontrol and gpusensors")
+    }
 }
 
 /// Which optional parts the guided install offers ticked: the ones already installed in an
-/// older version than this app carries. A part that is not installed stays unticked (it is
-/// optional), and one that is up to date has nothing to install.
+/// older version than this app carries, and the GPU sensors when their kext is current but
+/// gpucontrol and gpusensors are missing from /usr/local/bin or older (toolsOnly). A part that
+/// is not installed stays unticked (it is optional), and one that is up to date has nothing
+/// to install.
 struct OptionalSuggestion: Equatable {
     let encoder: Bool
     let sensors: Bool
@@ -93,7 +109,9 @@ struct OptionalSuggestion: Equatable {
         } else {
             self.encoder = false
         }
-        if let sns = sensors, let running = Self.loadedVersion(sns.running) {
+        if let sns = sensors, sns.toolsOnly == true {
+            self.sensors = true
+        } else if let sns = sensors, let running = Self.loadedVersion(sns.running) {
             self.sensors = Self.isOlder(running, than: sns.version)
         } else {
             self.sensors = false
@@ -130,6 +148,7 @@ enum ConfirmAction: Identifiable {
     case installEncoder
     case removeEncoder
     case installSensors
+    case installSensorsTools
     case removeSensors
     case removeAll
     case reboot
@@ -144,6 +163,7 @@ enum ConfirmAction: Identifiable {
         case .installEncoder: return "installEncoder"
         case .removeEncoder:  return "removeEncoder"
         case .installSensors: return "installSensors"
+        case .installSensorsTools: return "installSensorsTools"
         case .removeSensors:  return "removeSensors"
         case .removeAll:      return "removeAll"
         case .reboot:         return "reboot"
@@ -649,8 +669,8 @@ struct ContentView: View {
                     title: "Install what this Mac needs",
                     script: "install/install.sh",
                     args: flags,
-                    setsReboot: true,
-                    doneMessage: "Installed. Reboot to apply."
+                    setsReboot: !plan.onlyTools,
+                    doneMessage: plan.onlyTools ? "Installed. No reboot needed." : "Installed. Reboot to apply."
                 )
             }
         }
@@ -878,6 +898,12 @@ struct ContentView: View {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
             let upToDate = sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:")
+            // The kext needs nothing; gpucontrol and gpusensors in /usr/local/bin do.
+            let toolsOnly = sns.toolsOnly == true
+            let installTitle: String = {
+                if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
+                return upToDate ? "Installed" : (onEfi ? "Update" : "Install")
+            }()
             let status: String = {
                 if sns.result.hasPrefix("working:") || sns.result.hasPrefix("installed") { return "ok" }
                 return sns.canInstall ? "warn" : "fail"
@@ -888,11 +914,11 @@ struct ContentView: View {
                 subtitle: "Optional — " + sns.result,
                 badgeStatus: status,
                 isExpanded: binding(for: .sensors),
-                installTitle: upToDate ? "Installed" : (onEfi ? "Update" : "Install"),
+                installTitle: installTitle,
                 installTint: .accentColor,
-                installDisabled: busy || !sns.canInstall || upToDate,
+                installDisabled: busy || (!toolsOnly && (!sns.canInstall || upToDate)),
                 removeDisabled: busy || (!onEfi && !loaded),
-                onInstall: { confirm = .installSensors },
+                onInstall: { confirm = toolsOnly ? .installSensorsTools : .installSensors },
                 onRemove: { confirm = .removeSensors }
             ) {
                 checkRows(sns.checks)
@@ -1185,6 +1211,21 @@ struct ContentView: View {
                         args: ["install"],
                         setsReboot: true,
                         doneMessage: "GPU sensors kext installed on EFI. Reboot to load it."
+                    )
+                },
+                secondaryButton: .cancel()
+            )
+        case .installSensorsTools:
+            return Alert(
+                title: Text("Install gpucontrol and gpusensors?"),
+                message: Text("Copies gpucontrol and gpusensors to /usr/local/bin, owned by root, where RyzenStatus looks for them. The GPU sensors kext stays as it is. No reboot needed."),
+                primaryButton: .default(Text("Install")) {
+                    engine.runAction(
+                        title: "Install GPU tools",
+                        script: "install/sensors.sh",
+                        args: ["tools"],
+                        setsReboot: false,
+                        doneMessage: "gpucontrol and gpusensors are in /usr/local/bin."
                     )
                 },
                 secondaryButton: .cancel()

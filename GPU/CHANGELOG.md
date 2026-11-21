@@ -223,7 +223,7 @@ Checked on the CPU only (`controltest`) and by building; nothing was loaded or s
 - The minimum power limit is the card's own, as Linux amdgpu computes it
   (`sienna_cichlid_init_ppt_limits`): the start-up limit less the lower bound of the OD8
   power percent from the first clean 0x9f after boot, integer division. It was a fixed 200 W.
-  On the owner's RX 6800 XT (240 W, -6 %) the floor is 225 W, so 200 to 220 W are now
+  On the test RX 6800 XT (240 W, -6 %) the floor is 225 W, so 200 to 220 W are now
   refused and 230 W is the only lower value. Until the floor is known (OD8 not read cleanly,
   an odd first read, or a power entry not as expected) every lower request is refused
   (answer 20, "the card's minimum power limit is not known"; above the start-up limit is
@@ -357,7 +357,7 @@ sent to the power firmware and nothing is changed; checked on the CPU only (`con
 
 ## GPU sensors 0.5.0 (not released; booted on an RX 6800 XT, 2026-11-19)
 
-The first version that writes to the GPU. Booted and run on the owner's RX 6800 XT on
+The first version that writes to the GPU. Booted and run on the test RX 6800 XT on
 2026-11-19: `hold power 230` and `hold power 200` around a 60 s GPU load, each sent and
 confirmed, and the start-up limit (240 W) came back at the end (sustained power 228.1 and
 199.4 W, against 240.6 W in a 240 W run). Before that it was checked on the CPU: the
@@ -490,11 +490,11 @@ The kext that lets the decoder plug-ins load without AMFIPass, now in `decode/lo
 - The parsers read valid streams exactly as 0.2 did (checked with the conformance streams).
 - The debug memory dump helpers are no longer compiled into the bundles.
 - Builds are reproducible and hold no path of the build machine.
-- 2026-11-17: installed on the owner's machine (RX 6800 XT, Tahoe 26.7.3).
+- 2026-11-17: installed on the test machine (RX 6800 XT, Tahoe 26.7.3).
 
 ## Decoders 0.2
 
-Installed on the owner's machine since 2026-11-11 (RX 6800 XT, Tahoe 26.7.3).
+Installed on the test machine since 2026-11-11 (RX 6800 XT, Tahoe 26.7.3).
 
 ## Installers (not released)
 

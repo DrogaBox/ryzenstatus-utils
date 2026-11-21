@@ -183,6 +183,29 @@ enum GPUInstallerDMGTests {
                      "the installer's executable and bundle name match its build script")
         suite.expect(plist["LSMinimumSystemVersion"] as? String == "14.0" && build.contains("-target x86_64-apple-macos14.0"),
                      "the installer runs on macOS 14 and newer, in Info.plist and in the build")
+        suite.expect(plist["CFBundleIdentifier"] as? String == "com.ryzenstatus.gpu-installer",
+                     "the installer's bundle id is com.ryzenstatus.gpu-installer")
+        toolsOffered(suite, root, main)
+    }
+
+    /// gpucontrol and gpusensors go to /usr/local/bin even when the sensors kext is current:
+    /// sensors.sh says so in its check (tools, toolsOnly), the sensors row then offers just
+    /// them, the guided install ticks the sensors for them, and install.sh copies only them.
+    private static func toolsOffered(_ suite: TestSuite, _ root: URL, _ main: String) {
+        let sensors = text(root, "GPU/install/sensors.sh")
+        let install = text(root, "GPU/install/install.sh")
+        suite.expect(sensors.contains("\\\"tools\\\":\\\"$TOOLS_STATE\\\",\\\"toolsOnly\\\":"),
+                     "sensors.sh check --json says where gpucontrol and gpusensors stand (tools, toolsOnly)")
+        suite.expect(main.contains("let toolsOnly: Bool?")
+                         && main.contains("onInstall: { confirm = toolsOnly ? .installSensorsTools : .installSensors }")
+                         && main.contains("installDisabled: busy || (!toolsOnly && (!sns.canInstall || upToDate))")
+                         && main.contains("args: [\"tools\"]"),
+                     "the GPU sensors row offers Install tools / Update tools when only the commands need copying")
+        suite.expect(main.contains("if let sns = sensors, sns.toolsOnly == true {"),
+                     "the guided install ticks GPU sensors when only the commands need copying")
+        suite.expect(install.contains("tools)    /bin/zsh \"$SELF_DIR/sensors.sh\" tools ;;")
+                         && install.contains("for part in loader decoders encoder sensors tools; do"),
+                     "install.sh copies just the commands, last, when the sensors kext is in place")
     }
 
     /// The scripts tell the app's copy from a checkout by where common.zsh sits: inside

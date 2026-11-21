@@ -25,11 +25,17 @@ install/check.sh          # should say "Overall: working."
 `install.sh` looks at the Mac first: the macOS build, the card, whether AMFI is off or
 AMFIPass is running, Lilu, SIP, and what is already installed. It installs the decoders,
 and the loader kext only when nothing else lets the plug-ins in. The encoding fix and the
-GPU sensors are optional: add `--with-encoder` and `--with-sensors`. It finds the EFI
+GPU sensors are optional: add `--with-encoder` and `--with-sensors`. With the sensors kext
+already current, `--with-sensors` copies only `gpucontrol` and `gpusensors` to
+`/usr/local/bin` when they are missing there or differ. It finds the EFI
 partition OpenCore started from (or the only one that holds OpenCore), or takes `--efi`.
-When any part asked for cannot be installed, it installs nothing and says why. A step that
-fails stops the rest, and `sudo install/undo.sh` takes everything off (see
-[Undo everything](#undo-everything)).
+When any part asked for cannot be installed, it installs nothing and says why. The one
+exception is a check that a step of the same run settles: when all the decoders wait for is
+the loader kext (none yet, or one built for other plug-ins) and the loader kext can go in,
+it goes in first and the decoders right after it, in one run; they load after the reboot.
+A step that fails stops the rest, and `sudo install/undo.sh` takes everything off (see
+[Undo everything](#undo-everything)). A loader kext put in just before the decoders stays
+when they fail: it lets in only these plug-ins and the next run needs it.
 
 | File | What it is |
 |---|---|

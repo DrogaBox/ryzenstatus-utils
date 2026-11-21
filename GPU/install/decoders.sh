@@ -256,13 +256,13 @@ preflight() {
           add_check loading "$label" fail "no: they are signed by '$(sig_authority "$BUNDLES/$AV1")', which this Mac does not trust. $(pick "Load the kext that trusts that CA, or install the unsigned build from decode/build with VCNVTLoader or AMFIPass." "Load the kext that trusts that CA, or use the loader kext (Loader kext > Install in this window) or AMFIPass.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ $lstate == active ]]; then
-          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. $(pick "Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build." "Update the loader first, in this window: Loader kext > Update. Then install the decoders here; if they still wait, reboot and open this window again.")"
+          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. $(pick "Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build." "Update the loader first, in this window: Loader kext > Update. Then install the decoders here; if they still wait, reboot and open this window again. Install what this Mac needs does both in one go.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ -n $lstate ]]; then
           add_check loading "$label" fail "no: VCNVTLoader is loaded but not working ($lstate)."
           HARD_FAIL=1; HARD_OTHER=1
         else
-          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). $(pick "Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first." "Install the loader first, in this window: Loader kext > Install (it accepts only these plug-ins), or load AMFIPass. Then install the decoders here; if they still wait, reboot and open this window again.")"
+          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). $(pick "Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first." "Install the loader first, in this window: Loader kext > Install (it accepts only these plug-ins), or load AMFIPass. Then install the decoders here; if they still wait, reboot and open this window again. Install what this Mac needs does both in one go.")"
           HARD_FAIL=1; HARD_OTHER=1
         fi ;;
       *)
