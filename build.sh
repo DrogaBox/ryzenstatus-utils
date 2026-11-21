@@ -53,6 +53,16 @@ finalize_installed_bundle_after_child() {
 
     echo "▸ Finalizing installed signature…"
     sleep 3
+    local library
+    for library in "$bundle"/Contents/Frameworks/*.dylib(N); do
+        if [[ -n "$devid" ]]; then
+            /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime --timestamp --sign "$devid" "$library"
+        elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+            /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$library"
+        else
+            /usr/bin/codesign --force --strip-disallowed-xattrs --sign - "$library"
+        fi
+    done
     if [[ -n "$devid" ]]; then
         /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$devid" "$bundle"
@@ -83,6 +93,13 @@ if [[ -d "$PINNED_SDK" ]]; then
 else
     SDK="$(xcrun --show-sdk-path)"
 fi
+if [[ -z "$SDK" || ! -d "$SDK" ]]; then
+    echo "Error: no macOS SDK found (xcrun --show-sdk-path)." >&2
+    exit 1
+fi
+# Apple's clang through xcrun, not whichever clang is first on PATH.
+CLANG=(xcrun --sdk macosx clang)
+COVER_HELPER_FLAGS=(-fobjc-arc -O2 -Wall -Werror -mmacosx-version-min=14.0 -isysroot "$SDK")
 
 # --test: compile and run the standalone unit tests (pure helpers only: metrics,
 # Homebrew parsing, defaults, localization contracts; no app, no UI, no IOKit),
@@ -102,6 +119,8 @@ if (( TEST )); then
     rm -f build/metrics-tests
     # The whole module (minus the app entry point) so the harness can never go
     # stale when a helper gains a dependency. A hand-kept list drifted here.
+    # The Now Playing cover helper must keep compiling, even here.
+    "${CLANG[@]}" "${COVER_HELPER_FLAGS[@]}" -fsyntax-only Sources/NowPlayingCover/NowPlayingCover.m
     swiftc -Onone -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
         Tests/Suites/*.swift \
@@ -137,6 +156,19 @@ if (( ! DEV )); then
     strip -x "build/$EXECUTABLE"
 fi
 
+# Now Playing covers on macOS 15.4+: a small library /usr/bin/perl loads (see
+# Sources/NowPlayingCover). Both architectures when the toolchain has arm64,
+# because perl runs natively even when the app runs under Rosetta.
+echo "▸ Compiling the Now Playing cover helper…"
+rm -f build/NowPlayingCover.dylib
+COVER_HELPER_ARCHS=(-arch x86_64)
+if print 'int main(void) { return 0; }' | "${CLANG[@]}" -arch arm64 -isysroot "$SDK" -x c -c - -o /dev/null 2>/dev/null; then
+    COVER_HELPER_ARCHS+=(-arch arm64)
+fi
+"${CLANG[@]}" "${COVER_HELPER_FLAGS[@]}" -dynamiclib "${COVER_HELPER_ARCHS[@]}" -framework Foundation \
+    -install_name @rpath/NowPlayingCover.dylib \
+    Sources/NowPlayingCover/NowPlayingCover.m -o build/NowPlayingCover.dylib
+
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset
@@ -148,8 +180,9 @@ STAGE="$STAGE_ROOT/$APP_NAME.app"
 # remove the mktemp staging bundle on exit — every build used to
 # leave a full signed .app behind in $TMPDIR until the OS purged it.
 trap 'rm -rf "$STAGE_ROOT"' EXIT
-mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" "$STAGE/Contents/Frameworks"
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
+cp build/NowPlayingCover.dylib "$STAGE/Contents/Frameworks/NowPlayingCover.dylib"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
 for lproj in Resources/*.lproj(N); do
@@ -210,6 +243,27 @@ codesign_target() {
     fi
 }
 
+# Nested code is signed before the bundle, with the same identity and no
+# entitlements (a library has no use for them).
+codesign_library() {
+    local target="$1"
+    if [[ -n "$DEVID" ]]; then
+        codesign --force --strip-disallowed-xattrs --options runtime --timestamp --sign "$DEVID" "$target"
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+        codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
+    else
+        codesign --force --strip-disallowed-xattrs --sign - "$target"
+    fi
+}
+
+sign_libraries() {
+    local bundle="$1"
+    local library
+    for library in "$bundle"/Contents/Frameworks/*.dylib(N); do
+        codesign_library "$library"
+    done
+}
+
 sign_bundle() {
     local bundle="$1"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
@@ -221,6 +275,7 @@ sign_bundle() {
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"
     fi
+    sign_libraries "$bundle"
     codesign_target "$bundle"
 
     # If local filesystem metadata invalidates the first signature, sign once
@@ -228,6 +283,7 @@ sign_bundle() {
     if ! codesign --verify --deep --strict "$bundle" >/dev/null 2>&1; then
         echo "  re-signing after filesystem metadata settled"
         xattr -c -r "$bundle" 2>/dev/null || true
+        sign_libraries "$bundle"
         codesign_target "$bundle"
     fi
     [[ -f "$executable" ]] && codesign --verify --strict "$executable"

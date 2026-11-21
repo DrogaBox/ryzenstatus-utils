@@ -103,7 +103,7 @@ struct NowPlayingPlayback: Equatable {
                                     artworkData: snapshot.artworkData, appBundleIdentifier: snapshot.appBundleID,
                                     appPID: pid)
         return NowPlayingPlayback(track: track, isPlaying: snapshot.isPlaying, elapsed: elapsed, duration: duration,
-                                  rate: snapshot.isPlaying ? 1 : 0, sampledAt: sampledAt, canSeek: duration > 0,
+                                  rate: snapshot.isPlaying ? 1 : 0, sampledAt: sampledAt, canSeek: snapshot.acceptsSeek,
                                   hasPosition: elapsed >= 0, canSkipNext: true, canSkipPrevious: true)
     }
 

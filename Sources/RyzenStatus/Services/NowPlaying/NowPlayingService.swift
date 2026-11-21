@@ -107,6 +107,31 @@ final class NowPlayingService: ObservableObject {
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
+    /// Reads the media session where macOS keeps it from this app (15.4 and
+    /// later). Used only on `queue`; it runs only while polling does.
+    private let sessionReader = NowPlayingSessionReader()
+    /// The last title the session reader delivered, on `queue`, so a TIDAL
+    /// song change is read once more before it is shown.
+    private var lastSessionTitle: String?
+    /// The last settle re-read failed and showed the reading that asked for
+    /// it, on `queue`: the next poll shows what it reads without settling.
+    private var settleFailed = false
+    /// The cover the reader cannot send, read once per song through the
+    /// bundled perl helper on its own queue so a poll never waits for it.
+    private let coverQueue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-cover", qos: .utility)
+    private let coverReader = NowPlayingCoverReader()
+    /// The song the cover was asked for and what came back, on `queue`.
+    private var sessionCover: NowPlayingSessionCover?
+    /// The cover reader's `readyAt` as the last skipped request saw it, on
+    /// `queue`: while covers rest or are off, polls do not ask the cover
+    /// queue again before then.
+    private var coversReadyAt: TimeInterval = 0
+    /// The polling runs `stopPolling` ended, marked before it leaves the main
+    /// thread: a reading of such a run, even one already queued, does nothing.
+    private let retiredRuns = NowPlayingRetiredRuns()
+    /// The TIDAL reading waiting for its new song to settle, on `queue`.
+    /// Every stop of the reader cancels it.
+    private var pendingSettle: DispatchWorkItem?
     /// Data-keyed fingerprint memoization: the artwork bytes repeat on
     /// every poll of the same track, so comparing them skips the 12×12
     /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
@@ -258,6 +283,13 @@ final class NowPlayingService: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        // Retired before anything is queued, so a reading already waiting on
+        // `queue` starts no reader for this run.
+        retiredRuns.retire(pollGeneration)
+        // The reader may be waiting on `queue` for a reply: end its script
+        // now, so quitting never waits behind it.
+        sessionReader.terminateNow()
+        queue.async { [weak self] in self?.stopSessionReading() }
         stopMarquee()
         pollGeneration += 1
         lastPollStartedAt = 0
@@ -290,7 +322,16 @@ final class NowPlayingService: ObservableObject {
         let provider = NowPlayingProvider(rawValue: UserDefaults.standard
             .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
 
+        if MediaRemoteBridge.readsBlockedBySystem, !provider.isScripted {
+            queue.async { [weak self] in
+                self?.readSession(provider: provider, generation: gen)
+            }
+            return
+        }
+
         if MediaRemoteBridge.readsBlockedBySystem {
+            // A pinned scripted player needs no session reader.
+            queue.async { [weak self] in self?.stopSessionReading() }
             NowPlayingAutomation.fetchSnapshot(provider: provider, queue: queue) { [weak self] snapshot in
                 var next = snapshot
                 next.sampledAt = Date()
@@ -340,6 +381,178 @@ final class NowPlayingService: ObservableObject {
                     self.apply(next)
                 }
             }
+        }
+    }
+
+    /// Reads the system session through the session reader, on `queue`. A
+    /// player with a scripting dictionary (Music, Spotify, Kaset) is read
+    /// through it instead, as before, for its extra details; so is everything
+    /// when the session cannot be read. Every other player, TIDAL first among
+    /// them, is shown from the session.
+    ///
+    /// `trigger` is the TIDAL reading a settle re-read was scheduled for. If
+    /// the re-read fails (reader resting, a timeout), that reading is shown
+    /// instead of nothing.
+    private func readSession(provider: NowPlayingProvider, generation gen: Int,
+                             settling trigger: NowPlayingSessionReading? = nil) {
+        // A delayed reading must not start a new reader for a run that ended.
+        guard !retiredRuns.isRetired(gen) else { return }
+        let settled = trigger != nil
+        if settled { pendingSettle = nil }
+        let fresh = sessionReader.read()
+        let reading = fresh ?? trigger
+        let afterFailedSettle = !settled && settleFailed
+        settleFailed = settled && fresh == nil
+        if !settled, let reading,
+           NowPlayingTidal.shouldSettle(reading.snapshot, lastTitle: lastSessionTitle,
+                                        afterFailedSettle: afterFailedSettle) {
+            pendingSettle?.cancel()
+            let settle = DispatchWorkItem { [weak self] in
+                self?.readSession(provider: provider, generation: gen, settling: reading)
+            }
+            pendingSettle = settle
+            queue.asyncAfter(deadline: .now() + NowPlayingTidal.titleSettleDelay, execute: settle)
+            return
+        }
+        lastSessionTitle = reading?.snapshot.title
+        guard let reading, reading.snapshot.hasTrack else {
+            sessionCover = nil
+            fetchScripted(.auto, orShow: nil, provider: provider, generation: gen)
+            return
+        }
+        var next = reading.snapshot
+        next.appPID = reading.pid
+        if let bundleID = next.appBundleID {
+            if let cached = appNameCache[bundleID] {
+                next.appName = cached
+            } else {
+                let name = appName(for: bundleID)
+                appNameCache[bundleID] = name
+                next.appName = name
+            }
+        }
+        if let scripted = NowPlayingProvider.scripted(for: next.appBundleID) {
+            // The session names the scripted player: ask that one, and show
+            // the session's own reading if it does not answer (Automation off).
+            fetchScripted(scripted, orShow: next, provider: provider, generation: gen)
+            return
+        }
+        if provider.accepts(next.appBundleID) { attachCover(to: &next, generation: gen) }
+        deliverSessionReading(next, provider: provider, generation: gen)
+    }
+
+    /// Reads a scripted player for an Auto session. A pinned provider other
+    /// than Auto shows the session's reading or nothing.
+    private func fetchScripted(_ scripted: NowPlayingProvider, orShow fallback: NowPlayingSnapshot?,
+                               provider: NowPlayingProvider, generation gen: Int) {
+        guard provider == .auto else {
+            deliverSessionReading(fallback ?? .empty, provider: provider, generation: gen)
+            return
+        }
+        NowPlayingAutomation.fetchSnapshot(provider: scripted, queue: queue) { [weak self] snapshot in
+            var next = snapshot.hasTrack ? snapshot : (fallback ?? snapshot)
+            next.sampledAt = next.sampledAt ?? Date()
+            self?.deliverSessionReading(next, provider: provider, generation: gen)
+        }
+    }
+
+    /// Puts the song's cover on a session reading, on `queue`. A new song is
+    /// asked for once; a song whose cover was not ready is asked once more.
+    /// A try counts only when the helper ran (see `NowPlayingSessionCover`).
+    private func attachCover(to next: inout NowPlayingSnapshot, generation gen: Int) {
+        let key = NowPlayingCoverReader.key(for: next)
+        let uptime = ProcessInfo.processInfo.systemUptime
+        var cover = NowPlayingSessionCover(key: key, askedAt: uptime)
+        if let current = sessionCover, current.key == key { cover = current }
+        next.artworkData = cover.data
+        // While covers rest or are off, the cover queue would only skip.
+        guard cover.shouldAsk(at: uptime), uptime >= coversReadyAt else {
+            sessionCover = cover
+            return
+        }
+        cover.pending = true
+        sessionCover = cover
+        requestCover(for: next, key: key, generation: gen)
+    }
+
+    /// Reads the cover on its own queue. It is published when it arrives if
+    /// the same song is still on screen; later readings of the song carry it.
+    private func requestCover(for reading: NowPlayingSnapshot, key: String, generation gen: Int) {
+        coverQueue.async { [weak self] in
+            guard let self else { return }
+            // A song skipped while earlier covers were read, or one whose
+            // first try came back late with its cover, costs no launch.
+            let current = self.queue.sync { self.sessionCover?.key == key && self.sessionCover?.data == nil }
+            guard current else { return }
+            let attempt = Self.attemptCover(with: self.coverReader, for: reading)
+            self.queue.async { [weak self] in
+                guard let self else { return }
+                // Reader-wide, so before the same-song check.
+                self.coversReadyAt = attempt.readyAt
+                guard self.sessionCover?.key == key else { return }
+                let data: Data
+                switch attempt.result {
+                case .skipped(let coversOff):
+                    self.sessionCover?.recordSkip(coversOff: coversOff)
+                    return
+                case .read(let startedAt, let read):
+                    self.sessionCover?.recordRead(at: startedAt, data: read)
+                    guard let read else { return }
+                    data = read
+                }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.timer != nil, gen == self.pollGeneration,
+                          NowPlayingCoverReader.key(for: self.snapshot) == key,
+                          self.snapshot.artworkData == nil else { return }
+                    var next = self.snapshot
+                    next.artworkData = data
+                    self.apply(next)
+                }
+            }
+        }
+    }
+
+    /// What one turn on the cover queue found, handed to the poll queue
+    /// whole. `readyAt` is the reader's after the turn, a read included: a
+    /// read that started a rest or turned covers off says so at once, so the
+    /// next poll does not hop to the cover queue only to be skipped.
+    struct CoverAttempt {
+        enum Result {
+            case skipped(coversOff: Bool)
+            case read(startedAt: TimeInterval, data: Data?)
+        }
+        var result: Result
+        var readyAt: TimeInterval
+    }
+
+    /// One cover request, on the cover queue: skipped while covers rest or
+    /// are off, otherwise one helper run whose cover counts only if it
+    /// belongs to `reading`.
+    static func attemptCover(with reader: NowPlayingCoverReader, for reading: NowPlayingSnapshot) -> CoverAttempt {
+        guard reader.isReady() else {
+            return CoverAttempt(result: .skipped(coversOff: reader.gaveUp), readyAt: reader.readyAt)
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let cover = reader.read()
+        let data = cover.flatMap { NowPlayingCoverReader.cover($0, belongsTo: reading) ? $0.data : nil }
+        return CoverAttempt(result: .read(startedAt: startedAt, data: data), readyAt: reader.readyAt)
+    }
+
+    /// Ends the session reader and forgets its song, on `queue`. Polling
+    /// starts it again when it needs it.
+    private func stopSessionReading() {
+        pendingSettle?.cancel()
+        pendingSettle = nil
+        sessionReader.stop()
+        lastSessionTitle = nil
+        settleFailed = false
+        sessionCover = nil
+    }
+
+    private func deliverSessionReading(_ snapshot: NowPlayingSnapshot, provider: NowPlayingProvider, generation gen: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.timer != nil, gen == self.pollGeneration else { return }
+            self.apply(provider.accepts(snapshot.appBundleID) ? snapshot : .empty)
         }
     }
 
@@ -519,6 +732,8 @@ final class NowPlayingService: ObservableObject {
         lastRenderedKey = ""
         syncShortcuts()
         renderMenuBar()
+        // A provider change reads at once, not after the poll interval.
+        lastPollStartedAt = 0
         poll()
     }
 
@@ -549,6 +764,15 @@ final class NowPlayingService: ObservableObject {
         NowPlayingLyricsCenter.shared.clearCache()
         NowPlayingAnimatedArtworkCenter.shared.clearCache()
         NowPlayingThemeEngine.clearCache()
+        queue.async { [weak self] in self?.sessionCover = nil }
+        coverQueue.async { [weak self] in
+            guard let self else { return }
+            self.coverReader.clearRest()
+            // After any skip already sent from this queue, so its old time
+            // does not land on top of this one.
+            let readyAt = self.coverReader.readyAt
+            self.queue.async { [weak self] in self?.coversReadyAt = readyAt }
+        }
     }
 
     /// Brings the app that owns the current session to the front, so the
@@ -568,7 +792,9 @@ final class NowPlayingService: ObservableObject {
     /// every published snapshot change, and only while the island listens.
     private func syncIslandFeed() {
         guard activeConsumers.contains(.notch) else { return }
-        let pid = snapshot.appBundleID.flatMap {
+        // The session names the player's process; a bundle lookup can pick
+        // another instance of the same app.
+        let pid = snapshot.appPID ?? snapshot.appBundleID.flatMap {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier
         }
         // The reading's own clock, so a feed derived later still places the
@@ -614,6 +840,9 @@ final class NowPlayingService: ObservableObject {
     }
 
     var canSeek: Bool { playback?.canSeek == true }
+
+    /// Whether the menu panel's and the popup's position slider may seek.
+    var snapshotAcceptsSeek: Bool { snapshot.acceptsSeek }
 
     func lacksTrackSkipping(_ command: NowPlayingTransportCommand) -> Bool {
         switch command {
@@ -967,6 +1196,8 @@ final class NowPlayingService: ObservableObject {
             poll()
         } else {
             timer.fireDate = .distantFuture
+            // Locked, asleep or another console: no reader waits meanwhile.
+            queue.async { [weak self] in self?.stopSessionReading() }
         }
         renderMenuBar()
     }
