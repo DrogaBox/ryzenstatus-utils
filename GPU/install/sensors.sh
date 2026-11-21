@@ -222,9 +222,9 @@ conclude() {
   local blocked=""
   (( CAN_INSTALL )) || blocked=" The checks marked FAIL stop a new install."
   if [[ $RUN_STATE == active && ${RUN_SAMPLES:-0} -gt 0 ]]; then
-    RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$update$blocked"
+    RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$update$TOOLS_NOTE$blocked"
   elif [[ $RUN_STATE == active ]]; then
-    RESULT="GPUSensors is active but the driver has not read its sensors yet. Use the GPU a moment and check again.$blocked"
+    RESULT="GPUSensors is active but the driver has not read its sensors yet. Use the GPU a moment and check again.$TOOLS_NOTE$blocked"
   elif [[ -n $RUN_STATE ]]; then
     RESULT="the kext is loaded but does nothing ($RUN_STATE)."
     RESULT_OK=0
@@ -243,13 +243,14 @@ conclude() {
 
 do_check() {
   preflight
-  tools_check
   look_running
   efi_scan
+  tools_check
   conclude
   if [[ $JSON -eq 1 ]]; then
     print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
     print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
+    print -rn -- "\"tools\":\"$TOOLS_STATE\",\"toolsOnly\":$([[ $TOOLS_ONLY -eq 1 ]] && echo true || echo false),"
     print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
     print
     return 0
@@ -274,7 +275,7 @@ do_install() {
   fi
   kext_install
   if [[ $EUID -eq 0 && -z $EFI_DIR ]]; then
-    tools_install || print -r -u2 -- "The kext is in place; the commands were not copied (above). $(pick "'sudo install/sensors.sh tools'" "GPU sensors > Update in this window") tries again."
+    tools_install || print -r -u2 -- "The kext is in place; the commands were not copied (above). $(pick "'sudo install/sensors.sh tools'" "GPU sensors > Install tools in this window, after the reboot,") tries again."
   fi
   if (( IN_APP )); then
     print -r -- "Reboot. Then open RyzenStatus GPU again: it checks whether the kext works, and RyzenStatus shows the readings."
@@ -339,22 +340,53 @@ tool_look() { # name
   TOOL_ST=ok
   TOOL_WHY="$dst"
 }
+# TOOLS_STATE: current (both here and the same as the ones to copy), missing (one or both not
+TOOLS_STATE=current
+TOOLS_ONLY=0
+TOOLS_NOTE=""
 tools_check() {
   local -a lines
-  local name worst=ok
+  local name have=1 missing=0 old=0 bad=0 row efi_current=0
   for name in $TOOLS; do
     tool_look $name
     lines+=("$name: $TOOL_WHY")
+    [[ -f $ROOT/sensors/build/$name ]] || have=0
     case $TOOL_ST in
-      foreign|unsafe) worst=bad ;;
-      old|missing) [[ $worst == ok ]] && worst=todo ;;
+      foreign|unsafe) bad=1 ;;
+      old) old=1 ;;
+      missing) missing=1 ;;
     esac
   done
-  local detail=${(j:; :)lines}
-  case $worst in
-    ok)   add_check sensors-tools "Commands in $TOOL_DIR" ok "$detail" ;;
-    todo) add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; $(pick "'sudo install/sensors.sh tools' copies them" "installing or updating GPU sensors in this window copies them") (optional)" ;;
-    bad)  add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; programs will not run it as root, and tools leaves it alone" ;;
+  if (( bad )); then TOOLS_STATE=blocked
+  elif (( old )); then TOOLS_STATE=outdated
+  elif (( missing )); then TOOLS_STATE=missing
+  else TOOLS_STATE=current
+  fi
+  for row in $EFI_JSON; do
+    [[ $row == *'"kext":"current"'* ]] && efi_current=1
+  done
+  TOOLS_ONLY=0
+  TOOLS_NOTE=""
+  if [[ $TOOLS_STATE == (missing|outdated) && $have -eq 1 && $RUN_STATE == active && $efi_current -eq 1 &&
+        -n $RUN_VERSION && $RUN_VERSION == "$(kext_file_version "$KEXT")" ]]; then
+    TOOLS_ONLY=1
+  fi
+  local detail=${(j:; :)lines} verb="Update tools" how
+  [[ $TOOLS_STATE == missing ]] && verb="Install tools"
+  if (( TOOLS_ONLY )); then
+    how=$(pick "'sudo install/sensors.sh tools' copies them" "GPU sensors > $verb in this window copies them")
+    if [[ $TOOLS_STATE == missing ]]; then
+      TOOLS_NOTE=" gpucontrol and gpusensors are not in $TOOL_DIR yet: $how."
+    else
+      TOOLS_NOTE=" gpucontrol or gpusensors in $TOOL_DIR is not the one $(pick "in sensors/build" "in this app"): $how."
+    fi
+  else
+    how=$(pick "'sudo install/sensors.sh tools' copies them" "installing or updating GPU sensors in this window copies them")
+  fi
+  case $TOOLS_STATE in
+    current)          add_check sensors-tools "Commands in $TOOL_DIR" ok "$detail" ;;
+    missing|outdated) add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; $how (optional)" ;;
+    blocked)          add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; programs will not run it as root, and tools leaves it alone" ;;
   esac
 }
 tools_install() {

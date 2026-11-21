@@ -46,6 +46,14 @@ cmp -s $T/a/EFI/OC/Kexts/VCNVTLoader.kext/Contents/MacOS/VCNVTLoader $B/VCNVTLoa
 grep -q "copy EFI/OC/config.plist.backup-" $T/a.out && ok "the rescue note names the backup" || bad "rescue note"
 $L check --efi-folder $T/a > $T/a.chk 2>&1
 grep -q "config entry ok; kext the one in build/VCNVTLoader.kext, lists the plug-ins" $T/a.chk && ok "check sees it in place" || bad "check: $(cat $T/a.chk)"
+# The decoders' check takes the kext just put there as the loader of the next boot: install.sh
+# installs the decoders right after the loader kext, in the same run, because of this.
+loader_in_fn=$(sed -n '/^loader_in() {/,/^}/p' $ROOT/install/decoders.sh)
+[[ -n $loader_in_fn ]] &&
+  /bin/zsh -c 'emulate -L zsh; setopt no_unset; ROOT=$1; source $ROOT/install/common.zsh
+    BUNDLES=$ROOT/decode/build; AV1=AV1VCNDecoder.bundle; VP9=VP9VCNDecoder.bundle
+    eval "$2"; loader_in "$3"' loader_in "$ROOT" "$loader_in_fn" $T/a/EFI/OC &&
+  ok "the decoders' check (loader_in) accepts the loader kext just installed" || bad "loader_in refused the new install"
 
 # 2. the same install again changes nothing
 s1=$(state a)

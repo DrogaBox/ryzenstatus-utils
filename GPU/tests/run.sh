@@ -5,7 +5,8 @@
 #   tests/run.sh --quick    fewer damaged copies per stream (about ten times faster)
 #
 # What it checks:
-#   1. the repository is clean (tools/check_clean.sh) and formatted (tools/format.sh --check)
+#   1. the repository is clean (tools/check_clean.sh) and formatted (tools/format.sh --check);
+#      what install/install.sh plan decides on made-up Macs (tests/install_plan.sh)
 #   2. the decoders build, twice, to the same bytes
 #   3. the AV1 and VP9 parsers read the public test streams exactly as recorded in
 #      tests/expected-digests.txt
@@ -70,6 +71,7 @@ syntax() {
 }
 check "every shell script parses" syntax
 check "the validated builds list agrees with the decoders' driver lists" install/check_lists.sh
+check "install.sh plan decides as expected on made-up Macs" tests/install_plan.sh
 
 step "decoders: build"
 build_twice() {
