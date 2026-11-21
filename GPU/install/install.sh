@@ -28,7 +28,10 @@
 # load after the reboot. Every other check still has to pass before the first change.
 #
 # The EFI partition: --efi names it; without it, the one OpenCore says it started from, else
-# the only EFI partition that holds OpenCore. All parts use the same one.
+# the only EFI partition that holds OpenCore. All parts use the same one. The plan looks
+# too, without mounting anything: when more than one mounted EFI partition holds OpenCore
+# (and OpenCore does not say which one it started from), it is blocked and says what to do,
+# before any password. A partition that is not mounted is looked into only by the install.
 #
 # A step that fails stops the rest; the steps before it stay done, and
 # 'sudo install/undo.sh' takes everything off. A loader kext put on the EFI just before the
@@ -162,7 +165,12 @@ fi
 # True when an optional part is installed, current and running.
 in_place() { # part
   case $1 in
-    encoder) [[ $(jfield encoder installed) == current && $(jfield encoder kext) == "loaded $(jfield encoder version), active"* ]] ;;
+    # what encoder.sh check calls "installed and working": the service is the package's and
+    # runs, the kext that runs is the package's version and active, and no mounted EFI holds
+    # another build of the kext or an old entry for it (the next boot would load that one)
+    encoder) [[ $(jfield encoder installed) == current && $(jfield encoder service) == running &&
+                $(jfield encoder kext) == "loaded $(jfield encoder version), active"* &&
+                ${JSON[encoder]} != *'"kext":"outdated"'* && ${JSON[encoder]} != *'"entry":"old"'* ]] ;;
     # working, and the version that runs is the one here (an older one gets updated)
     sensors) [[ $(jfield sensors result) == working* && $(jfield sensors running) == "loaded $(jfield sensors version),"* ]] ;;
     *) return 1 ;;
@@ -201,6 +209,32 @@ for part in loader decoders encoder sensors tools; do
 done
 # how a step is named in the closing lines
 step_name() { [[ $1 == tools ]] && print -rn -- "gpucontrol and gpusensors" || print -rn -- "$1"; }
+# the options of this run, for a Terminal line in a message
+RUN_FLAGS=install.sh
+(( WITH_ENCODER )) && RUN_FLAGS+=" --with-encoder"
+(( WITH_SENSORS )) && RUN_FLAGS+=" --with-sensors"
+needs_efi() { (( ${ORDER[(Ie)loader]} || ${ORDER[(Ie)encoder]} || ${ORDER[(Ie)sensors]} )); }
+
+# The EFI partition the kexts go on, as far as a plan can tell without the password (it
+# mounts nothing; see efi_guess in common.zsh). When an install would stop at it, the plan
+# says so now, with what to do. The stand-in Mac of the tests says it in $FAKE/efi:
+# found, open, ambiguous, foreign or none (found when the file is missing).
+EFI_LINE=""
+if (( PLAN )) && needs_efi; then
+  if [[ -n $FAKE ]]; then
+    EFI_GUESS=$(cat "$FAKE/efi" 2>/dev/null)
+    EFI_GUESS=${EFI_GUESS:-found}
+    EFI_GUESS_ID=disk9s9
+    EFI_GUESS_WHY="the made-up Mac's answer ($EFI_GUESS)"
+  else
+    efi_guess
+  fi
+  case $EFI_GUESS in
+    found) EFI_LINE="EFI partition: $EFI_GUESS_ID ($EFI_GUESS_WHY)." ;;
+    open)  EFI_LINE="EFI partition: chosen when installing. $EFI_GUESS_WHY." ;;
+    *)     block "EFI partition" "the install cannot tell which one to use: $EFI_GUESS_WHY."$'\n'"    $(efi_choice_help $EFI_GUESS "$RUN_FLAGS")" ;;
+  esac
+fi
 
 print
 if (( ${#BLOCKS} )); then
@@ -229,23 +263,19 @@ if (( ! ${#ORDER} )); then
   print -r -- "Nothing to install: everything asked for is already in place."
   exit 0
 fi
+[[ -n $EFI_LINE ]] && print -r -- "$EFI_LINE"
 (( PLAN )) && exit 0
 
 # ---- the EFI, once for every part that needs it ----------------------------------------------
 trap '[[ -n $OPEN_ID ]] && efi_close "$OPEN_ID"' EXIT
-if (( ${ORDER[(Ie)loader]} || ${ORDER[(Ie)encoder]} || ${ORDER[(Ie)sensors]} )) && [[ -z $EFI_ID ]]; then
+if needs_efi && [[ -z $EFI_ID ]]; then
   if efi_find_opencore; then
     EFI_ID=$EFI_FOUND
     print -r -- "EFI: $EFI_ID ($EFI_FIND_WHY)."
   else
     print -r -u2 -- "Cannot tell which EFI partition to use: $EFI_FIND_WHY."
-    if (( IN_APP )); then
-      print -r -u2 -- "Nothing was changed. To name the one you boot from, run in Terminal:"
-      print -r -u2 -- "  sudo '$SELF_DIR/install.sh' ... --efi diskNsM   (diskutil list shows them)"
-      print -r -u2 -- "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you."
-    else
-      print -r -u2 -- "Nothing was installed. Name it: sudo install/install.sh ... --efi diskNsM"
-    fi
+    print -r -u2 -- "Nothing was installed."
+    print -r -u2 -- "$(efi_choice_help $EFI_FIND_KIND "$RUN_FLAGS")"
     exit 2
   fi
 fi

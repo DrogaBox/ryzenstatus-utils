@@ -2,13 +2,17 @@
 # check.sh - one look at everything this repository installs, with one line per part and
 # one line for the whole. Changes nothing and needs no sudo.
 #
-#   install/check.sh            the summary
-#   install/check.sh --full     also every check of every part
+#   install/check.sh                 the summary
+#   install/check.sh --full          also every check of every part
+#   install/check.sh --json-dir DIR  also each part's 'check --json' answer, written to
+#                                    DIR/<part>.json (decoders, loader, sensors, encoder)
 #
 # The parts are checked by their own tools (decoders.sh, loader.sh, sensors.sh,
-# encoder.sh check); this script only runs them and puts their results together. The
-# loader kext is only counted when this Mac needs it: with AMFIPass running or AMFI
-# switched off, the decoders load without it.
+# encoder.sh check); this script only runs them and puts their results together. Each part
+# is looked at once: with --json-dir its JSON answer comes from the same look as its text
+# (the RyzenStatus GPU app reads both), and the three that ask system_profiler for the
+# graphics cards share one answer. The loader kext is only counted when this Mac needs it:
+# with AMFIPass running or AMFI switched off, the decoders load without it.
 #
 # Exit status: 0 the decoders work now (the optional parts may still be missing); 2
 # something must be done first (an install, a reboot or a fix), and the summary says what.
@@ -16,16 +20,34 @@ emulate -L zsh
 setopt no_unset
 SELF_DIR=${0:A:h}
 source $SELF_DIR/common.zsh
-[[ ${1:-} == (-h|--help) ]] && { help_of "$SELF_DIR/check.sh"; exit 0; }
+usage() { print -u2 "usage: install/check.sh [--full] [--json-dir DIR]"; exit 64; }
 FULL=0
-[[ ${1:-} == --full ]] && FULL=1
-[[ $# -gt 1 || ( $# -eq 1 && $FULL -eq 0 ) ]] && { print -u2 "usage: install/check.sh [--full]"; exit 64; }
+JSON_DIR=""
+while (( $# )); do
+  case $1 in
+    -h|--help) help_of "$SELF_DIR/check.sh"; exit 0 ;;
+    --full) FULL=1 ;;
+    # a folder of the caller's own, which it reads afterwards
+    --json-dir) (( $# >= 2 )) && [[ -d $2 && ! -L $2 && -O $2 ]] || usage
+                JSON_DIR=${2:A}
+                shift ;;
+    *) usage ;;
+  esac
+  shift
+done
 
-# run <label> <script>: runs "<script> check", keeps its Result line and its exit status.
+# One system_profiler answer for the parts that ask it (displays_report in common.zsh).
+if (( EUID != 0 )); then
+  GPU_CHECK_CACHE=$(/usr/bin/mktemp -d -t gpu-check) && export GPU_CHECK_CACHE
+  trap '[[ -n ${GPU_CHECK_CACHE:-} ]] && /bin/rm -rf "$GPU_CHECK_CACHE"' EXIT
+fi
+
+# run <label> <script>: runs "<script> check", keeps its Result line and its exit status
+# (and, with --json-dir, has it write its JSON answer to DIR/<label>.json).
 typeset -A RESULT STATUS OUTPUT
 run() {
   local label=$1 script=$2 out
-  out=$(/bin/zsh $SELF_DIR/$script check 2>&1)
+  out=$(GPU_CHECK_JSON_TO=${JSON_DIR:+$JSON_DIR/$label.json} /bin/zsh $SELF_DIR/$script check 2>&1)
   STATUS[$label]=$?
   OUTPUT[$label]=$out
   RESULT[$label]=$(print -r -- "$out" | sed -n 's/^Result: //p' | tail -1)
@@ -75,6 +97,18 @@ for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle; do
   [[ -d /Library/Video/Plug-Ins/$b ]] &&
     left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ($(pick "'sudo install/decoders.sh install'" "installing the decoder plug-ins in this window") removes it)")
 done
+# The GPU sensors' commands, once the kext they go with is gone: not loaded and on no EFI
+# partition. Said only when every EFI partition is mounted, so all of them were looked into
+# (one that is not mounted may hold the kext, before its first boot).
+gpu_tools_look
+if (( ${#GPU_TOOLS_OURS} )) && [[ -z $(kext_version com.droga.GPUSensors) ]]; then
+  all_mounted=1
+  on_efi=0
+  for id in $(efi_ids); do [[ $(efi_field $id Mounted) == Yes ]] || all_mounted=0; done
+  for oc in /Volumes/*/EFI/OC(N); do [[ -e $oc/Kexts/GPUSensors.kext ]] && on_efi=1; done
+  (( all_mounted && ! on_efi )) &&
+    left+=("${(j:, :)GPU_TOOLS_OURS}: the GPU sensors' commands, without the kext they go with ($(pick "'sudo install/sensors.sh uninstall-tools'" "Remove all, or GPU sensors > Remove, in this window") removes them)")
+fi
 if (( ${#left} )); then
   print -r -- "Leftovers:"
   print -rl -- "  - "${^left}

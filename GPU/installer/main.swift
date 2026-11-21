@@ -61,6 +61,9 @@ struct SensorsCheck: Decodable {
     let tools: String?
     /// The kext needs nothing, only those commands: the row offers just them.
     let toolsOnly: Bool?
+    /// At least one of them in /usr/local/bin is ours (signed with our identifier), so
+    /// Remove can take it even when the kext is gone.
+    let toolsInstalled: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -105,7 +108,10 @@ struct OptionalSuggestion: Equatable {
     init(encoder: EncoderCheck?, sensors: SensorsCheck?) {
         if let enc = encoder {
             let kextOlder = Self.loadedVersion(enc.kext).map { Self.isOlder($0, than: enc.version) } ?? false
-            self.encoder = enc.installed == "outdated" || kextOlder
+            // A mounted EFI holds another build of the kext, or an old entry for it: the
+            // next boot loads that one (encoder.sh check offers the update, install.sh does it).
+            let efiOlder = enc.efis.contains { $0.kext == "outdated" || $0.entry == "old" }
+            self.encoder = enc.installed == "outdated" || kextOlder || efiOlder
         } else {
             self.encoder = false
         }
@@ -150,6 +156,7 @@ enum ConfirmAction: Identifiable {
     case installSensors
     case installSensorsTools
     case removeSensors
+    case removeSensorsTools
     case removeAll
     case reboot
 
@@ -165,6 +172,7 @@ enum ConfirmAction: Identifiable {
         case .installSensors: return "installSensors"
         case .installSensorsTools: return "installSensorsTools"
         case .removeSensors:  return "removeSensors"
+        case .removeSensorsTools: return "removeSensorsTools"
         case .removeAll:      return "removeAll"
         case .reboot:         return "reboot"
         }
@@ -177,6 +185,15 @@ enum Phase: Equatable {
     case running(String)
     case done(String)
     case failed(String)
+    /// The administrator password prompt (or a restart) was cancelled: nothing changed,
+    /// and nothing failed.
+    case cancelled(String)
+}
+
+/// What a run with administrator privileges came to.
+enum PrivilegedResult {
+    case finished(ok: Bool, output: String)
+    case cancelled
 }
 
 // MARK: - Engine bridge
@@ -275,45 +292,27 @@ final class Engine: ObservableObject {
             lastActionTitle = ""
         }
         DispatchQueue.global().async {
-            let group = DispatchGroup()
-            var decOut = ""
-            var ldrOut = ""
-            var encOut = ""
-            var snsOut = ""
+            // One look at this Mac: check.sh runs each part's check once, prints the summary
+            // and writes each part's JSON answer, from that same look, into a folder of ours.
+            let fm = FileManager.default
+            let dir = fm.temporaryDirectory
+                .appendingPathComponent("gpu-check-\(UUID().uuidString)", isDirectory: true)
             var sumOut = ""
-
-            group.enter()
-            DispatchQueue.global().async {
-                decOut = self.runUser(root: root, script: "install/decoders.sh", args: ["check", "--json"])
-                group.leave()
+            var answers: [String: Data] = [:]
+            if (try? fm.createDirectory(at: dir, withIntermediateDirectories: false,
+                                        attributes: [.posixPermissions: 0o700])) != nil {
+                sumOut = self.runUser(root: root, script: "install/check.sh", args: ["--json-dir", dir.path])
+                for part in Self.checkParts {
+                    answers[part] = try? Data(contentsOf: dir.appendingPathComponent("\(part).json"))
+                }
+                try? fm.removeItem(at: dir)
             }
-            group.enter()
-            DispatchQueue.global().async {
-                ldrOut = self.runUser(root: root, script: "install/loader.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                encOut = self.runUser(root: root, script: "install/encoder.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                snsOut = self.runUser(root: root, script: "install/sensors.sh", args: ["check", "--json"])
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                sumOut = self.runUser(root: root, script: "install/check.sh", args: [])
-                group.leave()
-            }
-            group.wait()
 
             let decoder = JSONDecoder()
-            let dec = decOut.data(using: .utf8).flatMap { try? decoder.decode(DecodersCheck.self, from: $0) }
-            let ldr = ldrOut.data(using: .utf8).flatMap { try? decoder.decode(LoaderCheck.self, from: $0) }
-            let enc = encOut.data(using: .utf8).flatMap { try? decoder.decode(EncoderCheck.self, from: $0) }
-            let sns = snsOut.data(using: .utf8).flatMap { try? decoder.decode(SensorsCheck.self, from: $0) }
+            let dec = answers["decoders"].flatMap { try? decoder.decode(DecodersCheck.self, from: $0) }
+            let ldr = answers["loader"].flatMap { try? decoder.decode(LoaderCheck.self, from: $0) }
+            let enc = answers["encoder"].flatMap { try? decoder.decode(EncoderCheck.self, from: $0) }
+            let sns = answers["sensors"].flatMap { try? decoder.decode(SensorsCheck.self, from: $0) }
             let (overall, left) = Self.parseCheckSummary(sumOut)
 
             DispatchQueue.main.async {
@@ -334,6 +333,9 @@ final class Engine: ObservableObject {
             }
         }
     }
+
+    /// The parts whose JSON answers check.sh --json-dir writes, as <part>.json.
+    static let checkParts = ["decoders", "loader", "encoder", "sensors"]
 
     private static func parseCheckSummary(_ output: String) -> (String, [String]) {
         var overall = ""
@@ -393,24 +395,49 @@ final class Engine: ObservableObject {
         let inner = "/bin/zsh \(Self.shq(scriptPath))\(argStr.isEmpty ? "" : " " + argStr) 2>&1"
 
         DispatchQueue.global().async {
-            let (ok, output) = self.runPrivileged(inner)
+            let result = self.runPrivileged(inner)
             DispatchQueue.main.async {
-                self.lastOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                if ok {
-                    if setsReboot { self.needReboot = true }
-                    self.phase = .done(doneMessage)
-                } else {
-                    self.phase = .failed("\(title) failed.")
+                switch result {
+                case .cancelled:
+                    // The password prompt was cancelled: the script never ran.
+                    self.lastOutput = ""
+                    self.lastActionTitle = ""
+                    self.phase = .cancelled("\(title): cancelled. Nothing was changed.")
+                case .finished(let ok, let output):
+                    self.lastOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if ok {
+                        if setsReboot { self.needReboot = true }
+                        self.phase = .done(doneMessage)
+                    } else {
+                        self.phase = .failed("\(title) failed.")
+                    }
+                    self.recheck(preserveOutput: true)
                 }
-                self.recheck(preserveOutput: true)
             }
         }
     }
 
+    /// Restarts through System Events. When that does not happen the window says why,
+    /// instead of nothing: no permission to control System Events (Automation), or another
+    /// app or the person cancelled it.
     func reboot() {
-        let s = NSAppleScript(source: "tell application \"System Events\" to restart")
         var e: NSDictionary?
-        s?.executeAndReturnError(&e)
+        guard let s = NSAppleScript(source: "tell application \"System Events\" to restart") else {
+            phase = .failed("Could not restart this Mac. Restart it from the Apple menu.")
+            return
+        }
+        s.executeAndReturnError(&e)
+        guard let e else { return }
+        let number = (e[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+        let message = (e[NSAppleScript.errorMessage] as? String) ?? "no reason given"
+        switch number {
+        case -128:
+            phase = .cancelled("The restart was cancelled. Restart from the Apple menu when you are ready.")
+        case -1743:
+            phase = .failed("RyzenStatus GPU is not allowed to control System Events, so it could not restart this Mac. Restart it from the Apple menu, or allow it in System Settings > Privacy & Security > Automation.")
+        default:
+            phase = .failed("Could not restart this Mac (\(message)). Restart it from the Apple menu.")
+        }
     }
 
     private func runUser(root: URL, script: String, args: [String]) -> String {
@@ -440,16 +467,20 @@ final class Engine: ObservableObject {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
-    private func runPrivileged(_ inner: String) -> (Bool, String) {
+    private func runPrivileged(_ inner: String) -> PrivilegedResult {
         let wrapped = "\(inner); rc=$?; printf '\\n__DROGABOX_EXIT=%d\\n' \"$rc\"; exit 0"
         let src = "do shell script \"\(Self.asq(wrapped))\" with administrator privileges"
         let s = NSAppleScript(source: src)
         var err: NSDictionary?
         let r = s?.executeAndReturnError(&err)
         if let err = err {
+            // -128 is "User canceled": the password prompt was dismissed and nothing ran.
+            if (err[NSAppleScript.errorNumber] as? NSNumber)?.intValue == -128 {
+                return .cancelled
+            }
             let m = (err[NSAppleScript.errorMessage] as? String)
-                ?? "Authorization failed or the action was cancelled."
-            return (false, m)
+                ?? "Authorization failed."
+            return .finished(ok: false, output: m)
         }
         let raw = (r?.stringValue ?? "")
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -467,7 +498,7 @@ final class Engine: ObservableObject {
             }
         }
         let cleaned = lines.joined(separator: "\n")
-        return (exitCode == 0, cleaned)
+        return .finished(ok: exitCode == 0, output: cleaned)
     }
 }
 
@@ -900,6 +931,10 @@ struct ContentView: View {
             let upToDate = sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:")
             // The kext needs nothing; gpucontrol and gpusensors in /usr/local/bin do.
             let toolsOnly = sns.toolsOnly == true
+            // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
+            // takes just those.
+            let kextThere = onEfi || loaded
+            let toolsInstalled = sns.toolsInstalled == true
             let installTitle: String = {
                 if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
                 return upToDate ? "Installed" : (onEfi ? "Update" : "Install")
@@ -917,9 +952,9 @@ struct ContentView: View {
                 installTitle: installTitle,
                 installTint: .accentColor,
                 installDisabled: busy || (!toolsOnly && (!sns.canInstall || upToDate)),
-                removeDisabled: busy || (!onEfi && !loaded),
+                removeDisabled: busy || (!kextThere && !toolsInstalled),
                 onInstall: { confirm = toolsOnly ? .installSensorsTools : .installSensors },
-                onRemove: { confirm = .removeSensors }
+                onRemove: { confirm = kextThere ? .removeSensors : .removeSensorsTools }
             ) {
                 checkRows(sns.checks)
             }
@@ -990,6 +1025,8 @@ struct ContentView: View {
             banner(icon: "checkmark.seal.fill", color: .green, text: msg)
         case .failed(let msg):
             banner(icon: "exclamationmark.triangle.fill", color: .red, text: msg)
+        case .cancelled(let msg):
+            banner(icon: "info.circle", color: .secondary, text: msg)
         default:
             EmptyView()
         }
@@ -1245,10 +1282,25 @@ struct ContentView: View {
                 },
                 secondaryButton: .cancel()
             )
+        case .removeSensorsTools:
+            return Alert(
+                title: Text("Remove gpucontrol and gpusensors?"),
+                message: Text("GPUSensors.kext is not loaded and is not on a mounted EFI partition, so only these two commands are removed from /usr/local/bin. A program with one of those names that is not ours is left alone. No reboot needed."),
+                primaryButton: .destructive(Text("Remove")) {
+                    engine.runAction(
+                        title: "Remove GPU tools",
+                        script: "install/sensors.sh",
+                        args: ["uninstall-tools"],
+                        setsReboot: false,
+                        doneMessage: "gpucontrol and gpusensors are removed from /usr/local/bin."
+                    )
+                },
+                secondaryButton: .cancel()
+            )
         case .removeAll:
             return Alert(
                 title: Text("Remove all GPU components?"),
-                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, and the decoder plug-ins. Reboot afterwards. Kept: the log /var/log/vcnencodefix.log and the config.plist backups next to config.plist on the EFI."),
+                message: Text("Runs install/undo.sh --yes to remove every installed kext, the encoding fix service, the decoder plug-ins, and gpucontrol and gpusensors from /usr/local/bin. Reboot afterwards. Kept: the log /var/log/vcnencodefix.log and the config.plist backups next to config.plist on the EFI."),
                 primaryButton: .destructive(Text("Remove all")) {
                     engine.runAction(
                         title: "Remove all components",

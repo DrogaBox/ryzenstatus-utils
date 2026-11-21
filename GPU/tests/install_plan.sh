@@ -66,6 +66,15 @@ SNS_TOOLS_OLD='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, act
 SNS_CURRENT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"current","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_TOOLS_BLOCKED='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"blocked","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_OLD_KEXT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.7.2, no status, 0 readings since boot","tools":"missing","toolsOnly":false,"result":"GPUSensors 0.7.2 is loaded"}'
+# the encoding fix installed, running and the package's version, with the kext on the EFI
+# the package's build, another build, or the service stopped
+enc_json() { # service efi-entry efi-kext
+  print -r -- '{"canInstall":true,"version":"1.2.4","installed":"current","service":"'$1'","kext":"loaded 1.2.4, active: encode","efis":[{"id":"disk1s3","name":"OPENCORE","media":"x","mounted":true,"mountPoint":"/Volumes/OPENCORE","openCore":"yes","entry":"'$2'","kext":"'$3'"}],"checks":[]}'
+}
+ENC_CURRENT=$(enc_json running yes current)
+ENC_EFI_OTHER=$(enc_json running yes outdated)
+ENC_EFI_OLD_ENTRY=$(enc_json running old current)
+ENC_STOPPED=$(enc_json stopped yes current)
 
 print -r -- "a fresh Mac: the decoders wait only for the loader kext, which can go in"
 fake fresh on "$DEC_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
@@ -139,6 +148,41 @@ fake oldkext on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_OLD_KEXT"
 plan oldkext --with-sensors
 expect "the kext is a step" $(has "put GPUSensors.kext on the EFI")
 expect "the commands are not a step of their own" $(lacks "copy gpucontrol and gpusensors to /usr/local/bin:")
+
+print -r -- "the encoding fix: skipped only when check would call it installed and working"
+fake enccurrent on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_CURRENT" "$SNS_CURRENT"
+plan enccurrent --with-encoder
+expect "everything current: nothing to install" $(( RC == 0 && $(has "skip encoder: already installed and running") && $(has "Nothing to install") ))
+fake encother on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_EFI_OTHER" "$SNS_CURRENT"
+plan encother --with-encoder
+expect "another build of the kext on the EFI, same version: the encoding fix is a step" $(( RC == 0 && $(has "install the encoding fix") ))
+fake encentry on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_EFI_OLD_ENTRY" "$SNS_CURRENT"
+plan encentry --with-encoder
+expect "an old config.plist entry: the encoding fix is a step" $(has "install the encoding fix")
+fake encstopped on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_STOPPED" "$SNS_CURRENT"
+plan encstopped --with-encoder
+expect "the service stopped: the encoding fix is a step" $(has "install the encoding fix")
+
+print -r -- "the EFI partition, told before the password"
+fake efifound on "$DEC_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+plan efifound
+expect "one partition: the plan names it" $(( RC == 0 && $(has "EFI partition: disk9s9") ))
+fake efiopen on "$DEC_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+print -r -- open > "$WORK/efiopen/efi"
+plan efiopen
+expect "a partition not mounted: the plan goes ahead and says the install decides" $(( RC == 0 && $(has "EFI partition: chosen when installing") ))
+for kind in ambiguous foreign none; do
+  fake efi$kind on "$DEC_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+  print -r -- $kind > "$WORK/efi$kind/efi"
+  plan efi$kind --with-sensors
+  expect "$kind: nothing is installed (exit 2), the plan says why and what to do" \
+    $(( RC == 2 && $(has "EFI partition: the install cannot tell which one to use") && $(has "What to do:") && $(lacks "Plan:") ))
+done
+expect "the Terminal line keeps the options of the run" $(has "sudo install/install.sh --with-sensors --efi diskNsM")
+fake efinotneeded pass "$DEC_READY" "" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+print -r -- ambiguous > "$WORK/efinotneeded/efi"
+plan efinotneeded
+expect "no kext to put on an EFI: the partition does not matter" $(( RC == 0 && $(lacks "EFI partition") ))
 
 print -r -- "the stand-in is for plan only"
 GPU_INSTALL_PLAN_FAKE=$WORK/fresh /bin/zsh "$INSTALL" > /dev/null 2>&1

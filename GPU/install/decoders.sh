@@ -156,7 +156,7 @@ probe_accepts() {
 authroot_disabled() { csrutil authenticated-root status 2>/dev/null | grep -qi disabled; }
 
 # every graphics card of this Mac, one name per line
-gpu_models() { /usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{print $2}'; }
+gpu_models() { displays_report | awk -F': ' '/Chipset Model/{print $2}'; }
 
 # The device mounted at a folder; prints nothing when nothing is mounted there.
 mounted_device() { # folder
@@ -612,6 +612,9 @@ trap unmount_system EXIT
 case "$CMD" in
   check)
     preflight
+    # check.sh's one look: the JSON answer too, from the same checks
+    JSON_TO=$(check_json_to)
+    [[ $JSON -eq 0 && -n $JSON_TO ]] && emit_check_json $CAN_INSTALL $BLOCK_OVERRIDABLE > "$JSON_TO"
     emit_check
     # the JSON form always ends with 0, as the front end expects; the text form tells a
     # script whether install would go ahead
