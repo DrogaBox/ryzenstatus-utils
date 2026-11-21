@@ -196,7 +196,9 @@ preflight() {
 
 # ---- what is running -------------------------------------------------------------------------
 sensor_prop() { # name
-  /usr/sbin/ioreg -r -c DrogaBoxGPUSensors -l 2>/dev/null | sed -n "s/^ *\"$1\" = \"*\([^\"{]*\)\"*\$/\1/p" | head -1
+  # -d 1: the service's own properties only. Once a client is open (RyzenStatus opens the
+  # control client) the service has a child and ioreg puts "|" before each property line.
+  /usr/sbin/ioreg -r -c DrogaBoxGPUSensors -l -d 1 2>/dev/null | sed -n "s/^[ |]*\"$1\" = \"*\([^\"{]*\)\"*\$/\1/p" | head -1
 }
 RUN_STATE=""
 RUN_SAMPLES=0
