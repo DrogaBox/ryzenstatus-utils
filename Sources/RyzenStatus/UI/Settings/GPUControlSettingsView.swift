@@ -42,7 +42,7 @@ struct GPUControlPageInput: Equatable {
     var state: GPUControlPageState?
     var snapshot: GPUControlSnapshot?
     var live = GPUControlLive()
-    var armTool: GPUControlArmTool.Availability = .missing(buildPath: nil)
+    var armTool: GPUControlArmTool.Availability = .missing
     var isArming = false
     var armFailed = false
     var remember = false
@@ -523,13 +523,11 @@ struct GPUControlPageContent: View {
                         .foregroundStyle(.secondary)
                 }
                 commandRow(input.armTool.command)
-            case .missing(let buildPath):
-                if buildPath == nil {
-                    Text(s.notInstalled)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            case .missing:
+                Text(s.notInstalled)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 commandRow(input.armTool.command)
             }
             if input.armFailed {
