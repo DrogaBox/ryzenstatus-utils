@@ -1101,4 +1101,5 @@ extension DefaultsKey {
     static let gpuControlRememberedWatts = "gpuControlRememberedWatts"
     static let gpuControlRememberedCurve = "gpuControlRememberedCurve"   // [C, %] x 5, flat
     static let gpuControlRememberedZeroRpmOff = "gpuControlRememberedZeroRpmOff"
+    static let gpuControlRememberedGfxMHz = "gpuControlRememberedGfxMHz"
 }

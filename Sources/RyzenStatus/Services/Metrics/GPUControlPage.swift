@@ -254,8 +254,8 @@ enum GPUControlPageLogic {
 /// Whether the app may offer "Open writing…": it runs
 /// `/usr/local/bin/gpucontrol arm` as root through the administrator dialog,
 /// so nothing a program of this user can replace may be on that path. The
-/// checks are the ones DrogaBoxGPU's installer makes before it puts the tool
-/// there (`install/sensors.sh`, `tool_file_unsound` and `tool_dir_unsafe`):
+/// checks are the ones the RyzenStatus GPU installer makes before it puts the
+/// tool there (`GPU/install/sensors.sh`, `tool_file_unsound` and `tool_dir_unsafe`):
 /// a plain file, root's, no group or other write, no access control list;
 /// every folder above it root's, no group or other write, no access control
 /// list; the signature intact with the identifier `com.droga.gpucontrol`.
@@ -269,9 +269,6 @@ enum GPUControlArmTool {
     /// input from anyone.
     static let armCommand = installedPath + " arm"
     static let identifier = "com.droga.gpucontrol"
-
-    /// Where DrogaBoxGPU's build leaves the tool, under the home folder.
-    static let buildRelativePath = "Desktop/DrogaBoxGPU/sensors/build/gpucontrol"
 
     struct FileInfo: Equatable, Sendable {
         enum Kind: Equatable, Sendable { case regular, directory, symlink, other }
@@ -320,26 +317,20 @@ enum GPUControlArmTool {
         /// owner to run. `path`: the file or folder that failed.
         case unsafe(UnsafeReason, path: String)
 
-        /// Not installed. `buildPath`: the tool where DrogaBoxGPU builds it,
-        /// when it is there.
-        case missing(buildPath: String?)
+        /// Not installed in /usr/local/bin, the only place the app looks:
+        /// the RyzenStatus GPU installer puts it there.
+        case missing
 
         /// The command the page shows to copy.
         var command: String {
             switch self {
-            case .button, .unsafe: return "sudo " + GPUControlArmTool.armCommand
-            case .missing(let buildPath?): return "sudo " + buildPath + " arm"
-            case .missing(nil): return "sudo " + GPUControlArmTool.armCommand
+            case .button, .unsafe, .missing: return "sudo " + GPUControlArmTool.armCommand
             }
         }
     }
 
-    static func availability(lookup: Lookup = lstatInfo, signature: Signature = signingIdentifier,
-                             home: String) -> Availability {
-        guard lookup(installedPath) != nil else {
-            let build = (home as NSString).appendingPathComponent(buildRelativePath)
-            return .missing(buildPath: lookup(build)?.kind == .regular ? build : nil)
-        }
+    static func availability(lookup: Lookup = lstatInfo, signature: Signature = signingIdentifier) -> Availability {
+        guard lookup(installedPath) != nil else { return .missing }
         if let problem = problem(path: installedPath, lookup: lookup, signature: signature) {
             return .unsafe(problem.reason, path: problem.path)
         }
@@ -431,6 +422,8 @@ enum GPUControlRemembered: Equatable, Sendable {
             return watts > 0 ? .power(watts: watts) : .nothing
         case "od8":
             var want = GPUControlOD8Want(zeroRpmOff: defaults.bool(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff))
+            let mhz = defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
+            if mhz > 0 { want.gfxMaxMHz = mhz }
             if let flat = defaults.array(forKey: DefaultsKey.gpuControlRememberedCurve) as? [Int] {
                 guard flat.count == 2 * GPUControlWire.fanCurvePoints else { return .nothing }
                 want.curve = stride(from: 0, to: flat.count, by: 2).map {
@@ -447,6 +440,7 @@ enum GPUControlRemembered: Equatable, Sendable {
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedWatts)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedCurve)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
         switch self {
         case .nothing:
             defaults.set("none", forKey: DefaultsKey.gpuControlRememberedKind)
@@ -460,6 +454,7 @@ enum GPUControlRemembered: Equatable, Sendable {
                              forKey: DefaultsKey.gpuControlRememberedCurve)
             }
             defaults.set(want.zeroRpmOff, forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
+            if let mhz = want.gfxMaxMHz { defaults.set(mhz, forKey: DefaultsKey.gpuControlRememberedGfxMHz) }
         }
     }
 }
@@ -486,12 +481,16 @@ enum GPUControlRememberPolicy {
     /// remembering active, writing already open (never a password), nobody
     /// else holding, and the control not stopped (a failure or the watchdog
     /// keep it from asking until the app starts again).
-    /// `kextVersion`: the kext's `VersionInfo`. A fan state goes out only to a
-    /// build the curve rules were checked against, as with "Apply curve"
-    /// (none given: no fan state).
+    /// `stockGfxMaxMHz`: the GFX maximum the kext allows now (it moves a
+    /// little across wakes). A remembered clock above it, or below 1500 MHz,
+    /// is left out of the request: only ever lower than stock.
+    /// `kextVersion`: the kext's `VersionInfo`. A fan state (curve or zero
+    /// RPM) goes out only to a build the curve rules were checked against, as
+    /// with "Apply curve" (none given: no fan state). A clock alone does not
+    /// depend on them, as on the page.
     static func request(remembered: GPUControlRemembered, active: Bool,
                         facts: GPUControlFacts?, stopped: GPUControlStop?,
-                        kextVersion: String? = nil) -> GPUControlRequest? {
+                        stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         switch remembered {
@@ -501,11 +500,17 @@ enum GPUControlRememberPolicy {
             guard watts > 0, let boot = facts.bootW, GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange)
                     .contains(watts), watts != boot else { return nil }
             return .power(watts: UInt32(watts))
-        case .od8(let want):
-            // OD8 not read cleanly: the kext could not take it. Another kext
-            // build: the rules were not checked with it, and Apply is off too.
-            guard facts.od8Ready, GPUControlCurveRules.isChecked(kextVersion), !want.isStock else { return nil }
-            return .od8(want)
+        case .od8(var want):
+            // OD8 not read cleanly: the kext could not take it.
+            guard facts.od8Ready else { return nil }
+            // A fan state and another kext build: the rules were not checked
+            // with it, and Apply is off too. Nothing goes, not even the clock:
+            // only what was held is asked for again, never a part of it.
+            if want.curve != nil || want.zeroRpmOff, !GPUControlCurveRules.isChecked(kextVersion) { return nil }
+            if let mhz = want.gfxMaxMHz, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) {
+                want.gfxMaxMHz = nil
+            }
+            return want.isStock ? nil : .od8(want)
         }
     }
 
@@ -520,6 +525,64 @@ enum GPUControlRememberPolicy {
         case .unknown?, nil:
             return false
         }
+    }
+}
+
+// MARK: - The GFX maximum clock (plan 7.1, phase 4)
+
+/// The clock control's numbers. The range is 1500 MHz (the kext's floor,
+/// `kOd8GfxFloorMHz`) to the stock maximum the kext publishes
+/// (`OD8Table.stockGfxMaxMHz`, the lower of the first read and the driver's
+/// default now, only with feature 0x1). The control only ever lowers the
+/// clock: the stock maximum itself is the way back, never a hold.
+enum GPUControlClockLogic {
+    static let step = 10
+    static let tickStepMHz = 100
+
+    /// Nil when the kext offers no clock (no clean read, feature not 0x1)
+    /// or the stock maximum is not above the floor.
+    static func range(stockGfxMaxMHz: Int?) -> ClosedRange<Int>? {
+        guard let top = stockGfxMaxMHz, top > GPUControlWire.gfxFloorMHz else { return nil }
+        return GPUControlWire.gfxFloorMHz...top
+    }
+
+    /// A value the control may send as a hold: at or above the floor and
+    /// below the stock maximum.
+    static func lowers(_ mhz: Int, stockGfxMaxMHz: Int?) -> Bool {
+        guard let range = range(stockGfxMaxMHz: stockGfxMaxMHz) else { return false }
+        return mhz >= range.lowerBound && mhz < range.upperBound
+    }
+
+    /// What choosing `mhz` asks for: nil (the stock clock, the way back) at
+    /// the stock maximum, the value when it lowers the clock. Values outside
+    /// the range are not sent at all (`lowers` says so first).
+    static func request(_ mhz: Int, stockGfxMaxMHz: Int) -> Int? {
+        mhz >= stockGfxMaxMHz ? nil : mhz
+    }
+
+    /// A slider position as a value: 10 MHz steps, the stock maximum at the
+    /// top even when it is not a multiple of 10 (2359 here).
+    static func snapped(_ raw: Double, stockGfxMaxMHz top: Int) -> Int {
+        let floor = GPUControlWire.gfxFloorMHz
+        let value = floor + Int(((raw - Double(floor)) / Double(step)).rounded()) * step
+        if value >= top - step / 2 { return top }
+        return Swift.max(floor, value)
+    }
+
+    /// The slider's tick marks, one every 100 MHz from the floor.
+    static func tickCount(stockGfxMaxMHz top: Int) -> Int {
+        (top - GPUControlWire.gfxFloorMHz) / tickStepMHz + 1
+    }
+}
+
+extension GPUControlRememberPolicy {
+    /// A remembered request again, right before it goes out: a clock that no
+    /// longer lowers the stock maximum of the moment is left out (the rest
+    /// of the fan state still goes). Nil when nothing is left to ask.
+    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?) -> GPUControlRequest? {
+        guard case .od8(var want) = request, let mhz = want.gfxMaxMHz else { return request }
+        if !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }
+        return want.isStock ? nil : .od8(want)
     }
 }
 

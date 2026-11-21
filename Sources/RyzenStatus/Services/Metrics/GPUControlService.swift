@@ -39,7 +39,7 @@ final class GPUControlService: ObservableObject {
     /// on screen (and in the background while a remembered setting waits).
     @Published private(set) var control: GPUControlStatus?
     @Published private(set) var live = GPUControlLive()
-    @Published private(set) var armTool: GPUControlArmTool.Availability = .missing(buildPath: nil)
+    @Published private(set) var armTool: GPUControlArmTool.Availability = .missing
     @Published private(set) var isArming = false
     @Published private(set) var armFailed = false
     @Published private(set) var mode: GPUControlConnectionMode = .none
@@ -59,7 +59,6 @@ final class GPUControlService: ObservableObject {
     private var pollTimer: Timer?
     private var rememberTimer: Timer?
     private var pendingRemembered = false
-    private var ownerChoseStartUp = false
     private var refreshTicks = 0
     /// Security review S-5 and S-9: another program's hold or close.
     private var foreignWatch = GPUControlForeignWatch()
@@ -109,6 +108,11 @@ final class GPUControlService: ObservableObject {
             Task { @MainActor in GPUControlService.shared.notify(notice) }
         }
         controller.setReaskAfterWake(rememberActive)
+        let model = fake
+        controller.setReaskFilter { request in
+            let control = model.flatMap(GPUControlService.fakeControl) ?? GPUSensorsService.shared.currentControl()
+            return GPUControlRememberPolicy.checkedAgain(request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz)
+        }
         controller.start()
         self.controller = controller
         if mode == .real { startForeignWatch() }
@@ -135,26 +139,26 @@ final class GPUControlService: ObservableObject {
             backToStartUp()
             return
         }
-        ownerChoseStartUp = false
         controller.choose(.power(watts: UInt32(watts)))
     }
 
     /// "Apply curve": the whole fan state; the controller keeps a held GFX
     /// maximum with it and gives a power limit back first.
     func applyFan(_ draft: GPUControlFanDraft) {
-        guard let controller else { return }
-        if draft.want.isStock {
-            backToStartUp()
-            return
-        }
-        ownerChoseStartUp = false
-        controller.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
+        // Always through the controller: a stock fan keeps a held clock, and
+        // never gives back a power limit.
+        controller?.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
+    }
+
+    /// The clock control: a lower GFX maximum, or nil for the stock clock.
+    /// The controller keeps a held fan state with it and gives a power limit
+    /// back first.
+    func chooseGfxMax(_ mhz: Int?) {
+        controller?.chooseGfxMax(mhz)
     }
 
     func backToStartUp() {
-        guard let controller else { return }
-        ownerChoseStartUp = true
-        controller.choose(.startUp)
+        controller?.choose(.startUp)
     }
 
     /// "Close changes" (kext 0.8.0): back to the start-up values, then
@@ -237,7 +241,7 @@ final class GPUControlService: ObservableObject {
 
     private func refreshArmTool() {
         armTool = fake != nil ? .button
-            : GPUControlArmTool.availability(home: NSHomeDirectory())
+            : GPUControlArmTool.availability()
     }
 
     /// The model's properties, as the kext would publish them.
@@ -253,13 +257,15 @@ final class GPUControlService: ObservableObject {
     private func received(_ next: GPUControlSnapshot) {
         let previous = snapshot
         snapshot = next
-        if next.held != previous?.held || (ownerChoseStartUp && next.held == nil && next.activity == .none) {
+        // The owner's own way back (the button, or a fan or clock control
+        // back to stock that left nothing held) forgets the remembered one.
+        let released = next.ownerReleased && previous?.ownerReleased != true
+        if next.held != previous?.held || released {
             if let save = GPUControlRememberPolicy.toSave(held: next.held,
-                                                          ownerChoseStartUp: ownerChoseStartUp && next.held == nil,
+                                                          ownerChoseStartUp: released && next.held == nil,
                                                           active: rememberActive) {
                 save.save(defaults)
             }
-            if next.held == nil, next.activity == .none { ownerChoseStartUp = false }
         }
         if next.stopped != nil { pendingRemembered = false }
     }
@@ -345,14 +351,20 @@ final class GPUControlService: ObservableObject {
             return
         }
         guard facts.armed else { return }
+        let remembered = GPUControlRemembered.load(defaults)
+        if case .od8 = remembered, !facts.od8Ready, control?.writing?.od8Read?.isWaiting ?? true {
+            // OD8 is not read yet after boot or a wake: keep waiting.
+            return
+        }
         pendingRemembered = false
         // Below the card's floor (saved with an older kext): forget it.
-        if GPUControlRememberPolicy.forgets(remembered: .load(defaults), facts: facts) {
+        if GPUControlRememberPolicy.forgets(remembered: remembered, facts: facts) {
             GPUControlRemembered.nothing.save(defaults)
             return
         }
-        if let request = GPUControlRememberPolicy.request(remembered: .load(defaults), active: rememberActive,
+        if let request = GPUControlRememberPolicy.request(remembered: remembered, active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped,
+                                                          stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
                                                           kextVersion: control?.writing?.kextVersion) {
             controller.choose(request, origin: .remembered)
         }

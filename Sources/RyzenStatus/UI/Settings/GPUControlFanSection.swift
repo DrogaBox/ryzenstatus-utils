@@ -12,6 +12,8 @@ struct GPUControlFanSection: View {
     let strings: GPUControlPageStrings
     let fan: GPUControlFanStrings
     @Binding var draft: GPUControlFanDraft
+    /// The section that asked last, so a refusal shows next to its control.
+    @Binding var lastOD8Source: GPUControlOD8Source
     let apply: (GPUControlFanDraft) -> Void
 
     private var curveState: GPUControlCurveRules.State? {
@@ -49,15 +51,16 @@ struct GPUControlFanSection: View {
 
     var body: some View {
         Section {
-            // "Toggles", macOS: within a grouped form, a mini switch per row;
-            // the label says what turning it on does ("Writing").
+            // "Toggles": the label says what turning it on does ("Writing").
+            // The regular size, not mini: "Accessibility" asks for at least
+            // 20 x 20 pt on macOS (a11y A8).
             Toggle(fan.zeroRpmToggle, isOn: $draft.zeroRpmOff)
                 .toggleStyle(.switch)
-                .controlSize(.mini)
+                .controlSize(.regular)
                 .disabled(!enabled)
             Toggle(fan.curveToggle, isOn: $draft.customCurve)
                 .toggleStyle(.switch)
-                .controlSize(.mini)
+                .controlSize(.regular)
                 .disabled(!enabled)
             // "Layout": progressive disclosure, the editor only while the
             // custom curve is on, indented under its switch: "people
@@ -84,6 +87,9 @@ struct GPUControlFanSection: View {
                 // only from the editor's own fields: a default button
                 // would take Return from every field on the page.
                 .onSubmit(applyOnReturn)
+                // Escape gives the edits back, the way macOS cancels an
+                // edit (a11y A10).
+                .onExitCommand(perform: discardDraft)
             }
             previewRow
             if case .heldByApp(.power)? = input.state {
@@ -96,7 +102,7 @@ struct GPUControlFanSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     GPUControlProblemLabel(text: note.sentence, isProblem: true)
                     if let kext = note.kextText {
-                        Text(kext)
+                        Text(String(format: strings.kextSaysFormat, kext))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -110,6 +116,11 @@ struct GPUControlFanSection: View {
                 Button(applyTitle, action: applyDraft)
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
+                    // a11y A6: what it does and that Return does it too;
+                    // A14: why it is dimmed, when the state is the reason
+                    // (the live sentence says what is wrong with a draft).
+                    .accessibilityHint(fan.applyHint)
+                    .accessibilityValue(GPUControlPageContent.disabledReason(input, strings) ?? "")
             }
         } header: {
             Text(fan.section)
@@ -125,8 +136,23 @@ struct GPUControlFanSection: View {
     static let editorIndent: CGFloat = 20
 
     private func applyDraft() {
+        lastOD8Source = .fan
         apply(draft)
         draft = draft.applied
+    }
+
+    /// Escape in the editor: an edited draft goes back to what is held, and
+    /// VoiceOver says so; an untouched one stays.
+    private func discardDraft() {
+        guard draft.edited else { return }
+        draft = Self.discarded(held: heldOD8)
+        AccessibilityNotification.Announcement(fan.draftDiscarded).post()
+    }
+
+    /// The draft Escape leaves: a new one seeded from what is held, unedited.
+    /// Not `following(held:)`, which keeps an edited draft as it is.
+    static func discarded(held: GPUControlOD8Want) -> GPUControlFanDraft {
+        GPUControlFanDraft(held: held)
     }
 
     /// Return in a point field. The field commits its number on Return as
@@ -141,7 +167,8 @@ struct GPUControlFanSection: View {
 
     /// The kext's refusal of the last fan request, next to the editor.
     private var refusal: GPUControlPageNote? {
-        guard case .refused(let request, _)? = input.snapshot?.outcome, request.isOD8 else { return nil }
+        guard lastOD8Source == .fan, case .refused(let request, _)? = input.snapshot?.outcome,
+              request.isOD8 else { return nil }
         return GPUControlPageNote.make(input.snapshot, strings)
     }
 
@@ -191,9 +218,11 @@ struct GPUControlFanSection: View {
     /// control with its own VoiceOver name.
     private func valueField(_ value: Binding<Int>, unit: String, name: String, stepName: String) -> some View {
         HStack(spacing: 6) {
+            // At least 44 pt, wider when the number needs it (a11y A4).
             TextField("", value: value, format: .number)
                 .multilineTextAlignment(.trailing)
-                .frame(width: 44)
+                .frame(minWidth: 44)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel(name)
             Stepper("", value: value, step: 1)
                 .labelsHidden()
@@ -239,7 +268,20 @@ struct GPUControlFanSection: View {
         .frame(height: 170)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(format: fan.chartLabelFormat, limitC))
-        .accessibilityValue(draft.points.map { "\($0.temperatureC) °C \($0.speedPercent) %" }.joined(separator: ", "))
+        .accessibilityValue(Self.chartValue(draft: draft.points, stock: stock, limitC: limitC, fan: fan))
+    }
+
+    /// The chart for VoiceOver: the draft's points, the stock curve's (the
+    /// dashed line) and the 100 % temperature (the rule), in the language's
+    /// own order (a11y A12).
+    static func chartValue(draft: [GPUControlFanPoint], stock: [GPUControlFanPoint], limitC: Int,
+                           fan: GPUControlFanStrings) -> String {
+        func points(_ curve: [GPUControlFanPoint]) -> String {
+            curve.map { "\($0.temperatureC) °C \($0.speedPercent) %" }.joined(separator: ", ")
+        }
+        let limit = String(format: fan.limitFormat, limitC)
+        return stock.isEmpty ? String(format: fan.chartValueDraftFormat, points(draft), limit)
+            : String(format: fan.chartValueFormat, points(draft), points(stock), limit)
     }
 
     // MARK: Live sentence
@@ -276,10 +318,11 @@ struct GPUControlFanSection: View {
             return (strings.od8NotRead, nil, false)
         case .refused(let result):
             if let rule = fan.rule(result.check, limitC: limitC), let point = result.point {
-                return (String(format: fan.curveFailFormat, point, rule), result.check.kextText, false)
+                return (String(format: fan.curveFailFormat, point, rule),
+                        String(format: strings.kextSaysFormat, result.check.kextText), false)
             }
             let group = GPUControlTextGroup.forOD8Check(result.check.rawValue) ?? .notAllowed
-            return (strings.sentence(group), result.check.kextText, false)
+            return (strings.sentence(group), String(format: strings.kextSaysFormat, result.check.kextText), false)
         }
     }
 }

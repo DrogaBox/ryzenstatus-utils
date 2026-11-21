@@ -12,6 +12,7 @@ enum GPUControlTests {
         powerWatch(suite)
         robustness(suite)
         translations(suite)
+        powerRange(suite)
     }
 
     private static let en = GPUControlStrings.enUS
@@ -28,7 +29,7 @@ enum GPUControlTests {
         ]
     }
 
-    /// GPUSensors 0.3.0 on the RX 6800 XT here (macOS 26.7.3, 2026-11-19),
+    /// GPUSensors 0.3.0 on the test RX 6800 XT (macOS 26.7.3, 2026-11-19),
     /// as `ioreg -r -c DrogaBoxGPUSensors -l` showed it, no `gpuprofile`.
     private static var v030: [String: Any] {
         var p = v020
@@ -249,6 +250,87 @@ enum GPUControlTests {
         wrongControl["Control"] = NSNumber(value: 1)
         suite.expect(GPUControlStatus.parse(wrongControl) == nil, "a control that is not text means no group")
         suite.expect(GPUControlStatus.parse(v040()) == GPUControlStatus.parse(v040()), "equal reads compare equal")
+    }
+
+    /// The power range row after the start-up limit: the kext's `PowerRange`
+    /// (0.8.0), the OD8 table's for 0.7.x, and "not known" with the kext's
+    /// reason under it.
+    private static func powerRange(_ suite: TestSuite) {
+        func v080(_ range: [String: Any], state: String? = "from the card: start-up limit less its OD8 power percent",
+                  writeOff: Int = 0) -> [String: Any] {
+            var p = v040()
+            p["Write"] = "closed: an administrator opens it until restart"
+            p["WriteState"] = ["WriteOff": NSNumber(value: writeOff)]
+            p["PowerRange"] = range
+            if let state { p["PowerRangeState"] = state }
+            return p
+        }
+        let known: [String: Any] = ["Known": NSNumber(value: 1), "FloorW": NSNumber(value: 225),
+                                    "MaxW": NSNumber(value: 240), "StepW": NSNumber(value: 10)]
+        let rows = GPUControlStatus.parse(v080(known))?.rows(en) ?? []
+        suite.expect(rows.map(\.id) == ["Control", "Profile", "Power", "BootW", "PowerRange", "SleepWake"],
+                     "0.8.0: the power range right after the start-up limit")
+        let kext = row(rows, "PowerRange")
+        suite.expect(kext?.label == "Power range" && kext?.value == "225–240 W in 10 W steps"
+                        && kext?.detail == nil && kext?.isNumber == true,
+                     "0.8.0, known: floor to maximum and the step (\(kext?.value ?? "none"))")
+        suite.expect(row(GPUControlStatus.parse(v080(known))?.rows(GPUControlStrings.es) ?? [], "PowerRange")?.value
+                        == "225–240 W en pasos de 10 W", "the same in Spanish")
+        var step5 = known
+        step5["StepW"] = NSNumber(value: 5)
+        suite.expect(row(GPUControlStatus.parse(v080(step5))?.rows(en) ?? [], "PowerRange")?.value
+                        == "225–240 W in 5 W steps", "the step is the kext's")
+        // The read-only card publishes its range for showing.
+        suite.expect(row(GPUControlStatus.parse(v080(known, writeOff: 15))?.rows(en) ?? [], "PowerRange")?.value
+                        == "225–240 W in 10 W steps", "the read-only card: its own range")
+        var flat = known
+        flat["FloorW"] = NSNumber(value: 240)
+        suite.expect(row(GPUControlStatus.parse(v080(flat, state: "the card offers no lower power limit: only the start-up limit"))?
+                            .rows(en) ?? [], "PowerRange")?.value == "240 W only",
+                     "a floor at the start-up limit: that value only")
+        let notYet = "not known yet: waiting for a clean OD8 read"
+        let unknown = row(GPUControlStatus.parse(v080(["Known": NSNumber(value: 0), "StepW": NSNumber(value: 10)],
+                                                      state: notYet))?.rows(en) ?? [], "PowerRange")
+        suite.expect(unknown?.value == "Not known yet" && unknown?.detail == notYet && unknown?.isNumber == false,
+                     "0.8.0, not known: says so, with the kext's reason under it")
+        var odd = known
+        odd["FloorW"] = NSNumber(value: 250)
+        suite.expect(row(GPUControlStatus.parse(v080(odd))?.rows(en) ?? [], "PowerRange")?.value == "Not known yet",
+                     "a floor above the maximum: not known")
+        suite.expect(row(GPUControlStatus.parse(v040())?.rows(en) ?? [], "PowerRange") == nil,
+                     "no write path (0.4.0): no power range row")
+
+        // 0.7.2, the card's real properties: no PowerRange, so the range comes
+        // from the OD8 table (240 W less 6 %), marked as the app's.
+        let path = FileManager.default.currentDirectoryPath + "/Tests/Fixtures/GPUSensors/ioreg-0.7.2-2026-11-20.plist"
+        let table = FileManager.default.contents(atPath: path)
+            .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) } as? [String: Any]
+        let legacy = table.flatMap(GPUControlStatus.parse)
+        suite.expect(legacy?.writing?.powerRange == nil, "0.7.2 publishes no PowerRange")
+        suite.expect(row(legacy?.rows(en) ?? [], "PowerRange")?.value == "225–240 W in 10 W steps, from the card’s table",
+                     "0.7.2: worked out from the OD8 table, and says so (\(row(legacy?.rows(en) ?? [], "PowerRange")?.value ?? "none"))")
+        var unread = table ?? [:]
+        unread["OD8State"] = "not read: waiting for the driver"
+        suite.expect(row(GPUControlStatus.parse(unread)?.rows(en) ?? [], "PowerRange")?.value == "Not known yet",
+                     "0.7.2 without a clean OD8 read: not known")
+
+        for language in AppLanguage.allCases {
+            let s = FeatureStrings.gpuControl(language)
+            let range = String(format: s.powerRangeFormat, 225, 240, 10)
+            suite.expect(range.contains("225") && range.contains("240") && range.contains("10") && !range.contains("%"),
+                         "\(language): the range takes the floor, the maximum and the step")
+            let only = String(format: s.powerRangeOnlyFormat, 240)
+            suite.expect(only.contains("240") && !only.contains("%"), "\(language): one value")
+            let derived = String(format: s.powerRangeDerivedFormat, range)
+            suite.expect(derived.contains(range) && derived != range && !derived.contains("%@"),
+                         "\(language): the derived range keeps the range and marks it")
+            suite.expect(!s.powerRange.isEmpty && !s.powerRangeUnknown.isEmpty && s.powerRange != s.bootPowerLimit,
+                         "\(language): the power range row has its own label and a not-known text")
+            if language != .enUS {
+                suite.expect(s.powerRange != en.powerRange && s.powerRangeUnknown != en.powerRangeUnknown,
+                             "\(language): the power range row is translated")
+            }
+        }
     }
 
     private static func translations(_ suite: TestSuite) {
