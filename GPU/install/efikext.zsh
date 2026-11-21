@@ -13,6 +13,7 @@
 #   EFI_ID      the partition given with --efi, or empty
 #   EFI_DIR     the folder given with --efi-folder, or empty
 #   MIN_LILU    the oldest Lilu the kext works with
+#   KBUNDLE     the kext's bundle identifier, for the install record: com.droga.VCNVTLoader
 # and defines:
 #   kext_usable <kext-dir>   0 when a copy of the kext can do its job here (the loader: it
 #                            lists the plug-ins being installed), 1 when it cannot, 2 when
@@ -39,6 +40,11 @@ kext_file_version() { # kext-dir
   local v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist" 2>/dev/null)
   [[ $v =~ '^[0-9]+(\.[0-9]+)*$' ]] || return 1
   print -r -- $v
+}
+# What identifies one build of the kext in the install record (common.zsh): the SHA-256 of
+# its program and Info.plist, the two files same_kext compares.
+kext_hash() { # kext-dir
+  files_hash "$1/Contents/MacOS/$KEXEC" "$1/Contents/Info.plist"
 }
 # True when anything is at the path, a broken symbolic link included.
 exists() { [[ -e $1 || -L $1 ]]; }
@@ -133,21 +139,46 @@ efi_row() { # id name media mount-point
   if [[ $OC_ENTRY == ok && $OC_KEXT != missing && $OC_USABLE == yes ]]; then READY_ON=${READY_ON:-$id}; fi
   if [[ $OC_KEXT == outdated || ( $OC_KEXT != missing && $OC_ENTRY != ok ) ]]; then STALE_ON=${STALE_ON:-$id}; fi
 }
+EFI_SEEN=()    # the places looked into: partition UUIDs (upper case), or folder:<path>
+REC_ON=""      # READY_ON comes from the install record (a partition not mounted now)
 efi_scan() {
   EFI_JSON=()
   EFI_LINES=()
+  EFI_SEEN=()
   READY_ON=""
   STALE_ON=""
   if [[ -n $EFI_DIR ]]; then
     efi_row folder "${EFI_DIR:t}" "a folder" "$EFI_DIR"
-    return
+    EFI_SEEN+=("folder:$EFI_DIR")
+  else
+    local id mp
+    for id in $(efi_ids); do
+      mp=""
+      [[ $(efi_field $id Mounted) == Yes ]] && mp=$(efi_field $id 'Mount Point')
+      efi_row $id "$(efi_field $id 'Volume Name')" "$(efi_field "$(efi_field $id 'Part of Whole')" 'Device / Media Name')" "$mp"
+      [[ -n $mp ]] && EFI_SEEN+=("${(U)$(efi_field $id 'Disk / Partition UUID')}")
+    done
   fi
-  local id mp
-  for id in $(efi_ids); do
-    mp=""
-    [[ $(efi_field $id Mounted) == Yes ]] && mp=$(efi_field $id 'Mount Point')
-    efi_row $id "$(efi_field $id 'Volume Name')" "$(efi_field "$(efi_field $id 'Part of Whole')" 'Device / Media Name')" "$mp"
-  done
+  efi_record_look
+}
+# When no place looked into holds this build or another one, the install record of this
+# boot session (common.zsh) can tell that this build is on a partition not mounted now: an
+# install mounts the partition and unmounts it again. Sets READY_ON and REC_ON then.
+efi_record_look() {
+  REC_ON=""
+  [[ -z $READY_ON && -z $STALE_ON && -f $KEXT/Contents/MacOS/$KEXEC ]] || return 0
+  record_read $KNAME || return 0
+  [[ $REC_BUNDLE == $KBUNDLE && $REC_VERSION == "$(kext_file_version "$KEXT")" && $REC_HASH == "$(kext_hash "$KEXT")" ]] || return 0
+  # a place looked into shows what is really there
+  local part=$REC_PARTITION
+  [[ $part == folder:* ]] || part=${(U)part}
+  (( ${EFI_SEEN[(Ie)$part]} )) && return 0
+  kext_usable "$KEXT" || return 0
+  local where
+  where=$(record_where) || return 0
+  READY_ON=$where
+  REC_ON=$where
+  EFI_LINES+=("  $where  \"$REC_NAME\": not mounted; this build was put there in this boot session (install record)")
 }
 
 # ---- install and uninstall -------------------------------------------------------------------
@@ -359,6 +390,12 @@ kext_install() {
   if [[ $OC_ENTRY != ok || $OC_KEXT != current || $OC_USABLE != yes ]]; then
     die "after the install the EFI is not as expected (entry $OC_ENTRY, kext $OC_KEXT, usable: $OC_USABLE)."
   fi
+  # the record of this install, for the checks until the reboot (common.zsh)
+  if [[ -n $EFI_DIR ]]; then
+    record_test && record_write $KNAME "folder:$EFI_DIR" "${EFI_DIR:t}" folder $KBUNDLE "$(kext_file_version "$KEXT")" "$(kext_hash "$KEXT")"
+  else
+    record_write $KNAME "$(efi_field $EFI_ID 'Disk / Partition UUID')" "$(efi_field $EFI_ID 'Volume Name')" $EFI_ID $KBUNDLE "$(kext_file_version "$KEXT")" "$(kext_hash "$KEXT")"
+  fi
   cleanup
   print
   print -r -- "Done. $KNAME $(kext_file_version "$KEXT") is on the EFI and listed in config.plist."
@@ -370,6 +407,8 @@ kext_install() {
 kext_uninstall() {
   [[ -x $ENTRY ]] || die "$ENTRY is missing; decode/build.sh builds it"
   open_target nolilu
+  # the install record goes first: from here on the kext may be gone
+  record_remove $KNAME
   local cfg=$OC/config.plist dst=$OC/Kexts/$NAME
   entry_state "$cfg"
   local before=$ENTRY_STATE

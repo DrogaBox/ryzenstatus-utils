@@ -52,6 +52,7 @@ KEXT=$ROOT/sensors/build/GPUSensors.kext
 ENTRY=$ROOT/decode/build/kextentry
 KNAME=GPUSensors
 KEXEC=GPUSensors
+KBUNDLE=com.droga.GPUSensors
 KOFFARG=-gpusensoff
 SCRIPT=sensors.sh
 MIN_LILU=1.7.0

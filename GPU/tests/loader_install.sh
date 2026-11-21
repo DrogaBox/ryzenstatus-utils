@@ -162,6 +162,58 @@ $SN install --efi-folder $T/q > /dev/null 2>&1
 print -n x >> $T/q/EFI/OC/Kexts/GPUSensors.kext/Contents/MacOS/GPUSensors
 sjson q | spy 'not d["pendingReboot"] and d["result"].startswith("GPUSensors 0.0.1 is loaded; ") and "puts it on your EFI" in d["result"]' &&
   ok "an older sensors kext runs, another build on the EFI: update offered" || bad "sensors old on EFI: $(sjson q)"
+# the install record (common.zsh): an install writes it, the check takes it for a partition
+# it cannot look into (here: another folder, r, without the kext), only from this boot
+# session and only for this build. VCNVT_FAKE_RECORDS stands in for its folder in
+# /Library, honoured only with --efi-folder.
+R=$T/records
+mkdir -m 755 $R
+make_efi s
+make_efi r
+VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/s > $T/s.out 2>&1
+rec=$R/installed-GPUSensors.txt
+[[ -f $rec && $(stat -f '%Lp' $rec) == 644 ]] && grep -qx "boot=$(sysctl -n kern.bootsessionuuid)" $rec &&
+  grep -qx "partition=folder:${T:A}/s" $rec && grep -qx "bundle=com.droga.GPUSensors" $rec &&
+  ok "an install writes its record (mode 644, this boot session, the place, the build)" || bad "record: $(cat $T/s.out; cat $rec 2>&1)"
+[[ -z "$(print -l -- $R/.*(N))" ]] && ok "no temporary file is left next to it" || bad "record leftovers"
+rjson() { VCNVT_FAKE_RUNNING=0.0.1 VCNVT_FAKE_RECORDS=$R $SN check --json --efi-folder $T/r; }
+rjson | spy 'd["pendingReboot"] and d["result"].startswith("installed on folder: GPUSensors ") and "loads at the next boot" in d["result"]' &&
+  ok "record of this build, this boot, the EFI not visible: installed, reboot" || bad "record pending: $(rjson)"
+VCNVT_FAKE_RUNNING=0.0.1 VCNVT_FAKE_RECORDS=$R $SN check --efi-folder $T/r 2>&1 | grep -q "this build was put there in this boot session (install record)" &&
+  ok "the text check names the record" || bad "record text"
+VCNVT_FAKE_RUNNING=0.0.1 $SN check --json --efi-folder $T/r | spy 'not d["pendingReboot"] and "puts it on your EFI" in d["result"]' &&
+  ok "without the record folder (not test mode for it): update offered" || bad "no record folder"
+cp $rec $T/rec.keep
+sed -i '' 's/^boot=.*/boot=00000000-0000-0000-0000-000000000000/' $rec
+rjson | spy 'not d["pendingReboot"] and d["result"].startswith("GPUSensors 0.0.1 is loaded; ") and "puts it on your EFI" in d["result"]' &&
+  ok "record from another boot session: ignored, update offered" || bad "record other boot: $(rjson)"
+cp $T/rec.keep $rec
+sed -i '' 's/^hash=.*/hash=0000/' $rec
+rjson | spy 'not d["pendingReboot"] and "puts it on your EFI" in d["result"]' &&
+  ok "record for another build: ignored, update offered" || bad "record other build: $(rjson)"
+cp $T/rec.keep $rec
+VCNVT_FAKE_RUNNING=0.0.1 VCNVT_FAKE_RECORDS=$R $SN check --json --efi-folder $T/s | spy 'd["pendingReboot"] and d["efis"][0]["kext"] == "current"' &&
+  ok "the EFI the record names, visible: what it shows is used" || bad "record visible"
+print -n x >> $T/s/EFI/OC/Kexts/GPUSensors.kext/Contents/MacOS/GPUSensors
+VCNVT_FAKE_RUNNING=0.0.1 VCNVT_FAKE_RECORDS=$R $SN check --json --efi-folder $T/s | spy 'not d["pendingReboot"] and "puts it on your EFI" in d["result"]' &&
+  ok "the EFI the record names shows another build: that wins over the record" || bad "record vs visible"
+chmod 666 $rec
+rjson | spy 'not d["pendingReboot"]' && ok "a record others can write is not believed" || bad "record writable"
+chmod 644 $rec
+mv $rec $T/rec.real && ln -s $T/rec.real $rec
+rjson | spy 'not d["pendingReboot"]' && ok "a record that is a link is not believed" || bad "record link"
+VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/s > $T/s2.out 2>&1
+[[ -L $rec ]] && grep -q "is not a plain file" $T/s2.out && ok "an install does not write through a link" || bad "record write link: $(cat $T/s2.out)"
+rm -f $rec
+VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/s > /dev/null 2>&1
+VCNVT_FAKE_RECORDS=$R $SN uninstall --efi-folder $T/s > /dev/null 2>&1
+[[ ! -e $rec ]] && ok "uninstall deletes the record" || bad "record after uninstall"
+VCNVT_FAKE_RECORDS=$R $L install --efi-folder $T/s > /dev/null 2>&1
+grep -qx "bundle=com.droga.VCNVTLoader" $R/installed-VCNVTLoader.txt &&
+  VCNVT_FAKE_RECORDS=$R $L check --efi-folder $T/r 2>&1 | grep -q "this build was put there in this boot session (install record)" &&
+  ok "the loader writes and reads its record the same way" || bad "loader record"
+VCNVT_FAKE_RECORDS=$R $L uninstall --efi-folder $T/s > /dev/null 2>&1
+[[ ! -e $R/installed-VCNVTLoader.txt ]] && ok "the loader's uninstall deletes its record" || bad "loader record after uninstall"
 $SN uninstall --efi-folder $T/m > /dev/null 2>&1 && cmp -s $T/m/with-loader.plist $T/m/EFI/OC/config.plist &&
   [[ ! -e $T/m/EFI/OC/Kexts/GPUSensors.kext && -d $T/m/EFI/OC/Kexts/VCNVTLoader.kext ]] &&
   ok "uninstalling the sensors leaves the loader exactly as it was" || bad "sensors uninstall"

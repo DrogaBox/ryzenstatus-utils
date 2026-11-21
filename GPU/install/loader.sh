@@ -55,6 +55,7 @@ VP9=VP9VCNDecoder.bundle
 LIVE=/System/Library/Video/Plug-Ins
 KNAME=VCNVTLoader
 KEXEC=VCNVTLoader
+KBUNDLE=com.droga.VCNVTLoader
 KOFFARG=-vcnvtoff
 SCRIPT=loader.sh
 MIN_LILU=1.7.0

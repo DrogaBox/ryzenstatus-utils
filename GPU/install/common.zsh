@@ -371,3 +371,106 @@ efi_close() { # id
     MOUNTED_BY_US=0
   fi
 }
+
+# ---- install records -------------------------------------------------------------------------
+# A check runs without root, so it cannot look into an EFI partition that is not mounted, and
+# an install unmounts the partition it mounted. So that the check after an install still
+# knows what the next boot loads, an install that put a kext on an EFI partition writes a
+# record of it, and its uninstall deletes it:
+#   /Library/Application Support/RyzenStatus GPU/installed-<kext name>.txt
+# owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
+# the install ran in), partition (the partition's UUID; disk numbers change between boots),
+# name (the volume name), id (diskNsM then), bundle, version and hash (SHA-256 of what
+# identifies the build). A check takes a record only from the same boot session, only for the
+# build it carries, and only for a partition it cannot look into now: a mounted EFI shows what
+# is really there, and that wins.
+#
+# VCNVT_FAKE_RECORDS is for testing only (tests/loader_install.sh): a folder of the user's
+# for the records instead, honoured only together with --efi-folder. The record of an
+# install to a folder (partition "folder:<path>") is written only then.
+RECORD_DIR="/Library/Application Support/RyzenStatus GPU"
+record_test() { [[ -n ${VCNVT_FAKE_RECORDS:-} && -n ${EFI_DIR:-} ]]; }
+record_dir() { if record_test; then print -r -- ${VCNVT_FAKE_RECORDS:A}; else print -r -- $RECORD_DIR; fi; }
+# The owner the folder and the records must have: root, or the user in test mode.
+record_owner() { if record_test; then /usr/bin/id -un; else print -r -- root; fi; }
+boot_session() { /usr/sbin/sysctl -n kern.bootsessionuuid 2>/dev/null; }
+# True when the path is a real folder (no link), owned by the expected owner and writable by
+# it only.
+record_safe_dir() { # path
+  [[ -d $1 && ! -L $1 ]] || return 1
+  [[ $(/usr/bin/stat -f '%Su' "$1") == $(record_owner) ]] || return 1
+  (( (8#$(/usr/bin/stat -f '%Lp' "$1") & 8#022) == 0 ))
+}
+# Writes the record; prints why when it cannot (the install itself is done then).
+record_write() { # kext-name partition name id bundle version hash
+  local dir=$(record_dir) owner=$(record_owner)
+  local file=$dir/installed-$1.txt
+  if ! record_test; then
+    (( EUID == 0 )) || { print -r -- "note: no install record written (not root)"; return 1; }
+    record_safe_dir "${dir:h}" || { print -r -- "note: no install record written: ${dir:h} is not a folder of root's"; return 1; }
+    if [[ ! -e $dir && ! -L $dir ]]; then
+      /bin/mkdir -m 755 "$dir" || { print -r -- "note: no install record written: cannot make $dir"; return 1; }
+    fi
+  fi
+  record_safe_dir "$dir" || { print -r -- "note: no install record written: $dir is not a folder of $owner's, writable by it only"; return 1; }
+  if [[ -L $file || ( -e $file && ! -f $file ) ]]; then
+    print -r -- "note: no install record written: $file is not a plain file"
+    return 1
+  fi
+  local tmp=$dir/.installed-$1.txt.$$
+  /bin/rm -f -- "$tmp"
+  ( umask 022
+    print -r -- "boot=$(boot_session)"$'\n'"partition=$2"$'\n'"name=$3"$'\n'"id=$4"$'\n'"bundle=$5"$'\n'"version=$6"$'\n'"hash=$7" > "$tmp" ) &&
+    /bin/chmod 644 "$tmp" && /bin/mv -f -- "$tmp" "$file" ||
+    { /bin/rm -f -- "$tmp"; print -r -- "note: the install record could not be written to $file"; return 1; }
+}
+# Deletes the record, if there is one (a plain file in a safe folder only).
+record_remove() { # kext-name
+  local dir=$(record_dir)
+  local file=$dir/installed-$1.txt
+  if ! record_test; then
+    # an uninstall from a folder leaves the record of a partition alone
+    [[ -z ${EFI_DIR:-} ]] && (( EUID == 0 )) || return 0
+  fi
+  record_safe_dir "$dir" || return 0
+  [[ -f $file && ! -L $file ]] && /bin/rm -f -- "$file"
+  return 0
+}
+# Reads the record of this boot session. Sets REC_PARTITION, REC_NAME, REC_ID, REC_BUNDLE,
+# REC_VERSION and REC_HASH and returns 0; returns 1 when there is none, it is not safe to
+# believe (a link, another owner, writable by others) or it is from another boot.
+REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
+record_read() { # kext-name
+  REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
+  local dir=$(record_dir)
+  local file=$dir/installed-$1.txt
+  record_safe_dir "$dir" || return 1
+  [[ -f $file && ! -L $file && $(/usr/bin/stat -f '%Su' "$file") == $(record_owner) ]] || return 1
+  (( (8#$(/usr/bin/stat -f '%Lp' "$file") & 8#022) == 0 )) || return 1
+  local line boot=""
+  while IFS= read -r line; do
+    case $line in
+      boot=*)      boot=${line#*=} ;;
+      partition=*) REC_PARTITION=${line#*=} ;;
+      name=*)      REC_NAME=${line#*=} ;;
+      id=*)        REC_ID=${line#*=} ;;
+      bundle=*)    REC_BUNDLE=${line#*=} ;;
+      version=*)   REC_VERSION=${line#*=} ;;
+      hash=*)      REC_HASH=${line#*=} ;;
+    esac
+  done < "$file"
+  local now=$(boot_session)
+  [[ -n $now && $boot == $now && -n $REC_PARTITION && -n $REC_HASH ]]
+}
+# The partition a record names, as it is called now: its diskNsM when it is attached (found
+# by UUID), the record's own id for a folder (test mode). Returns 1 when it is not attached.
+record_where() {
+  if [[ $REC_PARTITION == folder:* ]]; then print -r -- $REC_ID; return 0; fi
+  local id
+  for id in $(efi_ids); do
+    [[ ${(U)$(efi_field $id 'Disk / Partition UUID')} == ${(U)REC_PARTITION} ]] && { print -r -- $id; return 0; }
+  done
+  return 1
+}
+# The SHA-256 of the given files together.
+files_hash() { /bin/cat -- "$@" 2>/dev/null | /usr/bin/shasum -a 256 | awk '{print $1}'; }

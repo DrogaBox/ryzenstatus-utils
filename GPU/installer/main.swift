@@ -50,6 +50,9 @@ struct EncoderCheck: Decodable {
     let installed: String    // none | current | outdated
     let service: String
     let kext: String
+    /// The package's kext waits on an EFI (a mounted one, or from the install record of this
+    /// boot one that is not mounted now) and another one, or none, runs.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -118,7 +121,7 @@ struct OptionalSuggestion: Equatable {
             let efiOlder = enc.efis.contains { $0.kext == "outdated" || $0.entry == "old" }
             // The package's kext is on a mounted EFI with its entry: an older one runs only
             // until the next boot, so it is no reason to update.
-            let efiCurrent = enc.efis.contains { $0.kext == "current" && $0.entry == "yes" }
+            let efiCurrent = enc.efis.contains { $0.kext == "current" && $0.entry == "yes" } || enc.pendingReboot == true
             self.encoder = enc.installed == "outdated" || (kextOlder && !efiCurrent) || efiOlder
         } else {
             self.encoder = false
@@ -899,7 +902,7 @@ struct ContentView: View {
                 installTitle: upToDate ? "Installed" : (onEfi ? "Update" : "Install"),
                 installTint: .accentColor,
                 installDisabled: busy || !ldr.canInstall || upToDate,
-                removeDisabled: busy || (!onEfi && !loaded),
+                removeDisabled: busy || (!onEfi && !loaded && ldr.pendingReboot != true),
                 onInstall: { confirm = .installLoader },
                 onRemove: { confirm = .removeLoader }
             ) {
@@ -911,7 +914,7 @@ struct ContentView: View {
     @ViewBuilder var encoderSection: some View {
         if let enc = engine.encoder {
             let onEfi = enc.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
-            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi
+            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi || enc.pendingReboot == true
             let status: String = {
                 if enc.installed == "current" && enc.service == "running" { return "ok" }
                 if enc.canInstall { return enc.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
@@ -949,7 +952,7 @@ struct ContentView: View {
             let toolsOnly = sns.toolsOnly == true
             // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
             // takes just those.
-            let kextThere = onEfi || loaded
+            let kextThere = onEfi || loaded || sns.pendingReboot == true
             let toolsInstalled = sns.toolsInstalled == true
             let installTitle: String = {
                 if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
