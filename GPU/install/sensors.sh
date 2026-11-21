@@ -10,6 +10,9 @@
 #   sudo install/sensors.sh uninstall [--efi diskNsM] remove the entry and the kext; then reboot
 #   sudo install/sensors.sh tools                     copy gpucontrol and gpusensors to
 #                                                     /usr/local/bin (install does it too)
+#   sudo install/sensors.sh uninstall-tools           remove only those two commands, ours
+#                                                     only (uninstall does it too); for when
+#                                                     the kext is gone already
 #   install/sensors.sh --help
 #
 # The commands in /usr/local/bin belong to root and only root can change them, so a program
@@ -60,7 +63,7 @@ PROLOGUE=554889e5415741565350c745e400000000
 show_help() { help_of "$SELF_DIR/sensors.sh"; }
 usage_error() {
   print -r -u2 -- "sensors.sh: $1"
-  print -r -u2 -- "usage: sensors.sh {check [--json] [--efi-folder DIR] | install | uninstall [--efi diskNsM | --efi-folder DIR] | tools} [--kext DIR]"
+  print -r -u2 -- "usage: sensors.sh {check [--json] [--efi-folder DIR] | install | uninstall [--efi diskNsM | --efi-folder DIR] | tools | uninstall-tools} [--kext DIR]"
   exit 64
 }
 
@@ -156,7 +159,7 @@ preflight() {
   if [[ -n ${VCNVT_FAKE_GPU:-} && -n $EFI_DIR ]]; then
     gpus=( "$VCNVT_FAKE_GPU" )
   else
-    gpus=( ${(f)"$(/usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
+    gpus=( ${(f)"$(displays_report | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
   fi
   local g gpu=""
   for g in "${gpus[@]}"; do
@@ -241,20 +244,28 @@ conclude() {
   fi
 }
 
+check_json() {
+  print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
+  print -rn -- "\"tools\":\"$TOOLS_STATE\",\"toolsOnly\":$([[ $TOOLS_ONLY -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"toolsInstalled\":$([[ $TOOLS_OURS -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
+  print
+}
+
 do_check() {
   preflight
   look_running
   efi_scan
   tools_check
+  efi_choice_check sensors-efi
   conclude
   if [[ $JSON -eq 1 ]]; then
-    print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
-    print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
-    print -rn -- "\"tools\":\"$TOOLS_STATE\",\"toolsOnly\":$([[ $TOOLS_ONLY -eq 1 ]] && echo true || echo false),"
-    print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
-    print
+    check_json
     return 0
   fi
+  local json_to=$(check_json_to)
+  [[ -n $json_to ]] && check_json > "$json_to"
   print -r -- "GPUSensors ${$(kext_file_version "$KEXT"):-(not built)} in $KEXT"
   print -rl -- "${CHECK_LINES[@]}"
   print -r -- "Running now: $RUN_LINE"
@@ -291,14 +302,30 @@ do_uninstall() {
   kext_uninstall || return 0
 }
 
+# Only the commands, for a Mac where the kext is gone already (taken off the EFI by hand,
+# for example): Remove all and the GPU sensors' Remove run this then. Ours only.
+do_uninstall_tools() {
+  [[ -z $EFI_ID && -z $EFI_DIR ]] || usage_error "uninstall-tools takes no --efi or --efi-folder"
+  [[ $EUID -eq 0 ]] || { print -r -u2 -- "uninstall-tools must run as root: sudo install/$SCRIPT uninstall-tools"; exit 1; }
+  gpu_tools_look
+  if (( ! ${#GPU_TOOLS_OURS} && ! ${#GPU_TOOLS_OTHER} )); then
+    print -r -- "gpucontrol and gpusensors are not in $TOOL_DIR. Nothing to remove."
+    return 0
+  fi
+  tools_uninstall
+  gpu_tools_look
+  (( ${#GPU_TOOLS_OURS} )) && { print -r -u2 -- "Could not remove ${(j:, :)GPU_TOOLS_OURS}."; exit 1; }
+  return 0
+}
+
 # ---- the commands in /usr/local/bin ------------------------------------------------------------
 # gpucontrol and gpusensors are copied to /usr/local/bin, owned by root and writable by root
 # only, so a program can run "sudo gpucontrol arm" (or ask for the administrator password and
 # run /usr/local/bin/gpucontrol arm) knowing no other program of the user could have swapped
 # the file. Only files signed with our identifiers are ever replaced or removed.
-TOOL_DIR=/usr/local/bin
-TOOLS=(gpucontrol gpusensors)
-tool_id() { /usr/bin/codesign -dv "$1" 2>&1 | sed -n 's/^Identifier=//p' | head -1; }
+TOOL_DIR=$GPU_TOOL_DIR
+TOOLS=($GPU_TOOL_NAMES)
+tool_id() { gpu_tool_id "$1"; }
 has_acl() { [[ $(/bin/ls -lde "$1" 2>/dev/null | head -1 | cut -c11) == "+" ]]; }
 tool_dir_unsafe() {
   local d=$TOOL_DIR owner mode
@@ -319,7 +346,9 @@ tool_file_unsound() { # file name
   local f=$1 owner mode
   [[ -f $f && ! -L $f ]] || { print -r -- "$f is not a plain file"; return 0; }
   [[ $(tool_id "$f") == com.droga.$2 ]] || { print -r -- "$f is another program"; return 0; }
-  /usr/bin/codesign --verify "$f" 2>/dev/null || { print -r -- "$f was changed after it was signed"; return 0; }
+  local sig
+  sig=$(/usr/bin/codesign --verify "$f" 2>&1) ||
+    { print -r -- "$f does not pass its signature check (codesign: ${${sig//$'\n'/; }:-no reason given})"; return 0; }
   owner=$(/usr/bin/stat -f '%Su' "$f")
   mode=$(/usr/bin/stat -f '%Lp' "$f")
   [[ $owner == root ]] && (( (8#$mode & 8#022) == 0 )) ||
@@ -344,7 +373,11 @@ tool_look() { # name
 TOOLS_STATE=current
 TOOLS_ONLY=0
 TOOLS_NOTE=""
+TOOLS_OURS=0   # 1 when at least one of the two in /usr/local/bin is ours (Remove takes it)
 tools_check() {
+  gpu_tools_look
+  TOOLS_OURS=0
+  (( ${#GPU_TOOLS_OURS} )) && TOOLS_OURS=1
   local -a lines
   local name have=1 missing=0 old=0 bad=0 row efi_current=0
   for name in $TOOLS; do
@@ -430,8 +463,10 @@ tools_uninstall() {
   local name dst
   for name in $TOOLS; do
     dst=$TOOL_DIR/$name
-    [[ -f $dst && ! -L $dst ]] || continue
-    if [[ $(tool_id "$dst") == com.droga.$name ]]; then
+    [[ -e $dst || -L $dst ]] || continue
+    if [[ ! -f $dst || -L $dst ]]; then
+      print -r -- "Left $dst alone: it is not a plain file."
+    elif [[ $(tool_id "$dst") == com.droga.$name ]]; then
       /bin/rm -f "$dst" && print -r -- "Removed $dst."
     else
       print -r -- "Left $dst alone: it is another program."
@@ -451,6 +486,7 @@ case "$CMD" in
   install)   do_install ;;
   uninstall) do_uninstall ;;
   tools)     do_tools ;;
+  uninstall-tools) do_uninstall_tools ;;
   -h|--help|help) show_help ;;
   "") usage_error "no command given" ;;
   *) usage_error "unknown command '$CMD'" ;;

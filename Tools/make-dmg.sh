@@ -342,7 +342,13 @@ ditto "$GPU_APP_BUILD" "$GPU_APP"
 ditto "$GPU_PARTS" "$GPU_APP/Contents/Resources/GPU"
 xattr -cr "$GPU_APP"
 # Sign again: the parts are now resources of the app, and its seal must cover them.
-codesign -f -s - "$GPU_APP" 2>/dev/null
+# codesign's own words are kept for the log when it fails ("replacing existing
+# signature" is all it says when it works).
+if ! GPU_SIGN_OUT="$(codesign -f -s - "$GPU_APP" 2>&1)"; then
+    echo "✗ Error: $GPU_APP_NAME.app could not be signed again:" >&2
+    printf '%s\n' "$GPU_SIGN_OUT" | sed 's/^/    /' >&2
+    exit 1
+fi
 codesign --verify --deep --strict "$GPU_APP"
 # The app itself says where it finds its parts (no window opens).
 GPU_FOUND="$("$GPU_APP/Contents/MacOS/RyzenStatusGPUInstaller" --print-payload)" || {
@@ -507,8 +513,8 @@ ROOT_APPS="$(cd "$MOUNT" && find . -maxdepth 1 -name '*.app' | sort | tr '\n' ' 
 [[ "$ROOT_APPS" == "./$APP_NAME.app " ]] \
     || image_fail "the top of the DMG must hold only $APP_NAME.app; it holds: $ROOT_APPS"
 MOUNTED_GPU_APP="$MOUNT/$GPU_FOLDER/$GPU_APP_NAME.app"
-codesign --verify --deep --strict "$MOUNTED_GPU_APP" 2>/dev/null \
-    || image_fail "$GPU_FOLDER/$GPU_APP_NAME.app does not verify in the DMG"
+GPU_VERIFY_OUT="$(codesign --verify --deep --strict "$MOUNTED_GPU_APP" 2>&1)" \
+    || image_fail "$GPU_FOLDER/$GPU_APP_NAME.app does not verify in the DMG: ${GPU_VERIFY_OUT//$'\n'/; }"
 [[ "$("$MOUNTED_GPU_APP/Contents/MacOS/RyzenStatusGPUInstaller" --print-payload)" \
         == "bundled: $MOUNTED_GPU_APP/Contents/Resources/GPU" ]] \
     || image_fail "$GPU_APP_NAME does not find its parts inside itself in the DMG"

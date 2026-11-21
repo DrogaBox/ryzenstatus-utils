@@ -74,7 +74,8 @@ print "▸ Signatures"
 for signed in $G/decode/build/AV1VCNDecoder.bundle $G/decode/build/VP9VCNDecoder.bundle \
               $G/decode/build/lvprobe $G/decode/build/kextentry $KEXTS \
               $G/sensors/build/gpusensors $G/sensors/build/gpucontrol $ENC/bin/vcnencodefix $ENC/bin/vtenc; do
-  codesign --verify --deep --strict "$signed" 2>/dev/null || fail "${signed#$ROOT/}: the signature does not verify"
+  why=$(codesign --verify --deep --strict "$signed" 2>&1) ||
+    fail "${signed#$ROOT/}: the signature does not verify (codesign: ${${why//$'\n'/; }:-no reason given})"
 done
 [[ $(codesign -dvv $G/decode/build/lvprobe 2>&1) == *library-validation* ]] \
   || fail "lvprobe is not signed with the library-validation flag"

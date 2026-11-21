@@ -186,6 +186,71 @@ enum GPUInstallerDMGTests {
         suite.expect(plist["CFBundleIdentifier"] as? String == "com.ryzenstatus.gpu-installer",
                      "the installer's bundle id is com.ryzenstatus.gpu-installer")
         toolsOffered(suite, root, main)
+        scriptCalls(suite, main, parts)
+        windowStates(suite, main, parts)
+    }
+
+    /// Every script the installer runs, with every literal argument it passes, is in the
+    /// parts it ships, and the script takes that argument: a renamed script or command
+    /// fails here, not after the administrator password. Read from main.swift's
+    /// `script: "…", args: […]` pairs and from the guided install's flags.
+    private static func scriptCalls(_ suite: TestSuite, _ main: String, _ parts: URL) {
+        let calls = groups("script: \"([^\"]+)\",\\s*args: \\[([^\\]]*)\\]", in: main)
+        suite.expect(calls.count >= 14, "main.swift's script calls are found (\(calls.count))")
+        let scripts = Set(all("script: \"([^\"]+)\"", in: main))
+        for script in scripts.sorted() {
+            suite.expect(FileManager.default.fileExists(atPath: parts.appendingPathComponent(script).path),
+                         "the parts carry \(script), which the installer runs")
+        }
+        var missing: [String] = []
+        for call in calls {
+            let source = (try? String(contentsOf: parts.appendingPathComponent(call[0]), encoding: .utf8)) ?? ""
+            let args = all("\"([^\"]*)\"", in: call[1])
+            for (i, arg) in args.enumerated() where !takes(source, arg, after: i > 0 ? args[i - 1] : nil) {
+                missing.append("\(call[0]) \(arg)")
+            }
+        }
+        // The guided install: install.sh plan, and the two flags the boxes add.
+        let install = (try? String(contentsOf: parts.appendingPathComponent("install/install.sh"), encoding: .utf8)) ?? ""
+        for flag in ["plan"] + Set(all("append\\(\"(--with-[a-z]+)\"\\)", in: main)).sorted()
+        where !takes(install, flag, after: nil) {
+            missing.append("install/install.sh \(flag)")
+        }
+        suite.expect(main.contains("var args = [\"plan\"]") && main.components(separatedBy: "append(\"--with-").count == 5,
+                     "the guided install passes plan, --with-encoder and --with-sensors to install/install.sh")
+        suite.expect(missing.isEmpty, "every argument the installer passes is one its script takes: \(missing)")
+    }
+
+    /// True when a zsh script takes an argument: a case label for it ("arg)", "a|arg)"), or,
+    /// for the value of an option (--efi auto), a comparison with it.
+    private static func takes(_ source: String, _ arg: String, after previous: String?) -> Bool {
+        let label = NSRegularExpression.escapedPattern(for: arg)
+        if !groups("(?m)^\\s*(?:[A-Za-z0-9_-]+\\|)*(\(label))(?:\\|[A-Za-z0-9_-]+)*\\)", in: source).isEmpty {
+            return true
+        }
+        return previous?.hasPrefix("--") == true && source.contains("== \(arg) ]]")
+    }
+
+    /// What the window says after an action: a cancelled password prompt is not a failure,
+    /// a restart that does not happen says why, a check is one pass of check.sh, and the GPU
+    /// sensors' commands can be removed without the kext.
+    private static func windowStates(_ suite: TestSuite, _ main: String, _ parts: URL) {
+        suite.expect(main.contains("== -128 {\n                return .cancelled")
+                         && main.contains("case .cancelled:\n                    // The password prompt was cancelled")
+                         && main.contains("case .cancelled(let msg):\n            banner(icon: \"info.circle\", color: .secondary"),
+                     "a cancelled password prompt shows as cancelled, in a neutral banner, not as failed")
+        suite.expect(main.contains("s.executeAndReturnError(&e)\n        guard let e else { return }")
+                         && main.contains("case -1743:"),
+                     "Reboot now says why when the restart does not happen")
+        suite.expect(main.contains("args: [\"--json-dir\", dir.path]")
+                         && !main.contains("args: [\"check\", \"--json\"]"),
+                     "a check is one pass of check.sh, which writes the parts' JSON answers")
+        suite.expect(main.contains("onRemove: { confirm = kextThere ? .removeSensors : .removeSensorsTools }")
+                         && main.contains("removeDisabled: busy || (!kextThere && !toolsInstalled)"),
+                     "the GPU sensors' Remove takes gpucontrol and gpusensors when the kext is gone")
+        let undo = (try? String(contentsOf: parts.appendingPathComponent("install/undo.sh"), encoding: .utf8)) ?? ""
+        suite.expect(undo.contains("elif [[ $tools == yes ]]; then steps+=(\"install/sensors.sh uninstall-tools\"); fi"),
+                     "Remove all takes gpucontrol and gpusensors off when the sensors kext is gone")
     }
 
     /// gpucontrol and gpusensors go to /usr/local/bin even when the sensors kext is current:

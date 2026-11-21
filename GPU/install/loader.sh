@@ -254,21 +254,28 @@ conclude() {
   fi
 }
 
+check_json() {
+  print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
+  print -rn -- "\"accepted\":\"$ACCEPTED\",\"acceptedDetail\":\"$(jesc "$ACCEPT_WHY")\","
+  print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
+  print
+}
+
 do_check() {
   preflight
   look_running
   look_accepted
   efi_scan
+  efi_choice_check loader-efi
   conclude
   local running=$RUN_LINE accepted=$ACCEPTED
   if [[ $JSON -eq 1 ]]; then
-    print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
-    print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$running")\","
-    print -rn -- "\"accepted\":\"$accepted\",\"acceptedDetail\":\"$(jesc "$ACCEPT_WHY")\","
-    print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
-    print
+    check_json
     return 0
   fi
+  local json_to=$(check_json_to)
+  [[ -n $json_to ]] && check_json > "$json_to"
   print -r -- "VCNVTLoader ${$(kext_file_version "$KEXT"):-(not built)} in $KEXT"
   print -rl -- "${CHECK_LINES[@]}"
   print -r -- "Running now: $running"

@@ -159,7 +159,7 @@ preflight() {
 
   # 3. Navi 21 (the package's install.sh refuses anything else). Every card is looked at, as
   #    install.sh does: with integrated graphics the AMD card is not always the first one.
-  local -a gpus=( ${(f)"$(/usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
+  local -a gpus=( ${(f)"$(displays_report | awk -F': ' '/Chipset Model/{m=$2} /Device ID/{print m" ("$2")"}')"} )
   local g gpu=""
   for g in "${gpus[@]}"; do
     if print -rn -- "$g" | grep -qiE '\(0x73(a[0-9a-f]|bf)\)'; then gpu=$g; break; fi
@@ -232,7 +232,10 @@ kext_line() {
 # whether the partition holds OpenCore, the config entry and the kext.
 EFI_JSON=()   # one JSON object per partition
 EFI_LINES=()  # the same as text
+EFI_SCANNED=0
 efi_scan() {
+  (( EFI_SCANNED )) && return 0
+  EFI_SCANNED=1
   EFI_JSON=()
   EFI_LINES=()
   local id
@@ -345,16 +348,21 @@ resolve_efi() {
     EFI_ID=$EFI_FOUND
     echo "Using $EFI_ID: $EFI_FIND_WHY."
   else
-    if (( IN_APP )); then
-      echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY." >&2
-      echo "Nothing was changed. To name the one you boot from, run in Terminal:" >&2
-      echo "  sudo '$SELF_DIR/encoder.sh' $CMD --efi diskNsM   (diskutil list shows them)" >&2
-      echo "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you." >&2
-    else
-      echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY. Name it: sudo install/encoder.sh $CMD --efi diskNsM. Nothing was changed." >&2
-    fi
+    echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY." >&2
+    echo "Nothing was changed." >&2
+    echo "$(efi_choice_help $EFI_FIND_KIND "encoder.sh $CMD")" >&2
     exit 1
   fi
+}
+# A check row for the EFI partition, only when --efi auto (what the app's Install and
+# Remove use) would stop at it: why, and what to do, before any password. Nothing is
+# mounted (efi_guess in common.zsh).
+efi_choice_check() {
+  efi_guess
+  case $EFI_GUESS in
+    ambiguous|foreign|none)
+      add_check enc-efi "EFI partition for the kext" warn "an install with --efi auto cannot tell which one to use: $EFI_GUESS_WHY. $(efi_choice_help $EFI_GUESS "encoder.sh install")" ;;
+  esac
 }
 
 do_install() {
@@ -407,6 +415,10 @@ do_uninstall() {
 case "$CMD" in
   check)
     preflight
+    efi_choice_check
+    # check.sh's one look: the JSON answer too, from the same checks
+    JSON_TO=$(check_json_to)
+    [[ $JSON -eq 0 && -n $JSON_TO ]] && emit_check_json > "$JSON_TO"
     emit_check
     # the JSON form always ends with 0, as the front end expects; the text form tells a
     # script whether install would go ahead

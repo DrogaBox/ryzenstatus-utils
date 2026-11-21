@@ -176,15 +176,21 @@ choose_efi() {
   for id in $EFI_CANDIDATES; do
     print -r -u2 -- "  $id  \"$(efi_field $id 'Volume Name')\" on $(efi_field "$(efi_field $id 'Part of Whole')" 'Device / Media Name')"
   done
-  if (( IN_APP )); then
-    print -r -u2 -- "Nothing was changed. To name the one you boot from, run in Terminal:"
-    print -r -u2 -- "  sudo '$SELF_DIR/$SCRIPT' $CMD --efi diskNsM   (diskutil list shows them)"
-    print -r -u2 -- "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you."
-  else
-    print -r -u2 -- "Name the one you boot from: sudo install/$SCRIPT $CMD --efi diskNsM (diskutil list shows them),"
-    print -r -u2 -- "or --efi-folder with the folder that holds EFI/OC."
-  fi
+  print -r -u2 -- "Nothing was changed."
+  print -r -u2 -- "$(efi_choice_help $EFI_FIND_KIND "$SCRIPT $CMD")"
+  (( IN_APP )) || print -r -u2 -- "Or give --efi-folder with the folder that holds EFI/OC."
   exit 64
+}
+# A check row for the EFI partition, only when an install that is not told the partition
+# would stop at it (efi_guess in common.zsh; nothing is mounted): it says why and what to do
+# before any password. Nothing is added when a folder is given (--efi-folder).
+efi_choice_check() { # check-id
+  [[ -z $EFI_DIR ]] || return 0
+  efi_guess
+  case $EFI_GUESS in
+    ambiguous|foreign|none)
+      add_check "$1" "EFI partition to install on" warn "an install cannot tell which one to use: $EFI_GUESS_WHY. $(efi_choice_help $EFI_GUESS "$SCRIPT install")" ;;
+  esac
 }
 # Sets OC to the EFI/OC folder to work on, mounting the partition when one is used.
 OC=""

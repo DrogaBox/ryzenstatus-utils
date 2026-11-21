@@ -29,6 +29,9 @@ GPU sensors are optional: add `--with-encoder` and `--with-sensors`. With the se
 already current, `--with-sensors` copies only `gpucontrol` and `gpusensors` to
 `/usr/local/bin` when they are missing there or differ. It finds the EFI
 partition OpenCore started from (or the only one that holds OpenCore), or takes `--efi`.
+`plan` looks at the EFI partitions too, without mounting any: when more than one mounted
+EFI partition holds OpenCore and OpenCore does not say which one it started from, the plan
+is blocked and says what to do, before any password.
 When any part asked for cannot be installed, it installs nothing and says why. The one
 exception is a check that a step of the same run settles: when all the decoders wait for is
 the loader kext (none yet, or one built for other plug-ins) and the loader kext can go in,
@@ -40,8 +43,8 @@ when they fail: it lets in only these plug-ins and the next run needs it.
 | File | What it is |
 |---|---|
 | `install.sh` | Decides what this Mac needs and runs the tools below in order. `plan` only says what it would do |
-| `check.sh` | Runs every `check` below and sums them up. It counts the loader kext only when this Mac needs it. `--full` also shows every single check |
-| `undo.sh` | Takes off everything below that it finds installed, each part with its own `uninstall`, EFI parts first, after one confirmation. `--dry-run` only lists the steps. It never picks a partition that is not of type EFI (a rescue USB stick) by itself |
+| `check.sh` | Runs every `check` below once and sums them up. It counts the loader kext only when this Mac needs it. `--full` also shows every single check; `--json-dir DIR` also writes each part's `check --json` answer to `DIR/<part>.json`, from the same look (the app uses it) |
+| `undo.sh` | Takes off everything below that it finds installed, each part with its own `uninstall`, EFI parts first, after one confirmation, and `gpucontrol` and `gpusensors` from `/usr/local/bin` (ours only) even when the sensors kext is gone already. `--dry-run` only lists the steps. It never picks a partition that is not of type EFI (a rescue USB stick) by itself |
 | `decoders.sh` | Installs, repairs or removes the AV1 and VP9 decoder plug-ins |
 | `loader.sh` | Puts VCNVTLoader, the kext the plug-ins need on a Mac without AMFIPass, on your EFI, or takes it off |
 | `sensors.sh` | Puts GPUSensors, the optional kext that shows the GPU readings macOS hides, on your EFI, or takes it off |
@@ -216,7 +219,9 @@ only says so when `Misc > Security > ExposeSensitiveData` has bit `0x1`; otherwi
 script takes the only partition that holds OpenCore. When there are several and it cannot
 tell, it lists them and stops: run it again with `--efi diskNsM`. `--efi-folder DIR` works
 on a folder that holds `EFI/OC` instead, such as a USB stick that is already mounted, or a
-copy.
+copy. `check` says so before any install, when it can tell without mounting anything: a
+check row "EFI partition to install on" appears when more than one mounted EFI partition
+holds OpenCore.
 
 ### What `install` checks first
 
@@ -264,6 +269,7 @@ Optional, and independent of everything else here. See
 install/sensors.sh check                 # changes nothing; ends in one line
 sudo install/sensors.sh install          # then reboot
 sudo install/sensors.sh uninstall        # then reboot
+sudo install/sensors.sh uninstall-tools  # only gpucontrol and gpusensors, when the kext is gone
 ```
 
 It puts the kext on the EFI the same way `loader.sh` does (the code is shared:

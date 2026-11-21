@@ -33,7 +33,9 @@ The app icon is `installer/assets/AppIcon.icns`, rendered from `installer/assets
 ## How it works
 
 - **Install what this Mac needs** runs `install/install.sh plan` (with `--with-encoder` / `--with-sensors` when checked) without root, shows the plan in a sheet, and only runs `install/install.sh` with administrator privileges if you confirm.
-- **Re-check** runs `install/decoders.sh check --json`, `install/loader.sh check --json`, `install/encoder.sh check --json`, `install/sensors.sh check --json`, and `install/check.sh` without administrator privileges.
+- **Re-check** runs `install/check.sh --json-dir DIR` once, without administrator privileges: it checks each part once, prints the summary, and writes each part's `check --json` answer into `DIR`, a folder of the app's own in the temporary folder that it deletes afterwards.
 - Each component has its own collapsible section with **Install** (or **Update** / **Repair**) and **Remove** buttons. Click anywhere on a section's header row to expand or collapse its checks.
 - Actions that modify the system volume, LaunchDaemons, or OpenCore EFI run the corresponding script once through a macOS administrator prompt and display the script's full output.
 - **Remove all** runs `install/undo.sh --yes` after confirmation.
+- Cancelling the administrator password prompt is shown as cancelled (nothing was changed), not as a failure. When **Reboot now** cannot restart the Mac (for example, no permission to control System Events), the window says why.
+- When GPUSensors.kext is gone but our `gpucontrol` or `gpusensors` is still in `/usr/local/bin`, the GPU sensors' **Remove** runs `install/sensors.sh uninstall-tools`, which removes only those.
