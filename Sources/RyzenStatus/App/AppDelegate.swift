@@ -198,6 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // GPUSensors.kext is there. Without the kext this is one IOKit
         // registration and nothing after it.
         GPUSensorsService.shared.watchPresence()
+        // The one place the app connects the GPU control's channel. Making
+        // it opens nothing; a development build connects nothing at all
+        // unless -gpuControlReal YES, so it never takes the control from
+        // the installed app.
+        GPUControlService.shared.connectAtLaunch { KextGPUControlChannel() }
         // One binding per feature: only available features are touched, so a
         // feature switched off in the hub never even instantiates here.
         FeatureRuntime.shared.syncAtLaunch()
@@ -315,6 +320,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         AutoEppService.shared.stop()
         C6ResidencyService.shared.stop()
         FanCurveController.shared.resetFansToAutoSync()
+        // A GPU limit the app holds goes back now (the kext would also go
+        // back when the connection closes with the process).
+        GPUControlService.shared.shutdown()
         LongHistoryStore.shared.save(synchronously: true)
         ExtraBrightnessService.shared.stop()
         ProcessUsageService.shared.stopNetworkMonitoring(force: true)

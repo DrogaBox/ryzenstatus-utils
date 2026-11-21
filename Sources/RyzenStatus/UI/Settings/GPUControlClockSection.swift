@@ -1,0 +1,327 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import AppKit
+import SwiftUI
+
+/// The GFX maximum clock section of Settings > GPU control (plan 7.1,
+/// phase 4): a switch, then a slider from 1500 MHz to the stock maximum with
+/// a field and a stepper. Only ever lower than stock.
+struct GPUControlClockSection: View {
+    let input: GPUControlPageInput
+    let strings: GPUControlPageStrings
+    let clock: GPUControlClockStrings
+    /// The section that asked last, so a refusal shows next to its control.
+    @Binding var lastOD8Source: GPUControlOD8Source
+    let choose: (Int?) -> Void
+
+    @State private var on: Bool
+    @State private var draft: Int
+    @State private var fieldText = ""
+    @State private var outOfRange = false
+
+    init(input: GPUControlPageInput, strings: GPUControlPageStrings, clock: GPUControlClockStrings,
+         lastOD8Source: Binding<GPUControlOD8Source>, choose: @escaping (Int?) -> Void) {
+        self.input = input
+        self.strings = strings
+        self.clock = clock
+        _lastOD8Source = lastOD8Source
+        self.choose = choose
+        let held = Self.heldMHz(input)
+        _on = State(initialValue: held != nil)
+        _draft = State(initialValue: held ?? input.writing?.od8?.stockGfxMaxMHz ?? GPUControlWire.gfxFloorMHz)
+    }
+
+    private static func heldMHz(_ input: GPUControlPageInput) -> Int? {
+        if case .heldByApp(.od8(let want))? = input.state { return want.gfxMaxMHz }
+        return nil
+    }
+
+    /// Nil unless OD8 is read cleanly and the kext offers the clock.
+    private var top: Int? { input.facts?.od8Ready == true ? input.writing?.od8?.stockGfxMaxMHz : nil }
+    private var range: ClosedRange<Int>? { GPUControlClockLogic.range(stockGfxMaxMHz: top) }
+
+    private var enabled: Bool { usable && !input.isPending }
+
+    /// The state takes choices. The slider needs only this: it stays usable
+    /// while its own request waits, so it keeps the keyboard focus and is
+    /// never turned off under the hand that moves it (a11y A3); a newer
+    /// value replaces the waiting one in the controller.
+    private var usable: Bool {
+        range != nil && input.canChoose && (input.state?.acceptsChoices ?? false)
+    }
+
+    var body: some View {
+        Section {
+            // "Writing": the label says what turning it on does. The regular
+            // size, not mini: "Accessibility" asks for at least 20 x 20 pt
+            // on macOS (a11y A8).
+            Toggle(clock.toggle, isOn: Binding(get: { on }, set: { switched($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+                .disabled(!enabled)
+            if range == nil {
+                Label(strings.od8NotRead, systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+            } else if on, let range, let top {
+                clockRow(range: range, top: top)
+            }
+            if case .heldByApp(.power)? = input.state {
+                Label(clock.notePowerHeld, systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if lastOD8Source == .clock, case .switching(.od8)? = input.snapshot?.activity {
+                // "Feedback": the wait of a switch, said next to the control.
+                Label(clock.switching, systemImage: "clock")
+                    .foregroundStyle(.secondary)
+            }
+            if outOfRange, let range {
+                GPUControlProblemLabel(text: String(format: clock.outOfRangeFormat, range.lowerBound, range.upperBound),
+                                       isProblem: true)
+            }
+            if let note = refusal {
+                VStack(alignment: .leading, spacing: 2) {
+                    GPUControlProblemLabel(text: note.sentence, isProblem: true)
+                    if let kext = note.kextText {
+                        Text(String(format: strings.kextSaysFormat, kext))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        } header: {
+            Text(clock.section)
+        } footer: {
+            Text(clock.footer)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: draft) { _, value in fieldText = "\(value)" }
+        // What is held changed on its own (a wake, the kext going back, a
+        // refusal): the switch and the value follow it, unless a request
+        // still waits.
+        .onChange(of: Self.heldMHz(input)) { _, held in
+            guard !input.isPending else { return }
+            on = held != nil
+            draft = held ?? top ?? draft
+        }
+        .onAppear { fieldText = "\(draft)" }
+    }
+
+    private var refusal: GPUControlPageNote? {
+        guard lastOD8Source == .clock, case .refused(let request, _)? = input.snapshot?.outcome,
+              request.isOD8 else { return nil }
+        return GPUControlPageNote.make(input.snapshot, strings)
+    }
+
+    // MARK: The row
+
+    /// "Sliders": a wide range gets a field and a stepper too; minimum on the
+    /// leading side; tick marks every 100 MHz with the ends labelled.
+    /// "Steppers": next to the field that shows the value.
+    /// "VoiceOver": "Provide alternative labels for all key interface
+    /// elements": the slider, the field and the stepper each have their own
+    /// name, so the three are never heard as one.
+    /// "Layout": "horizontally adjacent views may need to stack vertically":
+    /// the field and the stepper go under the slider when the row does not
+    /// fit on one line.
+    /// VoiceOver's names for the row's three controls.
+    static func accessibilityNames(_ clock: GPUControlClockStrings) -> (slider: String, field: String, stepper: String) {
+        (clock.section, clock.fieldLabel, String(format: clock.stepperFormat, GPUControlClockLogic.step))
+    }
+
+    private func clockRow(range: ClosedRange<Int>, top: Int) -> some View {
+        let names = Self.accessibilityNames(clock)
+        // a11y A14: why the control is dimmed, in the state's words.
+        let reason = GPUControlPageContent.disabledReason(input, strings)
+        let slider = GPUControlTickSlider(value: draft, range: range,
+                                          ticks: GPUControlClockLogic.tickCount(stockGfxMaxMHz: top),
+                                          label: names.slider,
+                                          help: Self.sliderHelp(clock, range: range),
+                                          valueDescription: GPUControlPageContent.accessibilityValue(
+                                            "\(draft) MHz", reason: usable ? nil : reason, strings),
+                                          onChange: { draft = GPUControlClockLogic.snapped($0, stockGfxMaxMHz: top) },
+                                          onRelease: { send(draft, top: top) })
+        let entry = HStack(spacing: 8) {
+            // At least 56 pt, wider when the number needs it (a11y A4).
+            TextField(names.field, text: $fieldText)
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(minWidth: 56)
+                .fixedSize(horizontal: true, vertical: false)
+                .onSubmit { commitField(range: range, top: top) }
+                .accessibilityLabel(names.field)
+            Stepper(names.stepper, value: Binding(get: { draft }, set: { value in
+                draft = Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
+                send(draft, top: top)
+            }), in: range, step: GPUControlClockLogic.step)
+                .labelsHidden()
+                .accessibilityLabel(names.stepper)
+                .accessibilityValue(GPUControlPageContent.accessibilityValue(
+                    "\(draft) MHz", reason: enabled ? nil : reason, strings))
+            Text("MHz").foregroundStyle(.secondary)
+        }
+        // While a request waits only the field and the stepper are off; the
+        // slider that sent it stays on (a11y A3).
+        .disabled(!enabled)
+        return VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    slider.frame(minWidth: Self.sliderMinWidth).disabled(!usable)
+                    entry
+                }
+                VStack(alignment: .trailing, spacing: 4) {
+                    slider.disabled(!usable)
+                    entry
+                }
+            }
+            HStack {
+                Text(verbatim: "\(range.lowerBound) MHz")
+                Spacer()
+                Text(String(format: clock.stockFormat, top))
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The slider's help: its two ends, the floor and the stock maximum
+    /// written under it (a11y A16), and what moving it does (A6).
+    static func sliderHelp(_ clock: GPUControlClockStrings, range: ClosedRange<Int>) -> String {
+        String(format: clock.sliderHelpFormat, range.lowerBound, range.upperBound)
+    }
+
+    /// The narrowest slider kept on the field's line; below it the field
+    /// and the stepper move under the slider.
+    static let sliderMinWidth: CGFloat = 160
+
+    // MARK: Sending
+
+    private func switched(_ value: Bool) {
+        on = value
+        outOfRange = false
+        // Turning it on shows the control and sends nothing: the stock
+        // maximum is not a hold. Turning it off puts the stock clock back,
+        // keeping a held fan state in the same request.
+        // The controller decides whether there is anything to give back
+        // (a held or waiting clock); it never gives back a power limit.
+        if !value {
+            lastOD8Source = .clock
+            choose(nil)
+            if let top { draft = top }
+        }
+    }
+
+    private func commitField(range: ClosedRange<Int>, top: Int) {
+        // A value outside the range is not sent and not clamped: the field
+        // says what it takes ("Writing": the error next to the field).
+        guard let value = Int(fieldText.trimmingCharacters(in: .whitespaces)), range.contains(value) else {
+            outOfRange = true
+            return
+        }
+        draft = value
+        send(value, top: top)
+    }
+
+    private func send(_ value: Int, top: Int) {
+        outOfRange = false
+        // Always to the controller: it compares with what waits and what is
+        // held, and drops a request that goes back to the held value.
+        lastOD8Source = .clock
+        choose(GPUControlClockLogic.request(value, stockGfxMaxMHz: top))
+    }
+}
+
+/// Which section's OD8 request went out last.
+enum GPUControlOD8Source: Equatable {
+    case fan
+    case clock
+}
+
+/// A native slider with tick marks (SwiftUI's has none on macOS) that
+/// reports every move and the moment it is let go.
+struct GPUControlTickSlider: NSViewRepresentable {
+    let value: Int
+    let range: ClosedRange<Int>
+    let ticks: Int
+    let label: String
+    /// VoiceOver's help: the two ends and what moving it does.
+    var help = ""
+    /// VoiceOver's value: the MHz, and why it is dimmed when it is.
+    var valueDescription = ""
+    let onChange: (Double) -> Void
+    let onRelease: () -> Void
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider(value: Double(value), minValue: Double(range.lowerBound),
+                              maxValue: Double(range.upperBound), target: context.coordinator,
+                              action: #selector(Coordinator.moved(_:)))
+        slider.isContinuous = true
+        slider.numberOfTickMarks = ticks
+        slider.allowsTickMarkValuesOnly = false
+        slider.tickMarkPosition = .below
+        slider.setAccessibilityLabel(label)
+        return slider
+    }
+
+    func updateNSView(_ slider: NSSlider, context: Context) {
+        context.coordinator.parent = self
+        slider.minValue = Double(range.lowerBound)
+        slider.maxValue = Double(range.upperBound)
+        slider.numberOfTickMarks = ticks
+        slider.isEnabled = context.environment.isEnabled
+        if Int(slider.doubleValue.rounded()) != value { slider.doubleValue = Double(value) }
+        // "VoiceOver": "keep your descriptions up-to-date" (a language
+        // change gives the same slider a new name).
+        slider.setAccessibilityLabel(label)
+        slider.setAccessibilityHelp(help)
+        slider.setAccessibilityValueDescription(valueDescription.isEmpty ? "\(value) MHz" : valueDescription)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor final class Coordinator: NSObject {
+        var parent: GPUControlTickSlider
+        init(parent: GPUControlTickSlider) { self.parent = parent }
+
+        /// How long the arrow keys wait after the last press before the
+        /// request goes out (a11y A3).
+        static let keyPause: Duration = .milliseconds(300)
+        var keyPause = Coordinator.keyPause
+        private var keyRelease: Task<Void, Never>?
+
+        @objc func moved(_ sender: NSSlider) {
+            moved(to: sender.doubleValue, event: NSApp.currentEvent?.type)
+        }
+
+        /// The request goes out when the thumb is let go (plan 7.1), not on
+        /// every step of the drag; with the arrow keys, once they pause, so
+        /// holding one down sends one request, not one per step.
+        func moved(to value: Double, event: NSEvent.EventType?) {
+            parent.onChange(value)
+            switch event {
+            case .keyDown?:
+                keyRelease?.cancel()
+                let pause = keyPause
+                keyRelease = Task { [weak self] in
+                    try? await Task.sleep(for: pause)
+                    guard !Task.isCancelled else { return }
+                    self?.release()
+                }
+            case .leftMouseUp?, nil:
+                release()
+            default:
+                break
+            }
+        }
+
+        private func release() {
+            keyRelease?.cancel()
+            keyRelease = nil
+            parent.onRelease()
+        }
+    }
+}
