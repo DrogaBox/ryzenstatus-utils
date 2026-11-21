@@ -154,7 +154,7 @@ enum GPUControlPageTests {
         }
     }
 
-    /// The arm flow's words (the owner's texts) and the warning's reach
+    /// The arm flow's words (as decided for the page) and the warning's reach
     /// (security review S-1: the kext checks no user, so "this Mac").
     private static func armWords(_ suite: TestSuite) {
         let en = GPUControlPageStrings.enUS
@@ -410,7 +410,7 @@ enum GPUControlPageTests {
     private static func powerChoices(_ suite: TestSuite) {
         typealias L = GPUControlPageLogic
         suite.expect(L.powerChoices(bootW: 240, range: range(225, 240)) == [240, 230],
-                     "the owner's card: 240 W and its floor of 225 W leave 230 W only")
+                     "the test RX 6800 XT: 240 W and its floor of 225 W leave 230 W only")
         suite.expect(L.powerChoices(bootW: 240, range: range(192, 240)) == [240, 230, 220, 210, 200],
                      "a lower floor: every 10 W down to it")
         suite.expect(L.powerChoices(bootW: 264, range: range(248, 264)) == [264, 260, 250],
