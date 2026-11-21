@@ -2,6 +2,50 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
+## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
+
+**RyzenStatus now takes care of AMD Radeon RX 6000 cards too: hardware AV1 and VP9 video, full-speed encoding, GPU sensors and GPU control, installed from the DMG.** The AMD processor kexts are untouched; this release adds a GPU installer, a GPU control page, a Monitor window of its own, a style for every menu bar reading, and a much lighter island.
+
+### Added
+
+- **RyzenStatus GPU**: a new installer in the DMG, in the "GPU RX 6000" folder, for the Radeon RX 6800, 6800 XT and 6900 XT. It checks the Mac, installs only what is needed, updates parts that are out of date, and says when a part is installed and waiting for a reboot. It also removes everything again.
+  - **Hardware AV1 and VP9 decoding**: Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU. YouTube in 4K60 is decoded by the card, checked on an RX 6800 XT with macOS 26.7.3.
+  - **Encoding fix**: hardware HEVC and H.264 encoding at full speed, such as OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls.
+  - **GPU sensors**: a kext that shows the temperatures, voltages, throttling, clocks and PCIe link the card's driver already reads and keeps hidden.
+  - **Loader kext**: lets macOS load the two decoders, and only those.
+  - **Before you install**: it needs an OpenCore EFI with Lilu, authenticated root turned off from Recovery for the decoders, and SIP's debugging restriction off for the encoding service. Every part runs only on the macOS builds it was checked against and stays off on any other one. Keep a USB stick that boots your previous EFI.
+- **GPU control**: with the GPU sensors kext, Settings has a GPU control page for the power limit, a fan curve with zero RPM, and a lower maximum GFX clock.
+  - **Power limit**: chosen from a menu, from the card's start-up value down to its own minimum in 10 W steps (worked out the way Linux does: 225 W on an RX 6800 XT that starts at 240 W), with a way back to the start-up values. The menu bar panel shows it too.
+  - **Fan curve**: five points, a chart against the stock curve, and a live sentence that says whether the card will take it or which point is wrong, before anything is sent. A switch keeps the fan always on.
+  - **Maximum clock**: only ever lower than stock, from 1500 MHz up, with a slider, a field and a stepper.
+  - **Allow GPU Changes**: changes are opened with your administrator password and stay open until the Mac restarts or you close them again. The app never asks for the password on its own.
+  - **Remember**: optional, off by default. It applies again, at launch and after a wake, what the card last confirmed.
+  - Whatever the card refuses is said next to the control that asked, and a power limit and a fan or clock setting are never held at the same time: the page says which one gives way.
+- **Monitor window**: the Dashboard leaves Settings and becomes a window of its own, like Activity Monitor, with six sections: Overview, Processes, Processor, Network, History and Diagnostics.
+  - **Processes**: one sortable, searchable table of every app, with CPU, memory, GPU and estimated energy. It replaces the process manager, the Insights list and the Energy tab. Terminate asks first, refuses protected system processes, and never acts on a process that has since been replaced by another one.
+  - **History**: the 30-day history, never shown before, as a chart with range and metric pickers.
+  - **From any app**: Control-Shift-Escape opens the Monitor or brings it to the front. The shortcut can be changed or turned off.
+  - A View menu opens it with ⌘0 and switches sections with ⌘1 to ⌘6.
+- **Menu bar styles**: every reading has its own style, chosen from a menu in its row: label above, one line, value only, or icon and value. Readings with two values can be two lines with or without a name, or one line. Usage readings keep bars, ring, history and per-core graphs, and disk usage can also be a ring.
+- **Menu bar appearance**: Fixed or Fit to value width, narrow text, highlighted high values, and monochrome or color graphs.
+- **Now Playing for every player**: on macOS 15.4 and later, TIDAL, browsers, video players and every other app that publishes what it plays show again, with title, artist, album, position, cover and play/pause, next and previous. TIDAL has its own choice in the Now Playing source and in "Search".
+- **GPU control readout**: Settings > Sensors shows what the GPU sensors kext reports about the GPU control, read only: its state, the start-up power profile and power limit, the power range, the last limit sent, and sleeps and wakes.
+
+### Improved
+
+- **Lighter island**: the island's changing numbers roll with Core Animation instead of being drawn again on every frame. With the System page open, RyzenStatus went from about 14% to about 3% of a core on our test Mac. A long scrolling line in the capsule is drawn only when its text changes, the companion's slow loops run at 30 frames per second, and pointer moves far from a hidden island cost less.
+- **Lighter Monitor**: every section reads only what it shows, and nothing while the window is hidden or closed.
+- **Legible menu bar**: labels above values go from 6.6 pt to 8 pt, the letters beside bars and graphs from 6.1 pt to 7 pt, all in one typeface with fixed-width digits. The CPU frequency uses your region's decimal separator, and highlighted values use system orange and red, which stay readable on a light menu bar.
+- **Menu bar**: the title is written only when a reading changes, the bar redraws as soon as the menu bar changes between light and dark, and VoiceOver reads the readings as words.
+- **Menu bar settings**: a section of their own, with Items, Appearance and Behavior, and options that appear only where they do something. Old styles carry over at the first launch, so a bar nobody touched keeps its look.
+
+### Fixed
+
+- **Menu bar**: a graph with "combine temperatures" on drew the usage twice, and a three-digit power reading widened the CPU usage block.
+- **Updates**: the updater installs RyzenStatus.app by name, so the GPU installer in the DMG can never be installed in its place, and an update that only changed the capital letters of the app's name no longer deletes the new copy.
+- **Now Playing**: seeking in a player read only through the system's media session never moved, and a player that reports only its playback rate showed as paused.
+- **Translations**: the names and descriptions of the four monitor extras in the Feature Hub are translated, and the DMG's caption reads in Spanish and English instead of Portuguese.
+
 ## [1.85.0] — 2026-11-17 — kexts 3.40.3 (No kext changes)
 
 **A lighter start, and a round of fixes and small features across the tools.** The AMD side is untouched; this release makes startup and a few tools lighter, fixes the microphone mute and the monitor speakers, and adds options to the Dynamic Island, the displays and the tools.
