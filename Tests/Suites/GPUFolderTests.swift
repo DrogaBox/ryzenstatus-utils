@@ -19,6 +19,34 @@ enum GPUFolderTests {
         }
         privateText(suite, files)
         licenses(suite, files)
+        outsideText(suite)
+    }
+
+    /// The same names outside GPU/: Tests/ and Sources/ came from the same
+    /// private tree. Not the home folder rule: the app's tests hold made-up
+    /// home folder paths on purpose.
+    private static func outsideText(_ suite: TestSuite) {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let rules: [(String, Bool)] = [
+            ("DrogaBoxGPU(?!Sensors|ControlClient)", false),
+            ("github\\.com/DrogaBox/DrogaBox", true),
+        ]
+        var hits: [String] = []
+        var count = 0
+        for top in ["Tests", "Sources"] {
+            for (path, text) in files(under: root.appendingPathComponent(top)) {
+                count += 1
+                // This file holds the patterns themselves.
+                if top == "Tests" && path == "Suites/GPUFolderTests.swift" { continue }
+                for (rule, caseInsensitive) in rules {
+                    hits += lines(matching: rule, in: text, caseInsensitive: caseInsensitive).map { "\(top)/\(path):\($0)" }
+                }
+                // The private trust kext's name, found by its digest (see below).
+                hits += linesNamingPrivateKext(in: text).map { "\(top)/\(path):\($0)" }
+            }
+        }
+        suite.expect(count > 100, "Tests/ and Sources/ are walked from the repo root (\(count) files)")
+        suite.expect(hits.isEmpty, "no file in Tests/ or Sources/ names the private repositories: \(hits)")
     }
 
     /// Every file of GPU/ that git would track, by path relative to GPU/, as text. Build

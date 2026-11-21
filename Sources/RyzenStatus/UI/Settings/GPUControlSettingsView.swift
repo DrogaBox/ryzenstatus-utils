@@ -42,7 +42,7 @@ struct GPUControlPageInput: Equatable {
     var state: GPUControlPageState?
     var snapshot: GPUControlSnapshot?
     var live = GPUControlLive()
-    var armTool: GPUControlArmTool.Availability = .missing(buildPath: nil)
+    var armTool: GPUControlArmTool.Availability = .missing
     var isArming = false
     var armFailed = false
     var remember = false
@@ -321,20 +321,38 @@ struct GPUControlPageContent: View {
             lines.append(s.sentence(group))
         }
         // The kext's words under the translation, unless the sentence above
-        // already says them (English: "Off: <the kext's text>").
-        if let text, !text.isEmpty,
-           !lines.contains(where: { $0.lowercased().contains(text.lowercased()) }) { lines.append(text) }
+        // already says them (English: "Off: <the kext's text>"), said as the
+        // kext's (a11y A13).
+        if let text, !text.isEmpty, !lines.contains(where: { $0.lowercased().contains(text.lowercased()) }) {
+            lines.append(String(format: s.kextSaysFormat, text))
+        }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
-    private var liveText: String? {
-        func watts(_ value: Double?) -> String {
-            value.map { String(format: s.wattsFormat, Int($0.rounded())) } ?? "–"
-        }
-        let fan = input.live.fanRPM.map { "\(Int($0.rounded())) RPM" } ?? "–"
-        let hot = input.live.hotspotC.map { "\(Int($0.rounded())) °C" } ?? "–"
-        guard input.live != GPUControlLive() else { return nil }
-        return String(format: s.liveFormat, watts(input.live.boardW), fan, hot)
+    private var liveText: String? { Self.liveText(input.live, s) }
+
+    /// The live row; nil with no reading at all. A missing reading is a
+    /// word, not a dash some screen readers say as "dash" (a11y A15).
+    static func liveText(_ live: GPUControlLive, _ s: GPUControlPageStrings) -> String? {
+        guard live != GPUControlLive() else { return nil }
+        let watts = live.boardW.map { String(format: s.wattsFormat, Int($0.rounded())) } ?? s.noReading
+        let fan = live.fanRPM.map { "\(Int($0.rounded())) RPM" } ?? s.noReading
+        let hot = live.hotspotC.map { "\(Int($0.rounded())) °C" } ?? s.noReading
+        return String(format: s.liveFormat, watts, fan, hot)
+    }
+
+    /// Why a control the page turned off is off, in the state's own words
+    /// (closed, waiting for the driver, applying…): VoiceOver says "dimmed"
+    /// and nothing else (a11y A14). Nil while the state takes choices.
+    static func disabledReason(_ input: GPUControlPageInput, _ s: GPUControlPageStrings) -> String? {
+        guard input.isPending || input.state?.acceptsChoices != true else { return nil }
+        return input.stateTitle(s, short: true)
+    }
+
+    /// A control's own value, then why it is off, as one list.
+    static func accessibilityValue(_ value: String, reason: String?, _ s: GPUControlPageStrings) -> String {
+        guard let reason else { return value }
+        return value.isEmpty ? reason : value + s.listSeparator + reason
     }
 
     // MARK: Power limit
@@ -383,7 +401,7 @@ struct GPUControlPageContent: View {
         VStack(alignment: .leading, spacing: 2) {
             GPUControlProblemLabel(text: note.sentence, isProblem: note.isProblem)
             if let kext = note.kextText {
-                Text(kext)
+                Text(String(format: s.kextSaysFormat, kext))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -410,7 +428,7 @@ struct GPUControlPageContent: View {
                 Text(s.floorUnknown)
                     .fixedSize(horizontal: false, vertical: true)
                 if let why = input.facts?.powerRangeState {
-                    Text(why).foregroundStyle(.secondary)
+                    Text(String(format: s.kextSaysFormat, why)).foregroundStyle(.secondary)
                 }
             }
             .font(.caption)
@@ -445,6 +463,12 @@ struct GPUControlPageContent: View {
             }
             .pickerStyle(.menu)
             .disabled(!enabled || choices.isEmpty)
+            // a11y A6: what choosing does, before the range below is heard;
+            // A14: why it is dimmed.
+            .accessibilityHint(s.powerHint)
+            .accessibilityValue(Self.accessibilityValue(
+                (shown ?? choices.first).map { $0 == choices.first ? String(format: s.bootFormat, $0) : String(format: s.wattsFormat, $0) } ?? "",
+                reason: enabled ? nil : Self.disabledReason(input, s), s))
             if let limits { limitsRow(limits) }
             if let note {
                 // "Writing": the error next to the problem, with what to do.
@@ -477,13 +501,15 @@ struct GPUControlPageContent: View {
     // MARK: Remembering (plan 8)
 
     /// Its own section: it can be set while writing is still closed.
-    /// "Toggles", macOS: within a grouped form, a mini switch per row (as in
-    /// the fan section); its label says what turning it on does.
+    /// "Toggles": its label says what turning it on does. The regular size,
+    /// not mini: "Accessibility" asks for controls of at least 20 x 20 pt
+    /// on macOS (a11y A8, chosen over the mini switch "Toggles" suggests for
+    /// grouped forms).
     private var rememberSection: some View {
         Section {
             Toggle(s.rememberToggle, isOn: Binding(get: { input.remember }, set: { actions.setRemember($0) }))
                 .toggleStyle(.switch)
-                .controlSize(.mini)
+                .controlSize(.regular)
         } footer: {
             Text(s.rememberFooter)
                 .font(.caption)
@@ -510,6 +536,7 @@ struct GPUControlPageContent: View {
                     Button(s.openWriting) { actions.openWriting() }
                         .buttonStyle(.borderedProminent)
                         .disabled(input.isArming || !input.canChoose)
+                        .accessibilityHint(s.openWritingHint)
                 }
             case .unsafe(let reason, let path):
                 VStack(alignment: .leading, spacing: 2) {
@@ -523,13 +550,11 @@ struct GPUControlPageContent: View {
                         .foregroundStyle(.secondary)
                 }
                 commandRow(input.armTool.command)
-            case .missing(let buildPath):
-                if buildPath == nil {
-                    Text(s.notInstalled)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            case .missing:
+                Text(s.notInstalled)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 commandRow(input.armTool.command)
             }
             if input.armFailed {
@@ -552,6 +577,9 @@ struct GPUControlPageContent: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(command, forType: .string)
                     copied = true
+                    // The label changes, but VoiceOver does not say so on
+                    // its own (a11y A11).
+                    AccessibilityNotification.Announcement(s.copied).post()
                 }
             }
         }

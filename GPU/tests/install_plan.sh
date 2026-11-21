@@ -57,6 +57,13 @@ DEC_WAIT_OLD='{"canInstall":false,"installed":"outdated"}'
 DEC_WAIT_CURRENT='{"canInstall":false,"installed":"current"}'
 DEC_READY='{"canInstall":true,"installed":"none"}'
 DEC_CURRENT='{"canInstall":true,"installed":"current"}'
+# decoders.sh's install record of this boot: these plug-ins are in the next boot's snapshot
+# (an older build, or none, runs now), or ours were removed from it (they still run now)
+DEC_PENDING='{"canInstall":true,"installed":"outdated","pending":"install"}'
+DEC_PENDING_WAIT='{"canInstall":false,"installed":"none","pending":"install"}'
+DEC_REMOVED='{"canInstall":true,"installed":"current","pending":"remove"}'
+DEC_REMOVED_WAIT='{"canInstall":false,"installed":"current","pending":"remove"}'
+DEC_NO_PENDING='{"canInstall":true,"installed":"outdated","pending":"none"}'
 LDR_READY='{"canInstall":true,"result":"ready. Loader kext > Install puts it on your EFI"}'
 LDR_BLOCKED='{"canInstall":false,"result":"blocked. Fix the checks marked FAIL first."}'
 LDR_WORKING='{"canInstall":true,"result":"working: VCNVTLoader is running and lists these plug-ins"}'
@@ -66,6 +73,8 @@ SNS_TOOLS_OLD='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, act
 SNS_CURRENT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"current","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_TOOLS_BLOCKED='{"canInstall":true,"version":"0.8.0","running":"loaded 0.8.0, active, 10 readings since boot","tools":"blocked","toolsOnly":false,"result":"working: GPUSensors is active and has readings."}'
 SNS_OLD_KEXT='{"canInstall":true,"version":"0.8.0","running":"loaded 0.7.2, no status, 0 readings since boot","tools":"missing","toolsOnly":false,"result":"GPUSensors 0.7.2 is loaded"}'
+SNS_PENDING='{"canInstall":true,"version":"0.8.0","running":"loaded 0.7.2, no status, 0 readings since boot","tools":"missing","toolsOnly":false,"pendingReboot":true,"result":"installed on disk1s3: GPUSensors 0.8.0 loads at the next boot"}'
+LDR_PENDING='{"canInstall":true,"pendingReboot":true,"result":"installed on disk1s3, not running yet. Reboot from that EFI to start it."}'
 # the encoding fix installed, running and the package's version, with the kext on the EFI
 # the package's build, another build, or the service stopped
 enc_json() { # service efi-entry efi-kext
@@ -149,6 +158,18 @@ plan oldkext --with-sensors
 expect "the kext is a step" $(has "put GPUSensors.kext on the EFI")
 expect "the commands are not a step of their own" $(lacks "copy gpucontrol and gpusensors to /usr/local/bin:")
 
+print -r -- "this sensors kext is on the EFI, an older one runs until the reboot"
+fake pendingkext on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_PENDING"
+plan pendingkext --with-sensors
+expect "nothing to install (exit 0)" $(( RC == 0 && $(has "Nothing to install") && $(lacks "put GPUSensors.kext") ))
+expect "the kext is skipped, and said why" $(has "skip sensors: this version is on the EFI already; it loads at the next boot")
+
+print -r -- "the loader kext is on the EFI, not running yet"
+fake pendingloader on "$DEC_CURRENT" "" "$LDR_PENDING" "" "$ENC_NONE" "$SNS_CURRENT"
+plan pendingloader
+expect "nothing to install (exit 0)" $(( RC == 0 && $(has "Nothing to install") && $(lacks "put VCNVTLoader.kext") ))
+expect "the loader is skipped, and said why" $(has "skip loader kext: the right one is on the EFI already; it starts at the next boot")
+
 print -r -- "the encoding fix: skipped only when check would call it installed and working"
 fake enccurrent on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_CURRENT" "$SNS_CURRENT"
 plan enccurrent --with-encoder
@@ -162,6 +183,29 @@ expect "an old config.plist entry: the encoding fix is a step" $(has "install th
 fake encstopped on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_STOPPED" "$SNS_CURRENT"
 plan encstopped --with-encoder
 expect "the service stopped: the encoding fix is a step" $(has "install the encoding fix")
+
+print -r -- "the decoders were installed earlier in this boot; the old ones run until the reboot"
+fake decpending on "$DEC_PENDING" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_CURRENT"
+plan decpending
+expect "nothing to install (exit 0)" $(( RC == 0 && $(has "Nothing to install") ))
+expect "the decoders are skipped, and said why" $(has "skip decoders: these plug-ins are in the boot snapshot already; they load at the next boot")
+expect "no update is offered for them" $(lacks "install the decoder plug-ins")
+fake decpendingwait on "$DEC_PENDING_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+plan decpendingwait
+expect "their checks wait for the loader: still skipped, not blocked (exit 0)" $(( RC == 0 && $(lacks "Nothing was installed") && $(has "skip decoders: these plug-ins are in the boot snapshot already") ))
+expect "the loader is decided on its own: a step" $(( $(has "put VCNVTLoader.kext on the EFI") && $(lacks "install the decoder plug-ins") ))
+fake decnopending on "$DEC_NO_PENDING" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_CURRENT"
+plan decnopending
+expect "no record (pending none): an older build is updated" $(( RC == 0 && $(has "install the decoder plug-ins (needs a reboot)") ))
+
+print -r -- "the decoders were removed earlier in this boot; they run until the reboot"
+fake decremoved on "$DEC_REMOVED" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_CURRENT"
+plan decremoved
+expect "they are installed again (exit 0)" $(( RC == 0 && $(has "install the decoder plug-ins (needs a reboot)") ))
+expect "not skipped as already these" $(lacks "skip decoders")
+fake decremovedwait on "$DEC_REMOVED_WAIT" "$OTHER_BUILD" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"
+plan decremovedwait
+expect "waiting for the loader: installed again right after it" $(( RC == 0 && $(before "put VCNVTLoader.kext" "install the decoder plug-ins right after the loader kext") ))
 
 print -r -- "the EFI partition, told before the password"
 fake efifound on "$DEC_WAIT" "$NOT_LET_IN" "$LDR_READY" "" "$ENC_NONE" "$SNS_CURRENT"

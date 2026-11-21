@@ -213,6 +213,11 @@ Not run on a GPU yet. Everything below is checked on the CPU only, against a mad
 
 Checked on the CPU only (`controltest`) and by building; nothing was loaded or sent to a GPU.
 
+- `Write` says what a program holds. It said "a program holds a lower limit" for a fan or
+  clock change too, because one program holds one thing at a time and both count as a
+  change. Now: "holds a lower limit" only when a lower power limit is confirmed, "holds a
+  fan or clock change (OD8Write); the power limit is the start-up one" for an OD8 change,
+  and "is setting a limit" while a power request is still on its way.
 - `disarm` (channel selector 6, `gpucontrol disarm`) closes writing again without a
   restart. Any program may call it, administrator or not: closing can only make it safer,
   and opening again still needs `arm` as root. It is refused with its own answer

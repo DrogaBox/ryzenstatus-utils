@@ -223,6 +223,8 @@ extension GPUControlStatus.Writing.Gate {
         if rest.hasPrefix("the last OD8 call was not taken") { return .unconfirmed }
         if rest.hasPrefix("going back") { return .reverting }
         if rest.hasPrefix("a program holds") { return .held }
+        // 0.8.0: a power request owned by a program, before the card confirms it.
+        if rest.hasPrefix("a program is setting") { return .held }
         if rest == "nothing held" || rest == "OD8 at stock" { return .idle }
         return .other(text)
     }

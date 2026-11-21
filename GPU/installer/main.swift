@@ -12,7 +12,11 @@ struct CheckItem: Identifiable, Decodable {
 
 struct DecodersCheck: Decodable {
     let canInstall: Bool
-    let installed: String    // none | current | outdated
+    let installed: String    // none | current | outdated (what the running system has)
+    /// From the install record of this boot: these plug-ins are in the next boot's snapshot
+    /// ("install"), or ours are gone from it ("remove"), and the running system keeps what
+    /// it started with until the reboot. none | install | remove.
+    let pending: String?
     let overridable: Bool
     let repairable: Bool
     let validated: Bool
@@ -38,6 +42,8 @@ struct LoaderCheck: Decodable {
     let accepted: String
     let acceptedDetail: String
     let result: String
+    /// The right kext is on the EFI and the next boot starts it: nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -48,6 +54,9 @@ struct EncoderCheck: Decodable {
     let installed: String    // none | current | outdated
     let service: String
     let kext: String
+    /// The package's kext waits on an EFI (a mounted one, or from the install record of this
+    /// boot one that is not mounted now) and another one, or none, runs.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -64,6 +73,9 @@ struct SensorsCheck: Decodable {
     /// At least one of them in /usr/local/bin is ours (signed with our identifier), so
     /// Remove can take it even when the kext is gone.
     let toolsInstalled: Bool?
+    /// This version is on the EFI and the next boot loads it (an older one, or none, runs
+    /// now): nothing to install.
+    let pendingReboot: Bool?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -111,12 +123,18 @@ struct OptionalSuggestion: Equatable {
             // A mounted EFI holds another build of the kext, or an old entry for it: the
             // next boot loads that one (encoder.sh check offers the update, install.sh does it).
             let efiOlder = enc.efis.contains { $0.kext == "outdated" || $0.entry == "old" }
-            self.encoder = enc.installed == "outdated" || kextOlder || efiOlder
+            // The package's kext is on a mounted EFI with its entry: an older one runs only
+            // until the next boot, so it is no reason to update.
+            let efiCurrent = enc.efis.contains { $0.kext == "current" && $0.entry == "yes" } || enc.pendingReboot == true
+            self.encoder = enc.installed == "outdated" || (kextOlder && !efiCurrent) || efiOlder
         } else {
             self.encoder = false
         }
         if let sns = sensors, sns.toolsOnly == true {
             self.sensors = true
+        } else if let sns = sensors, sns.pendingReboot == true {
+            // this version is on the EFI already; the older one runs until the next boot
+            self.sensors = false
         } else if let sns = sensors, let running = Self.loadedVersion(sns.running) {
             self.sensors = Self.isOlder(running, than: sns.version)
         } else {
@@ -809,15 +827,22 @@ struct ContentView: View {
 
     @ViewBuilder var decodersSection: some View {
         if let dec = engine.decoders {
+            let pendingInstall = dec.pending == "install"
+            let pendingRemove = dec.pending == "remove"
+            // What the next boot has: plug-ins removed in this boot count as none.
+            let installed = pendingRemove ? "none" : dec.installed
             let status: String = {
+                if pendingInstall { return "ok" }
                 if dec.repairable { return "warn" }
-                if dec.installed == "current" { return "ok" }
+                if installed == "current" { return "ok" }
                 if dec.canInstall { return dec.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
                 return dec.overridable ? "warn" : "fail"
             }()
             let subtitle: String = {
+                if pendingInstall { return "Installed — loads at the next reboot" }
+                if pendingRemove { return "Removed — finishes at the next reboot" }
                 if dec.repairable { return "Apple's system video plug-ins need repair" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed and up to date"
                 case "outdated": return "Outdated version installed — click Update"
                 default:
@@ -827,16 +852,18 @@ struct ContentView: View {
                 }
             }()
             let installTitle: String = {
+                if pendingInstall { return "Installed" }
                 if dec.repairable { return "Repair" }
                 if dec.overridable && !dec.canInstall { return "Install anyway" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed"
                 case "outdated": return "Update"
                 default:         return "Install"
                 }
             }()
-            let installTint: Color = (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
-            let installDisabled = busy || (!dec.repairable && (dec.installed == "current" || (!dec.canInstall && !dec.overridable)))
+            let installTint: Color = !pendingInstall && (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
+            let installDisabled = busy || pendingInstall
+                || (!dec.repairable && (installed == "current" || (!dec.canInstall && !dec.overridable)))
 
             ComponentSection(
                 title: "Decoder plug-ins (AV1 + VP9)",
@@ -846,7 +873,7 @@ struct ContentView: View {
                 installTitle: installTitle,
                 installTint: installTint,
                 installDisabled: installDisabled,
-                removeDisabled: busy || dec.installed == "none",
+                removeDisabled: busy || (!pendingInstall && installed == "none"),
                 onInstall: {
                     if dec.repairable {
                         confirm = .repairDecoders
@@ -866,8 +893,10 @@ struct ContentView: View {
             let needed = ldr.checks.first(where: { $0.id == "loader-need" })?.detail.hasPrefix("yes:") ?? true
             let onEfi = ldr.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = ldr.running.hasPrefix("loaded")
-            // The EFI copy is this build's and it runs: nothing to update.
-            let upToDate = ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it starts at the next boot: nothing
+            // to update.
+            let upToDate = (ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:"))
+                || ldr.pendingReboot == true
             let status: String = {
                 if !needed { return "ok" }
                 if ldr.result.hasPrefix("working:") || ldr.result.hasPrefix("installed") { return "ok" }
@@ -886,7 +915,7 @@ struct ContentView: View {
                 installTitle: upToDate ? "Installed" : (onEfi ? "Update" : "Install"),
                 installTint: .accentColor,
                 installDisabled: busy || !ldr.canInstall || upToDate,
-                removeDisabled: busy || (!onEfi && !loaded),
+                removeDisabled: busy || (!onEfi && !loaded && ldr.pendingReboot != true),
                 onInstall: { confirm = .installLoader },
                 onRemove: { confirm = .removeLoader }
             ) {
@@ -898,7 +927,7 @@ struct ContentView: View {
     @ViewBuilder var encoderSection: some View {
         if let enc = engine.encoder {
             let onEfi = enc.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
-            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi
+            let installedAny = enc.installed != "none" || enc.service == "running" || enc.kext.hasPrefix("loaded") || onEfi || enc.pendingReboot == true
             let status: String = {
                 if enc.installed == "current" && enc.service == "running" { return "ok" }
                 if enc.canInstall { return enc.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
@@ -928,12 +957,15 @@ struct ContentView: View {
         if let sns = engine.sensors {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
-            let upToDate = sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:")
+            // The EFI copy is this build's and it runs, or it loads at the next boot: nothing
+            // to update.
+            let upToDate = (sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:"))
+                || sns.pendingReboot == true
             // The kext needs nothing; gpucontrol and gpusensors in /usr/local/bin do.
             let toolsOnly = sns.toolsOnly == true
             // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
             // takes just those.
-            let kextThere = onEfi || loaded
+            let kextThere = onEfi || loaded || sns.pendingReboot == true
             let toolsInstalled = sns.toolsInstalled == true
             let installTitle: String = {
                 if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }

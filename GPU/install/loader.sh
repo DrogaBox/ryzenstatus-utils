@@ -55,6 +55,7 @@ VP9=VP9VCNDecoder.bundle
 LIVE=/System/Library/Video/Plug-Ins
 KNAME=VCNVTLoader
 KEXEC=VCNVTLoader
+KBUNDLE=com.droga.VCNVTLoader
 KOFFARG=-vcnvtoff
 SCRIPT=loader.sh
 MIN_LILU=1.7.0
@@ -98,6 +99,10 @@ done
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ -n $EFI_ID && $CMD == check ]] && usage_error "check looks at every EFI partition; --efi goes with install and uninstall"
 [[ -n $EFI_ID && -n $EFI_DIR ]] && usage_error "give --efi or --efi-folder, not both"
+# VCNVT_FAKE_LIVE is for testing only (tests/loader_install.sh), honoured only with
+# --efi-folder, like VCNVT_FAKE_RUNNING in sensors.sh: a folder that stands in for the
+# plug-ins of the running system, which install's closing note looks at.
+[[ -n ${VCNVT_FAKE_LIVE:-} && -n $EFI_DIR ]] && LIVE=${VCNVT_FAKE_LIVE:A}
 
 # What check says about a copy of the kext: whether it lists the plug-ins being installed.
 kext_usable() { lists_both "$1"; }
@@ -215,9 +220,13 @@ look_accepted() {
 # The whole picture in one line. Needs preflight, look_running, look_accepted and efi_scan.
 RESULT=""
 RESULT_OK=1
+# 1 when the result says that the right kext is on the EFI and the next boot starts it:
+# nothing is left to install then. check --json calls it "pendingReboot".
+PENDING_REBOOT=0
 conclude() {
   local accepted=$ACCEPTED
   RESULT_OK=1
+  PENDING_REBOOT=0
   local update=""
   [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one $(pick "in ${KEXT:h:t}: 'sudo install/loader.sh install' updates it" "in this app: Loader kext > Update in this window updates it")."
   # the kext that runs is what check is about; checks marked FAIL only stop a new install
@@ -238,6 +247,7 @@ conclude() {
     [[ $RUN_STATE == "no status" ]] && which="the running kext is a version before 1.1.0 and does not accept these plug-ins"
     if [[ -n $READY_ON && -z $STALE_ON ]]; then
       RESULT="$which; the right one is on $READY_ON. Reboot from that EFI."
+      PENDING_REBOOT=1
     else
       RESULT="$which. $(pick "Run 'sudo install/loader.sh install'" "Update it in this window (Loader kext > Update)"), then reboot."
       RESULT_OK=0
@@ -249,6 +259,7 @@ conclude() {
     RESULT_OK=0
   elif [[ -n $READY_ON && -z $STALE_ON ]]; then
     RESULT="installed on $READY_ON, not running yet. Reboot from that EFI to start it."
+    PENDING_REBOOT=1
   else
     RESULT="ready. $(pick "'sudo install/loader.sh install'" "Loader kext > Install in this window") puts the kext on your EFI; then reboot."
   fi
@@ -258,6 +269,7 @@ check_json() {
   print -rn -- "{\"canInstall\":$([[ $CAN_INSTALL -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
   print -rn -- "\"accepted\":\"$ACCEPTED\",\"acceptedDetail\":\"$(jesc "$ACCEPT_WHY")\","
+  print -rn -- "\"pendingReboot\":$([[ $PENDING_REBOOT -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
   print
 }
@@ -297,6 +309,10 @@ do_install() {
   fi
   kext_install
   print -r -- "Reboot. Then $(pick "'install/loader.sh check' tells you in one line whether it works" "open RyzenStatus GPU again: it checks whether the kext works")."
+  # install.sh sets GPU_INSTALL_DECODERS_NEXT=1 when it installs the decoder plug-ins right
+  # after this kext, in the same run: a note on the plug-ins installed now would send the
+  # user to do what the run does next.
+  [[ ${GPU_INSTALL_DECODERS_NEXT:-0} == 1 ]] && return 0
   if [[ ! -d $LIVE/$AV1 || ! -d $LIVE/$VP9 ]]; then
     print -r -- "The decoder plug-ins are not installed yet: $(pick "'sudo install/decoders.sh install' before you reboot." "install them in this window (Decoder plug-ins > Install) before you reboot; if that stays unavailable, reboot first and install them then.")"
   elif [[ "$(cdhash_of "$LIVE/$AV1")" != "$(cdhash_of "$BUNDLES/$AV1")" || "$(cdhash_of "$LIVE/$VP9")" != "$(cdhash_of "$BUNDLES/$VP9")" ]]; then

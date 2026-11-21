@@ -80,6 +80,14 @@ while (( $# )); do
 done
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ $FORCE -eq 1 && $CMD != install && $CMD != repair ]] && usage_error "--force goes with install and repair only"
+# VCNVT_FAKE_RECORDS and VCNVT_FAKE_LIVE are for testing only (tests/loader_install.sh), and
+# like VCNVT_FAKE_BUILD they count for check only, which changes nothing: a folder of the
+# user's for the install record (common.zsh), and a folder that stands in for the plug-ins
+# of the running system.
+if [[ $CMD == check ]]; then
+  RECORD_FAKE_OK=1
+  [[ -n ${VCNVT_FAKE_LIVE:-} ]] && LIVE=${VCNVT_FAKE_LIVE:A}
+fi
 
 # ---- small helpers -------------------------------------------------------------------------
 plx() { /usr/bin/plutil -extract "$1" raw -o - "$BUILDS_JSON" 2>/dev/null; }
@@ -335,10 +343,66 @@ installed_state() {
   fi
 }
 
+# ---- the record of an install --------------------------------------------------------------
+# install, repair and uninstall change the system volume and bless a new boot snapshot, but
+# the running system keeps the plug-ins it started with until the reboot, and those are what
+# installed_state looks at. So that a check in the same boot does not offer again the update
+# just installed, or call installed the plug-ins just removed, each of them writes a record
+# once the snapshot is blessed (record_put in common.zsh):
+#   /Library/Application Support/RyzenStatus GPU/installed-decoders.txt
+# owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
+# the change ran in), action (install or remove), av1 and vp9 (the cdhashes put in place;
+# empty for remove). A check takes it only from the same boot session, and an install only
+# when both cdhashes are the plug-ins to install now.
+DEC_RECORD=decoders
+dec_record_write() { # install | remove
+  local av1="" vp9=""
+  if [[ $1 == install ]]; then
+    av1=$(cdhash_of "$MNT/$PLUGDIR/$AV1")
+    vp9=$(cdhash_of "$MNT/$PLUGDIR/$VP9")
+  fi
+  # a record that cannot be written must not leave an older one saying something else
+  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" || record_drop $DEC_RECORD
+  return 0
+}
+
+# Sets INSTALLED (installed_state) and PENDING, what the record of this boot says waits for
+# the reboot: install (these plug-ins are in the next boot's snapshot, other ones or none
+# run now), remove (they are gone from it, and still run now) or none. Looked at once.
+INSTALLED=""
+PENDING=none
+look_installed() {
+  [[ -n $INSTALLED ]] && return 0
+  INSTALLED=$(installed_state)
+  PENDING=none
+  local file line boot="" action="" av1="" vp9=""
+  local now=$(boot_session)
+  file=$(record_file $DEC_RECORD) || return 0
+  while IFS= read -r line; do
+    case $line in
+      boot=*)   boot=${line#*=} ;;
+      action=*) action=${line#*=} ;;
+      av1=*)    av1=${line#*=} ;;
+      vp9=*)    vp9=${line#*=} ;;
+    esac
+  done < "$file"
+  [[ -n $now && $boot == $now ]] || return 0
+  case $action in
+    install)
+      [[ $INSTALLED != current && -n $av1 && -n $vp9 &&
+         $av1 == "$(cdhash_of "$BUNDLES/$AV1")" && $vp9 == "$(cdhash_of "$BUNDLES/$VP9")" ]] && PENDING=install ;;
+    remove)
+      [[ $INSTALLED != none ]] && PENDING=remove ;;
+  esac
+  return 0
+}
+
 emit_check_json() {
   local can=$1 ovr=$2
+  look_installed
   print -rn -- "{\"canInstall\":$([[ $can -eq 1 ]] && echo true || echo false),"
-  print -rn -- "\"installed\":\"$(installed_state)\","
+  print -rn -- "\"installed\":\"$INSTALLED\","
+  print -rn -- "\"pending\":\"$PENDING\","
   print -rn -- "\"overridable\":$([[ $ovr -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"repairable\":$([[ $REPAIRABLE -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"validated\":$([[ $SOFT_FAIL -eq 0 ]] && echo true || echo false),"
@@ -353,17 +417,34 @@ emit_check_json() {
 }
 
 emit_check_text() {
+  look_installed
   print -r -- "macOS $(macos_product) ($(macos_build))"
   print -r -- "Plug-ins to install: $BUNDLES"
   print -rl -- "${CHECK_LINES[@]}"
-  case $(installed_state) in
-    none)     print -r -- "Installed now: no decoder plug-in in $LIVE" ;;
-    current)  print -r -- "Installed now: both plug-ins, the same code as the ones to install" ;;
-    outdated) print -r -- "Installed now: one or both plug-ins, not the same code as the ones to install" ;;
-    unknown)  print -r -- "Installed now: decoder plug-ins in $LIVE; none built in $BUNDLES to compare them with" ;;
+  local now=""
+  case $INSTALLED in
+    none)     now="no decoder plug-in in $LIVE" ;;
+    current)  now="both plug-ins, the same code as the ones to install" ;;
+    outdated) now="one or both plug-ins, not the same code as the ones to install" ;;
+    unknown)  now="decoder plug-ins in $LIVE; none built in $BUNDLES to compare them with" ;;
   esac
-  if [[ $CAN_INSTALL -eq 1 ]]; then
-    case $(installed_state) in
+  case $PENDING in
+    install) now+="; the new ones are in the next boot's snapshot and load at the next boot" ;;
+    remove)  now+="; they are gone from the next boot's snapshot and stop at the next boot" ;;
+  esac
+  print -r -- "Installed now: $now"
+  # An install or removal of this boot waits only for the reboot. Its result starts with
+  # "installed" or "removed", which check.sh reads.
+  if [[ $PENDING == install ]]; then
+    # A repair restores Apple's plug-ins in that snapshot, so the damage the checks see in
+    # the running system is gone at the next boot too; any other FAIL is not.
+    local still=""
+    (( CAN_INSTALL || REPAIRABLE )) || still=" The checks marked FAIL still stand."
+    print -r -- "Result: installed; they load at the next reboot.$still"
+  elif [[ $PENDING == remove ]]; then
+    print -r -- "Result: removed; the running system keeps them until the next reboot."
+  elif [[ $CAN_INSTALL -eq 1 ]]; then
+    case $INSTALLED in
       current)  print -r -- "Result: installed. Both plug-ins are the ones $(pick "in $BUNDLES" "in this app"); nothing to do." ;;
       outdated) print -r -- "Result: ready to update. $(pick "'sudo install/decoders.sh install' puts the plug-ins in $BUNDLES in place" "Decoder plug-ins > Update in this window puts these in place"); it needs a reboot afterwards." ;;
       *)        print -r -- "Result: ready. $(pick "'sudo install/decoders.sh install' can run" "Decoder plug-ins > Install in this window can run"); it needs a reboot afterwards." ;;
@@ -563,6 +644,7 @@ do_repair() {
     echo "driver build not validated: decoders NOT installed (Apple plug-ins repaired only)"
   fi
   bless_snapshot || exit 1
+  [[ $with_decoders -eq 1 ]] && dec_record_write install
   echo "OK: reboot to apply"
 }
 
@@ -589,6 +671,7 @@ do_install() {
   install_one "$BUNDLES/$AV1" "$AV1" || exit 1
   install_one "$BUNDLES/$VP9" "$VP9" || exit 1
   bless_snapshot || exit 1
+  dec_record_write install
   echo "OK: reboot to load the decoders"
 }
 
@@ -604,6 +687,7 @@ do_uninstall() {
   safe_rm_bundle "$MNT/$PLUGDIR/$VP9" || exit 1
   echo "removed both bundles"
   bless_snapshot || exit 1
+  dec_record_write remove
   echo "OK: reboot to apply"
 }
 
@@ -617,8 +701,11 @@ case "$CMD" in
     [[ $JSON -eq 0 && -n $JSON_TO ]] && emit_check_json $CAN_INSTALL $BLOCK_OVERRIDABLE > "$JSON_TO"
     emit_check
     # the JSON form always ends with 0, as the front end expects; the text form tells a
-    # script whether install would go ahead
+    # script whether install would go ahead, or (an install of this boot that a repair
+    # made, see emit_check_text) whether it is done
+    look_installed
     if [[ $JSON -eq 1 || $CAN_INSTALL -eq 1 ]]; then exit 0
+    elif [[ $PENDING == install && $REPAIRABLE -eq 1 ]]; then exit 0
     elif [[ $BLOCK_OVERRIDABLE -eq 1 ]]; then exit 3
     else exit 2
     fi ;;

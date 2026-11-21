@@ -24,7 +24,7 @@ GPU_ZIP="ReleaseAssets/GPU-Package.zip"
 # Tools/build-gpu-assets.sh prints it; refresh it in the same commit as the zip.
 # The zip's own hash is not pinned: ditto stores modification times, so the same
 # files give another zip (the same lesson as the kext zip below).
-GPU_PAYLOAD_SUMS_SHA256="26b99bf8dd88f8ae634226ae5b991ace18e7f8e969c4f55a1a9a6fde40c66ef6"
+GPU_PAYLOAD_SUMS_SHA256="94352d9799190a5ecb82b36c093055fb6255b1a927028c80b36565f2272cd7e9"
 STAGING=""
 WORK=""
 MOUNT=""

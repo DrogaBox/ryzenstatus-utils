@@ -10,7 +10,8 @@
 #
 # What it decides:
 #   decoders   always (the AV1 and VP9 plug-ins); skipped when the ones installed are
-#              already these
+#              already these, or when these were put in the boot snapshot earlier in this
+#              boot and load at the next one
 #   loader     VCNVTLoader.kext on the EFI, only when nothing else lets the plug-ins in:
 #              not with AMFI switched off or AMFIPass running
 #   encoder    the encoding fix (service and kext), only with --with-encoder
@@ -115,8 +116,17 @@ print -r -- "  macOS $(/usr/bin/sw_vers -productVersion) ($(/usr/bin/sw_vers -bu
 # after the loader, below.
 WAIT_LOADER=0
 dec_failed=""
+# The plug-ins that run now are these, and no removal of this boot waits for the reboot
+# (decoders.sh reads its install record for "pending"; "installed" is the running system).
+dec_current() {
+  [[ $(jfield decoders installed) == current && $(jfield decoders pending) != remove ]]
+}
 if ! look decoders; then
   block decoders "its check did not answer"
+elif [[ $(jfield decoders pending) == install ]]; then
+  # installed earlier in this boot: the running system keeps the old ones until the reboot,
+  # so neither its checks nor what it runs say anything about these
+  SKIPS+=("decoders: these plug-ins are in the boot snapshot already; they load at the next boot")
 elif [[ $(jfield decoders canInstall) != true ]]; then
   dec_failed=$(failed_checks decoders)
   dec_lines=(${(f)dec_failed})
@@ -125,7 +135,7 @@ elif [[ $(jfield decoders canInstall) != true ]]; then
   else
     block decoders "this Mac is not ready for them:"$'\n'"$dec_failed"
   fi
-elif [[ $(jfield decoders installed) == current ]]; then
+elif dec_current; then
   SKIPS+=("decoders: the plug-ins installed are already these")
 else
   STEPS+=(decoders)
@@ -140,6 +150,8 @@ elif ! look loader; then
   block loader "its check did not answer"
 elif [[ $(jfield loader result) == working* ]]; then
   SKIPS+=("loader kext: already on the EFI, running, and it lets these plug-ins in")
+elif [[ $(jfield loader pendingReboot) == true ]]; then
+  SKIPS+=("loader kext: the right one is on the EFI already; it starts at the next boot")
 elif [[ $(jfield loader canInstall) != true ]]; then
   block loader "it is needed here (no AMFIPass, AMFI on) but cannot be installed:"$'\n'"$(failed_checks loader)"
 else
@@ -154,7 +166,7 @@ DEC_AFTER_LOADER=0
 if (( WAIT_LOADER )); then
   if (( ! ${STEPS[(Ie)loader]} )); then
     block decoders "this Mac is not ready for them:"$'\n'"$dec_failed"
-  elif [[ $(jfield decoders installed) == current ]]; then
+  elif dec_current; then
     SKIPS+=("decoders: the plug-ins installed are already these; the loader kext lets them in after the reboot")
   else
     STEPS+=(decoders)
@@ -195,6 +207,9 @@ for part flag in encoder $WITH_ENCODER sensors $WITH_SENSORS; do
   elif in_place $part || [[ $part == sensors && $(jfield sensors toolsOnly) == true ]]; then
     SKIPS+=("$part: already installed and running, the same version")
     [[ $part == sensors ]] && plan_tools
+  elif [[ $part == sensors && $(jfield sensors pendingReboot) == true ]]; then
+    # this version is on the EFI; the commands are copied after the reboot, when it runs
+    SKIPS+=("sensors: this version is on the EFI already; it loads at the next boot")
   elif [[ $(jfield $part canInstall) != true ]]; then
     block $part "it cannot be installed on this Mac:"$'\n'"$(failed_checks $part)"
   else
@@ -287,7 +302,10 @@ for part in $ORDER; do
   print -r -- "== $(step_name $part)"
   case $part in
     decoders) /bin/zsh "$SELF_DIR/decoders.sh" install ;;
-    loader)   /bin/zsh "$SELF_DIR/loader.sh" install --efi "$EFI_ID" ;;
+    # When the decoders are the next step of this run, loader.sh leaves out its note on the
+    # plug-ins installed now: they are replaced before the run ends.
+    loader)   GPU_INSTALL_DECODERS_NEXT=$(( ${ORDER[(Ie)decoders]} > ${ORDER[(Ie)loader]} ? 1 : 0 )) \
+                /bin/zsh "$SELF_DIR/loader.sh" install --efi "$EFI_ID" ;;
     encoder)  /bin/zsh "$SELF_DIR/encoder.sh" install --efi "$EFI_ID" ;;
     sensors)  /bin/zsh "$SELF_DIR/sensors.sh" install --efi "$EFI_ID" ;;
     tools)    /bin/zsh "$SELF_DIR/sensors.sh" tools ;;
