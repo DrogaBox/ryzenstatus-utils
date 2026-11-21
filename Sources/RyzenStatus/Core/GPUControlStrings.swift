@@ -35,6 +35,17 @@ struct GPUControlStrings {
     let notTakenFormat: String
     /// %@ = the watts: sent, but the result could not be read.
     let unconfirmedFormat: String
+    /// `PowerRange` (kext 0.8.0), or the same range worked out from the OD8
+    /// table for 0.7.x.
+    let powerRange: String
+    /// %1$d = the card's floor, %2$d = its start-up limit, %3$d = the step, in watts.
+    let powerRangeFormat: String
+    /// %d = watts: the floor is the start-up limit, nothing to lower.
+    let powerRangeOnlyFormat: String
+    /// %@ = the range as above: worked out by the app from the OD8 table
+    /// (kext 0.7.x), not published by the kext.
+    let powerRangeDerivedFormat: String
+    let powerRangeUnknown: String
     let footer: String
 }
 
@@ -86,6 +97,11 @@ extension GPUControlStrings {
         profileCompute: "compute",
         notTakenFormat: "%@, not taken (code %@)",
         unconfirmedFormat: "%@, not confirmed",
+        powerRange: "Power range",
+        powerRangeFormat: "%1$d–%2$d W in %3$d W steps",
+        powerRangeOnlyFormat: "%d W only",
+        powerRangeDerivedFormat: "%@, from the card’s table",
+        powerRangeUnknown: "Not known yet",
         footer: "Read only. GPUSensors.kext watches the card’s driver; nothing on this page changes the GPU.")
 
     static let ptBR = GPUControlStrings(
@@ -114,6 +130,11 @@ extension GPUControlStrings {
         profileCompute: "computação",
         notTakenFormat: "%@, não aceito (código %@)",
         unconfirmedFormat: "%@, não confirmado",
+        powerRange: "Faixa de energia",
+        powerRangeFormat: "%1$d–%2$d W em passos de %3$d W",
+        powerRangeOnlyFormat: "Só %d W",
+        powerRangeDerivedFormat: "%@, da tabela da placa",
+        powerRangeUnknown: "Ainda não conhecida",
         footer: "Somente leitura. O GPUSensors.kext monitora o driver da placa; nada nesta página altera a GPU.")
 
     static let tr = GPUControlStrings(
@@ -142,6 +163,11 @@ extension GPUControlStrings {
         profileCompute: "hesaplama",
         notTakenFormat: "%@, kabul edilmedi (kod %@)",
         unconfirmedFormat: "%@, doğrulanmadı",
+        powerRange: "Güç aralığı",
+        powerRangeFormat: "%1$d–%2$d W, %3$d W adımlarla",
+        powerRangeOnlyFormat: "Yalnızca %d W",
+        powerRangeDerivedFormat: "%@, kartın tablosundan",
+        powerRangeUnknown: "Henüz bilinmiyor",
         footer: "Yalnızca okuma. GPUSensors.kext kartın sürücüsünü izler; bu sayfadaki hiçbir şey GPU’yu değiştirmez.")
 
     static let ru = GPUControlStrings(
@@ -170,6 +196,11 @@ extension GPUControlStrings {
         profileCompute: "вычисления",
         notTakenFormat: "%@, не принят (код %@)",
         unconfirmedFormat: "%@, не подтверждён",
+        powerRange: "Диапазон мощности",
+        powerRangeFormat: "%1$d–%2$d W с шагом %3$d W",
+        powerRangeOnlyFormat: "Только %d W",
+        powerRangeDerivedFormat: "%@, по таблице карты",
+        powerRangeUnknown: "Пока неизвестен",
         footer: "Только чтение. GPUSensors.kext следит за драйвером карты; ничто на этой странице не меняет ГП.")
 
     static let es = GPUControlStrings(
@@ -198,6 +229,11 @@ extension GPUControlStrings {
         profileCompute: "cómputo",
         notTakenFormat: "%@, no aceptado (código %@)",
         unconfirmedFormat: "%@, sin confirmar",
+        powerRange: "Rango de potencia",
+        powerRangeFormat: "%1$d–%2$d W en pasos de %3$d W",
+        powerRangeOnlyFormat: "Solo %d W",
+        powerRangeDerivedFormat: "%@, de la tabla de la tarjeta",
+        powerRangeUnknown: "Todavía no se conoce",
         footer: "Solo lectura. GPUSensors.kext vigila el controlador de la tarjeta; nada de esta página cambia la GPU.")
 
     static let de = GPUControlStrings(
@@ -226,6 +262,11 @@ extension GPUControlStrings {
         profileCompute: "Berechnung",
         notTakenFormat: "%@, nicht übernommen (Code %@)",
         unconfirmedFormat: "%@, nicht bestätigt",
+        powerRange: "Leistungsbereich",
+        powerRangeFormat: "%1$d–%2$d W in %3$d-W-Schritten",
+        powerRangeOnlyFormat: "Nur %d W",
+        powerRangeDerivedFormat: "%@, aus der Tabelle der Karte",
+        powerRangeUnknown: "Noch nicht bekannt",
         footer: "Nur Anzeige. GPUSensors.kext überwacht den Treiber der Karte; nichts auf dieser Seite ändert die GPU.")
 
     static let fr = GPUControlStrings(
@@ -254,6 +295,11 @@ extension GPUControlStrings {
         profileCompute: "calcul",
         notTakenFormat: "%@, non acceptée (code %@)",
         unconfirmedFormat: "%@, non confirmée",
+        powerRange: "Plage de puissance",
+        powerRangeFormat: "%1$d–%2$d W par pas de %3$d W",
+        powerRangeOnlyFormat: "%d W seulement",
+        powerRangeDerivedFormat: "%@, d’après la table de la carte",
+        powerRangeUnknown: "Pas encore connue",
         footer: "Lecture seule. GPUSensors.kext surveille le pilote de la carte ; rien sur cette page ne modifie le GPU.")
 
     static let it = GPUControlStrings(
@@ -282,6 +328,11 @@ extension GPUControlStrings {
         profileCompute: "calcolo",
         notTakenFormat: "%@, non accettato (codice %@)",
         unconfirmedFormat: "%@, non confermato",
+        powerRange: "Intervallo di potenza",
+        powerRangeFormat: "%1$d–%2$d W a passi di %3$d W",
+        powerRangeOnlyFormat: "Solo %d W",
+        powerRangeDerivedFormat: "%@, dalla tabella della scheda",
+        powerRangeUnknown: "Non ancora noto",
         footer: "Sola lettura. GPUSensors.kext osserva il driver della scheda; nulla in questa pagina modifica la GPU.")
 
     static let ja = GPUControlStrings(
@@ -310,6 +361,11 @@ extension GPUControlStrings {
         profileCompute: "コンピュート",
         notTakenFormat: "%@、未適用（コード %@）",
         unconfirmedFormat: "%@、未確認",
+        powerRange: "電力範囲",
+        powerRangeFormat: "%1$d–%2$d W（%3$d W 刻み）",
+        powerRangeOnlyFormat: "%d W のみ",
+        powerRangeDerivedFormat: "%@（カードのテーブルから）",
+        powerRangeUnknown: "まだ不明",
         footer: "読み取り専用。GPUSensors.kext がカードのドライバを監視します。このページで GPU が変わることはありません。")
 
     static let ko = GPUControlStrings(
@@ -338,6 +394,11 @@ extension GPUControlStrings {
         profileCompute: "컴퓨트",
         notTakenFormat: "%@, 적용 안 됨(코드 %@)",
         unconfirmedFormat: "%@, 확인 안 됨",
+        powerRange: "전력 범위",
+        powerRangeFormat: "%1$d–%2$d W, %3$d W 단위",
+        powerRangeOnlyFormat: "%d W만",
+        powerRangeDerivedFormat: "%@, 카드 표 기준",
+        powerRangeUnknown: "아직 알 수 없음",
         footer: "읽기 전용. GPUSensors.kext가 카드 드라이버를 감시하며, 이 페이지의 어떤 것도 GPU를 바꾸지 않습니다.")
 
     static let zhHans = GPUControlStrings(
@@ -366,6 +427,11 @@ extension GPUControlStrings {
         profileCompute: "计算",
         notTakenFormat: "%@，未被接受（代码 %@）",
         unconfirmedFormat: "%@，未确认",
+        powerRange: "功率范围",
+        powerRangeFormat: "%1$d–%2$d W，步长 %3$d W",
+        powerRangeOnlyFormat: "仅 %d W",
+        powerRangeDerivedFormat: "%@（来自显卡的表）",
+        powerRangeUnknown: "尚不知道",
         footer: "只读。GPUSensors.kext 监视显卡的驱动程序；此页面上的任何内容都不会更改 GPU。")
 
     static let zhTW = GPUControlStrings(
@@ -394,6 +460,11 @@ extension GPUControlStrings {
         profileCompute: "運算",
         notTakenFormat: "%@，未被接受（代碼 %@）",
         unconfirmedFormat: "%@，未確認",
+        powerRange: "功率範圍",
+        powerRangeFormat: "%1$d–%2$d W，間隔 %3$d W",
+        powerRangeOnlyFormat: "僅 %d W",
+        powerRangeDerivedFormat: "%@（來自顯示卡的表）",
+        powerRangeUnknown: "尚不知道",
         footer: "唯讀。GPUSensors.kext 監看顯示卡的驅動程式；此頁面上的任何內容都不會變更 GPU。")
 
     static let sk = GPUControlStrings(
@@ -422,6 +493,11 @@ extension GPUControlStrings {
         profileCompute: "výpočty",
         notTakenFormat: "%@, neprijatý (kód %@)",
         unconfirmedFormat: "%@, nepotvrdený",
+        powerRange: "Rozsah príkonu",
+        powerRangeFormat: "%1$d–%2$d W po %3$d W",
+        powerRangeOnlyFormat: "Len %d W",
+        powerRangeDerivedFormat: "%@, z tabuľky karty",
+        powerRangeUnknown: "Zatiaľ neznámy",
         footer: "Len na čítanie. GPUSensors.kext sleduje ovládač karty; nič na tejto stránke GPU nemení.")
 
     static let uk = GPUControlStrings(
@@ -450,5 +526,10 @@ extension GPUControlStrings {
         profileCompute: "обчислення",
         notTakenFormat: "%@, не прийнято (код %@)",
         unconfirmedFormat: "%@, не підтверджено",
+        powerRange: "Діапазон потужності",
+        powerRangeFormat: "%1$d–%2$d W з кроком %3$d W",
+        powerRangeOnlyFormat: "Лише %d W",
+        powerRangeDerivedFormat: "%@, за таблицею картки",
+        powerRangeUnknown: "Поки невідомий",
         footer: "Лише читання. GPUSensors.kext стежить за драйвером карти; ніщо на цій сторінці не змінює ГП.")
 }

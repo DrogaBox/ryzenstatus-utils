@@ -15,6 +15,8 @@ enum SettingsLivePage: CaseIterable {
     case amdOverclocking
     case amdValidation
     case monitorSettings
+    /// Reads the kext's write state once a second (GPUControlService).
+    case gpuControl
 
     /// Registers a full SystemMonitor client, which samples every family.
     var holdsMonitorClient: Bool {
@@ -22,7 +24,7 @@ enum SettingsLivePage: CaseIterable {
         case .performanceSuite, .sensors, .fans, .amdPower, .monitorSettings: return true
         // Overclocking reads only the kext caches; Validation takes one
         // snapshot when it opens and on request.
-        case .amdOverclocking, .amdValidation: return false
+        case .amdOverclocking, .amdValidation, .gpuControl: return false
         }
     }
 
@@ -30,7 +32,7 @@ enum SettingsLivePage: CaseIterable {
     var holdsLiveSync: Bool {
         switch self {
         case .performanceSuite, .amdPower, .amdOverclocking: return true
-        case .sensors, .fans, .amdValidation, .monitorSettings: return false
+        case .sensors, .fans, .amdValidation, .monitorSettings, .gpuControl: return false
         }
     }
 }

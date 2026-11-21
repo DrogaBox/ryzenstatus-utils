@@ -1094,4 +1094,12 @@ extension DefaultsKey {
     static let notchHoverGrows = "notchHoverGrows"
     // Whether an agent's finish notice carries the API-equivalent cost.
     static let notchAgentsFinishCost = "notchAgentsFinishCost"
+    // GPU control (GPUSensors.kext): ask again for the held setting after a
+    // launch and a wake. Off by default; saved only once the kext confirms.
+    static let gpuControlRemember = "gpuControlRemember"
+    static let gpuControlRememberedKind = "gpuControlRememberedKind"   // "none", "power" or "od8"
+    static let gpuControlRememberedWatts = "gpuControlRememberedWatts"
+    static let gpuControlRememberedCurve = "gpuControlRememberedCurve"   // [C, %] x 5, flat
+    static let gpuControlRememberedZeroRpmOff = "gpuControlRememberedZeroRpmOff"
+    static let gpuControlRememberedGfxMHz = "gpuControlRememberedGfxMHz"
 }

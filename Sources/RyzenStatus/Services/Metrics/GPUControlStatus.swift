@@ -58,6 +58,8 @@ struct GPUControlStatus: Equatable {
     var profileSet: Int?
     var power: Watch?
     var powerWatch: PowerWatch?
+    /// The write path (0.5.0 and later), nil for a kext without it.
+    var writing: Writing?
 
     /// Nil for a kext without the GPU control (0.2.0 and older).
     static func parse(_ properties: [String: Any]) -> GPUControlStatus? {
@@ -68,7 +70,8 @@ struct GPUControlStatus: Equatable {
             profile: text(properties["Profile"]).map(Profile.parse),
             profileSet: integer(properties["ProfileSet"]),
             power: text(properties["Power"]).map(Watch.parse),
-            powerWatch: watch)
+            powerWatch: watch,
+            writing: Writing.parse(properties))
     }
 
     /// The kext's text, trimmed; an empty or blank one counts as absent so it
@@ -103,7 +106,7 @@ struct GPUControlStatus: Equatable {
 
     /// `text` is `word` alone or `word` followed by ":" or a space, so a
     /// longer word that merely starts the same ("setting") does not match.
-    fileprivate static func starts(_ text: String, with word: String) -> Bool {
+    static func starts(_ text: String, with word: String) -> Bool {
         text == word || text.hasPrefix(word + ":") || text.hasPrefix(word + " ")
     }
 
@@ -114,7 +117,7 @@ struct GPUControlStatus: Equatable {
     }
 
     /// What follows "off:", "refused:" or "not set:", nil when nothing does.
-    fileprivate static func reason(_ text: String, after prefix: String) -> String? {
+    static func reason(_ text: String, after prefix: String) -> String? {
         let rest = text.dropFirst(prefix.count).drop { $0 == ":" || $0 == " " }
         let trimmed = rest.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
@@ -192,11 +195,12 @@ extension GPUControlStatus {
             rows.append(GPUControlRow(id: "Power", label: s.powerWatch, value: text,
                                       detail: detail, icon: "bolt"))
         }
+        if let boot = powerWatch?.bootW, boot > 0 {
+            rows.append(GPUControlRow(id: "BootW", label: s.bootPowerLimit,
+                                      value: Self.watts(boot), icon: "bolt.badge.clock", isNumber: true))
+        }
+        if let range = powerRangeRow(s) { rows.append(range) }
         if let watch = powerWatch {
-            if let boot = watch.bootW, boot > 0 {
-                rows.append(GPUControlRow(id: "BootW", label: s.bootPowerLimit,
-                                          value: Self.watts(boot), icon: "bolt.badge.clock", isNumber: true))
-            }
             if let sent = watch.sent, sent > 0, let watts = watch.lastSentW {
                 // Taken only on a result of 0 the app could read; a missing
                 // or unreadable result is not shown as taken.
@@ -216,6 +220,26 @@ extension GPUControlStatus {
             }
         }
         return rows
+    }
+
+    /// The card's power range, after the start-up limit: `PowerRange` from
+    /// kext 0.8.0 (the read-only card publishes it too), or for 0.7.x the
+    /// same range worked out from the OD8 table, as the power menu does,
+    /// marked as the app's. Not known: says so, with the kext's
+    /// `PowerRangeState` under it. No row for a kext without the write path.
+    func powerRangeRow(_ s: GPUControlStrings) -> GPUControlRow? {
+        guard let writing else { return nil }
+        let range = writing.powerRange
+            ?? GPUControlPowerRange.fromOD8(bootW: powerWatch?.bootW, od8: writing.od8, od8Read: writing.od8Read == .read)
+        let icon = "arrow.down.to.line"
+        guard let range, let floor = range.floorW, let top = range.maxW else {
+            return GPUControlRow(id: "PowerRange", label: s.powerRange, value: s.powerRangeUnknown,
+                                 detail: writing.powerRangeState, icon: icon)
+        }
+        var value = floor >= top ? String(format: s.powerRangeOnlyFormat, top)
+            : String(format: s.powerRangeFormat, floor, top, range.stepW)
+        if range.source == .od8Table { value = String(format: s.powerRangeDerivedFormat, value) }
+        return GPUControlRow(id: "PowerRange", label: s.powerRange, value: value, icon: icon, isNumber: true)
     }
 
     /// The control's state in a few words, for the group's header.
