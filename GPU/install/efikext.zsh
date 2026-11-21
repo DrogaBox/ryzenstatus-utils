@@ -176,8 +176,14 @@ choose_efi() {
   for id in $EFI_CANDIDATES; do
     print -r -u2 -- "  $id  \"$(efi_field $id 'Volume Name')\" on $(efi_field "$(efi_field $id 'Part of Whole')" 'Device / Media Name')"
   done
-  print -r -u2 -- "Name the one you boot from: sudo install/$SCRIPT $CMD --efi diskNsM (diskutil list shows them),"
-  print -r -u2 -- "or --efi-folder with the folder that holds EFI/OC."
+  if (( IN_APP )); then
+    print -r -u2 -- "Nothing was changed. To name the one you boot from, run in Terminal:"
+    print -r -u2 -- "  sudo '$SELF_DIR/$SCRIPT' $CMD --efi diskNsM   (diskutil list shows them)"
+    print -r -u2 -- "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you."
+  else
+    print -r -u2 -- "Name the one you boot from: sudo install/$SCRIPT $CMD --efi diskNsM (diskutil list shows them),"
+    print -r -u2 -- "or --efi-folder with the folder that holds EFI/OC."
+  fi
   exit 64
 }
 # Sets OC to the EFI/OC folder to work on, mounting the partition when one is used.

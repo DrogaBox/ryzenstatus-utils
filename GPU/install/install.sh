@@ -84,10 +84,17 @@ print -r -- "Looking at this Mac..."
 print -r -- "  macOS $(/usr/bin/sw_vers -productVersion) ($(/usr/bin/sw_vers -buildVersion))"
 
 # decoders
+# WAIT_LOADER: the decoders' one failed check is that nothing lets them into Safari, or that
+# the loader kext running now lists other plug-ins: the way out is the loader kext.
+WAIT_LOADER=0
 if ! look decoders; then
   block decoders "its check did not answer"
 elif [[ $(jfield decoders canInstall) != true ]]; then
-  block decoders "this Mac is not ready for them:"$'\n'"$(failed_checks decoders)"
+  dec_failed=$(failed_checks decoders)
+  block decoders "this Mac is not ready for them:"$'\n'"$dec_failed"
+  dec_lines=(${(f)dec_failed})
+  [[ ${#dec_lines} -eq 1 && $dec_failed == *"macOS accepts the plug-ins: no: "(VCNVTLoader is running but was built for other plug-ins|nothing on this Mac lets them into Safari)* ]] &&
+    WAIT_LOADER=1
 elif [[ $(jfield decoders installed) == current ]]; then
   SKIPS+=("decoders: the plug-ins installed are already these")
 else
@@ -113,7 +120,8 @@ fi
 in_place() { # part
   case $1 in
     encoder) [[ $(jfield encoder installed) == current && $(jfield encoder kext) == "loaded $(jfield encoder version), active"* ]] ;;
-    sensors) [[ $(jfield sensors result) == working* ]] ;;
+    # working, and the version that runs is the one here (an older one gets updated)
+    sensors) [[ $(jfield sensors result) == working* && $(jfield sensors running) == "loaded $(jfield sensors version),"* ]] ;;
     *) return 1 ;;
   esac
 }
@@ -142,6 +150,19 @@ print
 if (( ${#BLOCKS} )); then
   print -r -- "Nothing was installed. This Mac cannot take everything asked for:"
   for b in $BLOCKS; do print -r -- "  $b"; done
+  # All or nothing stays, so say plainly how the decoders get unstuck when the loader kext
+  # is all they wait for.
+  if (( WAIT_LOADER && ${STEPS[(Ie)loader]} )); then
+    print
+    print -r -- "The way out for the decoders: they wait only for the loader kext, which lets them into Safari."
+    if (( IN_APP )); then
+      print -r -- "Install or update it first, in this window: Loader kext > Install (or Update). Then use"
+      print -r -- "Install what this Mac needs again; if the decoders still wait, reboot and open this window again."
+    else
+      print -r -- "Install or update it first: sudo install/loader.sh install. Then run this again; if the"
+      print -r -- "decoders still wait, reboot and run it again."
+    fi
+  fi
   (( ${#SKIPS} )) && { print -r -- "Also:"; for s in $SKIPS; do print -r -- "  $s"; done; }
   exit 2
 fi
@@ -169,7 +190,13 @@ if (( ${ORDER[(Ie)loader]} || ${ORDER[(Ie)encoder]} || ${ORDER[(Ie)sensors]} )) 
     print -r -- "EFI: $EFI_ID ($EFI_FIND_WHY)."
   else
     print -r -u2 -- "Cannot tell which EFI partition to use: $EFI_FIND_WHY."
-    print -r -u2 -- "Nothing was installed. Name it: sudo install/install.sh ... --efi diskNsM"
+    if (( IN_APP )); then
+      print -r -u2 -- "Nothing was changed. To name the one you boot from, run in Terminal:"
+      print -r -u2 -- "  sudo '$SELF_DIR/install.sh' ... --efi diskNsM   (diskutil list shows them)"
+      print -r -u2 -- "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you."
+    else
+      print -r -u2 -- "Nothing was installed. Name it: sudo install/install.sh ... --efi diskNsM"
+    fi
     exit 2
   fi
 fi
@@ -189,7 +216,7 @@ for part in $ORDER; do
   if (( rc )); then
     print
     print -r -u2 -- "Stopped: $part failed (exit $rc, see above)."
-    (( ${#DONE} )) && print -r -u2 -- "Done before it: ${(j:, :)DONE}. 'sudo install/undo.sh' takes everything off."
+    (( ${#DONE} )) && print -r -u2 -- "Done before it: ${(j:, :)DONE}. $(pick "'sudo install/undo.sh'" "Remove all in this window") takes everything off."
     exit 1
   fi
   DONE+=($part)
@@ -199,4 +226,4 @@ print
 print -r -- "== check"
 /bin/zsh "$SELF_DIR/check.sh" || true
 print
-print -r -- "Installed: ${(j:, :)DONE}. Reboot for it to take effect, then run install/check.sh."
+print -r -- "Installed: ${(j:, :)DONE}. Reboot for it to take effect, then $(pick "run install/check.sh" "open RyzenStatus GPU again to check it")."

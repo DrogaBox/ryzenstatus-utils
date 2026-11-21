@@ -121,10 +121,10 @@ preflight() {
 
   # 1. the kext and the helper that edits config.plist are built
   if [[ ! -f $KEXT/Contents/MacOS/VCNVTLoader || ! -f $KEXT/Contents/Info.plist ]]; then
-    add_check loader-kext "Loader kext built" fail "no VCNVTLoader.kext in ${KEXT:h}; build it with ./build.sh (tools/bootstrap.sh once before)"
+    add_check loader-kext "Loader kext built" fail "$(pick "no VCNVTLoader.kext in ${KEXT:h}; build it with ./build.sh (tools/bootstrap.sh once before)" "no VCNVTLoader.kext inside RyzenStatus GPU.app; $APP_DAMAGED")"
     CAN_INSTALL=0
   elif [[ ! -x $ENTRY ]]; then
-    add_check loader-kext "Loader kext built" fail "$ENTRY is missing; decode/build.sh builds it"
+    add_check loader-kext "Loader kext built" fail "$(pick "$ENTRY is missing; decode/build.sh builds it" "kextentry is missing; $APP_DAMAGED")"
     CAN_INSTALL=0
   else
     add_check loader-kext "Loader kext built" ok "VCNVTLoader $(kext_file_version "$KEXT")"
@@ -132,14 +132,14 @@ preflight() {
 
   # 2. the kext lists the plug-ins it is going to be used with
   if [[ ! -d $BUNDLES/$AV1 || ! -d $BUNDLES/$VP9 ]]; then
-    add_check loader-match "The kext lists the plug-ins" fail "missing $AV1 or $VP9 in $BUNDLES; build them with ./build.sh"
+    add_check loader-match "The kext lists the plug-ins" fail "missing $AV1 or $VP9 $(pick "in $BUNDLES; build them with ./build.sh" "inside RyzenStatus GPU.app; $APP_DAMAGED")"
     CAN_INSTALL=0
   elif [[ ! -f $KEXT/Contents/MacOS/VCNVTLoader ]]; then
     add_check loader-match "The kext lists the plug-ins" fail "there is no kext to look into"
   elif lists_both "$KEXT"; then
-    add_check loader-match "The kext lists the plug-ins" ok "both plug-ins in $BUNDLES"
+    add_check loader-match "The kext lists the plug-ins" ok "both plug-ins $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
   else
-    add_check loader-match "The kext lists the plug-ins" fail "this kext was built for other plug-ins than the ones in $BUNDLES, so it would refuse them. Build both again with ./build.sh: the kext and the plug-ins must come from the same build."
+    add_check loader-match "The kext lists the plug-ins" fail "this kext was built for other plug-ins than the ones $(pick "in $BUNDLES" "inside RyzenStatus GPU.app"), so it would refuse them. $(pick "Build both again with ./build.sh: the kext and the plug-ins must come from the same build." "$APP_DAMAGED.")"
     CAN_INSTALL=0
   fi
 
@@ -200,7 +200,7 @@ look_accepted() {
   if amfi_off; then ACCEPT_WHY="AMFI is switched off"; ACCEPTED=yes; return; fi
   if amfipass_on; then ACCEPT_WHY="AMFIPass is running"; ACCEPTED=yes; return; fi
   if [[ ! -x $PROBE || ! -d $BUNDLES/$AV1 || ! -d $BUNDLES/$VP9 ]]; then
-    ACCEPT_WHY="decode/build.sh was not run, so macOS cannot be asked"
+    ACCEPT_WHY=$(pick "decode/build.sh was not run, so macOS cannot be asked" "lvprobe is missing, so macOS cannot be asked; $APP_DAMAGED")
     ACCEPTED=unknown
     return
   fi
@@ -219,7 +219,7 @@ conclude() {
   local accepted=$ACCEPTED
   RESULT_OK=1
   local update=""
-  [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one in ${KEXT:h:t}: 'sudo install/loader.sh install' updates it."
+  [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one $(pick "in ${KEXT:h:t}: 'sudo install/loader.sh install' updates it" "in this app: Loader kext > Update in this window updates it")."
   # the kext that runs is what check is about; checks marked FAIL only stop a new install
   local blocked=""
   (( CAN_INSTALL )) || blocked=" The checks marked FAIL stop a new install."
@@ -239,7 +239,7 @@ conclude() {
     if [[ -n $READY_ON && -z $STALE_ON ]]; then
       RESULT="$which; the right one is on $READY_ON. Reboot from that EFI."
     else
-      RESULT="$which. Run 'sudo install/loader.sh install', then reboot."
+      RESULT="$which. $(pick "Run 'sudo install/loader.sh install'" "Update it in this window (Loader kext > Update)"), then reboot."
       RESULT_OK=0
     fi
   elif [[ $RUN_STATE == "no status" && $accepted == yes ]]; then
@@ -250,7 +250,7 @@ conclude() {
   elif [[ -n $READY_ON && -z $STALE_ON ]]; then
     RESULT="installed on $READY_ON, not running yet. Reboot from that EFI to start it."
   else
-    RESULT="ready. 'sudo install/loader.sh install' puts the kext on your EFI; then reboot."
+    RESULT="ready. $(pick "'sudo install/loader.sh install'" "Loader kext > Install in this window") puts the kext on your EFI; then reboot."
   fi
 }
 
@@ -289,13 +289,13 @@ do_install() {
     exit 2
   fi
   kext_install
-  print -r -- "Reboot. Then 'install/loader.sh check' tells you in one line whether it works."
+  print -r -- "Reboot. Then $(pick "'install/loader.sh check' tells you in one line whether it works" "open RyzenStatus GPU again: it checks whether the kext works")."
   if [[ ! -d $LIVE/$AV1 || ! -d $LIVE/$VP9 ]]; then
-    print -r -- "The decoder plug-ins are not installed yet: 'sudo install/decoders.sh install' before you reboot."
+    print -r -- "The decoder plug-ins are not installed yet: $(pick "'sudo install/decoders.sh install' before you reboot." "install them in this window (Decoder plug-ins > Install) before you reboot; if that stays unavailable, reboot first and install them then.")"
   elif [[ "$(cdhash_of "$LIVE/$AV1")" != "$(cdhash_of "$BUNDLES/$AV1")" || "$(cdhash_of "$LIVE/$VP9")" != "$(cdhash_of "$BUNDLES/$VP9")" ]]; then
     if ! { kext_lists "$KEXT" "$LIVE/$AV1" && kext_lists "$KEXT" "$LIVE/$VP9"; }; then
       print -r -- "The decoder plug-ins installed now are another build, which this kext does not list:"
-      print -r -- "'sudo install/decoders.sh install' before you reboot."
+      print -r -- "$(pick "'sudo install/decoders.sh install' before you reboot." "Update them in this window (Decoder plug-ins > Update) before you reboot; if that stays unavailable, reboot first and update them then.")"
     fi
   fi
 }
@@ -306,7 +306,7 @@ do_uninstall() {
   if [[ -d $LIVE/$AV1 || -d $LIVE/$VP9 ]] && ! amfi_off && ! amfipass_on &&
      [[ "$(codesign -dvv "$LIVE/$AV1" 2>&1)" == *Signature=adhoc* ]]; then
     print -r -- "After the reboot Safari stops using the decoder plug-ins: nothing else on this Mac lets"
-    print -r -- "them load. They do no harm while refused. To remove them: sudo install/decoders.sh uninstall"
+    print -r -- "them load. They do no harm while refused. To remove them: $(pick "sudo install/decoders.sh uninstall" "Decoder plug-ins > Remove in this window")"
   fi
 }
 

@@ -235,7 +235,7 @@ preflight() {
   elif amfipass_on; then
     add_check loading "$label" ok "AMFIPass is running"
   elif [[ ! -x $PROBE ]]; then
-    add_check loading "$label" fail "cannot ask macOS: $PROBE is missing. Run decode/build.sh, which builds it."
+    add_check loading "$label" fail "cannot ask macOS: $(pick "$PROBE is missing. Run decode/build.sh, which builds it." "$APP_DAMAGED.")"
     HARD_FAIL=1; HARD_OTHER=1
   else
     local kind=$(sig_kind "$BUNDLES/$AV1") lstate=$(loader_prop Status) oc
@@ -253,20 +253,20 @@ preflight() {
         if oc=$(pending_loader); then
           add_check loading "$label" ok "after a reboot from that EFI: the VCNVTLoader.kext in $oc lists them"
         elif [[ $kind == signed ]]; then
-          add_check loading "$label" fail "no: they are signed by '$(sig_authority "$BUNDLES/$AV1")', which this Mac does not trust. Load the kext that trusts that CA, or install the unsigned build from decode/build with VCNVTLoader or AMFIPass."
+          add_check loading "$label" fail "no: they are signed by '$(sig_authority "$BUNDLES/$AV1")', which this Mac does not trust. $(pick "Load the kext that trusts that CA, or install the unsigned build from decode/build with VCNVTLoader or AMFIPass." "Load the kext that trusts that CA, or use the loader kext (Loader kext > Install in this window) or AMFIPass.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ $lstate == active ]]; then
-          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build."
+          add_check loading "$label" fail "no: VCNVTLoader is running but was built for other plug-ins. $(pick "Build both again (./build.sh), run 'sudo install/loader.sh install' and reboot. The kext and the plug-ins must come from the same build." "Update the loader first, in this window: Loader kext > Update. Then install the decoders here; if they still wait, reboot and open this window again.")"
           HARD_FAIL=1; HARD_OTHER=1
         elif [[ -n $lstate ]]; then
           add_check loading "$label" fail "no: VCNVTLoader is loaded but not working ($lstate)."
           HARD_FAIL=1; HARD_OTHER=1
         else
-          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first."
+          add_check loading "$label" fail "no: nothing on this Mac lets them into Safari (${PROBE_WHY:-refused}). $(pick "Choose one: put the loader kext on your OpenCore EFI with 'sudo install/loader.sh install' (open source, accepts only these plug-ins; see decode/loader/README.md), or load AMFIPass. Then run this again. If the kext is already on your EFI and you have not rebooted since, reboot first." "Install the loader first, in this window: Loader kext > Install (it accepts only these plug-ins), or load AMFIPass. Then install the decoders here; if they still wait, reboot and open this window again.")"
           HARD_FAIL=1; HARD_OTHER=1
         fi ;;
       *)
-        add_check loading "$label" fail "could not ask macOS (${PROBE_WHY:-lvprobe failed}). Build again with decode/build.sh."
+        add_check loading "$label" fail "could not ask macOS (${PROBE_WHY:-lvprobe failed}). $(pick "Build again with decode/build.sh." "$APP_DAMAGED.")"
         HARD_FAIL=1; HARD_OTHER=1 ;;
     esac
   fi
@@ -298,9 +298,9 @@ preflight() {
 
   # 7. bundles present
   if [[ -d "$BUNDLES/$AV1" && -d "$BUNDLES/$VP9" ]]; then
-    add_check bundles "Decoder bundles present" ok "AV1 + VP9 bundles found in $BUNDLES"
+    add_check bundles "Decoder bundles present" ok "AV1 + VP9 bundles found $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
   else
-    add_check bundles "Decoder bundles present" fail "missing $AV1 or $VP9 in $BUNDLES; build them with decode/build.sh"
+    add_check bundles "Decoder bundles present" fail "missing $AV1 or $VP9 $(pick "in $BUNDLES; build them with decode/build.sh" "inside RyzenStatus GPU.app; $APP_DAMAGED")"
     HARD_FAIL=1; HARD_OTHER=1
   fi
 
@@ -364,14 +364,14 @@ emit_check_text() {
   esac
   if [[ $CAN_INSTALL -eq 1 ]]; then
     case $(installed_state) in
-      current)  print -r -- "Result: installed. Both plug-ins are the ones in $BUNDLES; nothing to do." ;;
-      outdated) print -r -- "Result: ready to update. 'sudo install/decoders.sh install' puts the plug-ins in $BUNDLES in place; it needs a reboot afterwards." ;;
-      *)        print -r -- "Result: ready. 'sudo install/decoders.sh install' can run; it needs a reboot afterwards." ;;
+      current)  print -r -- "Result: installed. Both plug-ins are the ones $(pick "in $BUNDLES" "in this app"); nothing to do." ;;
+      outdated) print -r -- "Result: ready to update. $(pick "'sudo install/decoders.sh install' puts the plug-ins in $BUNDLES in place" "Decoder plug-ins > Update in this window puts these in place"); it needs a reboot afterwards." ;;
+      *)        print -r -- "Result: ready. $(pick "'sudo install/decoders.sh install' can run" "Decoder plug-ins > Install in this window can run"); it needs a reboot afterwards." ;;
     esac
   elif [[ $BLOCK_OVERRIDABLE -eq 1 ]]; then
-    print -r -- "Result: blocked, this macOS build is not validated. --force overrides it, at the risk of a GPU hang."
+    print -r -- "Result: blocked, this macOS build is not validated. $(pick "--force overrides it" "Decoder plug-ins > Install anyway overrides it"), at the risk of a GPU hang."
   elif [[ $REPAIRABLE -eq 1 ]]; then
-    print -r -- "Result: blocked, Apple's plug-ins are damaged. 'sudo install/decoders.sh repair' can restore them."
+    print -r -- "Result: blocked, Apple's plug-ins are damaged. $(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") can restore them."
   else
     print -r -- "Result: blocked. Fix the checks marked FAIL first."
   fi
@@ -485,7 +485,7 @@ safe_rm_bundle() { # path
 # cdhashes would be empty, and the comparison after the copy would pass on anything.
 source_ok() { # src-bundle-dir
   [[ -f "$1/Contents/Info.plist" && -n "$(cdhash_of "$1")" ]] \
-    || { echo "$1 is incomplete or not signed; build it again with decode/build.sh" >&2; return 1; }
+    || { echo "$1 is incomplete or not signed; $(pick "build it again with decode/build.sh" "$APP_DAMAGED")" >&2; return 1; }
 }
 
 install_one() { # src-bundle-dir  name
@@ -585,7 +585,7 @@ do_install() {
   # sanity: the target must be the real system Plug-Ins folder, with Apple's plug-ins in it
   local -a mntbundles=( "$MNT/$PLUGDIR"/*.bundle(N) )
   [[ -d "$MNT/$PLUGDIR" && ! -e "$MNT/$PLUGDIR/Contents" && -d "$MNT/$PLUGDIR/AppleGVAHEVCDecoder.bundle" && ${#mntbundles} -ge 5 ]] \
-    || { echo "system Plug-Ins folder looks damaged; not touching it ('sudo install/decoders.sh repair' restores Apple's plug-ins)" >&2; exit 4; }
+    || { echo "system Plug-Ins folder looks damaged; not touching it ($(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") restores Apple's plug-ins)" >&2; exit 4; }
   install_one "$BUNDLES/$AV1" "$AV1" || exit 1
   install_one "$BUNDLES/$VP9" "$VP9" || exit 1
   bless_snapshot || exit 1

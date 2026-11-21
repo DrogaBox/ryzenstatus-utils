@@ -79,6 +79,48 @@ struct PlanResult: Identifiable {
     var canInstall: Bool { exitCode == 0 && !nothingToDo }
 }
 
+/// Which optional parts the guided install offers ticked: the ones already installed in an
+/// older version than this app carries. A part that is not installed stays unticked (it is
+/// optional), and one that is up to date has nothing to install.
+struct OptionalSuggestion: Equatable {
+    let encoder: Bool
+    let sensors: Bool
+
+    init(encoder: EncoderCheck?, sensors: SensorsCheck?) {
+        if let enc = encoder {
+            let kextOlder = Self.loadedVersion(enc.kext).map { Self.isOlder($0, than: enc.version) } ?? false
+            self.encoder = enc.installed == "outdated" || kextOlder
+        } else {
+            self.encoder = false
+        }
+        if let sns = sensors, let running = Self.loadedVersion(sns.running) {
+            self.sensors = Self.isOlder(running, than: sns.version)
+        } else {
+            self.sensors = false
+        }
+    }
+
+    /// "1.2.3" out of "loaded 1.2.3, active: ..." (the "running"/"kext" fields of the checks).
+    static func loadedVersion(_ line: String) -> String? {
+        guard line.hasPrefix("loaded ") else { return nil }
+        let rest = line.dropFirst("loaded ".count)
+        let version = rest.prefix { $0.isNumber || $0 == "." }
+        return version.isEmpty ? nil : String(version)
+    }
+
+    /// Dotted version numbers compared number by number ("0.7.2" < "0.8.0" < "0.10.0").
+    static func isOlder(_ a: String, than b: String) -> Bool {
+        let x = a.split(separator: ".").compactMap { Int($0) }
+        let y = b.split(separator: ".").compactMap { Int($0) }
+        guard !x.isEmpty, !y.isEmpty else { return false }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+            if l != r { return l < r }
+        }
+        return false
+    }
+}
+
 enum ConfirmAction: Identifiable {
     case installDecoders(force: Bool)
     case repairDecoders
@@ -135,6 +177,8 @@ final class Engine: ObservableObject {
     /// True when the parts came inside this app (Contents/Resources/GPU), as in the DMG.
     /// Choosing a folder is then not offered: that is only for development builds.
     @Published var rootInBundle = false
+    /// Set after every check that read all parts; the guided install takes it once.
+    @Published var suggestion: OptionalSuggestion? = nil
 
     private static let rootDefaultsKey = "GPUToolsRoot"
     /// The folder the DMG build puts the parts in, inside Contents/Resources.
@@ -260,9 +304,12 @@ final class Engine: ObservableObject {
                 self.overallLine = overall
                 self.leftovers = left
                 if dec == nil || ldr == nil || enc == nil || sns == nil {
-                    self.phase = .failed("Could not read one or more check results from install/.")
-                } else if !preserveOutput {
-                    self.phase = .idle
+                    self.phase = .failed(self.rootInBundle
+                        ? "Could not read one or more check results."
+                        : "Could not read one or more check results from install/.")
+                } else {
+                    self.suggestion = OptionalSuggestion(encoder: enc, sensors: sns)
+                    if !preserveOutput { self.phase = .idle }
                 }
             }
         }
@@ -543,6 +590,9 @@ struct ContentView: View {
     @State private var expanded: Set<ComponentID> = [.decoders]
     @State private var withEncoder = false
     @State private var withSensors = false
+    /// The first complete check ticks the optional parts that are installed in an older
+    /// version (OptionalSuggestion); after that the boxes are the user's.
+    @State private var suggestionTaken = false
 
     var busy: Bool {
         switch engine.phase {
@@ -580,9 +630,15 @@ struct ContentView: View {
                 engine.recheck()
             }
         }
+        .onReceive(engine.$suggestion) { suggestion in
+            guard let suggestion, !suggestionTaken else { return }
+            suggestionTaken = true
+            withEncoder = suggestion.encoder
+            withSensors = suggestion.sensors
+        }
         .alert(item: $confirm) { action in alert(for: action) }
         .sheet(item: $engine.planSheet) { plan in
-            PlanSheetView(plan: plan) {
+            PlanSheetView(plan: plan, bundled: engine.rootInBundle) {
                 engine.planSheet = nil
             } onInstall: {
                 engine.planSheet = nil
@@ -1178,6 +1234,8 @@ struct ContentView: View {
 
 struct PlanSheetView: View {
     let plan: PlanResult
+    /// The parts are inside the app: no script names in the words around the plan.
+    let bundled: Bool
     let onCancel: () -> Void
     let onInstall: () -> Void
 
@@ -1193,8 +1251,10 @@ struct PlanSheetView: View {
                     Text(plan.nothingToDo
                          ? "Everything you asked for is already in place on this Mac."
                          : plan.exitCode == 0
-                         ? "Review what install/install.sh will do, then click Install."
-                         : "install/install.sh plan exited with status \(plan.exitCode). Nothing can be installed.")
+                         ? (bundled ? "Review what will be installed, then click Install."
+                                    : "Review what install/install.sh will do, then click Install.")
+                         : (bundled ? "Nothing can be installed yet. The reasons are below."
+                                    : "install/install.sh plan exited with status \(plan.exitCode). Nothing can be installed."))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

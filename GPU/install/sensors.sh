@@ -129,10 +129,10 @@ preflight() {
 
   # 1. the kext and the helper that edits config.plist are built
   if [[ ! -f $KEXT/Contents/MacOS/$KEXEC || ! -f $KEXT/Contents/Info.plist ]]; then
-    add_check sensors-kext "Sensors kext built" fail "no GPUSensors.kext in ${KEXT:h}; build it with ./build.sh (tools/bootstrap.sh once before)"
+    add_check sensors-kext "Sensors kext built" fail "$(pick "no GPUSensors.kext in ${KEXT:h}; build it with ./build.sh (tools/bootstrap.sh once before)" "no GPUSensors.kext inside RyzenStatus GPU.app; $APP_DAMAGED")"
     CAN_INSTALL=0
   elif [[ ! -x $ENTRY ]]; then
-    add_check sensors-kext "Sensors kext built" fail "$ENTRY is missing; decode/build.sh builds it"
+    add_check sensors-kext "Sensors kext built" fail "$(pick "$ENTRY is missing; decode/build.sh builds it" "kextentry is missing; $APP_DAMAGED")"
     CAN_INSTALL=0
   else
     add_check sensors-kext "Sensors kext built" ok "GPUSensors $(kext_file_version "$KEXT")"
@@ -174,7 +174,7 @@ preflight() {
   look_driver
   case $DRIVER_OK in
     yes) add_check sensors-driver "Driver function as expected" ok "$DRIVER_LIB on this Mac starts as the kext expects" ;;
-    no)  add_check sensors-driver "Driver function as expected" fail "$DRIVER_LIB on this Mac does not start as the kext expects, so the kext would stay off. This macOS build was not checked; see sensors/README.md"
+    no)  add_check sensors-driver "Driver function as expected" fail "$DRIVER_LIB on this Mac does not start as the kext expects, so the kext would stay off. This macOS build was not checked$(pick "; see sensors/README.md" ".")"
          CAN_INSTALL=0 ;;
     *)   add_check sensors-driver "Driver function as expected" warn "could not look (${DRIVER_LIB:-no AMD driver library loaded}); the kext checks again when it starts and stays off if it does not match" ;;
   esac
@@ -197,11 +197,13 @@ sensor_prop() { # name
 RUN_STATE=""
 RUN_SAMPLES=0
 RUN_LINE=""
+RUN_VERSION=""
 look_running() {
   local version=$(kext_version com.droga.GPUSensors)
   RUN_STATE=""
   RUN_SAMPLES=0
   RUN_LINE="not loaded"
+  RUN_VERSION=$version
   [[ -n $version ]] || return 0
   RUN_STATE=$(sensor_prop Status)
   RUN_SAMPLES=$(sensor_prop Samples)
@@ -215,24 +217,27 @@ RESULT_OK=1
 conclude() {
   RESULT_OK=1
   local update=""
-  [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one in ${KEXT:h:t}: 'sudo install/sensors.sh install' updates it."
+  [[ -n $STALE_ON && $CAN_INSTALL -eq 1 ]] && update=" The kext on $STALE_ON is not the one $(pick "in ${KEXT:h:t}: 'sudo install/sensors.sh install' updates it" "in this app: GPU sensors > Update in this window updates it")."
   # the kext that runs is what check is about; checks marked FAIL only stop a new install
   local blocked=""
   (( CAN_INSTALL )) || blocked=" The checks marked FAIL stop a new install."
   if [[ $RUN_STATE == active && ${RUN_SAMPLES:-0} -gt 0 ]]; then
-    RESULT="working: GPUSensors is active and has readings (sensors/build/gpusensors shows them).$update$blocked"
+    RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$update$blocked"
   elif [[ $RUN_STATE == active ]]; then
     RESULT="GPUSensors is active but the driver has not read its sensors yet. Use the GPU a moment and check again.$blocked"
   elif [[ -n $RUN_STATE ]]; then
     RESULT="the kext is loaded but does nothing ($RUN_STATE)."
     RESULT_OK=0
+  elif [[ -n $RUN_VERSION && $RUN_VERSION != "$(kext_file_version "$KEXT")" && $CAN_INSTALL -eq 1 ]]; then
+    # an older (or other) GPUSensors runs, one that publishes no status
+    RESULT="GPUSensors $RUN_VERSION is loaded; $(pick "${KEXT:h:h:t}/${KEXT:h:t} has" "this app has") $(kext_file_version "$KEXT"). $(pick "'sudo install/sensors.sh install' puts it on your EFI" "GPU sensors > Update in this window puts it on your EFI"); then reboot."
   elif [[ $CAN_INSTALL -eq 0 ]]; then
     RESULT="blocked. Fix the checks marked FAIL first."
     RESULT_OK=0
   elif [[ -n $READY_ON && -z $STALE_ON ]]; then
     RESULT="installed on $READY_ON, not running yet. Reboot from that EFI to start it."
   else
-    RESULT="ready. 'sudo install/sensors.sh install' puts the kext on your EFI; then reboot."
+    RESULT="ready. $(pick "'sudo install/sensors.sh install'" "GPU sensors > Install in this window") puts the kext on your EFI; then reboot."
   fi
 }
 
@@ -269,10 +274,14 @@ do_install() {
   fi
   kext_install
   if [[ $EUID -eq 0 && -z $EFI_DIR ]]; then
-    tools_install || print -r -u2 -- "The kext is in place; the commands were not copied (above). 'sudo install/sensors.sh tools' tries again."
+    tools_install || print -r -u2 -- "The kext is in place; the commands were not copied (above). $(pick "'sudo install/sensors.sh tools'" "GPU sensors > Update in this window") tries again."
   fi
-  print -r -- "Reboot. Then 'install/sensors.sh check' tells you in one line whether it works,"
-  print -r -- "and sensors/build/gpusensors shows the readings."
+  if (( IN_APP )); then
+    print -r -- "Reboot. Then open RyzenStatus GPU again: it checks whether the kext works, and RyzenStatus shows the readings."
+  else
+    print -r -- "Reboot. Then 'install/sensors.sh check' tells you in one line whether it works,"
+    print -r -- "and sensors/build/gpusensors shows the readings."
+  fi
 }
 
 do_uninstall() {
@@ -344,7 +353,7 @@ tools_check() {
   local detail=${(j:; :)lines}
   case $worst in
     ok)   add_check sensors-tools "Commands in $TOOL_DIR" ok "$detail" ;;
-    todo) add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; 'sudo install/sensors.sh tools' copies them (optional)" ;;
+    todo) add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; $(pick "'sudo install/sensors.sh tools' copies them" "installing or updating GPU sensors in this window copies them") (optional)" ;;
     bad)  add_check sensors-tools "Commands in $TOOL_DIR" warn "$detail; programs will not run it as root, and tools leaves it alone" ;;
   esac
 }
@@ -357,7 +366,7 @@ tools_install() {
   for name in $TOOLS; do
     src=$ROOT/sensors/build/$name
     [[ -f $src && $(tool_id "$src") == com.droga.$name ]] ||
-      { print -r -u2 -- "sensors/build/$name is missing or not ours; build it with sensors/build.sh"; return 1; }
+      { print -r -u2 -- "$(pick "sensors/build/$name is missing or not ours; build it with sensors/build.sh" "$name is missing or not ours; $APP_DAMAGED")"; return 1; }
     tool_look $name
     [[ $TOOL_ST == foreign ]] && { print -r -u2 -- "Not replacing $TOOL_WHY."; return 1; }
   done
