@@ -28,7 +28,7 @@ enum GPUControlTests {
         ]
     }
 
-    /// GPUSensors 0.3.0 on the RX 6800 XT here (macOS 26.7.3, 2026-11-19),
+    /// GPUSensors 0.3.0 on the test RX 6800 XT (macOS 26.7.3, 2026-11-19),
     /// as `ioreg -r -c DrogaBoxGPUSensors -l` showed it, no `gpuprofile`.
     private static var v030: [String: Any] {
         var p = v020

@@ -1356,27 +1356,46 @@ enum GPUControlChannelTests {
         kextConstants(suite)
     }
 
-    /// Security review S-6: the kext's constants the app mirrors. The kext
-    /// lives in DrogaBoxGPU today, so these are the values of
-    /// `sensors/kext/control_logic.hpp` at DrogaBoxGPU 72d3f1c (GPUSensors
-    /// 0.8.0), copied here and pinned. Once the kext moves into this
-    /// repository (GPU/), this test reads that file and compares instead.
+    /// Security review S-6: the kext's constants the app mirrors, read from
+    /// the kext's own source in this repository
+    /// (`GPU/sensors/kext/control_logic.hpp`, GPUSensors 0.8.0) and compared
+    /// with the app's, so a change on either side fails here.
     /// Not the power floor: since 0.8.0 the floor is the card's own
     /// (`PowerRange`), and `kMinBootW` only checks the start-up read.
     private static func kextConstants(_ suite: TestSuite) {
-        let pinned: [(String, UInt64, UInt64)] = [
-            ("kChannelVersion", 2, GPUControlWire.channelVersion),
-            ("kMaxBootW", 300, UInt64(GPUControlWire.maxBootW)),
-            ("kMinBootW (start-up read check)", 200, UInt64(GPUControlWire.minBootW)),
-            ("kStepW", 10, UInt64(GPUControlWire.powerStepW)),
-            ("kOd8GfxFloorMHz", 1_500, UInt64(GPUControlWire.gfxFloorMHz)),
-            ("kOd8DogHoldMs", 5_000, GPUControlWire.od8DogHoldMs),
-            ("kWakeReadyMarginMs", 2_000, GPUControlWire.wakeReadyMarginMs),
-            ("kSetWaitMs", 5_000, GPUControlWire.setWaitMs),
-            ("kMaxPowerPercentDown", 50, UInt64(GPUControlPowerRange.maxPercentDown)),
+        let path = FileManager.default.currentDirectoryPath + "/GPU/sensors/kext/control_logic.hpp"
+        let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        suite.expect(!source.isEmpty, "S-6: GPU/sensors/kext/control_logic.hpp is read from the repo root")
+        let mirrored: [(String, UInt64)] = [
+            ("kChannelVersion", GPUControlWire.channelVersion),
+            ("kMaxBootW", UInt64(GPUControlWire.maxBootW)),
+            ("kMinBootW", UInt64(GPUControlWire.minBootW)),
+            ("kStepW", UInt64(GPUControlWire.powerStepW)),
+            ("kOd8GfxFloorMHz", UInt64(GPUControlWire.gfxFloorMHz)),
+            ("kOd8DogHoldMs", GPUControlWire.od8DogHoldMs),
+            ("kWakeReadyMarginMs", GPUControlWire.wakeReadyMarginMs),
+            ("kSetWaitMs", GPUControlWire.setWaitMs),
+            ("kMaxPowerPercentDown", UInt64(GPUControlPowerRange.maxPercentDown)),
         ]
-        for (name, kext, app) in pinned {
-            suite.expect(kext == app, "S-6: \(name) is \(kext) in control_logic.hpp 0.8.0, the app has \(app)")
+        let kext = constants(in: source)
+        for (name, app) in mirrored {
+            suite.expect(kext[name] == [app],
+                         "S-6: \(name) is \(kext[name] ?? []) in control_logic.hpp, the app has \(app)")
         }
+    }
+
+    /// `constexpr <integer type> <name> = <decimal>;` lines of a C++ header,
+    /// by name; a name defined twice keeps both values (and fails above).
+    static func constants(in source: String) -> [String: [UInt64]] {
+        let pattern = #"(?m)^\s*(?:static\s+)?constexpr\s+u?int(?:8|16|32|64)_t\s+(k\w+)\s*=\s*([0-9][0-9']*)u?l{0,2}\s*;"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [:] }
+        let text = source as NSString
+        var found: [String: [UInt64]] = [:]
+        for match in regex.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+            let name = text.substring(with: match.range(at: 1))
+            let digits = text.substring(with: match.range(at: 2)).replacingOccurrences(of: "'", with: "")
+            if let value = UInt64(digits) { found[name, default: []].append(value) }
+        }
+        return found
     }
 }
