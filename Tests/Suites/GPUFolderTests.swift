@@ -23,8 +23,8 @@ enum GPUFolderTests {
     }
 
     /// The same names outside GPU/: Tests/ and Sources/ came from the same
-    /// private tree. Not the "/Users/" rule: the app's tests hold made-up
-    /// paths such as "/Users/x/Desktop/Shot.png" on purpose.
+    /// private tree. Not the home folder rule: the app's tests hold made-up
+    /// home folder paths on purpose.
     private static func outsideText(_ suite: TestSuite) {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let rules: [(String, Bool)] = [
