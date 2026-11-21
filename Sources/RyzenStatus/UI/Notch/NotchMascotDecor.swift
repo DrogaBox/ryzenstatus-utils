@@ -575,7 +575,7 @@ final class NotchMascotDecor {
         pulse.toValue = Float(0.5 + glow * 0.5)
         pulse.duration = 1.6 - glow * 0.8
         pulse.autoreverses = true
-        pulse.repeatCount = .infinity
+        pulse.loopsForever()
         chipMark.add(pulse, forKey: "glow")
     }
 
@@ -596,7 +596,7 @@ final class NotchMascotDecor {
     /// The repeating motion of one prop.
     private func loop(for layer: CALayer, mood: MascotAmbient) -> CAAnimation {
         let group = CAAnimationGroup()
-        group.repeatCount = .infinity
+        group.loopsForever()
         switch layer {
         case sweatDrop:
             let fall = keyframes("transform.translation.y", [0, 0, size * 0.16], [0, 0.3, 1], additive: true)
@@ -641,9 +641,12 @@ final class NotchMascotDecor {
         return fitted(group)
     }
 
-    /// A group whose animations all last as long as it does.
+    /// A group whose animations all last as long as it does, at its pace.
     private func fitted(_ group: CAAnimationGroup) -> CAAnimationGroup {
-        group.animations?.forEach { $0.duration = group.duration }
+        group.animations?.forEach {
+            $0.duration = group.duration
+            $0.preferredFrameRateRange = group.preferredFrameRateRange
+        }
         return group
     }
 
@@ -668,7 +671,8 @@ final class NotchMascotDecor {
             turn.fromValue = 0
             turn.toValue = 2 * Double.pi
             turn.duration = 1
-            turn.repeatCount = .infinity
+            // Up to almost four turns a second: at 30 fps five blades would seem to turn backwards.
+            turn.loopsForever(paced: false)
             blades.speed = 0
             blades.timeOffset = 0
             blades.beginTime = 0
@@ -905,7 +909,7 @@ final class NotchMascotDecor {
             move.keyTimes = times.map { NSNumber(value: $0) }
             move.duration = duration
             move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if repeats { move.repeatCount = .infinity }
+            if repeats { move.loopsForever() }
             if delay > 0 { move.beginTime = CACurrentMediaTime() + delay }
             layer.add(move, forKey: key)
         }
@@ -919,7 +923,7 @@ final class NotchMascotDecor {
         move.keyTimes = poses.indices.map { NSNumber(value: Double($0) / Double(max(1, poses.count - 1))) }
         move.duration = duration
         move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        if repeats { move.repeatCount = .infinity }
+        if repeats { move.loopsForever() }
         pins.add(move, forKey: key)
     }
 

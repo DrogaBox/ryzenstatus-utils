@@ -544,12 +544,12 @@ final class NotchMascotCheatBanner {
         pulse.toValue = 28
         pulse.duration = 0.45
         pulse.autoreverses = true
-        pulse.repeatCount = .infinity
+        pulse.loopsForever()
         title.add(pulse, forKey: "pulse")
         let blink = CAKeyframeAnimation(keyPath: "opacity")
         blink.values = [1, 0.25, 1]
         blink.duration = 0.5
-        blink.repeatCount = .infinity
+        blink.loopsForever()
         blink.beginTime = CACurrentMediaTime() + 0.45
         subtitle.add(blink, forKey: "blink")
     }

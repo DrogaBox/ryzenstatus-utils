@@ -3120,12 +3120,28 @@ final class NotchService: ObservableObject {
         // The window is ordered out, so native tracking areas cannot see entry.
         // Observe movement without intercepting the menu bar or polling at rest.
         if let token = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] _ in
-            self?.hover(true)
+            self?.hiddenHoverMoved()
         }) { hiddenHoverMonitors.append(token) }
         if let token = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] event in
-            self?.hover(true)
+            self?.hiddenHoverMoved()
             return event
         }) { hiddenHoverMonitors.append(token) }
+    }
+
+    /// This monitor hears every move on every display; a move far from the
+    /// island with nothing under way skips the hover path (`NotchHiddenHover`).
+    private func hiddenHoverMoved() {
+        let pending = NotchHiddenHover.Pending(
+            inside: inside, emphasized: hoverEmphasized, suppressed: hoverState.suppressed,
+            capture: captureHover != nil, captureControls: captureControls != nil,
+            hoverWork: hoverWork?.isCancelled == false, exitWatch: !hoverExitMonitors.isEmpty)
+        let reach = NotchHiddenHover.reach(collapsed: geometry.frame(for: geometry.collapsed),
+                                           strip: geometry.floatingHoverStrip,
+                                           // A window ordered out keeps its old frame, maybe on another display.
+                                           window: panel?.isVisible == true ? panel?.frame : nil,
+                                           children: panel?.childWindows?.filter(\.isVisible).map(\.frame) ?? [])
+        if NotchHiddenHover.skips(NSEvent.mouseLocation, reach: reach, pending: pending) { return }
+        hover(true)
     }
 
     private func removeHiddenHoverMonitors() {

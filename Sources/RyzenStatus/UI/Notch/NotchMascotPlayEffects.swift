@@ -91,7 +91,8 @@ enum NotchMascotPlayEffects {
         hum.toValue = glow.shadowRadius * 1.3
         hum.duration = 0.12
         hum.autoreverses = true
-        hum.repeatCount = .infinity
+        // A 0.12 s hum keeps the display's rate; at 30 fps it would stutter.
+        hum.loopsForever(paced: false)
         glow.add(hum, forKey: "hum")
         parent.addSublayer(holder)
         return holder
@@ -159,7 +160,8 @@ enum NotchMascotPlayEffects {
         throb.toValue = 1.1
         throb.duration = 0.09
         throb.autoreverses = true
-        throb.repeatCount = .infinity
+        // A 0.09 s throb keeps the display's rate; at 30 fps it would stutter.
+        throb.loopsForever(paced: false)
         throb.beginTime = CACurrentMediaTime() + grow.duration
         orb.add(grow, forKey: "grow")
         orb.add(throb, forKey: "throb")
@@ -198,7 +200,8 @@ enum NotchMascotPlayEffects {
         flicker.toValue = thickness * 1.15
         flicker.duration = 0.06
         flicker.autoreverses = true
-        flicker.repeatCount = .infinity
+        // A 0.06 s flicker keeps the display's rate; at 30 fps it would stutter.
+        flicker.loopsForever(paced: false)
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0

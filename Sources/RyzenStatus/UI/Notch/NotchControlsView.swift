@@ -248,10 +248,8 @@ struct NotchAudioControls: View {
 
     @ViewBuilder private var percent: some View {
         if let level {
-            Text("\(MixerRoutingSupport.displayPercent(forVolume: level))%")
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            RollingDigitsText("\(MixerRoutingSupport.displayPercent(forVolume: level))%",
+                              style: RollingDigitsStyle(size: 12, weight: .semibold), color: .white, duration: 0.2)
                 .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: level)
         }
     }
@@ -427,10 +425,8 @@ private struct NotchBrightnessControls: View {
 
     @ViewBuilder private var percent: some View {
         if let display {
-            Text("\(BrightnessSupport.wholePercent(display.brightness))%")
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            RollingDigitsText("\(BrightnessSupport.wholePercent(display.brightness))%",
+                              style: RollingDigitsStyle(size: 12, weight: .semibold), color: .white, duration: 0.2)
                 .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: display.brightness)
         }
     }
@@ -526,10 +522,8 @@ private struct NotchKeyboardLightControls: View {
 
     @ViewBuilder private var percent: some View {
         if let level = service.keyboardLightLevel {
-            Text("\(BrightnessSupport.wholePercent(Double(level)))%")
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            RollingDigitsText("\(BrightnessSupport.wholePercent(Double(level)))%",
+                              style: RollingDigitsStyle(size: 12, weight: .semibold), color: .white, duration: 0.2)
                 .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: level)
         }
     }
@@ -617,14 +611,12 @@ struct NotchActionTile: View {
         if let reading {
             VStack(spacing: 1) {
                 // A later day's start with a 12-hour clock, such as Spanish
-                // "dom, 10:45 p. m.", needs up to 91 pt on a 68 pt line. The
-                // smaller optical size spaces its letters wider, so scaling
-                // alone would still cut it off.
-                Text(reading).font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(.white)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.7)
-                    .modifier(NotchRollingDigits(value: reading, countsDown: readingCountsDown))
+                // "dom, 10:45 p. m.", needs up to 91 pt on a 68 pt line. Text
+                // shrunk to a smaller optical size spaced its letters wider and
+                // needed tightening; the rolling line scales its 11 pt layers
+                // instead, keeping their spacing, so 0.7 fits it (tested).
+                NotchRollingReading(value: reading, style: RollingDigitsStyle(size: 11, weight: .semibold),
+                                    color: .white, countsDown: readingCountsDown, minimumScaleFactor: 0.7)
                 ViewThatFits(in: .horizontal) {
                     readingTitle(title)
                     if let compactTitle { readingTitle(compactTitle) }
