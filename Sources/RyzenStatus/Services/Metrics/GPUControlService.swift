@@ -39,7 +39,7 @@ final class GPUControlService: ObservableObject {
     /// on screen (and in the background while a remembered setting waits).
     @Published private(set) var control: GPUControlStatus?
     @Published private(set) var live = GPUControlLive()
-    @Published private(set) var armTool: GPUControlArmTool.Availability = .missing(buildPath: nil)
+    @Published private(set) var armTool: GPUControlArmTool.Availability = .missing
     @Published private(set) var isArming = false
     @Published private(set) var armFailed = false
     @Published private(set) var mode: GPUControlConnectionMode = .none
@@ -241,7 +241,7 @@ final class GPUControlService: ObservableObject {
 
     private func refreshArmTool() {
         armTool = fake != nil ? .button
-            : GPUControlArmTool.availability(home: NSHomeDirectory())
+            : GPUControlArmTool.availability()
     }
 
     /// The model's properties, as the kext would publish them.

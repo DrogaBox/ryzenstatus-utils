@@ -22,10 +22,13 @@ struct GPUControlClockStrings {
     let switching: String
     /// %d = the floor, %d = the stock maximum, both in MHz.
     let outOfRangeFormat: String
+    /// The slider's VoiceOver help (a11y A6, A16): %1$d = the floor,
+    /// %2$d = the stock maximum, both in MHz.
+    let sliderHelpFormat: String
 
     var all: [String] {
         [section, toggle, stockFormat, footer, notePowerHeld, noteClockHeld, switching, outOfRangeFormat,
-         fieldLabel, stepperFormat]
+         fieldLabel, stepperFormat, sliderHelpFormat]
     }
 }
 
@@ -61,7 +64,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "A power limit is held. Choosing a clock first returns the power limit to its start-up value: the kext never holds both.",
         noteClockHeld: "A clock setting is held. Choosing a power limit first returns the clock to stock: the kext never holds both.",
         switching: "Returning the power limit to its start-up value first…",
-        outOfRangeFormat: "Choose a value from %d to %d MHz.")
+        outOfRangeFormat: "Choose a value from %d to %d MHz.",
+        sliderHelpFormat: "From %1$d MHz to the stock maximum, %2$d MHz. Only lowers the maximum; the value is sent when you stop moving it.")
 
     static let es = GPUControlClockStrings(
         section: "Reloj máximo de GFX",
@@ -73,7 +77,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Hay un límite de potencia puesto. Al elegir un reloj, primero el límite vuelve a su valor de arranque: el kext nunca mantiene las dos cosas.",
         noteClockHeld: "Hay un reloj máximo puesto. Al elegir un límite de potencia, primero el reloj vuelve a los valores de fábrica: el kext nunca mantiene las dos cosas.",
         switching: "Primero el límite de potencia vuelve a su valor de arranque…",
-        outOfRangeFormat: "Elige un valor entre %d y %d MHz.")
+        outOfRangeFormat: "Elige un valor entre %d y %d MHz.",
+        sliderHelpFormat: "De %1$d MHz al máximo de fábrica, %2$d MHz. Solo baja el máximo; el valor se manda cuando dejas de moverlo.")
 
     static let ptBR = GPUControlClockStrings(
         section: "Clock máximo da GFX",
@@ -85,7 +90,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Há um limite de energia mantido. Ao escolher um clock, primeiro o limite volta ao valor de inicialização: o kext nunca mantém os dois.",
         noteClockHeld: "Há um clock máximo mantido. Ao escolher um limite de energia, primeiro o clock volta ao padrão: o kext nunca mantém os dois.",
         switching: "Primeiro o limite de energia volta ao valor de inicialização…",
-        outOfRangeFormat: "Escolha um valor entre %d e %d MHz.")
+        outOfRangeFormat: "Escolha um valor entre %d e %d MHz.",
+        sliderHelpFormat: "De %1$d MHz até o máximo de fábrica, %2$d MHz. Só reduz o máximo; o valor é enviado quando você para de movê-lo.")
 
     static let tr = GPUControlClockStrings(
         section: "Maks. GFX saat hızı",
@@ -97,7 +103,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Bir güç sınırı tutuluyor. Saat hızı seçmek önce güç sınırını başlangıç değerine döndürür: kext ikisini birlikte tutmaz.",
         noteClockHeld: "Bir maks. saat hızı tutuluyor. Güç sınırı seçmek önce saat hızını fabrika değerine döndürür: kext ikisini birlikte tutmaz.",
         switching: "Önce güç sınırı başlangıç değerine dönüyor…",
-        outOfRangeFormat: "%d ile %d MHz arasında bir değer seçin.")
+        outOfRangeFormat: "%d ile %d MHz arasında bir değer seçin.",
+        sliderHelpFormat: "%1$d MHz'den fabrika maksimumu %2$d MHz'e kadar. Yalnızca maksimumu düşürür; değer, hareket ettirmeyi bıraktığınızda gönderilir.")
 
     static let ru = GPUControlClockStrings(
         section: "Макс. частота GFX",
@@ -109,7 +116,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Удерживается лимит мощности. Выбор частоты сначала вернёт лимит к значению загрузки: kext никогда не удерживает оба.",
         noteClockHeld: "Удерживается макс. частота. Выбор лимита мощности сначала вернёт частоту к заводской: kext никогда не удерживает оба.",
         switching: "Сначала лимит мощности возвращается к значению загрузки…",
-        outOfRangeFormat: "Выберите значение от %d до %d МГц.")
+        outOfRangeFormat: "Выберите значение от %d до %d МГц.",
+        sliderHelpFormat: "От %1$d МГц до заводского максимума, %2$d МГц. Только снижает максимум; значение отправляется, когда вы перестаёте его двигать.")
 
     static let sk = GPUControlClockStrings(
         section: "Maximálny takt GFX",
@@ -121,7 +129,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Drží sa limit príkonu. Výber taktu najprv vráti limit na štartovaciu hodnotu: kext nikdy nedrží oboje.",
         noteClockHeld: "Drží sa maximálny takt. Výber limitu príkonu najprv vráti takt na továrenskú hodnotu: kext nikdy nedrží oboje.",
         switching: "Najprv sa limit príkonu vracia na štartovaciu hodnotu…",
-        outOfRangeFormat: "Vyberte hodnotu od %d do %d MHz.")
+        outOfRangeFormat: "Vyberte hodnotu od %d do %d MHz.",
+        sliderHelpFormat: "Od %1$d MHz po továrenské maximum, %2$d MHz. Maximum iba znižuje; hodnota sa odošle, keď ním prestanete hýbať.")
 
     static let de = GPUControlClockStrings(
         section: "Maximaler GFX-Takt",
@@ -133,7 +142,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Ein Leistungslimit wird gehalten. Beim Wählen eines Takts geht das Limit zuerst auf seinen Startwert zurück: Der Kext hält nie beides.",
         noteClockHeld: "Ein maximaler Takt wird gehalten. Beim Wählen eines Leistungslimits geht der Takt zuerst auf den Werkswert zurück: Der Kext hält nie beides.",
         switching: "Das Leistungslimit geht zuerst auf seinen Startwert zurück…",
-        outOfRangeFormat: "Wählen Sie einen Wert von %d bis %d MHz.")
+        outOfRangeFormat: "Wählen Sie einen Wert von %d bis %d MHz.",
+        sliderHelpFormat: "Von %1$d MHz bis zum Werksmaximum, %2$d MHz. Senkt nur das Maximum; der Wert wird gesendet, wenn Sie ihn nicht mehr bewegen.")
 
     static let fr = GPUControlClockStrings(
         section: "Fréquence GFX maximale",
@@ -145,7 +155,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "Une limite de puissance est maintenue. Choisir une fréquence remet d’abord la limite à sa valeur de démarrage : le kext ne maintient jamais les deux.",
         noteClockHeld: "Une fréquence maximale est maintenue. Choisir une limite de puissance remet d’abord la fréquence à sa valeur d’usine : le kext ne maintient jamais les deux.",
         switching: "La limite de puissance revient d’abord à sa valeur de démarrage…",
-        outOfRangeFormat: "Choisissez une valeur de %d à %d MHz.")
+        outOfRangeFormat: "Choisissez une valeur de %d à %d MHz.",
+        sliderHelpFormat: "De %1$d MHz au maximum d’usine, %2$d MHz. Abaisse seulement le maximum ; la valeur est envoyée quand vous arrêtez de la déplacer.")
 
     static let it = GPUControlClockStrings(
         section: "Clock GFX massimo",
@@ -157,7 +168,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "È mantenuto un limite di potenza. Scegliendo un clock, prima il limite torna al valore di avvio: il kext non mantiene mai entrambi.",
         noteClockHeld: "È mantenuto un clock massimo. Scegliendo un limite di potenza, prima il clock torna al valore di fabbrica: il kext non mantiene mai entrambi.",
         switching: "Prima il limite di potenza torna al valore di avvio…",
-        outOfRangeFormat: "Scegli un valore tra %d e %d MHz.")
+        outOfRangeFormat: "Scegli un valore tra %d e %d MHz.",
+        sliderHelpFormat: "Da %1$d MHz al massimo di fabbrica, %2$d MHz. Abbassa solo il massimo; il valore viene inviato quando smetti di muoverlo.")
 
     static let ja = GPUControlClockStrings(
         section: "GFX 最大クロック",
@@ -169,7 +181,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "電力制限が保持されています。クロックを選ぶと、先に電力制限が起動時の値に戻ります。kext は両方を同時に保持しません。",
         noteClockHeld: "最大クロックが保持されています。電力制限を選ぶと、先にクロックが純正に戻ります。kext は両方を同時に保持しません。",
         switching: "先に電力制限を起動時の値に戻しています…",
-        outOfRangeFormat: "%d から %d MHz の値を選んでください。")
+        outOfRangeFormat: "%d から %d MHz の値を選んでください。",
+        sliderHelpFormat: "%1$d MHz から純正の最大値 %2$d MHz まで。最大値を下げるだけです。動かすのをやめると値が送られます。")
 
     static let ko = GPUControlClockStrings(
         section: "최대 GFX 클록",
@@ -181,7 +194,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "전력 한도가 유지되고 있습니다. 클록을 선택하면 먼저 전력 한도가 시동 값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
         noteClockHeld: "최대 클록이 유지되고 있습니다. 전력 한도를 선택하면 먼저 클록이 기본값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
         switching: "먼저 전력 한도를 시동 값으로 돌리는 중…",
-        outOfRangeFormat: "%d에서 %d MHz 사이의 값을 선택하십시오.")
+        outOfRangeFormat: "%d에서 %d MHz 사이의 값을 선택하십시오.",
+        sliderHelpFormat: "%1$d MHz부터 기본 최대값 %2$d MHz까지. 최대값을 낮추기만 하며, 움직임을 멈추면 값이 전송됩니다.")
 
     static let zhHans = GPUControlClockStrings(
         section: "GFX 最大时钟频率",
@@ -193,7 +207,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "当前设有功率上限。选择时钟频率会先使功率上限返回启动值：kext 绝不会同时维持两者。",
         noteClockHeld: "正在维持最大时钟频率。选择功率上限会先使时钟频率返回出厂值：kext 绝不会同时维持两者。",
         switching: "正在先使功率上限返回启动值…",
-        outOfRangeFormat: "请选择 %d 到 %d MHz 之间的值。")
+        outOfRangeFormat: "请选择 %d 到 %d MHz 之间的值。",
+        sliderHelpFormat: "从 %1$d MHz 到出厂最大值 %2$d MHz。只会降低最大值；停止移动后发送该值。")
 
     static let zhTW = GPUControlClockStrings(
         section: "GFX 最大時脈",
@@ -205,7 +220,8 @@ extension GPUControlClockStrings {
         notePowerHeld: "目前設有功率上限。選擇時脈會先使功率上限回到啟動值：kext 絕不會同時維持兩者。",
         noteClockHeld: "正在維持最大時脈。選擇功率上限會先使時脈回到原廠值：kext 絕不會同時維持兩者。",
         switching: "正在先使功率上限回到啟動值…",
-        outOfRangeFormat: "請選擇 %d 到 %d MHz 之間的值。")
+        outOfRangeFormat: "請選擇 %d 到 %d MHz 之間的值。",
+        sliderHelpFormat: "從 %1$d MHz 到原廠最大值 %2$d MHz。只會降低最大值；停止移動後傳送該值。")
 
     static let uk = GPUControlClockStrings(
         section: "Макс. частота GFX",
@@ -217,5 +233,6 @@ extension GPUControlClockStrings {
         notePowerHeld: "Утримується ліміт потужності. Вибір частоти спершу поверне ліміт до значення завантаження: kext ніколи не утримує обидва.",
         noteClockHeld: "Утримується макс. частота. Вибір ліміту потужності спершу поверне частоту до заводської: kext ніколи не утримує обидва.",
         switching: "Спершу ліміт потужності повертається до значення завантаження…",
-        outOfRangeFormat: "Виберіть значення від %d до %d МГц.")
+        outOfRangeFormat: "Виберіть значення від %d до %d МГц.",
+        sliderHelpFormat: "Від %1$d МГц до заводського максимуму, %2$d МГц. Лише знижує максимум; значення надсилається, коли ви перестаєте його рухати.")
 }

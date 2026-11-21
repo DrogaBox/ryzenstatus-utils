@@ -187,6 +187,19 @@ enum GPUControlFanTests {
                      "another kext build: not checked, Apply off")
         other.kextVersion = nil
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .notChecked, "no build name: not checked")
+        // GPUSensors 0.8.0: the build date follows the package build, so any
+        // date of a release build is the same checked source.
+        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05"] {
+            other.kextVersion = build
+            suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .accepted,
+                         "\(build): GPUSensors 0.8.0, checked")
+        }
+        for build in ["DBG-080-2026-11-21", "REL-081-2026-11-21", "REL-080", "REL-080-2026-11", "REL-080-2026-11-21x",
+                      "REL-080-2026-11-21-1", "REL-08-2026-11-21", "REL-072-2026-11-20", "rel-080-2026-11-21", ""] {
+            suite.expect(!GPUControlCurveRules.isChecked(build), "\(build.isEmpty ? "empty" : build): not checked")
+        }
+        suite.expect(GPUControlCurveRules.isChecked("REL-072-2026-11-19"), "0.7.2: the one checked build")
+        suite.expect(GPUControlCurveRules.release(of: "REL-080-2026-11-21") == "080", "the version digits of a release build")
         var odd = writing
         odd.od8Read = .notClean("read, but an entry is not as expected")
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: odd) == .unavailable, "OD8 not clean: unavailable")
@@ -391,7 +404,7 @@ enum GPUControlFanTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlFanStrings.enUS.all
-        suite.expect(english.count == 24, "24 texts")
+        suite.expect(english.count == 28, "28 texts")
         for language in AppLanguage.allCases {
             let fan = FeatureStrings.gpuControlFan(language)
             // Two buttons on one page never share a name.
@@ -403,8 +416,15 @@ enum GPUControlFanTests {
             for (index, text) in table.enumerated() {
                 suite.expect(specifiers(text) == specifiers(english[index]),
                              "\(language.rawValue): fan text \(index) keeps the English placeholders")
-                // Every literal percent in a format is written %%.
-                let formatted = String(format: text, 1, "x")
+                // Every literal percent in a format is written %%. Each
+                // placeholder gets an argument of its kind, by position.
+                let ordered = specifiers(text).enumerated().map { offset, spec -> (Int, String) in
+                    let position = spec.split(separator: "$").count == 2
+                        ? Int(spec.dropFirst().prefix { $0.isNumber }) ?? offset + 1 : offset + 1
+                    return (position, spec)
+                }.sorted { $0.0 < $1.0 }
+                let arguments: [CVarArg] = ordered.map { $0.1.hasSuffix("d") ? 1 as CVarArg : "x" as NSString }
+                let formatted = String(format: text, arguments: arguments)
                 suite.expect(!formatted.contains("%%") && !formatted.isEmpty, "\(language.rawValue): fan text \(index) formats")
             }
         }

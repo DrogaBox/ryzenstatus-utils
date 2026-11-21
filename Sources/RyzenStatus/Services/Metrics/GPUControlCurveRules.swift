@@ -36,10 +36,32 @@ enum GPUControlCurveRules {
     /// any other build the preview says so and does not decide.
     static let checkedVersions: Set<String> = ["REL-072-2026-11-19"]
 
+    /// Kext versions checked as a whole: `VersionInfo` is "REL-", the
+    /// version's digits, then the build date, and the date comes from
+    /// SOURCE_DATE_EPOCH when the GPU package is built (the date of the last
+    /// commit under GPU/), so it changes with every rebuild of the same
+    /// source. GPUSensors 0.8.0 ("080"): its `od8CheckWant` gives the same
+    /// answers as 0.7.2's for every line of `curve-cases.jsonl`, and its
+    /// source is GPU/sensors/kext in this repository.
+    static let checkedReleases: Set<String> = ["080"]
+
     /// The kext build is one this copy was checked against. Neither the
     /// editor nor a remembered fan state sends anything to another build.
     static func isChecked(_ version: String?) -> Bool {
-        version.map(checkedVersions.contains) ?? false
+        guard let version else { return false }
+        return checkedVersions.contains(version) || release(of: version).map(checkedReleases.contains) == true
+    }
+
+    /// "080" for "REL-080-2026-11-21": a release build's version digits,
+    /// when the rest is a date. Nil for a debug build ("DBG-…") or any
+    /// other shape.
+    static func release(of version: String) -> String? {
+        let parts = version.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[0] == "REL",
+              parts[1].count == 3, parts[2].count == 4, parts[3].count == 2, parts[4].count == 2,
+              parts[1...].allSatisfy({ $0.allSatisfy { $0.isASCII && $0.isNumber } })
+        else { return nil }
+        return String(parts[1])
     }
 
     /// The 100 % temperature on the card here, for a table without a usable

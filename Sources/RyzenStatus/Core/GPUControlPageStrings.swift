@@ -134,6 +134,16 @@ struct GPUControlPageStrings {
     let listLastSeparator: String
     /// An OD8 hold in the panel row, where the whole list does not fit.
     let heldOD8Short: String
+    // Accessibility (a11y A6, A13, A15).
+    /// VoiceOver's hint on the power limit pop-up.
+    let powerHint: String
+    /// VoiceOver's hint on "Allow GPU Changes…".
+    let openWritingHint: String
+    /// %@ = the kext's own text, always English: said as the kext's, not as
+    /// a broken translation.
+    let kextSaysFormat: String
+    /// A reading of the live row that is missing, in words.
+    let noReading: String
 
     /// Why the arm button is not offered.
     func sentence(_ reason: GPUControlArmTool.UnsafeReason) -> String {
@@ -201,7 +211,7 @@ struct GPUControlPageStrings {
          unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat,
          listSeparator, listLastSeparator, unsafeSetID, heldOD8Short, closeChanges, closeChangesHelp, closedAgain,
          closeRefused, closeNotSupported, closedByOther, readOnlyTitle, readOnlyDetail, cardRangeFormat, floorUnknown,
-         nothingToLower, otherProgramChanged]
+         nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading]
     }
 }
 
@@ -262,7 +272,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Run this in Terminal:",
         copy: "Copy",
         copied: "Copied",
-        notInstalled: "gpucontrol is not installed in /usr/local/bin. DrogaBoxGPU installs it with “sudo install/sensors.sh tools”.",
+        notInstalled: "gpucontrol is not installed in /usr/local/bin. Install it with the RyzenStatus GPU app from the DMG (folder “GPU RX 6000”).",
         unsafeToolFormat: "The button needs gpucontrol and every folder above it to belong to root alone. %@",
         armFailed: "GPU changes were not allowed.",
         closeChanges: "Close Changes",
@@ -310,14 +320,18 @@ extension GPUControlPageStrings {
         unsafeACL: "It has an access control list.",
         unsafeUnreadable: "It cannot be read.",
         unsafeSignature: "Its signature is missing, or it was changed after it was signed.",
-        unsafeOtherProgram: "It is another program, not DrogaBoxGPU’s gpucontrol.",
+        unsafeOtherProgram: "It is another program, not the gpucontrol that RyzenStatus GPU installs.",
         heldOD8Format: "RyzenStatus is holding %@",
         fanCurveItem: "a fan curve",
         zeroRpmItem: "the fan always running",
         gfxItemFormat: "a GFX maximum of %d MHz",
         listSeparator: ", ",
         listLastSeparator: " and ",
-        heldOD8Short: "RyzenStatus is holding OD8 settings")
+        heldOD8Short: "RyzenStatus is holding OD8 settings",
+        powerHint: "Applies when chosen. Only lowers the limit, down to the card's minimum.",
+        openWritingHint: "Asks for an administrator password. Changes stay allowed until you close them or restart the Mac.",
+        kextSaysFormat: "From the kext: %@",
+        noReading: "no data")
 
     static let es = GPUControlPageStrings(
         stateSection: "Estado",
@@ -354,7 +368,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Ejecuta esto en Terminal:",
         copy: "Copiar",
         copied: "Copiado",
-        notInstalled: "gpucontrol no está instalado en /usr/local/bin. DrogaBoxGPU lo instala con «sudo install/sensors.sh tools».",
+        notInstalled: "gpucontrol no está instalado en /usr/local/bin. Instálalo con la app RyzenStatus GPU del DMG (carpeta «GPU RX 6000»).",
         unsafeToolFormat: "El botón necesita que gpucontrol y cada carpeta por encima sean solo de root. %@",
         armFailed: "No se permitieron los cambios en la GPU.",
         closeChanges: "Cerrar los cambios",
@@ -402,14 +416,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Tiene una lista de control de acceso.",
         unsafeUnreadable: "No se puede leer.",
         unsafeSignature: "No tiene firma o se modificó después de firmarse.",
-        unsafeOtherProgram: "Es otro programa, no el gpucontrol de DrogaBoxGPU.",
+        unsafeOtherProgram: "Es otro programa, no el gpucontrol que instala RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus mantiene %@",
         fanCurveItem: "una curva de ventilador",
         zeroRpmItem: "el ventilador siempre girando",
         gfxItemFormat: "un reloj máximo de GFX de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " y ",
-        heldOD8Short: "RyzenStatus mantiene ajustes OD8")
+        heldOD8Short: "RyzenStatus mantiene ajustes OD8",
+        powerHint: "Se aplica al elegir. Solo baja el límite, hasta el mínimo de la tarjeta.",
+        openWritingHint: "Pide la contraseña de un administrador. Los cambios quedan permitidos hasta que los cierres o reinicies el Mac.",
+        kextSaysFormat: "Del kext: %@",
+        noReading: "sin dato")
 
     static let ptBR = GPUControlPageStrings(
         stateSection: "Estado",
@@ -446,7 +464,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Execute isto no Terminal:",
         copy: "Copiar",
         copied: "Copiado",
-        notInstalled: "O gpucontrol não está instalado em /usr/local/bin. O DrogaBoxGPU o instala com “sudo install/sensors.sh tools”.",
+        notInstalled: "O gpucontrol não está instalado em /usr/local/bin. Instale-o com o app RyzenStatus GPU do DMG (pasta “GPU RX 6000”).",
         unsafeToolFormat: "O botão exige que o gpucontrol e cada pasta acima dele sejam só do root. %@",
         armFailed: "As alterações na GPU não foram permitidas.",
         closeChanges: "Fechar as alterações",
@@ -494,14 +512,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Tem uma lista de controle de acesso.",
         unsafeUnreadable: "Não pode ser lido.",
         unsafeSignature: "Não tem assinatura ou foi alterado depois de assinado.",
-        unsafeOtherProgram: "É outro programa, não o gpucontrol do DrogaBoxGPU.",
+        unsafeOtherProgram: "É outro programa, não o gpucontrol que o RyzenStatus GPU instala.",
         heldOD8Format: "O RyzenStatus está mantendo %@",
         fanCurveItem: "uma curva de ventoinha",
         zeroRpmItem: "a ventoinha sempre girando",
         gfxItemFormat: "um clock GFX máximo de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
-        heldOD8Short: "O RyzenStatus está mantendo ajustes OD8")
+        heldOD8Short: "O RyzenStatus está mantendo ajustes OD8",
+        powerHint: "Aplica ao escolher. Só reduz o limite, até o mínimo da placa.",
+        openWritingHint: "Pede a senha de um administrador. As alterações ficam liberadas até você fechá-las ou reiniciar o Mac.",
+        kextSaysFormat: "Do kext: %@",
+        noReading: "sem dado")
 
     static let tr = GPUControlPageStrings(
         stateSection: "Durum",
@@ -538,7 +560,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Bunu Terminal'de çalıştırın:",
         copy: "Kopyala",
         copied: "Kopyalandı",
-        notInstalled: "gpucontrol /usr/local/bin içinde yüklü değil. DrogaBoxGPU onu “sudo install/sensors.sh tools” ile yükler.",
+        notInstalled: "gpucontrol /usr/local/bin içinde yüklü değil. DMG'deki RyzenStatus GPU uygulamasıyla yükleyin (“GPU RX 6000” klasörü).",
         unsafeToolFormat: "Düğme gpucontrol'ün ve üstündeki her klasörün yalnızca root'a ait olmasını gerektirir. %@",
         armFailed: "GPU değişikliklerine izin verilmedi.",
         closeChanges: "Değişiklikleri Kapat",
@@ -586,14 +608,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Bir erişim denetim listesi var.",
         unsafeUnreadable: "Okunamıyor.",
         unsafeSignature: "İmzası yok veya imzalandıktan sonra değiştirilmiş.",
-        unsafeOtherProgram: "Bu başka bir program, DrogaBoxGPU'nun gpucontrol'ü değil.",
+        unsafeOtherProgram: "Bu başka bir program, RyzenStatus GPU'nun yüklediği gpucontrol değil.",
         heldOD8Format: "RyzenStatus şunu tutuyor: %@",
         fanCurveItem: "bir fan eğrisi",
         zeroRpmItem: "her zaman dönen fan",
         gfxItemFormat: "maks. GFX saat hızı %d MHz",
         listSeparator: ", ",
         listLastSeparator: " ve ",
-        heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor")
+        heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor",
+        powerHint: "Seçildiğinde uygulanır. Sınırı yalnızca kartın minimumuna kadar düşürür.",
+        openWritingHint: "Bir yönetici parolası ister. Değişikliklere, siz kapatana ya da Mac yeniden başlatılana kadar izin verilir.",
+        kextSaysFormat: "Kext'ten: %@",
+        noReading: "veri yok")
 
     static let ru = GPUControlPageStrings(
         stateSection: "Состояние",
@@ -630,7 +656,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Выполните это в Терминале:",
         copy: "Копировать",
         copied: "Скопировано",
-        notInstalled: "gpucontrol не установлен в /usr/local/bin. DrogaBoxGPU устанавливает его командой «sudo install/sensors.sh tools».",
+        notInstalled: "gpucontrol не установлен в /usr/local/bin. Установите его приложением RyzenStatus GPU из DMG (папка «GPU RX 6000»).",
         unsafeToolFormat: "Кнопке нужно, чтобы gpucontrol и каждая папка над ним принадлежали только root. %@",
         armFailed: "Изменения GPU не разрешены.",
         closeChanges: "Закрыть изменения",
@@ -678,14 +704,18 @@ extension GPUControlPageStrings {
         unsafeACL: "У него есть список управления доступом.",
         unsafeUnreadable: "Его нельзя прочитать.",
         unsafeSignature: "Подписи нет, или файл изменён после подписи.",
-        unsafeOtherProgram: "Это другая программа, а не gpucontrol из DrogaBoxGPU.",
+        unsafeOtherProgram: "Это другая программа, а не gpucontrol, который устанавливает RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus удерживает %@",
         fanCurveItem: "кривую вентилятора",
         zeroRpmItem: "постоянное вращение вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " и ",
-        heldOD8Short: "RyzenStatus удерживает настройки OD8")
+        heldOD8Short: "RyzenStatus удерживает настройки OD8",
+        powerHint: "Применяется при выборе. Только снижает лимит, до минимума карты.",
+        openWritingHint: "Запрашивает пароль администратора. Изменения разрешены, пока вы их не закроете или не перезапустите Mac.",
+        kextSaysFormat: "Сообщение kext: %@",
+        noReading: "нет данных")
 
     static let sk = GPUControlPageStrings(
         stateSection: "Stav",
@@ -722,7 +752,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Spustite toto v Termináli:",
         copy: "Kopírovať",
         copied: "Skopírované",
-        notInstalled: "gpucontrol nie je nainštalovaný v /usr/local/bin. DrogaBoxGPU ho inštaluje príkazom „sudo install/sensors.sh tools“.",
+        notInstalled: "gpucontrol nie je nainštalovaný v /usr/local/bin. Nainštalujte ho aplikáciou RyzenStatus GPU z DMG (priečinok „GPU RX 6000“).",
         unsafeToolFormat: "Tlačidlo vyžaduje, aby gpucontrol a každý priečinok nad ním patrili iba rootovi. %@",
         armFailed: "Zmeny GPU neboli povolené.",
         closeChanges: "Zatvoriť zmeny",
@@ -770,14 +800,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Má zoznam riadenia prístupu.",
         unsafeUnreadable: "Nedá sa prečítať.",
         unsafeSignature: "Nemá podpis alebo sa zmenil po podpísaní.",
-        unsafeOtherProgram: "Je to iný program, nie gpucontrol z DrogaBoxGPU.",
+        unsafeOtherProgram: "Je to iný program, nie gpucontrol, ktorý inštaluje RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus drží %@",
         fanCurveItem: "krivku ventilátora",
         zeroRpmItem: "ventilátor stále v chode",
         gfxItemFormat: "maximálny takt GFX %d MHz",
         listSeparator: ", ",
         listLastSeparator: " a ",
-        heldOD8Short: "RyzenStatus drží nastavenia OD8")
+        heldOD8Short: "RyzenStatus drží nastavenia OD8",
+        powerHint: "Použije sa pri výbere. Limit iba znižuje, až po minimum karty.",
+        openWritingHint: "Vyžiada heslo správcu. Zmeny zostanú povolené, kým ich nezatvoríte alebo nereštartujete Mac.",
+        kextSaysFormat: "Od kextu: %@",
+        noReading: "bez údaja")
 
     static let de = GPUControlPageStrings(
         stateSection: "Status",
@@ -814,7 +848,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Führen Sie dies im Terminal aus:",
         copy: "Kopieren",
         copied: "Kopiert",
-        notInstalled: "gpucontrol ist nicht in /usr/local/bin installiert. DrogaBoxGPU installiert es mit „sudo install/sensors.sh tools“.",
+        notInstalled: "gpucontrol ist nicht in /usr/local/bin installiert. Installieren Sie es mit der App RyzenStatus GPU aus dem DMG (Ordner „GPU RX 6000“).",
         unsafeToolFormat: "Für die Schaltfläche müssen gpucontrol und jeder Ordner darüber ausschließlich root gehören. %@",
         armFailed: "GPU-Änderungen wurden nicht erlaubt.",
         closeChanges: "Änderungen schließen",
@@ -862,14 +896,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Es hat eine Zugriffssteuerungsliste.",
         unsafeUnreadable: "Es kann nicht gelesen werden.",
         unsafeSignature: "Die Signatur fehlt, oder es wurde nach dem Signieren geändert.",
-        unsafeOtherProgram: "Es ist ein anderes Programm, nicht gpucontrol von DrogaBoxGPU.",
+        unsafeOtherProgram: "Es ist ein anderes Programm, nicht das gpucontrol, das RyzenStatus GPU installiert.",
         heldOD8Format: "RyzenStatus hält %@",
         fanCurveItem: "eine Lüfterkurve",
         zeroRpmItem: "den Lüfter im Dauerbetrieb",
         gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
         listSeparator: ", ",
         listLastSeparator: " und ",
-        heldOD8Short: "RyzenStatus hält OD8-Einstellungen")
+        heldOD8Short: "RyzenStatus hält OD8-Einstellungen",
+        powerHint: "Wird bei der Auswahl angewendet. Senkt das Limit nur, bis zum Minimum der Karte.",
+        openWritingHint: "Fragt nach einem Administratorpasswort. Änderungen bleiben erlaubt, bis Sie sie schließen oder den Mac neu starten.",
+        kextSaysFormat: "Vom Kext: %@",
+        noReading: "keine Daten")
 
     static let fr = GPUControlPageStrings(
         stateSection: "État",
@@ -906,7 +944,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Exécutez ceci dans Terminal :",
         copy: "Copier",
         copied: "Copié",
-        notInstalled: "gpucontrol n’est pas installé dans /usr/local/bin. DrogaBoxGPU l’installe avec « sudo install/sensors.sh tools ».",
+        notInstalled: "gpucontrol n’est pas installé dans /usr/local/bin. Installez-le avec l’app RyzenStatus GPU du DMG (dossier « GPU RX 6000 »).",
         unsafeToolFormat: "Le bouton exige que gpucontrol et chaque dossier au-dessus appartiennent à root seul. %@",
         armFailed: "Les modifications du GPU n’ont pas été autorisées.",
         closeChanges: "Fermer les modifications",
@@ -954,14 +992,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Il a une liste de contrôle d’accès.",
         unsafeUnreadable: "Il ne peut pas être lu.",
         unsafeSignature: "Sa signature manque, ou il a été modifié après la signature.",
-        unsafeOtherProgram: "C’est un autre programme, pas le gpucontrol de DrogaBoxGPU.",
+        unsafeOtherProgram: "C’est un autre programme, pas le gpucontrol qu’installe RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus maintient %@",
         fanCurveItem: "une courbe de ventilateur",
         zeroRpmItem: "le ventilateur toujours en marche",
         gfxItemFormat: "une fréquence GFX max de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " et ",
-        heldOD8Short: "RyzenStatus maintient des réglages OD8")
+        heldOD8Short: "RyzenStatus maintient des réglages OD8",
+        powerHint: "S’applique dès la sélection. Abaisse seulement la limite, jusqu’au minimum de la carte.",
+        openWritingHint: "Demande le mot de passe d’un administrateur. Les modifications restent autorisées jusqu’à ce que vous les fermiez ou redémarriez le Mac.",
+        kextSaysFormat: "Du kext : %@",
+        noReading: "aucune donnée")
 
     static let it = GPUControlPageStrings(
         stateSection: "Stato",
@@ -998,7 +1040,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Esegui questo in Terminale:",
         copy: "Copia",
         copied: "Copiato",
-        notInstalled: "gpucontrol non è installato in /usr/local/bin. DrogaBoxGPU lo installa con «sudo install/sensors.sh tools».",
+        notInstalled: "gpucontrol non è installato in /usr/local/bin. Installalo con l’app RyzenStatus GPU del DMG (cartella «GPU RX 6000»).",
         unsafeToolFormat: "Il pulsante richiede che gpucontrol e ogni cartella sopra di esso appartengano solo a root. %@",
         armFailed: "Le modifiche alla GPU non sono state consentite.",
         closeChanges: "Chiudi le modifiche",
@@ -1046,14 +1088,18 @@ extension GPUControlPageStrings {
         unsafeACL: "Ha un elenco di controllo degli accessi.",
         unsafeUnreadable: "Non può essere letto.",
         unsafeSignature: "Manca la firma, o è stato modificato dopo la firma.",
-        unsafeOtherProgram: "È un altro programma, non il gpucontrol di DrogaBoxGPU.",
+        unsafeOtherProgram: "È un altro programma, non il gpucontrol che installa RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus mantiene %@",
         fanCurveItem: "una curva della ventola",
         zeroRpmItem: "la ventola sempre in rotazione",
         gfxItemFormat: "un clock GFX massimo di %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
-        heldOD8Short: "RyzenStatus mantiene impostazioni OD8")
+        heldOD8Short: "RyzenStatus mantiene impostazioni OD8",
+        powerHint: "Si applica alla scelta. Abbassa solo il limite, fino al minimo della scheda.",
+        openWritingHint: "Chiede la password di un amministratore. Le modifiche restano abilitate finché non le chiudi o riavvii il Mac.",
+        kextSaysFormat: "Dal kext: %@",
+        noReading: "nessun dato")
 
     static let ja = GPUControlPageStrings(
         stateSection: "状態",
@@ -1090,7 +1136,7 @@ extension GPUControlPageStrings {
         runInTerminal: "ターミナルでこれを実行してください:",
         copy: "コピー",
         copied: "コピーしました",
-        notInstalled: "gpucontrol が /usr/local/bin にインストールされていません。DrogaBoxGPU は「sudo install/sensors.sh tools」でインストールします。",
+        notInstalled: "gpucontrol が /usr/local/bin にインストールされていません。DMG のフォルダ「GPU RX 6000」にある RyzenStatus GPU アプリでインストールしてください。",
         unsafeToolFormat: "このボタンには、gpucontrol とその上のすべてのフォルダが root だけの所有である必要があります。%@",
         armFailed: "GPU の変更は許可されませんでした。",
         closeChanges: "変更を閉じる",
@@ -1138,14 +1184,18 @@ extension GPUControlPageStrings {
         unsafeACL: "アクセス制御リストがあります。",
         unsafeUnreadable: "読み取れません。",
         unsafeSignature: "署名がないか、署名後に変更されています。",
-        unsafeOtherProgram: "DrogaBoxGPU の gpucontrol ではなく、別のプログラムです。",
+        unsafeOtherProgram: "RyzenStatus GPU がインストールする gpucontrol ではなく、別のプログラムです。",
         heldOD8Format: "RyzenStatus が保持中: %@",
         fanCurveItem: "ファンカーブ",
         zeroRpmItem: "常に回るファン",
         gfxItemFormat: "GFX 最大クロック %d MHz",
         listSeparator: "、",
         listLastSeparator: "と",
-        heldOD8Short: "RyzenStatus が OD8 設定を保持中")
+        heldOD8Short: "RyzenStatus が OD8 設定を保持中",
+        powerHint: "選ぶとすぐに適用されます。制限はカードの最小値まで下げるだけです。",
+        openWritingHint: "管理者のパスワードを求めます。変更を閉じるか Mac を再起動するまで、変更が許可されます。",
+        kextSaysFormat: "kext から: %@",
+        noReading: "データなし")
 
     static let ko = GPUControlPageStrings(
         stateSection: "상태",
@@ -1182,7 +1232,7 @@ extension GPUControlPageStrings {
         runInTerminal: "터미널에서 다음을 실행하십시오:",
         copy: "복사",
         copied: "복사됨",
-        notInstalled: "gpucontrol이 /usr/local/bin에 설치되어 있지 않습니다. DrogaBoxGPU는 “sudo install/sensors.sh tools”로 설치합니다.",
+        notInstalled: "gpucontrol이 /usr/local/bin에 설치되어 있지 않습니다. DMG의 “GPU RX 6000” 폴더에 있는 RyzenStatus GPU 앱으로 설치하세요.",
         unsafeToolFormat: "이 버튼을 쓰려면 gpucontrol과 상위의 모든 폴더가 root만의 소유여야 합니다. %@",
         armFailed: "GPU 변경이 허용되지 않았습니다.",
         closeChanges: "변경 닫기",
@@ -1230,14 +1280,18 @@ extension GPUControlPageStrings {
         unsafeACL: "접근 제어 목록이 있습니다.",
         unsafeUnreadable: "읽을 수 없습니다.",
         unsafeSignature: "서명이 없거나 서명 후 변경되었습니다.",
-        unsafeOtherProgram: "DrogaBoxGPU의 gpucontrol이 아닌 다른 프로그램입니다.",
+        unsafeOtherProgram: "RyzenStatus GPU가 설치하는 gpucontrol이 아닌 다른 프로그램입니다.",
         heldOD8Format: "RyzenStatus가 유지 중: %@",
         fanCurveItem: "팬 곡선",
         zeroRpmItem: "항상 도는 팬",
         gfxItemFormat: "최대 GFX 클록 %d MHz",
         listSeparator: ", ",
         listLastSeparator: " 및 ",
-        heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중")
+        heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중",
+        powerHint: "선택하면 적용됩니다. 한도는 카드 최소값까지 낮추기만 합니다.",
+        openWritingHint: "관리자 암호를 요청합니다. 변경을 닫거나 Mac을 재시동할 때까지 변경이 허용됩니다.",
+        kextSaysFormat: "kext 메시지: %@",
+        noReading: "데이터 없음")
 
     static let zhHans = GPUControlPageStrings(
         stateSection: "状态",
@@ -1274,7 +1328,7 @@ extension GPUControlPageStrings {
         runInTerminal: "在“终端”中运行：",
         copy: "拷贝",
         copied: "已拷贝",
-        notInstalled: "gpucontrol 未安装在 /usr/local/bin。DrogaBoxGPU 使用“sudo install/sensors.sh tools”安装它。",
+        notInstalled: "gpucontrol 未安装在 /usr/local/bin。请使用 DMG 中“GPU RX 6000”文件夹里的 RyzenStatus GPU App 安装它。",
         unsafeToolFormat: "此按钮要求 gpucontrol 及上层的每个文件夹都只归 root 所有。%@",
         armFailed: "未允许更改 GPU。",
         closeChanges: "关闭更改",
@@ -1322,14 +1376,18 @@ extension GPUControlPageStrings {
         unsafeACL: "它有访问控制列表。",
         unsafeUnreadable: "无法读取。",
         unsafeSignature: "缺少签名，或签名后被更改过。",
-        unsafeOtherProgram: "这是另一个程序，不是 DrogaBoxGPU 的 gpucontrol。",
+        unsafeOtherProgram: "这是另一个程序，不是 RyzenStatus GPU 安装的 gpucontrol。",
         heldOD8Format: "RyzenStatus 正在维持：%@",
         fanCurveItem: "风扇曲线",
         zeroRpmItem: "始终转动的风扇",
         gfxItemFormat: "GFX 最大时钟频率 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
-        heldOD8Short: "RyzenStatus 正在维持 OD8 设置")
+        heldOD8Short: "RyzenStatus 正在维持 OD8 设置",
+        powerHint: "选择后即应用。只会降低上限，最低至显卡的最低值。",
+        openWritingHint: "需要管理员密码。在你关闭更改或重新启动 Mac 之前，允许更改。",
+        kextSaysFormat: "来自 kext：%@",
+        noReading: "无数据")
 
     static let zhTW = GPUControlPageStrings(
         stateSection: "狀態",
@@ -1366,7 +1424,7 @@ extension GPUControlPageStrings {
         runInTerminal: "在「終端機」中執行：",
         copy: "拷貝",
         copied: "已拷貝",
-        notInstalled: "gpucontrol 未安裝在 /usr/local/bin。DrogaBoxGPU 使用「sudo install/sensors.sh tools」安裝它。",
+        notInstalled: "gpucontrol 未安裝在 /usr/local/bin。請使用 DMG 中「GPU RX 6000」資料夾裡的 RyzenStatus GPU App 安裝它。",
         unsafeToolFormat: "此按鈕要求 gpucontrol 及上層的每個檔案夾都只屬於 root。%@",
         armFailed: "未允許更改 GPU。",
         closeChanges: "關閉更改",
@@ -1414,14 +1472,18 @@ extension GPUControlPageStrings {
         unsafeACL: "它有存取控制列表。",
         unsafeUnreadable: "無法讀取。",
         unsafeSignature: "缺少簽名，或簽名後被更改過。",
-        unsafeOtherProgram: "這是另一個程式，不是 DrogaBoxGPU 的 gpucontrol。",
+        unsafeOtherProgram: "這是另一個程式，不是 RyzenStatus GPU 安裝的 gpucontrol。",
         heldOD8Format: "RyzenStatus 正在維持：%@",
         fanCurveItem: "風扇曲線",
         zeroRpmItem: "始終轉動的風扇",
         gfxItemFormat: "GFX 最大時脈 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
-        heldOD8Short: "RyzenStatus 正在維持 OD8 設定")
+        heldOD8Short: "RyzenStatus 正在維持 OD8 設定",
+        powerHint: "選擇後即套用。只會降低上限，最低至顯示卡的最低值。",
+        openWritingHint: "需要管理員密碼。在你關閉更改或重新啟動 Mac 之前，允許更改。",
+        kextSaysFormat: "來自 kext：%@",
+        noReading: "無資料")
 
     static let uk = GPUControlPageStrings(
         stateSection: "Стан",
@@ -1458,7 +1520,7 @@ extension GPUControlPageStrings {
         runInTerminal: "Виконайте це в Терміналі:",
         copy: "Копіювати",
         copied: "Скопійовано",
-        notInstalled: "gpucontrol не встановлено в /usr/local/bin. DrogaBoxGPU встановлює його командою «sudo install/sensors.sh tools».",
+        notInstalled: "gpucontrol не встановлено в /usr/local/bin. Встановіть його застосунком RyzenStatus GPU з DMG (папка «GPU RX 6000»).",
         unsafeToolFormat: "Кнопці потрібно, щоб gpucontrol і кожна тека над ним належали лише root. %@",
         armFailed: "Зміни GPU не дозволено.",
         closeChanges: "Закрити зміни",
@@ -1506,12 +1568,16 @@ extension GPUControlPageStrings {
         unsafeACL: "Має список керування доступом.",
         unsafeUnreadable: "Його не можна прочитати.",
         unsafeSignature: "Підпису немає, або файл змінено після підпису.",
-        unsafeOtherProgram: "Це інша програма, не gpucontrol із DrogaBoxGPU.",
+        unsafeOtherProgram: "Це інша програма, не gpucontrol, який встановлює RyzenStatus GPU.",
         heldOD8Format: "RyzenStatus утримує %@",
         fanCurveItem: "криву вентилятора",
         zeroRpmItem: "постійне обертання вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " і ",
-        heldOD8Short: "RyzenStatus утримує налаштування OD8")
+        heldOD8Short: "RyzenStatus утримує налаштування OD8",
+        powerHint: "Застосовується під час вибору. Лише знижує ліміт, до мінімуму картки.",
+        openWritingHint: "Запитує пароль адміністратора. Зміни дозволені, доки ви їх не закриєте або не перезапустите Mac.",
+        kextSaysFormat: "Повідомлення kext: %@",
+        noReading: "немає даних")
 }
