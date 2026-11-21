@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>DrogaBoxGPUInstaller</string>
+	<string>RyzenStatusGPUInstaller</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.droga.drogaboxgpu-installer</string>
+	<string>com.ryzenstatus.gpu-installer</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Made by DrogaBox &amp; Izzy</string>
 	<key>CFBundleName</key>
-	<string>DrogaBoxGPU Installer</string>
+	<string>RyzenStatus GPU</string>
 	<key>CFBundleDisplayName</key>
-	<string>DrogaBoxGPU Installer</string>
+	<string>RyzenStatus GPU</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -23,7 +23,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>14.0</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>
