@@ -1,0 +1,25 @@
+# SHA-256 of each test stream; tests/fetch_media.sh downloads and checks them.
+fe6053ce4ee20a1c0ec6f7fe35db097e92ad25d8a3505598bd89162c74d7944f  av1/av1-1-b10-00-quantizer-00.ivf
+8bb6d2c4bfdddca26815e4545c829c8d25ed11341a8d2858ada792e50e4f1ee9  av1/av1-1-b8-01-size-16x16.ivf
+5f9285cbc417b0457c806df9154a1898f0f9ca09066abfdfd828cb3b2ba0371b  av1/av1-1-b8-01-size-66x66.ivf
+5fcd265fd9f9bdd0d3179340b4c4532f1422ca5e5d97741c7481b84cb5dc122f  av1/av1-1-b8-02-allintra.ivf
+14a3dbf537b6bf15efc003182d9916d61438c93624a8bd26e6e3ae7eaf33ea82  av1/av1-1-b8-04-cdfupdate.ivf
+222a9050059b254dab17cfb802ff829c778e3f93af18961a622c8268576c1395  av1/av1-1-b8-05-mv.ivf
+b59bf9586d8546dfda81dfec4ee4e32ceb502c9d22412ab0b63a2abb534a1f14  av1/av1-1-b8-06-mfmv.ivf
+ba3edd82a58414f009e1c821b947ec8de4e0420f33803ca7bfea39af6aeea155  av1/av1-1-b8-23-film_grain-50.ivf
+84a345546e47e37de87d2959347bf731f9f440f9f2ab32bede3f0e416100c585  vp9/vp90-2-05-resize.ivf
+bc9002086e7d06bdd97176b1bba907dbae9f32b7743d86f91208de42d979df95  vp9/vp90-2-06-resize.ivf
+9bccbe2d04db684ae559de2f6ebbea8847f01c4d1cf21ef8aa26deed0cf97eba  vp9/vp90-2-12-droppable_1.ivf
+9bccbe2d04db684ae559de2f6ebbea8847f01c4d1cf21ef8aa26deed0cf97eba  vp9/vp90-2-12-droppable_2.ivf
+7318f5c4f5b21e41f0d0e8103b1a8bda2daada8b1883f34f7eee117daaba6e8b  vp9/vp90-2-12-droppable_3.ivf
+906b56166a198a8d9edb2070ee424e3e2b3e69973f3f09bf5a6c19d90ec522d7  vp9/vp90-2-13-mv-with-scaling.ivf
+41f2ac2086be31e4cf39bad75612ebfd5a3d5445b4328f064ec4f2996d286666  vp9/vp90-2-22-svc_1280x720_3.ivf
+113e8c217af177f1e590e54c21bb97f528fbb5dad67b59951e639fd3e05fe1df  vp9-invalid/invalid-vp90-2-00-quantizer-11.webm.ivf.s52984_r01-05_b6-.ivf
+57c7e52f960e04738eda61e7a92c803710b3c6e1cee490284ad1ce23f10cf6c9  vp9-invalid/invalid-vp90-2-00-quantizer-63.ivf.kf_65527x61446.ivf
+e1f4741354f0d8e5cb88fdb6da1288921737a6ed264f6950400dbeb5eefe86a1  vp9-invalid/invalid-vp90-2-03-size-202x210.webm.ivf.s113306_r01-05_b6-.ivf
+2c5cb460d77b58b867ff8b270c868ecf315a07465dc6dc4361c0ba4ff7ffac45  vp9-invalid/invalid-vp90-2-03-size-224x196.webm.ivf.s44156_r01-05_b6-.ivf
+44ebc0f1581be904c4843001fae7a816dd5865c8aeaf710655c3a9c0ca39aa58  vp9-invalid/invalid-vp90-2-05-resize.ivf.s59293_r01-05_b6-.ivf
+6430fd3da6d9ab06b9dfa9a21fc6bf23ca4004c1b85e05814238119f81262b40  vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf
+0d60b247093a4f3640ba10f9961a1dc863e0fbed8dfa197e9eb350deecf77904  vp9-invalid/invalid-vp90-2-12-droppable_1.ivf.s3676_r01-05_b6-.ivf
+bd976e8bb81a827ed98d67d5c614997fb6fdb3e06aa74b25fd258d6a55d7908b  vp9-invalid/invalid-vp90-2-12-droppable_1.ivf.s73804_r01-05_b6-.ivf
+82325073d8d69afdf994dd94623e1f5e0167679a7d2cb939ed531e8e6c5e96a1  vp9-invalid/invalid-vp91-2-mixedrefcsp-444to420.ivf
