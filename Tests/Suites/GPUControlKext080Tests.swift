@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// GPUSensors.kext 0.8.0 on the app's side (DrogaBoxGPU 72d3f1c): `disarm`,
+/// GPUSensors.kext 0.8.0 on the app's side: `disarm`,
 /// the card's own power floor (`PowerRange`), the read-only card and the new
 /// refusal order, on the model and through the engine, with 0.7.2 next to it.
 enum GPUControlKext080Tests {
@@ -64,7 +64,7 @@ enum GPUControlKext080Tests {
 
     private static func modelFloor(_ suite: TestSuite) {
         do {
-            // The owner's card: 240 W, PowerPercent -6: 225 W.
+            // The test RX 6800 XT: 240 W, PowerPercent -6: 225 W.
             let (fake, c) = opened { $0.powerPercentMin = -6 }
             suite.expect(fake.floorW == 225, "240 W less 6 %: 225 W, integer division as Linux")
             suite.expect(c.setPower(watts: 220)?.reply == .belowFloor, "220 W under the card's floor: below floor")

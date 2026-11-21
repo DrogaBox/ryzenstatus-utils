@@ -40,12 +40,21 @@ struct GPUControlFanStrings {
     let notChecked: String
     /// Under the chart: which line is which ("Charts": label the lines).
     let chartKey: String
+    /// VoiceOver's hint on "Apply curve" (a11y A6).
+    let applyHint: String
+    /// The chart's VoiceOver value (a11y A12): %1$@ = the draft's points,
+    /// %2$@ = the stock curve's, %3$@ = `limitFormat` filled in.
+    let chartValueFormat: String
+    /// The same without a stock curve: %1$@ = the draft's points, %2$@ = the limit.
+    let chartValueDraftFormat: String
+    /// Said when Escape gives the draft back (a11y A10).
+    let draftDiscarded: String
 
     var all: [String] {
         [section, curveToggle, zeroRpmToggle, pointFormat, pointTempFormat, pointSpeedFormat, stepTempFormat,
          stepSpeedFormat, chartLabelFormat, limitFormat, curveOK, curveFailFormat, ruleRange, ruleOrder, ruleFirst,
          ruleLastFormat, ruleCooling, apply, backToStock, footerFormat, notePowerHeld, noteCurveHeld, notChecked,
-         chartKey]
+         chartKey, applyHint, chartValueFormat, chartValueDraftFormat, draftDiscarded]
     }
 
     /// The rule a curve check names, nil for the checks that are not about a
@@ -108,7 +117,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "A power limit is held. Applying the curve first returns the power limit to its start-up value: the kext never holds both.",
         noteCurveHeld: "A fan setting is held. Choosing a power limit first returns the fan to stock: the kext never holds both.",
         notChecked: "Not checked with this version of the kext.",
-        chartKey: "Dashed: the stock curve. Solid: the draft.")
+        chartKey: "Dashed: the stock curve. Solid: the draft.",
+        applyHint: "Sends the curve to the kext. Return in a point field applies it too.",
+        chartValueFormat: "Draft: %1$@. Stock curve: %2$@. %3$@.",
+        chartValueDraftFormat: "Draft: %1$@. %2$@.",
+        draftDiscarded: "Draft discarded.")
 
     static let es = GPUControlFanStrings(
         section: "Ventilador",
@@ -134,7 +147,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Hay un límite de potencia puesto. Al aplicar la curva, primero el límite vuelve a su valor de arranque: el kext nunca mantiene las dos cosas.",
         noteCurveHeld: "Hay un ajuste del ventilador puesto. Al elegir un límite de potencia, primero el ventilador vuelve a los valores de fábrica: el kext nunca mantiene las dos cosas.",
         notChecked: "No comprobado con esta versión del kext.",
-        chartKey: "En trazos, la curva de fábrica; en línea llena, la curva en edición.")
+        chartKey: "En trazos, la curva de fábrica; en línea llena, la curva en edición.",
+        applyHint: "Manda la curva al kext. La tecla Retorno en un campo de punto también la aplica.",
+        chartValueFormat: "Curva en edición: %1$@. Curva de fábrica: %2$@. %3$@.",
+        chartValueDraftFormat: "Curva en edición: %1$@. %2$@.",
+        draftDiscarded: "Se descartó la curva en edición.")
 
     static let ptBR = GPUControlFanStrings(
         section: "Ventoinha",
@@ -160,7 +177,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Há um limite de energia mantido. Ao aplicar a curva, primeiro o limite volta ao valor de inicialização: o kext nunca mantém os dois.",
         noteCurveHeld: "Há um ajuste da ventoinha mantido. Ao escolher um limite de energia, primeiro a ventoinha volta ao padrão: o kext nunca mantém os dois.",
         notChecked: "Não verificado com esta versão do kext.",
-        chartKey: "Tracejada, a curva de fábrica; em linha cheia, o rascunho.")
+        chartKey: "Tracejada, a curva de fábrica; em linha cheia, o rascunho.",
+        applyHint: "Envia a curva ao kext. Return num campo de ponto também a aplica.",
+        chartValueFormat: "Rascunho: %1$@. Curva de fábrica: %2$@. %3$@.",
+        chartValueDraftFormat: "Rascunho: %1$@. %2$@.",
+        draftDiscarded: "Rascunho descartado.")
 
     static let tr = GPUControlFanStrings(
         section: "Fan",
@@ -186,7 +207,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Bir güç sınırı tutuluyor. Eğriyi uygulamak önce güç sınırını başlangıç değerine döndürür: kext ikisini birlikte tutmaz.",
         noteCurveHeld: "Bir fan ayarı tutuluyor. Güç sınırı seçmek önce fanı fabrika ayarına döndürür: kext ikisini birlikte tutmaz.",
         notChecked: "Kext'in bu sürümüyle denetlenmedi.",
-        chartKey: "Kesikli çizgi fabrika eğrisi, düz çizgi taslaktır.")
+        chartKey: "Kesikli çizgi fabrika eğrisi, düz çizgi taslaktır.",
+        applyHint: "Eğriyi kext'e gönderir. Bir nokta alanında Return tuşu da uygular.",
+        chartValueFormat: "Taslak: %1$@. Fabrika eğrisi: %2$@. %3$@.",
+        chartValueDraftFormat: "Taslak: %1$@. %2$@.",
+        draftDiscarded: "Taslak atıldı.")
 
     static let ru = GPUControlFanStrings(
         section: "Вентилятор",
@@ -212,7 +237,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Удерживается лимит мощности. Применение кривой сначала вернёт лимит к значению загрузки: kext никогда не удерживает оба.",
         noteCurveHeld: "Удерживается настройка вентилятора. Выбор лимита мощности сначала вернёт вентилятор к заводским значениям: kext никогда не удерживает оба.",
         notChecked: "Не проверено с этой версией kext.",
-        chartKey: "Штрихами — заводская кривая, сплошной линией — черновик.")
+        chartKey: "Штрихами — заводская кривая, сплошной линией — черновик.",
+        applyHint: "Отправляет кривую в kext. Клавиша Return в поле точки тоже её применяет.",
+        chartValueFormat: "Черновик: %1$@. Заводская кривая: %2$@. %3$@.",
+        chartValueDraftFormat: "Черновик: %1$@. %2$@.",
+        draftDiscarded: "Черновик отменён.")
 
     static let sk = GPUControlFanStrings(
         section: "Ventilátor",
@@ -238,7 +267,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Drží sa limit príkonu. Použitie krivky najprv vráti limit na štartovaciu hodnotu: kext nikdy nedrží oboje.",
         noteCurveHeld: "Drží sa nastavenie ventilátora. Výber limitu výkonu najprv vráti ventilátor na továrenské hodnoty: kext nikdy nedrží oboje.",
         notChecked: "Neoverené s touto verziou kextu.",
-        chartKey: "Čiarkovane továrenská krivka, plnou čiarou koncept.")
+        chartKey: "Čiarkovane továrenská krivka, plnou čiarou koncept.",
+        applyHint: "Pošle krivku do kextu. Použije ju aj kláves Return v poli bodu.",
+        chartValueFormat: "Koncept: %1$@. Továrenská krivka: %2$@. %3$@.",
+        chartValueDraftFormat: "Koncept: %1$@. %2$@.",
+        draftDiscarded: "Koncept zahodený.")
 
     static let de = GPUControlFanStrings(
         section: "Lüfter",
@@ -264,7 +297,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Ein Leistungslimit wird gehalten. Beim Anwenden der Kurve geht das Limit zuerst auf seinen Startwert zurück: Der Kext hält nie beides.",
         noteCurveHeld: "Eine Lüftereinstellung wird gehalten. Beim Wählen eines Leistungslimits geht der Lüfter zuerst auf Werkseinstellung zurück: Der Kext hält nie beides.",
         notChecked: "Mit dieser Kext-Version nicht geprüft.",
-        chartKey: "Gestrichelt die Werkskurve, durchgezogen der Entwurf.")
+        chartKey: "Gestrichelt die Werkskurve, durchgezogen der Entwurf.",
+        applyHint: "Sendet die Kurve an den Kext. Auch die Eingabetaste in einem Punktfeld wendet sie an.",
+        chartValueFormat: "Entwurf: %1$@. Werkskurve: %2$@. %3$@.",
+        chartValueDraftFormat: "Entwurf: %1$@. %2$@.",
+        draftDiscarded: "Entwurf verworfen.")
 
     static let fr = GPUControlFanStrings(
         section: "Ventilateur",
@@ -290,7 +327,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "Une limite de puissance est maintenue. Appliquer la courbe remet d’abord la limite à sa valeur de démarrage : le kext ne maintient jamais les deux.",
         noteCurveHeld: "Un réglage du ventilateur est maintenu. Choisir une limite de puissance remet d’abord le ventilateur aux réglages d’usine : le kext ne maintient jamais les deux.",
         notChecked: "Non vérifié avec cette version du kext.",
-        chartKey: "En pointillés, la courbe d’usine ; en trait plein, le brouillon.")
+        chartKey: "En pointillés, la courbe d’usine ; en trait plein, le brouillon.",
+        applyHint: "Envoie la courbe au kext. La touche Retour dans un champ de point l’applique aussi.",
+        chartValueFormat: "Brouillon : %1$@. Courbe d’usine : %2$@. %3$@.",
+        chartValueDraftFormat: "Brouillon : %1$@. %2$@.",
+        draftDiscarded: "Brouillon abandonné.")
 
     static let it = GPUControlFanStrings(
         section: "Ventola",
@@ -316,7 +357,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "È mantenuto un limite di potenza. Applicando la curva, prima il limite torna al valore di avvio: il kext non mantiene mai entrambi.",
         noteCurveHeld: "È mantenuta un’impostazione della ventola. Scegliendo un limite di potenza, prima la ventola torna ai valori di fabbrica: il kext non mantiene mai entrambi.",
         notChecked: "Non verificato con questa versione del kext.",
-        chartKey: "Tratteggiata la curva di fabbrica, in linea continua la bozza.")
+        chartKey: "Tratteggiata la curva di fabbrica, in linea continua la bozza.",
+        applyHint: "Invia la curva al kext. Anche il tasto Invio in un campo del punto la applica.",
+        chartValueFormat: "Bozza: %1$@. Curva di fabbrica: %2$@. %3$@.",
+        chartValueDraftFormat: "Bozza: %1$@. %2$@.",
+        draftDiscarded: "Bozza scartata.")
 
     static let ja = GPUControlFanStrings(
         section: "ファン",
@@ -342,7 +387,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "電力制限が保持されています。カーブを適用すると、先に電力制限が起動時の値に戻ります。kext は両方を同時に保持しません。",
         noteCurveHeld: "ファンの設定が保持されています。電力制限を選ぶと、先にファンが純正に戻ります。kext は両方を同時に保持しません。",
         notChecked: "このバージョンの kext では確認されていません。",
-        chartKey: "破線は純正カーブ、実線は下書きです。")
+        chartKey: "破線は純正カーブ、実線は下書きです。",
+        applyHint: "カーブを kext に送ります。点のフィールドで Return キーを押しても適用されます。",
+        chartValueFormat: "下書き: %1$@。純正カーブ: %2$@。%3$@。",
+        chartValueDraftFormat: "下書き: %1$@。%2$@。",
+        draftDiscarded: "下書きを破棄しました。")
 
     static let ko = GPUControlFanStrings(
         section: "팬",
@@ -368,7 +417,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "전력 한도가 유지되고 있습니다. 곡선을 적용하면 먼저 전력 한도가 시동 값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
         noteCurveHeld: "팬 설정이 유지되고 있습니다. 전력 한도를 선택하면 먼저 팬이 기본값으로 돌아갑니다. kext는 둘을 함께 유지하지 않습니다.",
         notChecked: "이 버전의 kext로 확인되지 않았습니다.",
-        chartKey: "점선은 기본 곡선, 실선은 초안입니다.")
+        chartKey: "점선은 기본 곡선, 실선은 초안입니다.",
+        applyHint: "곡선을 kext로 보냅니다. 점 필드에서 Return 키를 눌러도 적용됩니다.",
+        chartValueFormat: "초안: %1$@. 기본 곡선: %2$@. %3$@.",
+        chartValueDraftFormat: "초안: %1$@. %2$@.",
+        draftDiscarded: "초안을 버렸습니다.")
 
     static let zhHans = GPUControlFanStrings(
         section: "风扇",
@@ -394,7 +447,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "当前设有功率上限。应用曲线会先使功率上限返回启动值：kext 绝不会同时维持两者。",
         noteCurveHeld: "正在维持风扇设置。选择功率上限会先使风扇返回出厂设置：kext 绝不会同时维持两者。",
         notChecked: "未用此版本的 kext 检查。",
-        chartKey: "虚线为原厂曲线，实线为草稿。")
+        chartKey: "虚线为原厂曲线，实线为草稿。",
+        applyHint: "将曲线发送到 kext。在点的输入框中按 Return 键也会应用。",
+        chartValueFormat: "草稿：%1$@。原厂曲线：%2$@。%3$@。",
+        chartValueDraftFormat: "草稿：%1$@。%2$@。",
+        draftDiscarded: "已放弃草稿。")
 
     static let zhTW = GPUControlFanStrings(
         section: "風扇",
@@ -420,7 +477,11 @@ extension GPUControlFanStrings {
         notePowerHeld: "目前設有功率上限。套用曲線會先使功率上限回到啟動值：kext 絕不會同時維持兩者。",
         noteCurveHeld: "正在維持風扇設定。選擇功率上限會先使風扇回到原廠設定：kext 絕不會同時維持兩者。",
         notChecked: "未用此版本的 kext 檢查。",
-        chartKey: "虛線為原廠曲線，實線為草稿。")
+        chartKey: "虛線為原廠曲線，實線為草稿。",
+        applyHint: "將曲線傳送到 kext。在點的欄位中按 Return 鍵也會套用。",
+        chartValueFormat: "草稿：%1$@。原廠曲線：%2$@。%3$@。",
+        chartValueDraftFormat: "草稿：%1$@。%2$@。",
+        draftDiscarded: "已捨棄草稿。")
 
     static let uk = GPUControlFanStrings(
         section: "Вентилятор",
@@ -446,5 +507,9 @@ extension GPUControlFanStrings {
         notePowerHeld: "Утримується ліміт потужності. Застосування кривої спершу поверне ліміт до значення завантаження: kext ніколи не утримує обидва.",
         noteCurveHeld: "Утримується налаштування вентилятора. Вибір ліміту потужності спершу поверне вентилятор до заводських значень: kext ніколи не утримує обидва.",
         notChecked: "Не перевірено з цією версією kext.",
-        chartKey: "Пунктиром — заводська крива, суцільною лінією — чернетка.")
+        chartKey: "Пунктиром — заводська крива, суцільною лінією — чернетка.",
+        applyHint: "Надсилає криву в kext. Клавіша Return у полі точки теж її застосовує.",
+        chartValueFormat: "Чернетка: %1$@. Заводська крива: %2$@. %3$@.",
+        chartValueDraftFormat: "Чернетка: %1$@. %2$@.",
+        draftDiscarded: "Чернетку скасовано.")
 }
