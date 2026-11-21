@@ -116,6 +116,11 @@ fi
 print
 
 # The whole, in one line. The decoders count; the loader counts only when it is needed.
+# A removal of this boot (decoders.sh's "removed; ..." result) waits only for the reboot.
+if [[ ${RESULT[decoders]} == removed\;* ]]; then
+  print -r -- "Overall: the decoders are removed; reboot to finish."
+  exit 2
+fi
 if (( STATUS[decoders] != 0 )); then
   # decoders.sh's own words: blocked, an unvalidated build (--force), or damaged plug-ins
   print -r -- "Overall: not ready for the decoders: ${RESULT[decoders]}$(pick " (details: install/decoders.sh check)" "")"
@@ -131,9 +136,15 @@ warns=(${(f)"$(print -r -- "${OUTPUT[decoders]}" | sed -n 's/^  warn  //p')"})
 but=""
 (( ${#warns} )) && but=", with warnings"
 rc=2
-if [[ ${RESULT[decoders]} == installed* ]] && { (( ! loader_needed )) || [[ ${RESULT[loader]} == working:* ]]; }; then
+# decoders.sh says "installed; they load at the next reboot." for the plug-ins put in the boot
+# snapshot in this boot: the running system still has the old ones, or none.
+dec_next_boot=0
+[[ ${RESULT[decoders]} == "installed; they load at the next reboot"* ]] && dec_next_boot=1
+if [[ ${RESULT[decoders]} == installed* ]] && (( ! dec_next_boot )) && { (( ! loader_needed )) || [[ ${RESULT[loader]} == working:* ]]; }; then
   print -r -- "Overall: working$but. The decoders are installed and macOS lets Safari use them."
   rc=0
+elif (( dec_next_boot )) && { (( ! loader_needed )) || [[ ${RESULT[loader]} == working:* ]]; }; then
+  print -r -- "Overall: installed$but. The decoders load at the next reboot."
 elif [[ ${RESULT[decoders]} == installed* ]]; then
   print -r -- "Overall: installed$but. Safari can use the decoders after the reboot that starts the loader kext."
 else

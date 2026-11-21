@@ -385,11 +385,18 @@ efi_close() { # id
 # build it carries, and only for a partition it cannot look into now: a mounted EFI shows what
 # is really there, and that wins.
 #
+# The decoders keep a record of their own there, installed-decoders.txt, in its own format
+# (decoders.sh says which); record_put, record_file and record_drop are what it shares.
+#
 # VCNVT_FAKE_RECORDS is for testing only (tests/loader_install.sh): a folder of the user's
-# for the records instead, honoured only together with --efi-folder. The record of an
-# install to a folder (partition "folder:<path>") is written only then.
+# for the records instead, honoured only together with --efi-folder, or with RECORD_FAKE_OK
+# set to 1 by the script itself (decoders.sh does that for check only, which changes
+# nothing). The record of an install to a folder (partition "folder:<path>") is written
+# only then.
 RECORD_DIR="/Library/Application Support/RyzenStatus GPU"
-record_test() { [[ -n ${VCNVT_FAKE_RECORDS:-} && -n ${EFI_DIR:-} ]]; }
+# set here, so a value from the environment never counts
+RECORD_FAKE_OK=0
+record_test() { [[ -n ${VCNVT_FAKE_RECORDS:-} && ( -n ${EFI_DIR:-} || $RECORD_FAKE_OK == 1 ) ]]; }
 record_dir() { if record_test; then print -r -- ${VCNVT_FAKE_RECORDS:A}; else print -r -- $RECORD_DIR; fi; }
 # The owner the folder and the records must have: root, or the user in test mode.
 record_owner() { if record_test; then /usr/bin/id -un; else print -r -- root; fi; }
@@ -401,10 +408,14 @@ record_safe_dir() { # path
   [[ $(/usr/bin/stat -f '%Su' "$1") == $(record_owner) ]] || return 1
   (( (8#$(/usr/bin/stat -f '%Lp' "$1") & 8#022) == 0 ))
 }
-# Writes the record; prints why when it cannot (the install itself is done then).
-record_write() { # kext-name partition name id bundle version hash
+# Writes the record installed-<name>.txt, one line per argument after the name; prints why
+# when it cannot (the install itself is done then). The new file takes the place of the old
+# one in one move, so a reader never sees half of it.
+record_put() { # record-name line...
   local dir=$(record_dir) owner=$(record_owner)
   local file=$dir/installed-$1.txt
+  local tmp=$dir/.installed-$1.txt.$$
+  shift
   if ! record_test; then
     (( EUID == 0 )) || { print -r -- "note: no install record written (not root)"; return 1; }
     record_safe_dir "${dir:h}" || { print -r -- "note: no install record written: ${dir:h} is not a folder of root's"; return 1; }
@@ -417,24 +428,42 @@ record_write() { # kext-name partition name id bundle version hash
     print -r -- "note: no install record written: $file is not a plain file"
     return 1
   fi
-  local tmp=$dir/.installed-$1.txt.$$
   /bin/rm -f -- "$tmp"
   ( umask 022
-    print -r -- "boot=$(boot_session)"$'\n'"partition=$2"$'\n'"name=$3"$'\n'"id=$4"$'\n'"bundle=$5"$'\n'"version=$6"$'\n'"hash=$7" > "$tmp" ) &&
+    print -rl -- "$@" > "$tmp" ) &&
     /bin/chmod 644 "$tmp" && /bin/mv -f -- "$tmp" "$file" ||
     { /bin/rm -f -- "$tmp"; print -r -- "note: the install record could not be written to $file"; return 1; }
 }
-# Deletes the record, if there is one (a plain file in a safe folder only).
-record_remove() { # kext-name
+# Writes the record of a kext install; prints why when it cannot (the install itself is done
+# then).
+record_write() { # kext-name partition name id bundle version hash
+  record_put "$1" "boot=$(boot_session)" "partition=$2" "name=$3" "id=$4" "bundle=$5" "version=$6" "hash=$7"
+}
+# Deletes installed-<name>.txt, if it is a plain file in a safe folder, whoever asks.
+record_drop() { # record-name
   local dir=$(record_dir)
   local file=$dir/installed-$1.txt
+  record_safe_dir "$dir" || return 0
+  [[ -f $file && ! -L $file ]] && /bin/rm -f -- "$file"
+  return 0
+}
+# Deletes the record, if there is one (a plain file in a safe folder only).
+record_remove() { # kext-name
   if ! record_test; then
     # an uninstall from a folder leaves the record of a partition alone
     [[ -z ${EFI_DIR:-} ]] && (( EUID == 0 )) || return 0
   fi
-  record_safe_dir "$dir" || return 0
-  [[ -f $file && ! -L $file ]] && /bin/rm -f -- "$file"
-  return 0
+  record_drop "$1"
+}
+# Prints the path of installed-<name>.txt when it is safe to believe: a plain file of the
+# expected owner, writable by it only, in a safe folder. Returns 1 otherwise.
+record_file() { # record-name
+  local dir=$(record_dir)
+  local file=$dir/installed-$1.txt
+  record_safe_dir "$dir" || return 1
+  [[ -f $file && ! -L $file && $(/usr/bin/stat -f '%Su' "$file") == $(record_owner) ]] || return 1
+  (( (8#$(/usr/bin/stat -f '%Lp' "$file") & 8#022) == 0 )) || return 1
+  print -r -- "$file"
 }
 # Reads the record of this boot session. Sets REC_PARTITION, REC_NAME, REC_ID, REC_BUNDLE,
 # REC_VERSION and REC_HASH and returns 0; returns 1 when there is none, it is not safe to
@@ -442,11 +471,8 @@ record_remove() { # kext-name
 REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
 record_read() { # kext-name
   REC_PARTITION="" REC_NAME="" REC_ID="" REC_BUNDLE="" REC_VERSION="" REC_HASH=""
-  local dir=$(record_dir)
-  local file=$dir/installed-$1.txt
-  record_safe_dir "$dir" || return 1
-  [[ -f $file && ! -L $file && $(/usr/bin/stat -f '%Su' "$file") == $(record_owner) ]] || return 1
-  (( (8#$(/usr/bin/stat -f '%Lp' "$file") & 8#022) == 0 )) || return 1
+  local file
+  file=$(record_file "$1") || return 1
   local line boot=""
   while IFS= read -r line; do
     case $line in

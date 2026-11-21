@@ -99,6 +99,10 @@ done
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ -n $EFI_ID && $CMD == check ]] && usage_error "check looks at every EFI partition; --efi goes with install and uninstall"
 [[ -n $EFI_ID && -n $EFI_DIR ]] && usage_error "give --efi or --efi-folder, not both"
+# VCNVT_FAKE_LIVE is for testing only (tests/loader_install.sh), honoured only with
+# --efi-folder, like VCNVT_FAKE_RUNNING in sensors.sh: a folder that stands in for the
+# plug-ins of the running system, which install's closing note looks at.
+[[ -n ${VCNVT_FAKE_LIVE:-} && -n $EFI_DIR ]] && LIVE=${VCNVT_FAKE_LIVE:A}
 
 # What check says about a copy of the kext: whether it lists the plug-ins being installed.
 kext_usable() { lists_both "$1"; }
@@ -305,6 +309,10 @@ do_install() {
   fi
   kext_install
   print -r -- "Reboot. Then $(pick "'install/loader.sh check' tells you in one line whether it works" "open RyzenStatus GPU again: it checks whether the kext works")."
+  # install.sh sets GPU_INSTALL_DECODERS_NEXT=1 when it installs the decoder plug-ins right
+  # after this kext, in the same run: a note on the plug-ins installed now would send the
+  # user to do what the run does next.
+  [[ ${GPU_INSTALL_DECODERS_NEXT:-0} == 1 ]] && return 0
   if [[ ! -d $LIVE/$AV1 || ! -d $LIVE/$VP9 ]]; then
     print -r -- "The decoder plug-ins are not installed yet: $(pick "'sudo install/decoders.sh install' before you reboot." "install them in this window (Decoder plug-ins > Install) before you reboot; if that stays unavailable, reboot first and install them then.")"
   elif [[ "$(cdhash_of "$LIVE/$AV1")" != "$(cdhash_of "$BUNDLES/$AV1")" || "$(cdhash_of "$LIVE/$VP9")" != "$(cdhash_of "$BUNDLES/$VP9")" ]]; then

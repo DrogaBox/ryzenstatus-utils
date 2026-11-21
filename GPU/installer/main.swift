@@ -12,7 +12,11 @@ struct CheckItem: Identifiable, Decodable {
 
 struct DecodersCheck: Decodable {
     let canInstall: Bool
-    let installed: String    // none | current | outdated
+    let installed: String    // none | current | outdated (what the running system has)
+    /// From the install record of this boot: these plug-ins are in the next boot's snapshot
+    /// ("install"), or ours are gone from it ("remove"), and the running system keeps what
+    /// it started with until the reboot. none | install | remove.
+    let pending: String?
     let overridable: Bool
     let repairable: Bool
     let validated: Bool
@@ -823,15 +827,22 @@ struct ContentView: View {
 
     @ViewBuilder var decodersSection: some View {
         if let dec = engine.decoders {
+            let pendingInstall = dec.pending == "install"
+            let pendingRemove = dec.pending == "remove"
+            // What the next boot has: plug-ins removed in this boot count as none.
+            let installed = pendingRemove ? "none" : dec.installed
             let status: String = {
+                if pendingInstall { return "ok" }
                 if dec.repairable { return "warn" }
-                if dec.installed == "current" { return "ok" }
+                if installed == "current" { return "ok" }
                 if dec.canInstall { return dec.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
                 return dec.overridable ? "warn" : "fail"
             }()
             let subtitle: String = {
+                if pendingInstall { return "Installed — loads at the next reboot" }
+                if pendingRemove { return "Removed — finishes at the next reboot" }
                 if dec.repairable { return "Apple's system video plug-ins need repair" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed and up to date"
                 case "outdated": return "Outdated version installed — click Update"
                 default:
@@ -841,16 +852,18 @@ struct ContentView: View {
                 }
             }()
             let installTitle: String = {
+                if pendingInstall { return "Installed" }
                 if dec.repairable { return "Repair" }
                 if dec.overridable && !dec.canInstall { return "Install anyway" }
-                switch dec.installed {
+                switch installed {
                 case "current":  return "Installed"
                 case "outdated": return "Update"
                 default:         return "Install"
                 }
             }()
-            let installTint: Color = (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
-            let installDisabled = busy || (!dec.repairable && (dec.installed == "current" || (!dec.canInstall && !dec.overridable)))
+            let installTint: Color = !pendingInstall && (dec.repairable || (dec.overridable && !dec.canInstall)) ? .orange : .accentColor
+            let installDisabled = busy || pendingInstall
+                || (!dec.repairable && (installed == "current" || (!dec.canInstall && !dec.overridable)))
 
             ComponentSection(
                 title: "Decoder plug-ins (AV1 + VP9)",
@@ -860,7 +873,7 @@ struct ContentView: View {
                 installTitle: installTitle,
                 installTint: installTint,
                 installDisabled: installDisabled,
-                removeDisabled: busy || dec.installed == "none",
+                removeDisabled: busy || (!pendingInstall && installed == "none"),
                 onInstall: {
                     if dec.repairable {
                         confirm = .repairDecoders
