@@ -155,6 +155,11 @@ enum GPUInstallerDMGTests {
         }
         suite.expect(main.contains("if engine.rootURL != nil && !engine.rootInBundle {"),
                      "the app from the DMG offers no folder choice")
+        suite.expect(main.contains("self.suggestion = OptionalSuggestion(encoder: enc, sensors: sns)")
+                         && main.contains(".onReceive(engine.$suggestion)")
+                         && main.contains("self.sensors = Self.isOlder(running, than: sns.version)"),
+                     "the guided install ticks an optional part that is installed in an older version")
+        appWording(suite, root)
         suite.expect(script.contains("ditto \"$GPU_PARTS\" \"$GPU_APP/Contents/Resources/GPU\""),
                      "make-dmg.sh puts the parts in Contents/Resources/GPU of the installer it ships")
         suite.expect(script.components(separatedBy: "RyzenStatusGPUInstaller\" --print-payload").count == 3,
@@ -178,6 +183,34 @@ enum GPUInstallerDMGTests {
                      "the installer's executable and bundle name match its build script")
         suite.expect(plist["LSMinimumSystemVersion"] as? String == "14.0" && build.contains("-target x86_64-apple-macos14.0"),
                      "the installer runs on macOS 14 and newer, in Info.plist and in the build")
+    }
+
+    /// The scripts tell the app's copy from a checkout by where common.zsh sits: inside
+    /// "<name>.app/Contents/Resources/GPU" their messages name the app's buttons.
+    private static func appWording(_ suite: TestSuite, _ root: URL) {
+        let common = root.appendingPathComponent("GPU/install/common.zsh")
+        let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("gpu-wording-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        var seen: [String: String] = [:]
+        for (label, folder) in [("app", "RyzenStatus GPU.app/Contents/Resources/GPU"), ("checkout", "GPU")] {
+            let install = base.appendingPathComponent(folder).appendingPathComponent("install", isDirectory: true)
+            try? FileManager.default.createDirectory(at: install, withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: common, to: install.appendingPathComponent("common.zsh"))
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = ["-f", "-c", "source \"$1\"; print -r -- \"$IN_APP $(pick dev app)\"", "zsh",
+                                 install.appendingPathComponent("common.zsh").path]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch { continue }
+            let out = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            seen[label] = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        suite.expect(seen["app"] == "1 app" && seen["checkout"] == "0 dev",
+                     "inside the app the scripts use the app's words, in a checkout the commands (\(seen))")
     }
 
     // MARK: Helpers
