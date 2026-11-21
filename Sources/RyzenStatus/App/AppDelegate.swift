@@ -187,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         SystemShortcutTakeover.recoverIfNeeded(keeping: [])
         HotkeyManager.shared.onActivate = { KeepAwakeManager.shared.toggle() }
         HotkeyManager.shared.syncWithPreferences()
+        // The Monitor window's shortcut belongs to no hub feature, so the
+        // feature runtime below never registers it.
+        MonitorWindowShortcut.shared.syncWithPreferences()
 
         KeepAwakeManager.shared.recoverIfNeeded {
             KeepAwakeManager.shared.activateOnLaunchIfNeeded()

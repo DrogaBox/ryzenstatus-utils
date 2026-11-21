@@ -2536,8 +2536,10 @@ final class CommandBarService: ObservableObject {
     /// steps aside: otherwise a combination already taken would fire its own
     /// feature instead of reaching the bar. This is the same pair the shortcut
     /// fields in Settings use, and it gives every key back, not only ours.
+    /// The bar is not main-actor isolated, but its panel and keys drive it
+    /// on main, so the pair says so here.
     private func beginCapturingShortcut(_ entry: CommandBarEntry) {
-        ShortcutCapture.begin()
+        MainActor.assumeIsolated { ShortcutCapture.begin() }
         // The tap sits ahead of the app's own menu. Without it, Command Q
         // never reaches the local monitor. It quits RyzenStatus instead of
         // landing on the card. When Accessibility cannot
@@ -2552,7 +2554,7 @@ final class CommandBarService: ObservableObject {
 
     private func endCapturingShortcut() {
         ShortcutRecordingTap.end()
-        ShortcutCapture.end()
+        MainActor.assumeIsolated { ShortcutCapture.end() }
     }
 
     /// One press while the capture card is up. Shared by the recording tap

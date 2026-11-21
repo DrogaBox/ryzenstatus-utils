@@ -11,6 +11,7 @@ struct ShortcutsSettings: View {
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var superKey = SuperKeyService.shared
     @ObservedObject private var router = SettingsRouter.shared
+    @ObservedObject private var monitorShortcut = MonitorWindowShortcut.shared
     @AppStorage(DefaultsKey.keyboardBrightnessShortcutsEnabled) private var keyboardBrightnessShortcutsEnabled = false
     @AppStorage(DefaultsKey.keepAwakeShortcut) private var keepAwakeShortcut = GlobalShortcut.keepAwakeDefault.storageValue
     @AppStorage(DefaultsKey.snippetLibraryShortcut) private var snippetLibraryShortcut = GlobalShortcut.snippetLibraryDefault.storageValue
@@ -216,19 +217,24 @@ struct ShortcutsSettings: View {
         }
     }
 
+    @ViewBuilder
     private func roleRow(_ role: GlobalShortcutRole,
                          showsFeatureContext: Bool = true,
                          reservesClearButtonSpace: Bool = false) -> some View {
         let title = role.title(l10n.s)
-        let featureTitle = role.feature.hubTitle(l10n.s, hub: hub)
-        let active = hasAssignedShortcut(role) && role.requiredEnableKeys.allSatisfy {
-            UserDefaults.standard.bool(forKey: $0)
-        }
-        return ShortcutPreferenceRow(
+        // A role of the app itself has no feature to name beside it.
+        let featureTitle = role.isAlwaysAvailable ? title : role.feature.hubTitle(l10n.s, hub: hub)
+        let switchedOn = role.requiredEnableKeys.allSatisfy { UserDefaults.standard.bool(forKey: $0) }
+        // The Monitor's key is registered by the app itself: when macOS
+        // refused it, the row says so, as the Dashboard page does.
+        let refused = role == .monitorWindow && switchedOn && monitorShortcut.registrationFailed
+        let active = hasAssignedShortcut(role) && switchedOn && !refused
+        ShortcutPreferenceRow(
             role: role,
             isEnabled: !role.isKeyboardBrightness || keyboardBrightnessShortcutsEnabled,
             label: title,
             symbolName: role == .screenshotScrolling ? ScreenCaptureTool.scrolling.systemImageName
+                : role == .monitorWindow ? MonitorWindowShortcut.symbolName
                 : role.isKeyboardBrightness ? "keyboard" : role.feature.symbolName,
             contextLabel: showsFeatureContext && title != featureTitle ? featureTitle : nil,
             statusText: active ? text.active : text.inactive,
@@ -242,9 +248,14 @@ struct ShortcutsSettings: View {
                 return WindowLayoutService.shared.shortcutConflictTitle(shortcut, excluding: nil)
             },
             onChange: {
-                FeatureRuntime.shared.sync(role.availabilityFeatures)
+                role.syncRegistration()
             }
         )
+        if refused {
+            Text(l10n.s.shortcutUnavailable)
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
     }
 
     private func expansionBinding(for feature: AppFeature, in group: FeatureGroup) -> Binding<Bool> {
