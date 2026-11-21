@@ -12,6 +12,7 @@ enum SettingsPage: Hashable, CaseIterable {
     case superKey
     case whatsAppDownloads
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, amdOverclocking, sensors, dashboard, amdValidation
+    case gpuControl
     case killProcess, notch, commandBar
     case portManager
     case quitProtection
@@ -361,7 +362,8 @@ enum FeatureVisibilitySupport {
         case .quitProtection: return [.quitWindowProtection]
         case .commandBar: return [.commandBar]
         case .notch: return [.notch]
-        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .amdOverclocking, .sensors, .dashboard, .amdValidation:
+        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .amdOverclocking, .sensors, .dashboard, .amdValidation,
+             .gpuControl:
             return []
         }
     }

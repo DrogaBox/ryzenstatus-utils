@@ -1,0 +1,31 @@
+# C, C++ and Objective-C: Google style, 80 columns.
+# Format with: xcrun clang-format -i <files>   (tools/format.sh does the whole tree)
+---
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 80
+IndentWidth: 2
+UseTab: Never
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^".*"'
+    Priority: 3
+    SortPriority: 3
+  - Regex: '^<.*\.h>'
+    Priority: 1
+    SortPriority: 1
+  - Regex: '^<.*>'
+    Priority: 2
+    SortPriority: 2
+---
+Language: ObjC
+BasedOnStyle: Google
+ColumnLimit: 80
+IndentWidth: 2
+UseTab: Never
+DerivePointerAlignment: false
+PointerAlignment: Left

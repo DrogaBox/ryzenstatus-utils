@@ -124,6 +124,10 @@ struct GPUControlSnapshot: Equatable, Sendable {
     /// The last "close changes", nil until one is asked for (and again after
     /// a new choice).
     var closing: GPUControlClosing?
+    /// The owner's last choice was the way back and it went out (or there
+    /// was nothing to give back): a remembered setting is forgotten then.
+    /// False again with the owner's next choice.
+    var ownerReleased = false
 }
 
 /// The rules of plan section 6, without threads: every call goes through
@@ -153,6 +157,10 @@ final class GPUControlEngine {
     /// After a wake, ask again for what was held (D4, phase 2; off by
     /// default like the setting).
     var reaskAfterWake = false
+    /// Checks a remembered request against the kext's table of the moment
+    /// right before it goes out (the stock GFX maximum moves across wakes):
+    /// the request to send, or nil for nothing.
+    var reaskFilter: ((GPUControlRequest) -> GPUControlRequest?)?
 
     private(set) var snapshot = GPUControlSnapshot() {
         didSet { if snapshot != oldValue { onSnapshot?(snapshot) } }
@@ -203,10 +211,22 @@ final class GPUControlEngine {
         if origin == .remembered, wanted != nil, wantedOrigin == .owner { return }
         let request = request.normalized
         let now = clock()
-        if wanted == nil, request == snapshot.held, snapshot.activity == .none { return }
+        if request == wanted {
+            // Asked for already: it goes out as planned.
+            snapshot.outcome = nil
+            return
+        }
         // A choice after "close changes" replaces it.
         closeWanted = false
         snapshot.closing = nil
+        if request == snapshot.held {
+            // Back to what is held: a request still waiting is dropped, and
+            // no refusal of an older request stays on screen.
+            if wanted != nil { finishRequest() }
+            snapshot.outcome = nil
+            return
+        }
+        if origin == .owner { snapshot.ownerReleased = false }
         wanted = request
         wantedOrigin = origin
         wantedSince = now
@@ -219,7 +239,7 @@ final class GPUControlEngine {
     func chooseGfxMax(_ mhz: Int?) {
         var want = od8Basis
         want.gfxMaxMHz = mhz
-        choose(.od8(want))
+        chooseOD8(want)
     }
 
     /// The whole OD8 state with the fan changed: the GFX maximum that is held
@@ -228,7 +248,22 @@ final class GPUControlEngine {
         var want = od8Basis
         want.curve = curve
         want.zeroRpmOff = zeroRpmOff
-        choose(.od8(want))
+        chooseOD8(want)
+    }
+
+    /// A whole OD8 state from the fan or the clock control. The stock state
+    /// gives back an OD8 hold, drops an OD8 request that still waits, and
+    /// otherwise does nothing: it never gives back a power limit.
+    private func chooseOD8(_ want: GPUControlOD8Want) {
+        guard want.isStock else { return choose(.od8(want)) }
+        if case .od8? = snapshot.held {
+            choose(.startUp)
+        } else if case .od8? = wanted {
+            finishRequest()
+            snapshot.outcome = nil
+        } else {
+            snapshot.outcome = nil
+        }
     }
 
     /// The OD8 state a fan or clock change starts from: the one asked for,
@@ -456,6 +491,15 @@ final class GPUControlEngine {
     // MARK: Asking
 
     private func attempt(_ request: GPUControlRequest) {
+        var request = request
+        if wantedOrigin == .remembered, let reaskFilter {
+            guard let checked = reaskFilter(request)?.normalized, checked != .startUp else {
+                finishRequest()
+                return
+            }
+            request = checked
+            wanted = checked
+        }
         guard let channel, let status = readStatus() else { return }
         let now = clock()
         // The kext takes `set` at the start-up limit as the way back
@@ -467,11 +511,11 @@ final class GPUControlEngine {
         // back: it refuses `arm` and every `set` with "no start-up value" and
         // never shows `ready`, so the request ends as `closed` (nothing to
         // compare with, nothing held), never as `notConfirmed`.
-        var request = request
         if case .power(let watts) = request, Self.bootBelievable(status.bootW), UInt64(watts) == status.bootW {
             request = .startUp
         }
         if request == .startUp {
+            if wantedOrigin == .owner { snapshot.ownerReleased = true }
             if snapshot.held != nil || status.flags.contains(.mine) {
                 _ = channel.release()
                 lastWriteAt = now
@@ -603,11 +647,14 @@ final class GPUControlEngine {
             _ = readStatus()
         case .failed, .off:
             // "failed": the app's own change was not confirmed; the kext went
-            // back and turned writing off (the notice comes with the status).
+            // back and turned writing off. "off" while a set waited: writing
+            // went off under it, which the owner hears about if the app held
+            // something (the notice comes with the status).
+            let wasHeld = snapshot.held != nil
             snapshot.held = nil
-            if readStatus(confirming: reply == .failed) != nil {
+            if readStatus(confirming: reply == .failed || wasHeld) != nil {
                 // `status` did not say off: stop all the same.
-                if reply == .failed { onNotice?(.writingOff(snapshot.status?.writeOff)) }
+                if reply == .failed || wasHeld { onNotice?(.writingOff(snapshot.status?.writeOff)) }
                 stop(.writingOff(snapshot.status?.writeOffCode ?? 0), close: false)
             }
         case .badVersion:
@@ -712,8 +759,9 @@ final class GPUControlEngine {
 }
 
 /// The GPU control's owner in the app: one engine, one connection, one
-/// serial queue. Nothing creates one with a real channel yet (phase 2 does,
-/// once, at launch); without a channel it cannot open anything.
+/// serial queue. `GPUControlService.connectAtLaunch` creates the one with
+/// the real channel, once, at launch (`AppDelegate`); without a channel it
+/// cannot open anything.
 final class GPUControlController: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ryzenstatus.gpu-control", qos: .userInitiated)
     private let channel: GPUControlChannel?
@@ -726,9 +774,18 @@ final class GPUControlController: @unchecked Sendable {
     private let snapshotLock = NSLock()
     private var lastSnapshot = GPUControlSnapshot()
 
-    /// Called on the main queue.
-    var onChange: (@Sendable (GPUControlSnapshot) -> Void)?
-    var onNotice: (@Sendable (GPUControlNotice) -> Void)?
+    /// Called on the main queue. Read and written under the snapshot lock,
+    /// so a handler set at any time is never read half-way.
+    var onChange: (@Sendable (GPUControlSnapshot) -> Void)? {
+        get { snapshotLock.withLock { changeHandler } }
+        set { snapshotLock.withLock { changeHandler = newValue } }
+    }
+    var onNotice: (@Sendable (GPUControlNotice) -> Void)? {
+        get { snapshotLock.withLock { noticeHandler } }
+        set { snapshotLock.withLock { noticeHandler = newValue } }
+    }
+    private var changeHandler: (@Sendable (GPUControlSnapshot) -> Void)?
+    private var noticeHandler: (@Sendable (GPUControlNotice) -> Void)?
 
     /// Thread-safe flag shared with the engine.
     private final class Gate: @unchecked Sendable {
@@ -788,8 +845,16 @@ final class GPUControlController: @unchecked Sendable {
 
     func refresh() { queue.async { [self] in engine.refresh(); run() } }
 
+    /// Ask again for what was held after a wake (remembering, plan 8).
+    func setReaskAfterWake(_ on: Bool) { queue.async { [self] in engine.reaskAfterWake = on } }
+
     /// "Close changes": see `GPUControlEngine.close()`.
     func close() { queue.async { [self] in engine.close(); run() } }
+
+    /// See `GPUControlEngine.reaskFilter`. Called on the controller's queue.
+    func setReaskFilter(_ filter: @escaping @Sendable (GPUControlRequest) -> GPUControlRequest?) {
+        queue.async { [self] in engine.reaskFilter = filter }
+    }
 
     /// `applicationWillTerminate`: `release` at once on a helper thread,
     /// then close; waits `timeout` seconds at most.
@@ -864,9 +929,12 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     private func publish(_ snapshot: GPUControlSnapshot) {
-        snapshotLock.withLock { lastSnapshot = snapshot }
-        guard let onChange else { return }
-        DispatchQueue.main.async { onChange(snapshot) }
+        let handler: (@Sendable (GPUControlSnapshot) -> Void)? = snapshotLock.withLock {
+            lastSnapshot = snapshot
+            return changeHandler
+        }
+        guard let handler else { return }
+        DispatchQueue.main.async { handler(snapshot) }
     }
 
     private static func nowMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }

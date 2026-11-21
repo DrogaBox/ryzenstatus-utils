@@ -20,6 +20,7 @@ enum GPUControlChannelTests {
         controllerRetries(suite)
         controllerStops(suite)
         controllerQueue(suite)
+        reviewFixes(suite)
         noChannel(suite)
         textGroups(suite)
         wireNumbers(suite)
@@ -181,6 +182,8 @@ enum GPUControlChannelTests {
             ("armed: the last OD8 call was not taken; going back to stock", .unconfirmed),
             ("armed: a program holds a lower limit", .held),
             ("armed: a program holds a fan or clock change", .held),
+            ("armed: a program holds a fan or clock change (OD8Write); the power limit is the start-up one", .held),
+            ("armed: a program is setting a limit", .held),
             ("armed: nothing held", .idle),
             ("armed: OD8 at stock", .idle),
             ("armed: something new", .other("armed: something new")),
@@ -1117,6 +1120,82 @@ enum GPUControlChannelTests {
         }
     }
 
+    /// Fixes from the review of phase 1.
+    private static func reviewFixes(_ suite: TestSuite) {
+        // The GPU does not take a power change: the kext releases the owner,
+        // goes back and answers busy (kern_control.cpp:805-810).
+        do {
+            let h = Harness()
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 0)
+            h.run(ms: 3_000)
+            h.fake.gpuAnswers = false
+            h.engine.choose(.power(watts: 210))
+            h.run(ms: 0)
+            let s = h.engine.snapshot
+            suite.expect(h.fake.owningClient == 0 && s.status?.flags.contains(.reverting) == true,
+                         "send not taken: the kext gave the hold back and goes back")
+            suite.expect(s.held == nil && s.activity == .retrying(.power(watts: 210), .reply(.busy)),
+                         "send not taken: nothing held, the request waits (busy without an owner)")
+            h.fake.gpuAnswers = true
+            h.run(ms: 10_000)
+            suite.expect(h.engine.snapshot.held == .power(watts: 210) && h.gapsKept,
+                         "the GPU answers again: held at the next try, gaps kept")
+        }
+        // Writing goes off while a set waits and the app held a change.
+        do {
+            let h = Harness()
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 0)
+            h.run(ms: 3_000)
+            h.fake.forcedReplies[.set] = [GPUControlReply.off.rawValue]
+            h.engine.choose(.power(watts: 210))
+            h.run(ms: 0)
+            suite.expect(h.notices.count == 1 && h.engine.snapshot.stopped != nil,
+                         "off under a set while holding: told once, stopped")
+        }
+        do {
+            let h = Harness()
+            h.fake.forcedReplies[.set] = [GPUControlReply.off.rawValue]
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 0)
+            suite.expect(h.notices.isEmpty && h.engine.snapshot.stopped != nil,
+                         "off under a first set: stopped, nothing to tell")
+        }
+        // An older refusal does not stay next to a value that is held.
+        do {
+            let h = Harness()
+            h.engine.choose(.power(watts: 220))
+            h.run(ms: 0)
+            h.engine.choose(.power(watts: 190))
+            h.run(ms: 3_000)
+            suite.expect(h.engine.snapshot.outcome != nil, "190 W: refused")
+            h.engine.choose(.power(watts: 220))
+            suite.expect(h.engine.snapshot.outcome == nil && h.engine.snapshot.held == .power(watts: 220),
+                         "choosing the held value again clears the old refusal")
+        }
+        // The handlers are read under the lock.
+        do {
+            let fake = FakeGPUControlKext()
+            fake.arm()
+            let controller = GPUControlController(channel: fake.connection())
+            controller.onChange = { _ in }
+            suite.expect(controller.onChange != nil && controller.onNotice == nil, "handlers set and read back")
+            controller.shutdown(timeout: 1)
+        }
+        // set(boot) leaves LastReply alone, as the kext does.
+        do {
+            let fake = FakeGPUControlKext()
+            fake.arm()
+            let c = fake.connection()
+            _ = c.open()
+            _ = c.setPower(watts: 190)
+            _ = c.setPower(watts: 240)
+            suite.expect(c.status()?.lastReplyCode == GPUControlReply.belowFloor.rawValue,
+                         "the start-up value does not overwrite the last reply")
+        }
+    }
+
     /// The controller's queue around the engine.
     private static func controllerQueue(_ suite: TestSuite) {
         let fake = FakeGPUControlKext()
@@ -1159,21 +1238,34 @@ enum GPUControlChannelTests {
                      "a controller made without a channel: no channel")
         controller.shutdown(timeout: 1)
 
-        // The source: only the channel's own file makes a KextGPUControlChannel,
-        // and nothing makes a controller with a channel yet.
+        // The source: the real channel is made in one place only, inside
+        // applicationDidFinishLaunching, and only the service gives the
+        // controller a channel (plan 11.1).
         let root = FileManager.default.currentDirectoryPath + "/Sources/RyzenStatus"
         let files = (FileManager.default.enumerator(atPath: root)?.allObjects as? [String] ?? [])
             .filter { $0.hasSuffix(".swift") }
         suite.expect(files.count > 100, "the sources are found from the repo root")
-        var makers: [String] = []
+        var makers: [String: Int] = [:]
         var controllers: [String] = []
         for file in files {
             guard let text = try? String(contentsOfFile: root + "/" + file, encoding: .utf8) else { continue }
-            if text.contains("KextGPUControlChannel(") { makers.append(file) }
+            let made = text.components(separatedBy: "KextGPUControlChannel(").count - 1
+            if made > 0 { makers[file] = made }
             if text.contains("GPUControlController(channel") { controllers.append(file) }
         }
-        suite.expect(makers.isEmpty, "no file makes a KextGPUControlChannel: \(makers)")
-        suite.expect(controllers.isEmpty, "no file gives the controller a channel: \(controllers)")
+        suite.expect(makers == ["App/AppDelegate.swift": 1],
+                     "only AppDelegate makes a KextGPUControlChannel, once: \(makers)")
+        suite.expect(controllers == ["Services/Metrics/GPUControlService.swift"],
+                     "only the service gives the controller a channel: \(controllers)")
+        if let app = try? String(contentsOfFile: root + "/App/AppDelegate.swift", encoding: .utf8),
+           let launch = app.range(of: "func applicationDidFinishLaunching("),
+           let made = app.range(of: "KextGPUControlChannel(") {
+            let nextFunction = app.range(of: "\n    func ", range: launch.upperBound..<app.endIndex)?.lowerBound ?? app.endIndex
+            suite.expect(made.lowerBound > launch.upperBound && made.lowerBound < nextFunction,
+                         "the real channel is made inside applicationDidFinishLaunching")
+        } else {
+            suite.expect(false, "AppDelegate makes the real channel at launch")
+        }
     }
 
     // MARK: Text groups (plan section 13)
@@ -1185,7 +1277,7 @@ enum GPUControlChannelTests {
             .notArmed: .closed, .noBootValue: .notReady, .notReady: .notReady, .sleeping: .notReady, .busy: .busy,
             .tooSoon: .busy, .belowFloor: .notAllowed, .aboveBoot: .notAllowed, .notAStep: .notAllowed,
             .timeout: .unconfirmed, .failed: .unconfirmed, .notOwner: .notOwner, .cancelled: .notReady,
-            .od8Refused: .notAllowed, .noFloor: .notReady, .stillApplied: .busy,
+            .od8Refused: .notAllowed, .noFloor: .noFloor, .stillApplied: .stillApplied,
         ]
         suite.expect(replies.count == 20, "20 replies besides ok")
         for reply in GPUControlReply.allCases {
@@ -1214,7 +1306,7 @@ enum GPUControlChannelTests {
             .library: .offNotAsExpected, .routes: .offNotAsExpected, .cwdde: .offNotAsExpected,
             .secondObject: .offNotAsExpected, .bootImplausible: .offNotAsExpected, .start: .offNotAsExpected,
             .sendFailed: .offChangeUnconfirmed, .revertFailed: .offChangeUnconfirmed, .teardown: .offDriverStopped,
-            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .offNotAsExpected,
+            .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .readOnlyCard,
         ]
         suite.expect(offs.count == 15, "15 write-off reasons")
         for reason in GPUControlWriteOff.allCases {
@@ -1266,27 +1358,46 @@ enum GPUControlChannelTests {
         kextConstants(suite)
     }
 
-    /// Security review S-6: the kext's constants the app mirrors. The kext
-    /// lives in DrogaBoxGPU today, so these are the values of
-    /// `sensors/kext/control_logic.hpp` at DrogaBoxGPU 72d3f1c (GPUSensors
-    /// 0.8.0), copied here and pinned. Once the kext moves into this
-    /// repository (GPU/), this test reads that file and compares instead.
+    /// Security review S-6: the kext's constants the app mirrors, read from
+    /// the kext's own source in this repository
+    /// (`GPU/sensors/kext/control_logic.hpp`, GPUSensors 0.8.0) and compared
+    /// with the app's, so a change on either side fails here.
     /// Not the power floor: since 0.8.0 the floor is the card's own
     /// (`PowerRange`), and `kMinBootW` only checks the start-up read.
     private static func kextConstants(_ suite: TestSuite) {
-        let pinned: [(String, UInt64, UInt64)] = [
-            ("kChannelVersion", 2, GPUControlWire.channelVersion),
-            ("kMaxBootW", 300, UInt64(GPUControlWire.maxBootW)),
-            ("kMinBootW (start-up read check)", 200, UInt64(GPUControlWire.minBootW)),
-            ("kStepW", 10, UInt64(GPUControlWire.powerStepW)),
-            ("kOd8GfxFloorMHz", 1_500, UInt64(GPUControlWire.gfxFloorMHz)),
-            ("kOd8DogHoldMs", 5_000, GPUControlWire.od8DogHoldMs),
-            ("kWakeReadyMarginMs", 2_000, GPUControlWire.wakeReadyMarginMs),
-            ("kSetWaitMs", 5_000, GPUControlWire.setWaitMs),
-            ("kMaxPowerPercentDown", 50, UInt64(GPUControlPowerRange.maxPercentDown)),
+        let path = FileManager.default.currentDirectoryPath + "/GPU/sensors/kext/control_logic.hpp"
+        let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        suite.expect(!source.isEmpty, "S-6: GPU/sensors/kext/control_logic.hpp is read from the repo root")
+        let mirrored: [(String, UInt64)] = [
+            ("kChannelVersion", GPUControlWire.channelVersion),
+            ("kMaxBootW", UInt64(GPUControlWire.maxBootW)),
+            ("kMinBootW", UInt64(GPUControlWire.minBootW)),
+            ("kStepW", UInt64(GPUControlWire.powerStepW)),
+            ("kOd8GfxFloorMHz", UInt64(GPUControlWire.gfxFloorMHz)),
+            ("kOd8DogHoldMs", GPUControlWire.od8DogHoldMs),
+            ("kWakeReadyMarginMs", GPUControlWire.wakeReadyMarginMs),
+            ("kSetWaitMs", GPUControlWire.setWaitMs),
+            ("kMaxPowerPercentDown", UInt64(GPUControlPowerRange.maxPercentDown)),
         ]
-        for (name, kext, app) in pinned {
-            suite.expect(kext == app, "S-6: \(name) is \(kext) in control_logic.hpp 0.8.0, the app has \(app)")
+        let kext = constants(in: source)
+        for (name, app) in mirrored {
+            suite.expect(kext[name] == [app],
+                         "S-6: \(name) is \(kext[name] ?? []) in control_logic.hpp, the app has \(app)")
         }
+    }
+
+    /// `constexpr <integer type> <name> = <decimal>;` lines of a C++ header,
+    /// by name; a name defined twice keeps both values (and fails above).
+    static func constants(in source: String) -> [String: [UInt64]] {
+        let pattern = #"(?m)^\s*(?:static\s+)?constexpr\s+u?int(?:8|16|32|64)_t\s+(k\w+)\s*=\s*([0-9][0-9']*)u?l{0,2}\s*;"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [:] }
+        let text = source as NSString
+        var found: [String: [UInt64]] = [:]
+        for match in regex.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+            let name = text.substring(with: match.range(at: 1))
+            let digits = text.substring(with: match.range(at: 2)).replacingOccurrences(of: "'", with: "")
+            if let value = UInt64(digits) { found[name, default: []].append(value) }
+        }
+        return found
     }
 }

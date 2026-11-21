@@ -427,6 +427,12 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
     case offDriverStopped
     /// Off: the fan watchdog put the stock fan back.
     case offWatchdog
+    /// `disarm` refused: something is still applied (kext 0.8.0).
+    case stillApplied
+    /// The card's minimum power limit is not known yet (kext 0.8.0).
+    case noFloor
+    /// The card is read only: never controlled (kext 0.8.0).
+    case readOnlyCard
 
     /// Nil for "ok" and for a reply this app does not know. `od8Refused`
     /// takes the group of its reason.
@@ -436,9 +442,8 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .ok: return nil
         case .badVersion: return .otherVersion
         case .badArgs, .belowFloor, .aboveBoot, .notAStep: return .notAllowed
-        // Until the page has its own sentences for them.
-        case .noFloor: return .notReady
-        case .stillApplied: return .busy
+        case .noFloor: return .noFloor
+        case .stillApplied: return .stillApplied
         case .notPrivileged: return .needsAdministrator
         case .off: return .writingOff
         case .notArmed: return .closed
@@ -471,7 +476,7 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .sendFailed, .revertFailed, .od8Failed: return .offChangeUnconfirmed
         case .teardown: return .offDriverStopped
         case .od8Watchdog: return .offWatchdog
-        case .readOnlyCard: return .offNotAsExpected
+        case .readOnlyCard: return .readOnlyCard
         }
     }
 }
