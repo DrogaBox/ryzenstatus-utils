@@ -10,8 +10,9 @@ import Darwin
 enum ResponsibleProcess {
     private static let iconCache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 80
-        cache.totalCostLimit = ImageThumbnailer.estimatedBitmapCost(pointSize: 32) * 80
+        // The Monitor's process table lists every app with a 16 pt icon.
+        cache.countLimit = 300
+        cache.totalCostLimit = ImageThumbnailer.estimatedBitmapCost(pointSize: 32) * 120
         return cache
     }()
 

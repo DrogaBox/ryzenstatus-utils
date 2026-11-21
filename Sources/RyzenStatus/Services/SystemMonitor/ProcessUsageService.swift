@@ -5,8 +5,19 @@ import AppKit
 import Foundation
 import IOKit
 
+/// One app's CPU share (percent of one core, like `ps`) and resident memory
+/// in bytes, helpers summed under the app.
+struct AppUsage: Identifiable, Equatable, Sendable {
+    let pid: pid_t
+    let name: String
+    let cpuPercent: Double
+    let memoryBytes: Double
+
+    var id: pid_t { pid }
+}
+
 /// One row of the per-app breakdown shown when a System stat is expanded.
-struct ProcessUsage: Identifiable, Equatable {
+struct ProcessUsage: Identifiable, Equatable, Sendable {
     let pid: pid_t
     let name: String
     /// CPU/GPU: percentage (0–100+). Memory: bytes. Network and disk: total bytes/s.
@@ -60,6 +71,9 @@ final class ProcessUsageService {
     private let minimumGPUSampleInterval: TimeInterval = 0.8
     private let maximumCachedRows = 60
     private var cpuCache: CachedRows?
+    /// Every app's CPU and memory from one listing, for a table that shows
+    /// both columns at once.
+    private var appUsageCache: (rows: [AppUsage], updatedAt: TimeInterval)?
     private var memoryCache: CachedRows?
     private var gpuCache: CachedRows?
     private var energyCache: CachedRows?
@@ -70,10 +84,12 @@ final class ProcessUsageService {
     /// Each process's responsible app and each app's display name, kept
     /// between refreshes: neither changes while the process lives, and the
     /// lookups (the responsibility call, NSRunningApplication) were most of
-    /// a refresh. Pids that leave the process table are forgotten.
+    /// a refresh. Pids that leave the process table are forgotten, and so is
+    /// a pid whose executable name changed between two listings (reused).
     private let identityLock = NSLock()
     private var ownerByPid: [pid_t: pid_t] = [:]
     private var nameByPid: [pid_t: String] = [:]
+    private var shortNameByPid: [pid_t: String] = [:]
     /// One `ps` run fills the CPU and the memory caches together.
     private var tableLoading = false
     private var gpuLoading = false
@@ -420,6 +436,47 @@ final class ProcessUsageService {
         return cached
     }
 
+    /// The last listing's apps without starting a new one, for a reader that
+    /// was told a listing just arrived.
+    func cachedAppUsage() -> [AppUsage] {
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        guard let cache = appUsageCache, now - cache.updatedAt <= staleCacheSeconds else { return [] }
+        return cache.rows
+    }
+
+    /// Every app's CPU share and resident memory, read from the same `ps`
+    /// listing `topCPU` and `topMemory` share, so a table with both columns
+    /// costs no extra run. Refreshes like they do: a stale cache starts one
+    /// listing and is returned meanwhile.
+    func appUsage(force: Bool = false) -> [AppUsage] {
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        let cache = appUsageCache
+        let age = cache.map { now - $0.updatedAt } ?? .infinity
+        let cached = age <= staleCacheSeconds ? cache?.rows ?? [] : []
+        // `force` (after a terminate) skips the freshness wait, never a run
+        // already in flight.
+        if (!force && age <= cacheFreshSeconds) || tableLoading {
+            cacheLock.unlock()
+            return cached
+        }
+        tableLoading = true
+        cacheLock.unlock()
+        refreshProcessTable()
+        return cached
+    }
+
+    /// The last GPU walk's rows without starting a new one, for a reader
+    /// that was told a walk just finished.
+    func cachedGPU(limit: Int) -> [ProcessUsage] {
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return limitedRows(gpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+    }
+
     // MARK: - Memory
 
     func topMemory(limit: Int = 15) -> [ProcessUsage] {
@@ -450,7 +507,8 @@ final class ProcessUsageService {
                 self.finishTable(cpu: nil, memory: nil)
                 return
             }
-            self.forgetIdentities(keeping: Set(table.map(\.pid)))
+            self.forgetIdentities(keeping: Dictionary(table.map { ($0.pid, $0.shortName) },
+                                                      uniquingKeysWith: { first, _ in first }))
             let cpuRows = self.groupedByApp(table.map {
                 ProcessUsage(pid: $0.pid, name: $0.shortName, value: $0.cpuPercent)
             })
@@ -458,7 +516,9 @@ final class ProcessUsageService {
                 ProcessUsage(pid: $0.pid, name: $0.shortName, value: $0.rssBytes)
             })
             let leakSample = self.leakSampleIsDue() ? self.memoryByApp(table) : nil
-            self.finishTable(cpu: cpuRows, memory: memoryRows, leakSample: leakSample)
+            self.finishTable(cpu: cpuRows, memory: memoryRows, leakSample: leakSample,
+                             apps: Self.combined(cpu: cpuRows, memory: memoryRows,
+                                                 name: self.displayName(of:fallback:)))
         }
     }
 
@@ -479,6 +539,22 @@ final class ProcessUsageService {
             totals[appOwner(of: row.pid), default: 0] += bytes
         }
         return totals
+    }
+
+    /// Joins the two rankings by app. Every app is in the CPU ranking (it
+    /// keeps idle processes too). The rankings name only their heaviest rows
+    /// properly, so every joined row asks `name` for its app's display name
+    /// (cached per pid), which is the name the terminate check compares.
+    static func combined(cpu: [ProcessUsage], memory: [ProcessUsage],
+                         name: (pid_t, String) -> String) -> [AppUsage] {
+        var memoryByApp: [pid_t: Double] = [:]
+        for row in memory where memoryByApp[row.pid] == nil {
+            memoryByApp[row.pid] = row.value
+        }
+        return cpu.map { row in
+            AppUsage(pid: row.pid, name: name(row.pid, row.name), cpuPercent: row.value,
+                     memoryBytes: memoryByApp[row.pid] ?? 0)
+        }
     }
 
     // MARK: - Consolidation
@@ -547,12 +623,18 @@ final class ProcessUsageService {
         return name
     }
 
-    /// Drops the owners and names of pids no longer in the process table, so
-    /// a reused pid is looked up afresh.
-    private func forgetIdentities(keeping live: Set<pid_t>) {
+    /// Drops the owners and names of pids no longer in the process table,
+    /// or whose executable name changed since the last listing, so a reused
+    /// pid is looked up afresh instead of keeping another app's name.
+    private func forgetIdentities(keeping live: [pid_t: String]) {
         identityLock.lock()
-        ownerByPid = ownerByPid.filter { live.contains($0.key) }
-        nameByPid = nameByPid.filter { live.contains($0.key) }
+        let unchanged = { (pid: pid_t) -> Bool in
+            guard let name = live[pid] else { return false }
+            return self.shortNameByPid[pid].map { $0 == name } ?? true
+        }
+        ownerByPid = ownerByPid.filter { unchanged($0.key) }
+        nameByPid = nameByPid.filter { unchanged($0.key) }
+        shortNameByPid = live
         identityLock.unlock()
     }
 
@@ -648,7 +730,8 @@ final class ProcessUsageService {
 
     /// Stores both rankings from one `ps` run; nil keeps the old caches (a
     /// failed run serves the stale rows until the next one).
-    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?, leakSample: [pid_t: UInt64]? = nil) {
+    private func finishTable(cpu: [ProcessUsage]?, memory: [ProcessUsage]?, leakSample: [pid_t: UInt64]? = nil,
+                             apps: [AppUsage] = []) {
         cacheLock.lock()
         tableLoading = false
         guard let cpu, let memory else {
@@ -657,6 +740,7 @@ final class ProcessUsageService {
         }
         cpuCache = cachedRows(from: cpu)
         memoryCache = cachedRows(from: memory)
+        appUsageCache = (apps, ProcessInfo.processInfo.systemUptime)
         let historyToAnalyze = recordLeakSample(leakSample)
         cacheLock.unlock()
         if let historyToAnalyze { updateLeakingPIDs(from: historyToAnalyze) }

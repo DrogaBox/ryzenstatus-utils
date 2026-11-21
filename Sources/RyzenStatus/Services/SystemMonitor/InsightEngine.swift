@@ -28,9 +28,12 @@ struct InsightCard: Identifiable, Sendable, Codable, Equatable {
     var categoryName: String
     var actionHint: String?
     var pid: pid_t?
+    /// The app name `pid` had when the notice was made, so Inspect can check
+    /// the pid still belongs to it.
+    var processName: String?
     var timestamp: Date
 
-    init(id: String = UUID().uuidString, title: String, detail: String, severity: InsightSeverity, categoryName: String, actionHint: String? = nil, pid: pid_t? = nil, timestamp: Date = Date()) {
+    init(id: String = UUID().uuidString, title: String, detail: String, severity: InsightSeverity, categoryName: String, actionHint: String? = nil, pid: pid_t? = nil, processName: String? = nil, timestamp: Date = Date()) {
         self.id = id
         self.title = title
         self.detail = detail
@@ -38,6 +41,7 @@ struct InsightCard: Identifiable, Sendable, Codable, Equatable {
         self.categoryName = categoryName
         self.actionHint = actionHint
         self.pid = pid
+        self.processName = processName
         self.timestamp = timestamp
     }
 }
@@ -58,7 +62,15 @@ final class InsightEngine: @unchecked Sendable {
         // 1. Memory Leak Detection Insights (Critical)
         let leaks = ProcessUsageService.shared.leakingPIDsCopy()
         for pid in leaks {
-            let procName = processes.first(where: { $0.pid == pid })?.name ?? "PID \(pid)"
+            // Leaking apps are usually idle, so the CPU list rarely has them:
+            // the last listing's app names, then the live name, never a guess.
+            let known = processes.first(where: { $0.pid == pid })?.name
+                ?? ProcessUsageService.shared.cachedAppUsage().first(where: { $0.pid == pid })?.name
+                ?? {
+                    let live = ResponsibleProcess.displayName(pid: pid, fallback: "")
+                    return live.isEmpty ? nil : live
+                }()
+            let procName = known ?? "PID \(pid)"
             
             cards.append(InsightCard(
                 id: "leak-\(pid)",
@@ -67,7 +79,8 @@ final class InsightEngine: @unchecked Sendable {
                 severity: .critical,
                 categoryName: s.categoryMemory,
                 actionHint: s.leakHint,
-                pid: pid
+                pid: pid,
+                processName: known
             ))
         }
 
@@ -80,7 +93,8 @@ final class InsightEngine: @unchecked Sendable {
                 severity: topProc.value > 200.0 ? .critical : .warning,
                 categoryName: s.categoryCPU,
                 actionHint: s.cpuHint,
-                pid: topProc.pid
+                pid: topProc.pid,
+                processName: topProc.name
             ))
         }
 

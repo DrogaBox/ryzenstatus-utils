@@ -1898,9 +1898,12 @@ enum CommandBarCatalog {
                                      targetFeature: AppFeature? = nil,
                                      sidebarFeature: AppFeature? = nil) {
         Task { @MainActor in
-            SettingsRouter.shared.request(destination, targetFeature: targetFeature,
-                                          sidebarFeature: sidebarFeature)
-            (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+            // A monitor extra opens the Monitor window, which stays in front.
+            let openedMonitor = SettingsRouter.shared.request(destination, targetFeature: targetFeature,
+                                                              sidebarFeature: sidebarFeature)
+            if !openedMonitor {
+                (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+            }
         }
     }
 

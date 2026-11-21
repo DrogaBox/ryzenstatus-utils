@@ -624,10 +624,10 @@ extension AppFeature {
         case .monitorDisk: return s.diskSection
         case .monitorPower: return s.powerSection
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(language).title
-        case .monitorInsights: return "Smart Performance Insights"
-        case .monitorAnalytics: return "Analytics & Trend History"
-        case .monitorEnergy: return "Energy Impact & Battery Flow"
-        case .monitorNetworkDetails: return "Network Scanner & Details"
+        case .monitorInsights: return MonitorWindowStrings.localized(language).diagnostics
+        case .monitorAnalytics: return MonitorWindowStrings.localized(language).history
+        case .monitorEnergy: return MonitorWindowStrings.localized(language).hubEnergyTitle
+        case .monitorNetworkDetails: return MonitorWindowStrings.localized(language).hubNetworkTitle
         case .connectedDevices: return FeatureStrings.connectedDevices(language).title
         case .commandBar: return FeatureStrings.commandBar(language).pageTitle
         case .notch: return NotchStrings.notch(language).title

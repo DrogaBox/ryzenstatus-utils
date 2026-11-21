@@ -63,8 +63,21 @@ final class SettingsRouter: ObservableObject {
 
     /// `replacingVisit` swaps what the current visit shows without adding a
     /// history entry, for a fallback when the visited tool went away.
+    /// Returns true when the request opened the Monitor window instead, so
+    /// the caller leaves that window in front rather than raising Settings.
+    @discardableResult
     func request(_ destination: FeatureSettingsDestination, targetFeature: AppFeature? = nil,
-                 sidebarFeature: AppFeature? = nil, replacingVisit: Bool = false) {
+                 sidebarFeature: AppFeature? = nil, replacingVisit: Bool = false) -> Bool {
+        // The monitor extras live in the Monitor window: a request for one of
+        // them (from the Feature Hub, the Command Bar or search) opens the
+        // window on its section, besides landing on the Dashboard row. A
+        // turned-off extra is routed to the Feature Hub and opens nothing.
+        var openedMonitor = false
+        if !isTraversingHistory, !replacingVisit, destination.page == .dashboard,
+           let section = (targetFeature ?? sidebarFeature)?.monitorSection, section.isAvailable {
+            MonitorWindowController.shared.show(section: section)
+            openedMonitor = true
+        }
         // Any request, history included, drops a companion hint nobody took.
         notchCompanion = false
         notchCompanionShop = false
@@ -92,6 +105,7 @@ final class SettingsRouter: ObservableObject {
             SettingsFeatureTargetRequest(id: requestID, feature: $0)
         }
         self.requestID = requestID
+        return openedMonitor
     }
 
     private static func anchorSelectsTool(on page: SettingsPage) -> Bool {
@@ -770,7 +784,7 @@ struct SettingsView: View {
         case .amdPower: AmdPowerSettingsView()
         case .amdOverclocking: AmdOverclockingSettingsView()
         case .amdValidation: AmdValidationSettingsView()
-        case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
+        case .dashboard: MonitorLauncherPage()
         case .sensors: SensorsView()
         }
     }

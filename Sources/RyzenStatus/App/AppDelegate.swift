@@ -1653,6 +1653,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         editMenu.addItem(NSMenuItem(title: strings.menuPaste, action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: strings.menuSelectAll, action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
 
+        // View menu: the Monitor window's sections and process commands. It
+        // sits before Go, the order macOS apps use.
+        mainMenu.addItem(MonitorWindowController.viewMenuItem(language: L10n.shared.language))
+
         // Drivers and other running copies of RyzenStatus may translate side
         // buttons into menu commands before this process ever receives a raw
         // mouse event, so Settings answers the Back and Forward commands too.
