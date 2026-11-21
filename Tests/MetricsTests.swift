@@ -13521,6 +13521,7 @@ struct MetricsTests {
                 ("GPUControlFanTests", GPUControlFanTests.run),
                 ("GPUControlClockTests", GPUControlClockTests.run),
                 ("GPUFolderTests", GPUFolderTests.run),
+                ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),

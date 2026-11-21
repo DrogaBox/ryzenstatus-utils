@@ -3,13 +3,15 @@
 
 // Renders the installer (DMG) window background: a clean light panel with the
 // app title and an arrow pointing from the app icon toward the Applications
-// folder. The two icons themselves are placed by Finder on top of this image.
+// folder. The icons themselves are placed by Finder on top of this image.
 // Usage: swift Tools/MakeDMGBackground.swift <output.png>
 import AppKit
 
-// Window is 600×480 pt; render at 2× for Retina sharpness.
+// Window is 600×560 pt (taller than the first 480 so README.txt has a row of its own
+// under the arrow; Tools/dmg-layout.py and make-dmg.sh hold the same size); render at 2×
+// for Retina sharpness.
 let scale: CGFloat = 2
-let widthPt: CGFloat = 600, heightPt: CGFloat = 480
+let widthPt: CGFloat = 600, heightPt: CGFloat = 560
 let px = Int(widthPt * scale), py = Int(heightPt * scale)
 
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "dmg-background.png"
@@ -54,8 +56,8 @@ let subSize = subtitle.size(withAttributes: subAttrs)
 subtitle.draw(at: NSPoint(x: (widthPt - subSize.width) / 2, y: 30), withAttributes: subAttrs)
 
 // Arrow from the app icon (left column, x=150, y=275) toward Applications (right column, x=450, y=275).
-// Centered at AppKit y=205 (480 - 275).
-let arrowY: CGFloat = 205
+// Finder counts from the top and AppKit from the bottom: AppKit y = heightPt - 275.
+let arrowY: CGFloat = heightPt - 275
 let arrow = NSBezierPath()
 arrow.lineWidth = 9
 arrow.lineCapStyle = .round

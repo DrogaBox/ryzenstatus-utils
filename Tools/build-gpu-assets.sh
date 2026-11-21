@@ -108,10 +108,11 @@ for script in $P/install/*.sh $P/install/*.zsh; do
 done
 
 print "▸ Nothing of this Mac in the parts"
-# Text and binaries alike: a home folder, a temporary folder, the private work cache, the
-# private repositories. Then the private patterns kept outside the repository, if any (see
+# Text and binaries alike: a home folder, a temporary folder, the private work cache, a
+# link to a private repository (GPUFolderTests checks the text files of GPU/ for the
+# private names). Then the private patterns kept outside the repository, if any (see
 # GPU/tools/check_clean.sh); they are only counted, never printed.
-rules=('/Users/[A-Za-z0-9._-]' '/var/folders/' 're_cache' '[Dd]roga[Bb]ox[Tt]rust' 'github\.com/DrogaBox/DrogaBox')
+rules=('/Users/[A-Za-z0-9._-]' '/var/folders/' 're_cache' 'github\.com/DrogaBox/DrogaBox')
 found=0
 for rule in $rules; do
   hits=$(grep -r -a -l -E -- "$rule" $P || true)
@@ -133,7 +134,7 @@ done
 print "▸ SHA256SUMS"
 (cd $P && shasum -a 256 -c -s SHA256SUMS) || fail "the parts do not match their SHA256SUMS"
 listed=$(cd $P && awk '{ sub(/^[0-9a-f]+  /, ""); print }' SHA256SUMS | LC_ALL=C sort)
-present=$(cd $P && find . -type f ! -name SHA256SUMS | LC_ALL=C sort)
+present=$(cd $P && find . -type f ! -path ./SHA256SUMS | LC_ALL=C sort)
 [[ $listed == "$present" ]] || fail "SHA256SUMS does not list exactly the files of the parts"
 
 print "▸ Zip"
