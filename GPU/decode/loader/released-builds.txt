@@ -1,0 +1,8 @@
+# Plug-in builds of published releases that VCNVTLoader lets through, besides the ones in
+# decode/build/. One per line: the 40 hex digits `codesign -dvvv <bundle>` prints as CDHash,
+# then a label. Add both plug-ins of a release when it is published, so a newer kext still
+# accepts the plug-ins of the release before it.
+# Take a line out when that build should no longer load, for example after a security fix.
+# Labels may hold letters, digits, spaces, dots, dashes and underscores.
+#
+# No release has been published from this repository yet.

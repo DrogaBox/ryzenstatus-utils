@@ -1,0 +1,24 @@
+# Build output and fetched dependencies
+build/
+dist/
+# deps may be a folder or a link to a shared copy
+/deps
+*.dSYM/
+*.o
+
+# Signing material must never be committed. Keep your chain outside the repository.
+*.pem
+*.key
+*.p12
+*.srl
+*.csr
+
+# Backups made by the tools that edit an OpenCore config, in case one is edited inside the tree
+*.backup-*
+
+# Test media is downloaded by tests/fetch_media.sh, never committed
+/tests/media/
+
+__pycache__/
+*.pyc
+.DS_Store
