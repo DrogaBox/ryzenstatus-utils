@@ -14362,6 +14362,7 @@ struct MetricsTests {
                 ("HomebrewOperationLogRetentionTests", HomebrewOperationLogRetentionTests.run),
                 ("Batch180Tests", Batch180Tests.run),
                 ("Batch185Tests", Batch185Tests.run),
+                ("UpdateInstallerAppSelectionTests", UpdateInstallerAppSelectionTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks
