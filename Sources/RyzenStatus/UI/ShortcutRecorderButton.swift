@@ -119,7 +119,7 @@ final class RecorderButton: NSButton {
         // this fixes, so give both back even from here.
         if Thread.isMainThread {
             ShortcutRecordingTap.end()
-            ShortcutCapture.end()
+            MainActor.assumeIsolated { ShortcutCapture.end() }
         } else {
             DispatchQueue.main.async {
                 ShortcutRecordingTap.end()

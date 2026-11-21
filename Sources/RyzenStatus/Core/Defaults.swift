@@ -645,6 +645,8 @@ enum Defaults {
         DefaultsKey.commandBarMenusShortcut: GlobalShortcut.commandBarMenusDefault.storageValue,
         DefaultsKey.cleaningModeShortcutEnabled: false,
         DefaultsKey.cleaningModeShortcut: GlobalShortcut.cleaningModeDefault.storageValue,
+        DefaultsKey.monitorWindowShortcutEnabled: true,
+        DefaultsKey.monitorWindowShortcut: GlobalShortcut.monitorWindowDefault.storageValue,
         DefaultsKey.commandBarPositionOffset: "",
         DefaultsKey.commandBarEmojiSkinTone: "",
         DefaultsKey.panelUtilityCommandBar: true,

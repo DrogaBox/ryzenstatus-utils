@@ -300,8 +300,10 @@ private struct WhatsNewFeaturePage: View {
             installButton(feature)
         } else if let destination = row.destination {
             Button(FeatureStrings.commandBar(l10n.language).actionOpenSettings) {
-                SettingsRouter.shared.request(destination, sidebarFeature: row.feature)
-                onOpenSettings()
+                // A monitor extra opens the Monitor window, which stays in front.
+                if !SettingsRouter.shared.request(destination, sidebarFeature: row.feature) {
+                    onOpenSettings()
+                }
             }
             .buttonStyle(.bordered)
         }

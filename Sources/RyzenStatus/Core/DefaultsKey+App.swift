@@ -765,6 +765,9 @@ extension DefaultsKey {
     // Cleaning mode on and off from anywhere.
     static let cleaningModeShortcutEnabled = "cleaningModeShortcutEnabled"
     static let cleaningModeShortcut = "cleaningModeShortcut"
+    // The Monitor window from anywhere, like Task Manager on Windows.
+    static let monitorWindowShortcutEnabled = "monitorWindowShortcutEnabled"
+    static let monitorWindowShortcut = "monitorWindowShortcut"
     /// Compact mode: an empty field shows nothing but itself. Off by default.
     static let commandBarCompactMode = "commandBarCompactMode"
     /// The ASCII layout borrowed while the bar is open, restored on close. Off by default.

@@ -51,7 +51,12 @@ enum ShortcutRecordingTap {
         // already switched the global shortcuts off, and the resign must give them back.
         if !observingSession {
             observingSession = true
-            SessionActivity.shared.onChange { if !$0 { tearDown(); ShortcutCapture.end() } }
+            // SessionActivity delivers its changes on the main queue.
+            SessionActivity.shared.onChange { active in
+                guard !active else { return }
+                tearDown()
+                MainActor.assumeIsolated { ShortcutCapture.end() }
+            }
         }
         // A tap the system disabled behind our back reads as dead; rebuild.
         if let tap, !CGEvent.tapIsEnabled(tap: tap) {

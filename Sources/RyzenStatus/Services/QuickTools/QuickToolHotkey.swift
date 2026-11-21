@@ -24,7 +24,9 @@ final class QuickToolHotkey {
     }
 
     /// Applies the wanted state; returns false when macOS refused the
-    /// registration (combination taken by another app).
+    /// registration: a combination the system does not accept, or one this
+    /// process already registered. It is registered without the exclusive
+    /// option, so another app holding the combination is not a refusal.
     @discardableResult
     func sync(enabled: Bool, shortcut: GlobalShortcut, storageKey: String) -> Bool {
         guard enabled else {

@@ -8,7 +8,6 @@ import SwiftUI
 /// single definition. A page's own work (an SMC sweep, the fan poll) stays in
 /// the page and runs through the same activation.
 enum SettingsLivePage: CaseIterable {
-    case performanceSuite
     case sensors
     case fans
     case amdPower
@@ -21,7 +20,7 @@ enum SettingsLivePage: CaseIterable {
     /// Registers a full SystemMonitor client, which samples every family.
     var holdsMonitorClient: Bool {
         switch self {
-        case .performanceSuite, .sensors, .fans, .amdPower, .monitorSettings: return true
+        case .sensors, .fans, .amdPower, .monitorSettings: return true
         // Overclocking reads only the kext caches; Validation takes one
         // snapshot when it opens and on request.
         case .amdOverclocking, .amdValidation, .gpuControl: return false
@@ -31,7 +30,7 @@ enum SettingsLivePage: CaseIterable {
     /// Holds the shared 3 s kext poll of `AmdPowerControlsModel`.
     var holdsLiveSync: Bool {
         switch self {
-        case .performanceSuite, .amdPower, .amdOverclocking: return true
+        case .amdPower, .amdOverclocking: return true
         case .sensors, .fans, .amdValidation, .monitorSettings, .gpuControl: return false
         }
     }

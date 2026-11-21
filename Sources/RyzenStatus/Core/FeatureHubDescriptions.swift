@@ -80,10 +80,10 @@ extension AppFeature {
         case .spacesOrder: return s.spacesOrderCaption
         case .monitorPower: return hub.descMonitorPower
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(language).hubDescription
-        case .monitorInsights: return "Automated diagnostic cards for memory leaks, Rosetta 2 cost, and CPU runaway processes."
-        case .monitorAnalytics: return "Linear regression metrics, performance trends, and long-term CPU/GPU/RAM statistics."
-        case .monitorEnergy: return "Per-process energy impact breakdown, battery health flow, and process wakeup stats."
-        case .monitorNetworkDetails: return "Local network device scanner, per-adapter bandwidth, and open socket inspector."
+        case .monitorInsights: return MonitorWindowStrings.localized(language).hubDiagnosticsDescription
+        case .monitorAnalytics: return MonitorWindowStrings.localized(language).hubHistoryDescription
+        case .monitorEnergy: return MonitorWindowStrings.localized(language).hubEnergyDescription
+        case .monitorNetworkDetails: return MonitorWindowStrings.localized(language).hubNetworkDescription
         case .connectedDevices: return FeatureStrings.connectedDevices(language).hubDescription
         case .commandBar: return FeatureStrings.commandBar(language).hubDescription
         case .notch: return NotchStrings.notch(language).description

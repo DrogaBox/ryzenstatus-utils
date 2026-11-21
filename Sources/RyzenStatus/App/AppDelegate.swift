@@ -187,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         SystemShortcutTakeover.recoverIfNeeded(keeping: [])
         HotkeyManager.shared.onActivate = { KeepAwakeManager.shared.toggle() }
         HotkeyManager.shared.syncWithPreferences()
+        // The Monitor window's shortcut belongs to no hub feature, so the
+        // feature runtime below never registers it.
+        MonitorWindowShortcut.shared.syncWithPreferences()
 
         KeepAwakeManager.shared.recoverIfNeeded {
             KeepAwakeManager.shared.activateOnLaunchIfNeeded()
@@ -1662,6 +1665,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         editMenu.addItem(NSMenuItem(title: strings.menuCopy, action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: strings.menuPaste, action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: strings.menuSelectAll, action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+
+        // View menu: the Monitor window's sections and process commands. It
+        // sits before Go, the order macOS apps use.
+        mainMenu.addItem(MonitorWindowController.viewMenuItem(language: L10n.shared.language))
 
         // Drivers and other running copies of RyzenStatus may translate side
         // buttons into menu commands before this process ever receives a raw

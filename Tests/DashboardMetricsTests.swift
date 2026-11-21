@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 import IOKit
+import SwiftUI
 
 /// The dashboards and metrics services: which samples count, which pages
 /// keep sampling, how process rows and adapter rates are read, which
@@ -20,6 +22,8 @@ enum DashboardMetricsTests {
         monitorIntervals(suite)
         pageActivity(suite)
         processTable(suite)
+        monitorWindow(suite)
+        monitorWindowMenu(suite)
         curveOptimizerPlan(suite)
         longHistoryFallback(suite)
         fanCurveGeometry(suite)
@@ -150,8 +154,6 @@ enum DashboardMetricsTests {
                      "Validation takes its snapshot on request and holds nothing open")
         suite.expect(!SettingsLivePage.amdOverclocking.holdsMonitorClient && SettingsLivePage.amdOverclocking.holdsLiveSync,
                      "Overclocking reads only the kext caches")
-        suite.expect(SettingsLivePage.performanceSuite.holdsMonitorClient && SettingsLivePage.performanceSuite.holdsLiveSync,
-                     "the dashboard needs the monitor and the SMU decode")
     }
 
     // MARK: - Process rows
@@ -175,6 +177,144 @@ enum DashboardMetricsTests {
         suite.expectClose(rows.last?.cpuPercent ?? -1, 3.5, "a comma decimal reads like a point")
         suite.expect(ProcessTable.psArguments == ["-eo", "pid,ppid,pcpu,rss,comm"],
                      "one ps listing, the one the process manager reads")
+    }
+
+    // MARK: - Monitor window
+
+    private static func monitorWindow(_ suite: TestSuite) {
+        for section in MonitorSection.allCases {
+            let needs = section.monitorNeeds
+            suite.expect(!needs.system, "\(section) never asks for every sampler")
+            suite.expect(needs.cpu && needs.memory && needs.network && needs.gpu,
+                         "\(section) keeps the live charts' families, so their history has no false gap")
+        }
+        suite.expect(MonitorSection.summary.monitorNeeds.disk && !MonitorSection.summary.monitorNeeds.power,
+                     "the overview samples disk, which it shows, and not the battery/SMC power it never shows")
+        suite.expect(!MonitorSection.processes.monitorNeeds.disk && !MonitorSection.history.monitorNeeds.power,
+                     "sections that do not show disk or power do not sample them")
+        suite.expect(MonitorSection.diagnostics.monitorNeeds.cpuTemperature,
+                     "diagnostics reads the CPU temperature for its heat notice")
+
+        suite.expect(MonitorSection.restored(nil) == .summary, "no saved section opens the Overview")
+        suite.expect(MonitorSection.restored("bogus") == .summary, "an unknown saved section opens the Overview")
+        suite.expect(MonitorSection.restored("processor", isAvailable: { _ in true }) == .processor,
+                     "an available saved section reopens")
+        suite.expect(MonitorSection.restored("history", isAvailable: { $0 != .history }) == .summary,
+                     "a saved section whose feature is off falls back to the Overview")
+        suite.expect(AppFeature.monitorInsights.monitorSection == .diagnostics
+                     && AppFeature.monitorAnalytics.monitorSection == .history
+                     && AppFeature.monitorEnergy.monitorSection == .processes
+                     && AppFeature.monitorNetworkDetails.monitorSection == .network
+                     && AppFeature.monitorCPU.monitorSection == nil,
+                     "each monitor extra opens the Monitor on its own section")
+
+        let listed = [AppUsage(pid: 1, name: "Safari", cpuPercent: 1, memoryBytes: 1),
+                      AppUsage(pid: 2, name: "Mail", cpuPercent: 2, memoryBytes: 2)]
+        suite.expect(ProcessesFeed.matching(listed, search: "").count == 2, "an empty search lists every app")
+        suite.expect(ProcessesFeed.matching(listed, search: " saf ").map(\.pid) == [1],
+                     "the search matches part of the name, any case, ignoring outer spaces")
+        suite.expect(ProcessesFeed.matching(listed, search: "zzz").isEmpty, "a search with no match lists nothing")
+        for language in AppLanguage.allCases {
+            suite.expect(String(format: FeatureStrings.dashboard(language).processCountFormat, 37).contains("37"),
+                         "\(language.rawValue) process count line shows the count")
+        }
+
+        let off = ProcessesSection.energyGate(available: false, hidden: false, hiddenByGate: false)
+        suite.expect(off.hide == true && off.hiddenByGate, "with the feature off the energy column is hidden by the gate")
+        let userHidden = ProcessesSection.energyGate(available: false, hidden: true, hiddenByGate: false)
+        suite.expect(userHidden.hide == nil && !userHidden.hiddenByGate,
+                     "a column the user hid stays the user's choice while the feature is off")
+        let back = ProcessesSection.energyGate(available: true, hidden: true, hiddenByGate: true)
+        suite.expect(back.hide == false && !back.hiddenByGate, "the feature coming back restores what the gate hid")
+        let kept = ProcessesSection.energyGate(available: true, hidden: true, hiddenByGate: false)
+        suite.expect(kept.hide == nil, "with the feature on, the user's own hide is left alone")
+
+        let unsaved = ProcessesSection.restoredColumns(from: Data())
+        suite.expect(unsaved.failure == nil && unsaved.columns == TableColumnCustomization<ProcessTableRow>(),
+                     "with no saved layout the table opens on the default columns, and nothing is logged")
+        let stale = ProcessesSection.restoredColumns(from: Data("not a layout".utf8))
+        suite.expect(stale.failure != nil && stale.columns == TableColumnCustomization<ProcessTableRow>(),
+                     "a saved layout that no longer decodes falls back to the default and reports the failure")
+        var customized = TableColumnCustomization<ProcessTableRow>()
+        customized[visibility: "gpu"] = .hidden
+        let saved = (try? JSONEncoder().encode(customized)) ?? Data()
+        let restored = ProcessesSection.restoredColumns(from: saved)
+        suite.expect(restored.failure == nil && restored.columns == customized,
+                     "a saved layout comes back as it was saved")
+
+        let cpu = [ProcessUsage(pid: 1, name: "Busy", value: 40), ProcessUsage(pid: 2, name: "helper", value: 0)]
+        let memory = [ProcessUsage(pid: 2, name: "helper", value: 900), ProcessUsage(pid: 1, name: "Busy", value: 100)]
+        let realNames: [pid_t: String] = [1: "Busy App", 2: "Heavy App"]
+        let apps = ProcessUsageService.combined(cpu: cpu, memory: memory) { pid, fallback in realNames[pid] ?? fallback }
+        suite.expect(apps.map(\.pid) == [1, 2], "every app of the CPU ranking, in its order")
+        suite.expectClose(apps.first?.memoryBytes ?? -1, 100, "an app's memory joins its CPU row")
+        suite.expect(apps.map(\.name) == ["Busy App", "Heavy App"],
+                     "every row carries the app's real name, the one the terminate check compares")
+
+        suite.expect(ProcessKillRequest.make(pid: 9, name: "Safari", startedAt: 42, currentName: "Safari")?.startedAt == 42,
+                     "a row that still names its app gets a request carrying the start time read now")
+        suite.expect(ProcessKillRequest.make(pid: 9, name: "Safari", startedAt: 42, currentName: "Mail") == nil,
+                     "a pid that now names another app gets no request")
+        suite.expect(ProcessKillRequest.make(pid: 9, name: "Safari", startedAt: nil, currentName: "Safari") == nil,
+                     "a process that quit gets no request")
+        suite.expect(ProcessKillRequest.make(pid: 9, name: "Safari", startedAt: 42, currentName: "") == nil,
+                     "a live name that cannot be read never passes for the expected app")
+        suite.expect(ProcessKillRequest.make(pid: 9, name: "", startedAt: 42, currentName: "") == nil,
+                     "a row with no name is never acted on")
+
+        let none = SystemMonitorPanelNeeds()
+        suite.expect(!SystemMonitor.samplesInForeground(fullMonitor: false, menuPanel: none, dashboard: none),
+                     "nothing on screen samples on the background strides")
+        suite.expect(SystemMonitor.samplesInForeground(fullMonitor: false, menuPanel: none,
+                                                        dashboard: MonitorSection.processes.monitorNeeds),
+                     "a visible Monitor window samples on the foreground strides")
+        suite.expect(SystemMonitorPanelNeeds.none.merging(MonitorSection.summary.monitorNeeds) == MonitorSection.summary.monitorNeeds,
+                     "the window's needs merge with no others unchanged")
+
+        suite.expectClose(TrendChart.niceCeiling(149.1), 150, "a top grid line reads like a familiar value")
+        suite.expectClose(TrendChart.niceCeiling(61), 80, "61 rounds up to 80")
+        suite.expectClose(TrendChart.niceCeiling(3.2), 4, "3.2 rounds up to 4")
+        suite.expectClose(TrendChart.niceCeiling(0), 1, "an empty series still has a scale")
+    }
+
+    /// What the window holds while it is seen or not, and the View menu,
+    /// all without opening a window: no Monitor window exists in this run.
+    private static func monitorWindowMenu(_ suite: TestSuite) {
+        for section in MonitorSection.allCases {
+            let hidden = MonitorWindowState.holds(section: section, isVisible: false)
+            suite.expect(hidden.needs == .none && !hidden.liveSync,
+                         "hidden, minimized, covered or closed, the window holds no sampler on \(section)")
+            let shown = MonitorWindowState.holds(section: section, isVisible: true)
+            suite.expect(shown.needs == section.monitorNeeds && shown.liveSync == (section == .processor),
+                         "visible on \(section), the window holds that section's families, and the kext poll only on Processor")
+        }
+
+        MainActor.assumeIsolated {
+            for language in AppLanguage.allCases {
+                let strings = MonitorWindowStrings.localized(language)
+                let process = FeatureStrings.performanceSuite(language)
+                let menu = MonitorWindowController.viewMenuItem(language: language).submenu
+                let titles = menu?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
+                let expected = [strings.openMonitor] + MonitorSection.allCases.map { $0.title(strings) }
+                    + [process.inspectButton, process.killButton + "…"]
+                suite.expect(menu?.title == strings.viewMenu && titles == expected,
+                             "\(language.rawValue) View menu is built in that language")
+            }
+            let controller = MonitorWindowController.shared
+            let items = MonitorWindowController.viewMenuItem(language: .enUS).submenu?.items
+                .filter { !$0.isSeparatorItem } ?? []
+            suite.expect(items.count == MonitorSection.allCases.count + 3,
+                         "the View menu lists Open, every section, Inspect and Terminate")
+            suite.expect(items.first.map { controller.validateMenuItem($0) } == true,
+                         "Open Monitor is offered with no window open, so a closed window can come back")
+            suite.expect(items.dropFirst().allSatisfy { !controller.validateMenuItem($0) },
+                         "with no Monitor window key, the sections, Inspect and Terminate are off")
+        }
+
+        let delegate = source("Sources/RyzenStatus/App/AppDelegate.swift", suite)
+        suite.expect(delegate.contains("L10n.shared.$language") && delegate.contains("self?.installMainMenu()")
+                     && delegate.contains("MonitorWindowController.viewMenuItem(language: L10n.shared.language)"),
+                     "a language change rebuilds the main menu, the View menu with it")
     }
 
     // MARK: - Curve Optimizer
@@ -315,8 +455,22 @@ enum DashboardMetricsTests {
         }
         for language in AppLanguage.allCases {
             let suiteStrings = FeatureStrings.performanceSuite(language)
-            suite.expect(!suiteStrings.energySubtitle.isEmpty && !suiteStrings.energyScoreColumn.isEmpty,
-                         "\(language.rawValue) names the energy score")
+            suite.expect(!suiteStrings.energyScoreColumn.isEmpty, "\(language.rawValue) names the energy score")
+            let monitor = MonitorWindowStrings.localized(language)
+            let english = Mirror(reflecting: MonitorWindowStrings.localized(.enUS)).children.map { ($0.label ?? "", $0.value as? String ?? "") }
+            let fields = Mirror(reflecting: monitor).children.map { ($0.label ?? "", $0.value as? String ?? "") }
+            suite.expect(fields.map(\.0) == english.map(\.0), "\(language.rawValue) Monitor strings have every field")
+            for (index, field) in fields.enumerated() where index < english.count {
+                suite.expect(!field.1.isEmpty, "\(language.rawValue).\(field.0) is filled in")
+                suite.expect(specifiers(in: field.1) == specifiers(in: english[index].1),
+                             "\(language.rawValue).\(field.0) keeps the English format specifiers")
+            }
+            suite.expect(MonitorSection.allCases.allSatisfy { !$0.title(monitor).isEmpty } && !monitor.viewMenu.isEmpty,
+                         "\(language.rawValue) names every Monitor section and the View menu")
+            suite.expect(specifiers(in: monitor.activeCoresFormat) == ["d", "d"]
+                         && specifiers(in: monitor.averagePeakFormat) == ["@", "@"]
+                         && specifiers(in: monitor.pptLimitFormat) == ["@"],
+                         "\(language.rawValue) Monitor formats keep their specifiers")
         }
         suite.expect(FeatureStrings.performanceSuite(.enUS).energyScoreColumn.contains("Est."),
                      "the energy score is called an estimate")
@@ -331,10 +485,18 @@ enum DashboardMetricsTests {
     }
 
     private static func wiring(_ suite: TestSuite) {
-        let btop = source("Sources/RyzenStatus/UI/Settings/BTopDashboardView.swift", suite)
-        suite.expect(!btop.contains("kill(proc.pid") && !btop.contains("SIGTERM")
-                     && btop.contains("KillProcessService.shared.kill("),
-                     "the process manager's kill goes through KillProcessService")
+        let processes = source("Sources/RyzenStatus/UI/Dashboard/ProcessesSection.swift", suite)
+        suite.expect(!processes.contains("SIGTERM") && processes.contains("KillProcessService.shared.kill(")
+                     && processes.contains("startedAt: request.startedAt"),
+                     "the process table's kill goes through KillProcessService, to the start time read on request")
+        suite.expect(processes.contains("selection: $state.processSelection, sortOrder: $state.processSortOrder")
+                     && processes.contains("feed.sortOrder = state.processSortOrder")
+                     && !processes.contains("@State private var selection"),
+                     "the table's sort order and selection live in the window state, so a trip to another section keeps them")
+        let inspector = source("Sources/RyzenStatus/UI/MenuPanel/ProcessDetailSheet.swift", suite)
+        suite.expect(inspector.contains("knownStartedAt ?? ProcessKillRequest.current(pid: row.pid, name: row.name)?.startedAt")
+                     && processes.contains("startedAt: checked.startedAt"),
+                     "the Inspector force quits only the start time read while checking the pid still names the app")
         for path in ["Sources/RyzenStatus/UI/Settings/MonitorSettings.swift",
                      "Sources/RyzenStatus/UI/Settings/MenuBarSettings.swift",
                      "Sources/RyzenStatus/UI/Settings/AmdOverclockingSettingsView.swift",
