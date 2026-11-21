@@ -22,6 +22,17 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
   return 0
 }
 
+# ---- where the messages send you -------------------------------------------------------------
+# The RyzenStatus GPU app carries these files in RyzenStatus GPU.app/Contents/Resources/GPU.
+# Run from there, a message names the app's buttons instead of commands, build steps and
+# folders of a checkout, which the person in front of the app does not have.
+IN_APP=0
+[[ ${${(%):-%x}:A:h:h} == *.app/Contents/Resources/GPU ]] && IN_APP=1
+# pick <text for a checkout> <text for the app>
+pick() { if (( IN_APP )); then print -rn -- "$2"; else print -rn -- "$1"; fi; }
+# What a missing or broken file of the package means in the app.
+APP_DAMAGED="this copy of RyzenStatus GPU is incomplete; open it again from a new download of the RyzenStatus DMG"
+
 # ---- checks ----------------------------------------------------------------------------------
 # A string as the inside of a JSON string: backslash, quote and the control characters
 # that may appear in names and paths escaped; any other control character dropped.

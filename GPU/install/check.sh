@@ -29,7 +29,7 @@ run() {
   STATUS[$label]=$?
   OUTPUT[$label]=$out
   RESULT[$label]=$(print -r -- "$out" | sed -n 's/^Result: //p' | tail -1)
-  [[ -n ${RESULT[$label]} ]] || RESULT[$label]="(no result line; run install/$script check)"
+  [[ -n ${RESULT[$label]} ]] || RESULT[$label]="(no result line$(pick "; run install/$script check" ""))"
   if (( FULL )); then
     print -r -- "== $label (install/$script check)"
     print -r -- "$out"
@@ -70,10 +70,10 @@ for oc in /Volumes/*/EFI/OC(N); do
     left+=("VCNVideoProfile.kext in $oc/Kexts, a measurement kext of the old package (remove its Kernel > Add entry and the kext if you do not use it)")
 done
 [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] &&
-  left+=("com.droga.vcnpreset, the encoder service's test version ('sudo install/encoder.sh install' replaces it)")
+  left+=("com.droga.vcnpreset, the encoder service's test version ($(pick "'sudo install/encoder.sh install'" "installing the encoding fix in this window") replaces it)")
 for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle; do
   [[ -d /Library/Video/Plug-Ins/$b ]] &&
-    left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ('sudo install/decoders.sh install' removes it)")
+    left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ($(pick "'sudo install/decoders.sh install'" "installing the decoder plug-ins in this window") removes it)")
 done
 if (( ${#left} )); then
   print -r -- "Leftovers:"
@@ -84,7 +84,7 @@ print
 # The whole, in one line. The decoders count; the loader counts only when it is needed.
 if (( STATUS[decoders] != 0 )); then
   # decoders.sh's own words: blocked, an unvalidated build (--force), or damaged plug-ins
-  print -r -- "Overall: not ready for the decoders: ${RESULT[decoders]} (details: install/decoders.sh check)"
+  print -r -- "Overall: not ready for the decoders: ${RESULT[decoders]}$(pick " (details: install/decoders.sh check)" "")"
   exit 2
 fi
 if (( loader_needed )) && [[ ${RESULT[loader]} != working:* && ${RESULT[loader]} != installed\ on* ]]; then
@@ -103,7 +103,7 @@ if [[ ${RESULT[decoders]} == installed* ]] && { (( ! loader_needed )) || [[ ${RE
 elif [[ ${RESULT[decoders]} == installed* ]]; then
   print -r -- "Overall: installed$but. Safari can use the decoders after the reboot that starts the loader kext."
 else
-  print -r -- "Overall: ready$but. Install the decoders ('sudo install/decoders.sh install') and reboot."
+  print -r -- "Overall: ready$but. Install the decoders ($(pick "'sudo install/decoders.sh install'" "Decoder plug-ins > Install in this window")) and reboot."
 fi
 (( ${#warns} )) && print -rl -- "  - "${^warns}
 exit $rc

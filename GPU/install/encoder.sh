@@ -102,10 +102,10 @@ preflight() {
 
   # 0. the package is there, and its files are the ones it was built with
   if [[ ! -x $TOOL || ! -f $PKG/install.sh ]]; then
-    add_check enc-bundle "Encoding fix package present" fail "no VCNEncodeFix package in $PKG; build it with encode/build.sh"
+    add_check enc-bundle "Encoding fix package present" fail "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")"
     CAN_INSTALL=0
   elif ! (cd "$PKG" && shasum -a 256 -c -s SHA256SUMS) >/dev/null 2>&1; then
-    add_check enc-bundle "Encoding fix package present" fail "the files in $PKG do not match their SHA256SUMS; build the package again with encode/build.sh"
+    add_check enc-bundle "Encoding fix package present" fail "$(pick "the files in $PKG do not match their SHA256SUMS; build the package again with encode/build.sh" "its files do not match their SHA256SUMS; $APP_DAMAGED")"
     CAN_INSTALL=0
   else
     add_check enc-bundle "Encoding fix package present" ok "VCNEncodeFix $(pkg_version)"
@@ -153,7 +153,7 @@ preflight() {
     if print -r -- "$st" | grep -q 'access  allowed'; then
       add_check enc-access "Access to the encoder process" ok "SIP Debugging Restrictions are off"
     elif print -r -- "$st" | grep -q 'access  REFUSED'; then
-      add_check enc-access "Access to the encoder process" warn "SIP Debugging Restrictions are on, so the service cannot patch the encoder: add 0x4 to csr-active-config in OpenCore and reboot (see encode/README.md, Requirements). The clock-floor kext works without it."
+      add_check enc-access "Access to the encoder process" warn "SIP Debugging Restrictions are on, so the service cannot patch the encoder: add 0x4 to csr-active-config in OpenCore and reboot$(pick " (see encode/README.md, Requirements)" ""). The clock-floor kext works without it."
     fi
   fi
 
@@ -316,12 +316,12 @@ emit_check_text() {
     [[ $svc == current && $run != running ]] && what+=("the service, which is not running")
     (( efi_bad )) && print -r -- "Note: an EFI's config.plist lists the clock-floor kext with other settings; install refuses that EFI until the entry is fixed or removed by hand."
     if (( ${#what} )); then
-      print -r -- "Result: installed; an update is ready for ${(j: and :)what}: 'sudo install/encoder.sh install' (add --efi auto, or --efi diskNsM, for the kext)."
+      print -r -- "Result: installed; an update is ready for ${(j: and :)what}: $(pick "'sudo install/encoder.sh install' (add --efi auto, or --efi diskNsM, for the kext)" "Encoding fix > Update or Reinstall in this window")."
     else
-      print -r -- "Result: installed. The kext is not loaded: 'sudo install/encoder.sh install --efi diskNsM' adds it, then reboot."
+      print -r -- "Result: installed. The kext is not loaded: $(pick "'sudo install/encoder.sh install --efi diskNsM'" "Encoding fix > Reinstall in this window") adds it, then reboot."
     fi
   elif [[ $CAN_INSTALL -eq 1 ]]; then
-    print -r -- "Result: ready. 'sudo install/encoder.sh install' can run (add --efi auto, or --efi diskNsM, for the kext)."
+    print -r -- "Result: ready. $(pick "'sudo install/encoder.sh install' can run (add --efi auto, or --efi diskNsM, for the kext)" "Encoding fix > Install in this window can run")."
   else
     print -r -- "Result: blocked. Fix the checks marked FAIL first."
   fi
@@ -345,7 +345,14 @@ resolve_efi() {
     EFI_ID=$EFI_FOUND
     echo "Using $EFI_ID: $EFI_FIND_WHY."
   else
-    echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY. Name it: sudo install/encoder.sh $CMD --efi diskNsM. Nothing was changed." >&2
+    if (( IN_APP )); then
+      echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY." >&2
+      echo "Nothing was changed. To name the one you boot from, run in Terminal:" >&2
+      echo "  sudo '$SELF_DIR/encoder.sh' $CMD --efi diskNsM   (diskutil list shows them)" >&2
+      echo "With bit 0x1 in OpenCore's Misc > Security > ExposeSensitiveData, this Mac tells which one it started from and the choice is made for you." >&2
+    else
+      echo "Cannot tell which EFI partition to use: $EFI_FIND_WHY. Name it: sudo install/encoder.sh $CMD --efi diskNsM. Nothing was changed." >&2
+    fi
     exit 1
   fi
 }
@@ -379,7 +386,7 @@ do_install() {
 
 do_uninstall() {
   need_root uninstall
-  [[ -f $PKG/uninstall.sh ]] || { echo "no VCNEncodeFix package in $PKG; build it with encode/build.sh" >&2; exit 1; }
+  [[ -f $PKG/uninstall.sh ]] || { echo "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")" >&2; exit 1; }
   local rc
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
