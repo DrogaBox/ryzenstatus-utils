@@ -95,7 +95,6 @@ extension Strings {
         istatsUser: "Kullanıcı",
         istatsSystem: "Sistem",
         istatsAppMemory: "Uyg",
-        istatsWiredMemory: "Kablolu",
         istatsCompressedMemory: "Sıkıştırılmış",
         istatsFreeMemory: "Boş",
 

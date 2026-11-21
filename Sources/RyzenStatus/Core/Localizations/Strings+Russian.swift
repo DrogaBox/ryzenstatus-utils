@@ -95,7 +95,6 @@ extension Strings {
         istatsUser: "Польз.",
         istatsSystem: "Система",
         istatsAppMemory: "Прил.",
-        istatsWiredMemory: "Зарезерв.",
         istatsCompressedMemory: "Сжатая",
         istatsFreeMemory: "Свободно",
 

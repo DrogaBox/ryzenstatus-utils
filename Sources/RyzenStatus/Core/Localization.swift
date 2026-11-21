@@ -244,7 +244,6 @@ struct Strings {
     let istatsUser: String
     let istatsSystem: String
     let istatsAppMemory: String
-    let istatsWiredMemory: String
     let istatsCompressedMemory: String
     let istatsFreeMemory: String
 
@@ -1486,7 +1485,6 @@ extension Strings {
         istatsUser: "Usuário",
         istatsSystem: "Sistema",
         istatsAppMemory: "App",
-        istatsWiredMemory: "Wired",
         istatsCompressedMemory: "Comprimida",
         istatsFreeMemory: "Livre",
 
@@ -2681,7 +2679,6 @@ extension Strings {
         istatsUser: "User",
         istatsSystem: "System",
         istatsAppMemory: "App",
-        istatsWiredMemory: "Wired",
         istatsCompressedMemory: "Compressed",
         istatsFreeMemory: "Free",
 

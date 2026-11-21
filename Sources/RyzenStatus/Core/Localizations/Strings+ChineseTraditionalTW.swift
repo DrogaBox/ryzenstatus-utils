@@ -95,7 +95,6 @@ extension Strings {
         istatsUser: "使用者",
         istatsSystem: "系統",
         istatsAppMemory: "App",
-        istatsWiredMemory: "固定",
         istatsCompressedMemory: "已壓縮",
         istatsFreeMemory: "可用",
 

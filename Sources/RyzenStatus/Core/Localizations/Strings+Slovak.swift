@@ -91,7 +91,6 @@ extension Strings {
         istatsUser: "Používateľ",
         istatsSystem: "Systém",
         istatsAppMemory: "Aplikácie",
-        istatsWiredMemory: "Pevná",
         istatsCompressedMemory: "Komprimovaná",
         istatsFreeMemory: "Voľná",
         notifySessionEndedTitle: "Relácia skončila",
