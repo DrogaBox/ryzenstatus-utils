@@ -31,6 +31,11 @@ enum AgentUsageSummaryCacheTests {
             suite.expect(actual == expected, actual == expected ? message
                          : message + " (differs in: " + differingFields(actual, expected).joined(separator: ", ") + ")")
         }
+        let tied = [AgentShare(id: "copilot:Opus 5.5", name: "Opus 5.5", provider: .copilot, totals: AgentTotals()),
+                    AgentShare(id: "claude:Opus 5.5", name: "Opus 5.5", provider: .claude, totals: AgentTotals())]
+        suite.expect(AgentUsageSummary.sorted(tied, byCost: false).map(\.id)
+                        == AgentUsageSummary.sorted(tied.reversed(), byCost: false).map(\.id),
+                     "shares with the same name and weight sort the same whatever order they arrive in")
         check("cached history matches every field of the full summary")
         suite.expect(cache.accumulatedRecords == records.count, "the first snapshot accumulates history once")
         live = [AgentLiveSession(id: "live", provider: .codex, started: now, lastActivity: now,
