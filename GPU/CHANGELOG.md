@@ -2,6 +2,19 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors, next version (not released; host tests only, not booted)
+
+- Readings older than 5 s are no longer published. Before, a failed read, a sleeping card or a
+  powered-down GPU left the last PMLog copy in `Sensors`, `Units`, `PMLog` and `SampleAgeMs`
+  for good; the app already hid it after 5 s, but ioreg and scripts saw the old numbers. Now
+  those four properties go away until Apple's driver samples again. `Samples` keeps counting
+  since boot.
+- The kept copy is dropped on wake, so a reading from before the sleep cannot show up as
+  current after it. This rides on the GPU control's wake route; with `-gpuctloff` the 5 s
+  rule still applies.
+- The kext still never reads the GPU itself: it only copies what Apple's driver asked for,
+  and the GPU control already refuses driver calls between sleep and wake.
+
 ## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
 Run on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21: YouTube 4K60 in Safari, AV1 and VP9,
