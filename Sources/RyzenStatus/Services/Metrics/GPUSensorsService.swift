@@ -284,6 +284,9 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     /// Whether the kext has the write path (`Write`, 0.5.0 and later): the
     /// GPU control page and its panel row exist only then.
     @Published private(set) var hasWritePath = false
+    /// The kext found no RX 6800 XT or RX 6900 XT: the page has nothing to
+    /// control and is hidden.
+    @Published private(set) var hasUnsupportedCard = false
 
     static let pollInterval: TimeInterval = 1
     static let cacheLifetime: TimeInterval = 0.5
@@ -294,6 +297,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     private var cached: GPUSensorsReading?
     private var cachedControl: GPUControlStatus?
     private var writePath = false
+    private var unsupportedCard = false
     private var cachedAt: TimeInterval = -.infinity
     /// A registry read is out (`refreshIfStale`); no second one starts.
     private var readInFlight = false
@@ -396,10 +400,25 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
                 writePath = hasWrite
                 publishWritePath(hasWrite)
             }
+            let unsupported = nextControl?.hasNoSupportedCard ?? false
+            if unsupported != unsupportedCard {
+                unsupportedCard = unsupported
+                publishUnsupportedCard(unsupported)
+            }
         }
         lock.unlock()
         IOObjectRelease(entry)
     }
+    /// Thread-safe, no registry access: the last read found no supported card.
+    var hasUnsupportedCardNow: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return false }
+        #endif
+        lock.lock()
+        defer { lock.unlock() }
+        return unsupportedCard
+    }
+
     /// Thread-safe, no registry access: the last read had `Write`.
     var hasWritePathNow: Bool {
         #if DEBUG
@@ -413,6 +432,13 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.hasWritePath != value else { return }
             self.hasWritePath = value
+        }
+    }
+
+    private func publishUnsupportedCard(_ value: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.hasUnsupportedCard != value else { return }
+            self.hasUnsupportedCard = value
         }
     }
 
@@ -499,6 +525,10 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
                 if writePath {
                     writePath = false
                     publishWritePath(false)
+                }
+                if unsupportedCard {
+                    unsupportedCard = false
+                    publishUnsupportedCard(false)
                 }
                 lost = true
             }
