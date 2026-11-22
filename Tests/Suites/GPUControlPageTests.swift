@@ -817,6 +817,31 @@ enum GPUControlPageTests {
         let all = SettingsDirectory.allItems(strings, language: language, superKeySource: .capsLock)
         suite.expect(all.contains { $0.page == .gpuControl }, "the directory itself always lists the page")
         suite.expect(FeatureVisibilitySupport.features(for: .gpuControl).isEmpty, "no feature switch gates the page")
+
+        // The kext's no-card text is the only such signal it publishes. Only
+        // that state hides the page; every other off state keeps it.
+        let noCard = GPUControlStatus.parse([
+            "Control": "off: no RX 6800 XT or RX 6900 XT (73BF rev C1 or C0) found",
+        ])
+        suite.expect(noCard?.hasNoSupportedCard == true, "the kext's no-card state is recognized")
+        for text in ["off: -gpuctloff", "off: off until restart: see WriteState",
+                     "read only: this card can only be read (see WriteState)",
+                     "waiting for the driver's library"] {
+            let status = GPUControlStatus.parse(["Control": text])
+            suite.expect((status?.hasNoSupportedCard ?? true) == false,
+                         "another off state is not the no-card state: \(text)")
+            suite.expect(GPUControlVisibility.visible(hasWritePath: true,
+                                                      hasUnsupportedCard: status?.hasNoSupportedCard ?? false),
+                         "another off state keeps the page: \(text)")
+        }
+        suite.expect(!GPUControlVisibility.visible(hasWritePath: true, hasUnsupportedCard: true),
+                     "no supported card: the page and its panel row are hidden")
+        suite.expect(GPUControlVisibility.visible(hasWritePath: true, hasUnsupportedCard: false),
+                     "a supported card with writing off keeps the page")
+        suite.expect(!GPUControlVisibility.visible(hasWritePath: false, hasUnsupportedCard: false),
+                     "without the write path there is no page")
+        suite.expect(GPUControlVisibility.visible(hasWritePath: false, hasUnsupportedCard: true, fake: true),
+                     "the development model ignores the real card")
     }
 
     private static func strings(_ suite: TestSuite) {

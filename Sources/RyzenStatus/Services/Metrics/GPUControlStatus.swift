@@ -61,6 +61,19 @@ struct GPUControlStatus: Equatable {
     /// The write path (0.5.0 and later), nil for a kext without it.
     var writing: Writing?
 
+    /// The kext publishes no card list or status code for this case; its
+    /// `Control` text is the only signal. Match the prefix in one place.
+    static let noSupportedCardPrefix = "no RX 6800 XT or RX 6900 XT"
+
+    /// True only when the kext says it found no supported card. Other off
+    /// states (writing off, read only, waiting) are not this case.
+    var hasNoSupportedCard: Bool {
+        if case .off(let reason) = control, let reason {
+            return reason.hasPrefix(Self.noSupportedCardPrefix)
+        }
+        return false
+    }
+
     /// Nil for a kext without the GPU control (0.2.0 and older).
     static func parse(_ properties: [String: Any]) -> GPUControlStatus? {
         guard let control = text(properties["Control"]) else { return nil }
