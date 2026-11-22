@@ -234,24 +234,36 @@ final class LongHistoryStore: @unchecked Sendable {
     /// Every slot in `range` ending at `end`, for export. Ranges up to an
     /// hour come from the five-second ring, longer ones from the minute
     /// ring, so each row is a real slot mean and never an average of several.
+    /// The five-second ring only holds the time since launch, so a short
+    /// range takes the minute ring's value for each slot it has no sample
+    /// for, as the graph does (`filledFromCoarse`).
     func exportTable(range: LongHistoryRange,
                      end: TimeInterval = Date().timeIntervalSince1970) -> LongHistoryTable {
         lock.lock()
         defer { lock.unlock() }
-        let useFine = range.duration <= Self.fineStep * Double(Self.fineCapacity)
-        let tiers = useFine ? fine : coarse
-        return Self.table(tiers: tiers, step: useFine ? Self.fineStep : Self.coarseStep,
-                          duration: range.duration, end: end)
+        guard range.duration <= Self.fineStep * Double(Self.fineCapacity) else {
+            return Self.table(tiers: coarse, step: Self.coarseStep, duration: range.duration, end: end)
+        }
+        return Self.table(tiers: fine, step: Self.fineStep, duration: range.duration, end: end,
+                          fallback: coarse)
     }
 
+    /// `fallback` is a coarser ring whose slot covering a row fills that
+    /// row where `tiers` has nothing.
     static func table(tiers: [LongHistoryTier], step: TimeInterval,
-                      duration: TimeInterval, end: TimeInterval) -> LongHistoryTable {
+                      duration: TimeInterval, end: TimeInterval,
+                      fallback: [LongHistoryTier] = []) -> LongHistoryTable {
         let last = Int64((end / step).rounded(.down))
         let count = max(1, Int64((duration / step).rounded(.up)))
         let slots = Array((last - count + 1)...last)
         let columns = LongHistoryMetric.allCases.map { metric -> (metric: LongHistoryMetric, values: [Float?]) in
             let tier = metric.rawValue < tiers.count ? tiers[metric.rawValue] : nil
-            return (metric, slots.map { tier?.mean(slot: $0) })
+            let coarseTier = metric.rawValue < fallback.count ? fallback[metric.rawValue] : nil
+            return (metric, slots.map { slot in
+                if let value = tier?.mean(slot: slot) { return value }
+                guard let coarseTier else { return nil }
+                return coarseTier.mean(slot: coarseTier.slot(at: Double(slot) * step))
+            })
         }
         return LongHistoryTable(step: step, times: slots.map { Double($0) * step }, columns: columns)
     }

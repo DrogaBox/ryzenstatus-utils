@@ -13,6 +13,7 @@ enum MonitorCSVTests {
         historyExport(suite)
         fileNames(suite)
         writer(suite)
+        deletedFile(suite)
     }
 
     private static let utcMinus3 = TimeZone(secondsFromGMT: -3 * 3600)!
@@ -122,6 +123,40 @@ enum MonitorCSVTests {
         suite.expect(coarse.step == LongHistoryStore.coarseStep && coarse.times.count == 1440,
                      "a day comes from the minute ring")
         suite.expect(fine.csv().contains("75.0") && coarse.csv().contains("75.0"), "both rings hold the reading")
+
+        // Right after a launch the five-second ring is empty and only the
+        // saved minute ring knows the last hour: the export fills from it.
+        var fineTiers = LongHistoryMetric.allCases.map { _ in
+            LongHistoryTier(step: LongHistoryStore.fineStep, capacity: LongHistoryStore.fineCapacity)
+        }
+        var coarseTiers = LongHistoryMetric.allCases.map { _ in
+            LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: 100)
+        }
+        coarseTiers[LongHistoryMetric.cpu.rawValue].record(0.4, at: end - 300)
+        coarseTiers[LongHistoryMetric.cpu.rawValue].record(0.9, at: end)
+        fineTiers[LongHistoryMetric.cpu.rawValue].record(0.1, at: end)
+        let filled = LongHistoryStore.table(tiers: fineTiers, step: LongHistoryStore.fineStep, duration: 600,
+                                            end: end + 55, fallback: coarseTiers)
+        let cpu = filled.columns[LongHistoryMetric.cpu.rawValue].values
+        let fiveMinutesBack = filled.times.firstIndex(of: end - 300)
+        suite.expect(fiveMinutesBack.map { cpu[$0] == 0.4 } == true,
+                     "a slot the five-second ring lacks takes the minute ring's value")
+        suite.expect(fiveMinutesBack.map { cpu[$0 + 11] == 0.4 && cpu[$0 + 12] == nil } == true,
+                     "the minute's value covers its twelve five-second rows and no more")
+        let atEnd = filled.times.firstIndex(of: end)
+        suite.expect(atEnd.map { cpu[$0] == 0.1 && cpu[$0 + 1] == 0.9 } == true,
+                     "a five-second reading wins over the minute ring; its empty neighbours fill")
+        let unfilled = LongHistoryStore.table(tiers: fineTiers, step: LongHistoryStore.fineStep, duration: 600,
+                                              end: end + 55)
+        suite.expect(unfilled.columns[LongHistoryMetric.cpu.rawValue].values.compactMap { $0 }.count == 1,
+                     "without a fallback only the five-second reading is there")
+
+        let relaunched = LongHistoryStore(fileURL: nil, now: end)
+        relaunched.record(.cpu, 0.3, at: end - 1800)
+        let hour = relaunched.exportTable(range: .oneHour, end: end)
+        suite.expect(hour.step == LongHistoryStore.fineStep
+                     && hour.columns[LongHistoryMetric.cpu.rawValue].values.compactMap { $0 }.count == 12,
+                     "the store's hour export keeps five-second rows, filled from the minute ring")
     }
 
     private static func fileNames(_ suite: TestSuite) {
@@ -156,6 +191,49 @@ enum MonitorCSVTests {
         writer.open(missing) { ok in failure.set(ok); failed.signal() }
         failed.wait()
         suite.expect(!failure.value, "a file that cannot be created reports failure")
+    }
+}
+
+extension MonitorCSVTests {
+    /// A log file deleted or replaced while open: the check sees it and the
+    /// writer stops instead of writing into an unlinked inode.
+    fileprivate static func deletedFile(_ suite: TestSuite) {
+        let dir = FileManager.default.temporaryDirectory
+        let url = dir.appendingPathComponent("ryzenstatus-csv-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: url) else {
+            suite.expect(false, "the temp file opens")
+            return
+        }
+        defer { try? handle.close() }
+        let fd = handle.fileDescriptor
+        suite.expect(CSVAppendWriter.pathNamesOpenFile(url.path, descriptor: fd), "an open file matches its path")
+        try? FileManager.default.removeItem(at: url)
+        suite.expect(!CSVAppendWriter.pathNamesOpenFile(url.path, descriptor: fd), "a deleted file no longer matches")
+        FileManager.default.createFile(atPath: url.path, contents: Data("new".utf8))
+        suite.expect(!CSVAppendWriter.pathNamesOpenFile(url.path, descriptor: fd),
+                     "a new file at the same path is not the open one")
+
+        let logURL = dir.appendingPathComponent("ryzenstatus-csv-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let writer = CSVAppendWriter(identityCheckInterval: 0)
+        let step = DispatchSemaphore(value: 0)
+        let result = OSAllocatedFlag()
+        writer.open(logURL) { ok in result.set(ok); step.signal() }
+        step.wait()
+        writer.append("a\r\n") { ok in result.set(ok); step.signal() }
+        step.wait()
+        suite.expect(result.value, "a write to the file still in place succeeds")
+        try? FileManager.default.removeItem(at: logURL)
+        writer.append("b\r\n") { ok in result.set(ok); step.signal() }
+        step.wait()
+        suite.expect(!result.value, "the first write after the file is deleted reports failure")
+        result.set(true)
+        writer.append("c\r\n") { ok in result.set(ok); step.signal() }
+        let later = step.wait(timeout: .now() + 0.5)
+        suite.expect(later == .timedOut, "after the failure the writer is closed and takes no more rows")
+        writer.close(synchronously: true)
     }
 }
 

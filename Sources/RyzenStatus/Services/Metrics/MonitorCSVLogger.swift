@@ -9,6 +9,24 @@ import Foundation
 final class CSVAppendWriter: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.ryzenstatus.utils.csv-log", qos: .utility)
     private var handle: FileHandle?
+    private var path: String?
+    private var lastIdentityCheck: TimeInterval = 0
+    /// Seconds between checks that the path still names the open file.
+    private let identityCheckInterval: TimeInterval
+
+    init(identityCheckInterval: TimeInterval = 30) {
+        self.identityCheckInterval = identityCheckInterval
+    }
+
+    /// True while `path` still names the file open on `descriptor`. A file
+    /// deleted or replaced in Finder keeps taking writes through the old
+    /// descriptor, into an inode nothing points at any more.
+    static func pathNamesOpenFile(_ path: String, descriptor: Int32) -> Bool {
+        var onDisk = stat()
+        var opened = stat()
+        guard stat(path, &onDisk) == 0, fstat(descriptor, &opened) == 0 else { return false }
+        return onDisk.st_ino == opened.st_ino && onDisk.st_dev == opened.st_dev
+    }
 
     /// Creates (or empties: the save panel already asked before replacing)
     /// the file and keeps it open for appending.
@@ -21,6 +39,8 @@ final class CSVAppendWriter: @unchecked Sendable {
                 return
             }
             self.handle = handle
+            self.path = url.path
+            self.lastIdentityCheck = ProcessInfo.processInfo.systemUptime
             completion(true)
         }
     }
@@ -28,6 +48,16 @@ final class CSVAppendWriter: @unchecked Sendable {
     func append(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
         queue.async {
             guard let handle = self.handle else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - self.lastIdentityCheck >= self.identityCheckInterval {
+                self.lastIdentityCheck = now
+                if let path = self.path,
+                   !Self.pathNamesOpenFile(path, descriptor: handle.fileDescriptor) {
+                    self.closeOnQueue()
+                    completion(false)
+                    return
+                }
+            }
             do {
                 try handle.write(contentsOf: Data(text.utf8))
                 completion(true)
@@ -53,6 +83,7 @@ final class CSVAppendWriter: @unchecked Sendable {
         try? handle.synchronize()
         try? handle.close()
         self.handle = nil
+        path = nil
     }
 }
 
