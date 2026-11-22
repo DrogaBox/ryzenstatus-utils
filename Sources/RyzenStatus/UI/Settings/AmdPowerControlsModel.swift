@@ -28,6 +28,9 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published var lpmEnabled: Bool = false
 
     @Published var privilegeWarning: String?
+    /// Status of the last failed write; a warning can be a non-privilege
+    /// refusal, so Hardware Validation must not use the text alone.
+    @Published private(set) var lastWriteStatus: kern_return_t?
     @Published var isLoading: Bool = false
 
     // Rolling history for the AMD panel graphs — 60 samples, at least 2.5 s
@@ -192,6 +195,7 @@ final class AmdPowerControlsModel: ObservableObject {
             // The kext would store the value and change nothing; say so
             // instead of letting the picker look applied.
             privilegeWarning = L10n.shared.amdPower.eppNotApplied
+            lastWriteStatus = res
         } else {
             await reportWriteFailure(res)
         }
@@ -336,6 +340,7 @@ final class AmdPowerControlsModel: ObservableObject {
             guard res != KERN_SUCCESS else { return }
             // A refused or ignored write must not stay shown as applied.
             if self.selectedPState == pstate { self.selectedPState = previous }
+            self.lastWriteStatus = res
             if res == kIOReturnUnsupported {
                 self.privilegeWarning = L10n.shared.amdPower.pstateNotApplied
             } else {
@@ -369,6 +374,7 @@ final class AmdPowerControlsModel: ObservableObject {
     /// really holds, instead of showing the new value until the next poll.
     private func reportWriteFailure(_ status: kern_return_t) async {
         guard status != KERN_SUCCESS else { return }
+        lastWriteStatus = status
         privilegeWarning = AmdWriteStatus.text(status, strings: L10n.shared.dashboard)
         if isSyncingFromKext {
             resyncRequested = true
@@ -422,6 +428,7 @@ final class AmdPowerControlsModel: ObservableObject {
 
     func clearPrivilegeWarning() {
         privilegeWarning = nil
+        lastWriteStatus = nil
     }
 
     // MARK: - State Sync

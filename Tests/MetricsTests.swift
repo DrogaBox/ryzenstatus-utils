@@ -11554,6 +11554,13 @@ struct MetricsTests {
         noVersion.kextVersion = ""
         expect(gate(HardwareValidation.gates(noVersion), .kextVersion) == .unknown,
                "an unreported kext version is unknown, never a pass")
+        var cachedVersion = snapshot
+        cachedVersion.kextVersion = "3.40.0"
+        cachedVersion.kextVersionIsCachedFallback = true
+        let cachedResult = HardwareValidation.gates(cachedVersion).first { $0.gate == .kextVersion }
+        expect(cachedResult?.verdict == .unknown
+               && cachedResult?.detail.contains("could not read the driver version") == true,
+               "a cached version after a failed live query is UNKNOWN, not a mismatch FAIL")
 
         var noPacket = snapshot
         noPacket.hasTelemetryPacket = false
@@ -11563,6 +11570,17 @@ struct MetricsTests {
         disconnected.kextConnected = false
         expect(gate(HardwareValidation.gates(disconnected), .kextTelemetry) == .fail,
                "a closed kext connection fails the telemetry gate")
+        var zeroPacket = snapshot
+        zeroPacket.packageTempC = 0
+        zeroPacket.packagePowerW = 0
+        let zeroResult = HardwareValidation.gates(zeroPacket).first { $0.gate == .kextTelemetry }
+        expect(zeroResult?.verdict == .fail
+               && zeroResult?.detail.contains("zero or out of range") == true,
+               "a zeroed selector-100 packet is FAIL, not a PASS")
+        var impossiblePacket = snapshot
+        impossiblePacket.packageTempC = 140
+        expect(gate(HardwareValidation.gates(impossiblePacket), .kextTelemetry) == .fail,
+               "an out-of-range selector-100 temperature fails the telemetry gate")
 
         var unchecked = snapshot
         unchecked.privilegeChecked = false
@@ -11574,13 +11592,22 @@ struct MetricsTests {
         denied.privilegeDenied = true
         expect(gate(HardwareValidation.gates(denied), .privilege) == .fail,
                "a refused privileged probe fails the gate — this is probe 2's perfect false positive")
-        var writeDenied = snapshot
-        writeDenied.privilegeReported = false
-        writeDenied.privilegeMessage = "Root privileges required"
-        expect(gate(HardwareValidation.gates(writeDenied), .privilege) == .fail,
-               "a denial recorded on any write path fails the gate")
-        expect(unchecked.privilegeMessage == nil,
-               "an untouched snapshot carries no fabricated denial message")
+        var writeRefused = snapshot
+        writeRefused.privilegeReported = false
+        writeRefused.writeRefusal = "Not supported by the kext on this CPU"
+        let refusedResult = HardwareValidation.gates(writeRefused).first { $0.gate == .privilege }
+        expect(refusedResult?.verdict == .unknown
+               && refusedResult?.detail.contains("another reason") == true
+               && refusedResult?.neutral == true,
+               "a non-privilege write refusal is UNKNOWN and neutral, with no root hint")
+        var messageOnly = snapshot
+        messageOnly.privilegeReported = false
+        messageOnly.privilegeMessage = "Root privileges required"
+        let messageOnlyResult = HardwareValidation.gates(messageOnly).first { $0.gate == .privilege }
+        expect(messageOnlyResult?.verdict == .unknown && messageOnlyResult?.neutral == true,
+               "a message without a confirmed kIOReturnNotPrivileged is not a root failure")
+        expect(unchecked.privilegeMessage == nil && unchecked.writeRefusal == nil,
+               "an untouched snapshot carries no fabricated refusal")
 
         var onlyPump = snapshot
         onlyPump.fans = [fan(5, "System 3 Fan", pump: true)]
@@ -11620,9 +11647,13 @@ struct MetricsTests {
                "an unknown label set is reported, not guessed")
         expect(HardwareValidation.superIOFamily(for: [fan(0, "")]).isEmpty,
                "unnamed channels report no family at all")
-        expect(gate(HardwareValidation.gates({ var s = snapshot; s.fans = nct668xFans; return s }()),
-                    .superIOFamily) == .unknown,
+        let nctResults = HardwareValidation.gates({ var s = snapshot; s.fans = nct668xFans; return s }())
+        expect(gate(nctResults, .superIOFamily) == .unknown,
                "a non-reference family is UNKNOWN: the runbook's expected values are calibrated for ITE")
+        expect(nctResults.first { $0.gate == .superIOFamily }?.neutral == true,
+               "the non-reference family UNKNOWN is informational, not a warning")
+        expect(healthy.first { $0.gate == .superIOFamily }?.neutral == false,
+               "the reference family PASS keeps its normal look")
 
         // The three label tables are transcribed from the drivers, so they are
         // pinned against the drivers themselves. A renamed label in a header
