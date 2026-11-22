@@ -119,6 +119,24 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
         IOLockUnlock(provider->superIOLock);
     }
 
+    // Same dead-man switch for the CPPC perf limits (selector 69): a cap set
+    // by the app is CPU state, so a crash, a kill or a force quit would leave
+    // every core capped until reboot, and every wake would put the cap back.
+    // Only the client that set the limits in force lifts them, so a
+    // read-only client closing never touches another client's cap.
+    if (provider && provider->controlLock) {
+        IOLockLock(provider->controlLock);
+        if (provider->cppcLimitsOwner == (const void *)this) {
+            provider->cppcLimitsOwner = nullptr;
+            if (provider->cppcMinPerfLimit != 0 || provider->cppcMaxPerfLimit != 0) {
+                const bool lifted = provider->setCppcPerfLimits(0, 0);
+                IOLog("AMDRyzenCPUPMUserClient: clientClose lifted the CPPC perf limits (%s)\n",
+                      lifted ? "full range" : "apply failed");
+            }
+        }
+        IOLockUnlock(provider->controlLock);
+    }
+
     terminate();
     return kIOReturnSuccess;
 }
@@ -844,6 +862,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (provider->smuPmTableSupported())    caps |= 1ULL << 10;
             if (provider->c6IdleSupported())        caps |= 1ULL << 11;
             if (provider->cppcEppSupported())       caps |= 1ULL << 12;
+            // Selectors 68/69: CPPC perf range (kext 3.41.0+).
+            if (provider->cppcEppSupported())       caps |= 1ULL << 13;
             const uint64_t report[] = {
                 caps,
                 provider->ocVidCache,
@@ -1062,6 +1082,69 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             provider->cppcEPPValue = (uint8_t)arguments->scalarInput[0];
             provider->cppcActiveMode = true;
             bool applied = provider->applyEPPControl();
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+
+            if (!applied) return kIOReturnError;
+            break;
+        }
+
+        // CPPC performance range (read-only, no privilege, kext 3.41.0+).
+        // Scalar output: [0] mechanism (0 none, 1 MSR, 2 ACPI), [1] lowest,
+        // [2] lowest non-linear, [3] nominal, [4] highest perf (the fastest
+        // core's), [5] min limit, [6] max limit (0 = the CPU's own bound),
+        // [7] 1 while the limits are in force (CPPC autonomous mode engaged).
+        // [1]..[4] are 0 until known: on ACPI CPPC the first PCC read that
+        // engages CPPC fills them.
+        case 68: {
+            uint64_t highest = provider->cppcCapHighest;
+            const uint32_t cpus = provider->totalNumberOfLogicalCores < CPUInfo::MaxCpus
+                ? provider->totalNumberOfLogicalCores : CPUInfo::MaxCpus;
+            if (highest != 0) {
+                for (uint32_t i = 0; i < cpus; i++) {
+                    if (provider->cppcHighestPerf_perCore[i] > highest) highest = provider->cppcHighestPerf_perCore[i];
+                }
+            }
+            const uint64_t mechanism = provider->cppcMsrSupported ? 1 : (provider->acpiCppc.supported ? 2 : 0);
+            // Both limits under controlLock, so the pair is one selector 69 wrote.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            const uint64_t minLimit = provider->cppcMinPerfLimit;
+            const uint64_t maxLimit = provider->cppcMaxPerfLimit;
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            const uint64_t report[] = {
+                mechanism,
+                provider->cppcCapLowest,
+                provider->cppcCapLowestNonlinear,
+                provider->cppcCapNominal,
+                highest,
+                minLimit,
+                maxLimit,
+                (provider->cppcActiveMode && provider->cppcEngaged) ? 1ULL : 0ULL,
+            };
+            const uint32_t count = (uint32_t)(sizeof(report) / sizeof(report[0]));
+            if (arguments->scalarOutputCount > count) arguments->scalarOutputCount = count;
+            for (uint32_t i = 0; i < arguments->scalarOutputCount; i++) arguments->scalarOutput[i] = report[i];
+            break;
+        }
+
+        // Set the CPPC performance range (privileged, kext 3.41.0+), Linux
+        // amd-pstate's scaling_min_freq / scaling_max_freq in perf units.
+        // scalarInput[0] = min perf, [1] = max perf, each 0..255, 0 = the
+        // CPU's own bound. Every core clamps them to its CAP1 range. Applied
+        // at once in CPPC autonomous mode, otherwise kept for when it starts.
+        case 69: {
+            if (!hasPrivilege(69)) return kIOReturnNotPrivileged;
+            arguments->scalarOutputCount = 0;
+            if (arguments->scalarInputCount != 2) return kIOReturnBadArgument;
+            if (!provider->cppcEppSupported()) return kIOReturnUnsupported;
+            const uint64_t minPerf = arguments->scalarInput[0];
+            const uint64_t maxPerf = arguments->scalarInput[1];
+            if (minPerf > 0xFF || maxPerf > 0xFF) return kIOReturnBadArgument;
+            if (minPerf != 0 && maxPerf != 0 && minPerf > maxPerf) return kIOReturnBadArgument;
+
+            // This client now owns the limits: its clientClose() lifts them.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            bool applied = provider->setCppcPerfLimits((uint8_t)minPerf, (uint8_t)maxPerf);
+            provider->cppcLimitsOwner = (minPerf != 0 || maxPerf != 0) ? (const void *)this : nullptr;
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
             if (!applied) return kIOReturnError;

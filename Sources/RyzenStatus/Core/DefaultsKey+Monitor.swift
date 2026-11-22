@@ -115,6 +115,8 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperature = "monitorAlertCPUTemperature"
     static let monitorAlertGPUTemperature = "monitorAlertGPUTemperature"
     static let monitorAlertGPUPower = "monitorAlertGPUPower"
+    /// CPU package power from the AMD kext, the same reading the menu bar shows.
+    static let monitorAlertCPUPower = "monitorAlertCPUPower"
     /// GPUSensors.kext alerts: VRAM temperature, and clocks held back by heat or current.
     static let monitorAlertGPUMemoryTemperature = "monitorAlertGPUMemoryTemperature"
     static let monitorAlertGPUThrottle = "monitorAlertGPUThrottle"
@@ -127,9 +129,13 @@ extension DefaultsKey {
     static let monitorAlertCPUTemperatureThreshold = "monitorAlertCPUTemperatureThreshold"
     static let monitorAlertGPUTemperatureThreshold = "monitorAlertGPUTemperatureThreshold"
     static let monitorAlertGPUPowerThreshold = "monitorAlertGPUPowerThreshold"
+    static let monitorAlertCPUPowerThreshold = "monitorAlertCPUPowerThreshold"
     static let monitorAlertGPUMemoryTemperatureThreshold = "monitorAlertGPUMemoryTemperatureThreshold"
     static let monitorAlertDiskFreePercent = "monitorAlertDiskFreePercent"
     static let monitorAlertBatteryPercent = "monitorAlertBatteryPercent"
     static let monitorAlertCooldownMinutes = "monitorAlertCooldownMinutes"
+    /// How long a reading must stay over its limit before its alert fires.
+    /// An alert whose own built-in wait is longer keeps that wait.
+    static let monitorAlertSustainSeconds = "monitorAlertSustainSeconds"
     static let monitorMemoryMetric = "monitorMemoryMetric"           // used | app
 }

@@ -108,6 +108,8 @@ struct LongHistoryTable {
         case .gpuTemperature: return "GPU temperature (°C)"
         case .systemPower: return "System power (W)"
         case .gpuMemoryTemperature: return "VRAM temperature (°C)"
+        case .cpuPower: return "CPU package power (W)"
+        case .cpuClock: return "CPU average clock (MHz)"
         }
     }
 
@@ -122,8 +124,10 @@ struct LongHistoryTable {
             return CSVFormat.number(Double(value), decimals: 0)
         case .cpuTemperature, .gpuTemperature, .gpuMemoryTemperature:
             return CSVFormat.number(Double(value), decimals: 1)
-        case .systemPower:
+        case .systemPower, .cpuPower:
             return CSVFormat.number(Double(value), decimals: 2)
+        case .cpuClock:
+            return CSVFormat.number(Double(value), decimals: 0)
         }
     }
 
