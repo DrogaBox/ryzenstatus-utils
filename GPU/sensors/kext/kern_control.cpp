@@ -1450,15 +1450,16 @@ void teardown(bool waitForCall) {
     clock_interval_to_deadline(static_cast<uint32_t>(gpuctl::kTeardownWaitMs),
                                kMillisecondScale, &deadline);
     while (gInFlight)
-      if (IOLockSleepDeadline(gStateLock, &gInFlight, deadline,
-                              THREAD_UNINT) == THREAD_TIMED_OUT) {
+      if (IOLockSleepDeadline(gStateLock, &gInFlight, deadline, THREAD_UNINT) ==
+          THREAD_TIMED_OUT) {
         late = gInFlight;
         break;
       }
   }
   IOLockUnlock(gStateLock);
   if (late)
-    SYSLOG("gpuctl", "teardown: a ppCWDDE call still runs after %u ms; going on",
+    SYSLOG("gpuctl",
+           "teardown: a ppCWDDE call still runs after %u ms; going on",
            static_cast<unsigned>(gpuctl::kTeardownWaitMs));
 }
 IOReturn onSystemPower(void*, void*, UInt32 message, IOService*, void*,
