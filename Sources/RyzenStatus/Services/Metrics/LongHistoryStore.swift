@@ -231,6 +231,31 @@ final class LongHistoryStore: @unchecked Sendable {
         return Self.filledFromCoarse(fine: fineValues, coarse: coarseValues)
     }
 
+    /// Every slot in `range` ending at `end`, for export. Ranges up to an
+    /// hour come from the five-second ring, longer ones from the minute
+    /// ring, so each row is a real slot mean and never an average of several.
+    func exportTable(range: LongHistoryRange,
+                     end: TimeInterval = Date().timeIntervalSince1970) -> LongHistoryTable {
+        lock.lock()
+        defer { lock.unlock() }
+        let useFine = range.duration <= Self.fineStep * Double(Self.fineCapacity)
+        let tiers = useFine ? fine : coarse
+        return Self.table(tiers: tiers, step: useFine ? Self.fineStep : Self.coarseStep,
+                          duration: range.duration, end: end)
+    }
+
+    static func table(tiers: [LongHistoryTier], step: TimeInterval,
+                      duration: TimeInterval, end: TimeInterval) -> LongHistoryTable {
+        let last = Int64((end / step).rounded(.down))
+        let count = max(1, Int64((duration / step).rounded(.up)))
+        let slots = Array((last - count + 1)...last)
+        let columns = LongHistoryMetric.allCases.map { metric -> (metric: LongHistoryMetric, values: [Float?]) in
+            let tier = metric.rawValue < tiers.count ? tiers[metric.rawValue] : nil
+            return (metric, slots.map { tier?.mean(slot: $0) })
+        }
+        return LongHistoryTable(step: step, times: slots.map { Double($0) * step }, columns: columns)
+    }
+
     /// The five-second ring lives only in memory, so after a relaunch it
     /// holds just the minutes since launch. Each bucket it has no sample
     /// for takes the minute ring's value, so a short graph is not empty for
