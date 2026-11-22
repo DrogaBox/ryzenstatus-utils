@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 import IOKit.ps
 
@@ -95,6 +96,7 @@ final class BatteryPowerService: ObservableObject {
     @Published private(set) var mode: AMDBatteryPowerMode = AmdSettingsStore.shared.batteryPowerMode
 
     private var runLoopSource: CFRunLoopSource?
+    private var wakeObserver: NSObjectProtocol?
 
     private init() {}
 
@@ -109,6 +111,16 @@ final class BatteryPowerService: ObservableObject {
         guard let created = IOPSNotificationCreateRunLoopSource(callback, nil)?.takeRetainedValue() else { return }
         runLoopSource = created
         CFRunLoopAddSource(CFRunLoopGetMain(), created, .commonModes)
+        // A plug or unplug while the Mac sleeps may never reach the callback,
+        // and the cached source would then stay wrong until the next change:
+        // read it again on every wake.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in BatteryPowerService.shared.refresh() }
+        }
         refresh()
     }
 
@@ -117,6 +129,10 @@ final class BatteryPowerService: ObservableObject {
         guard let runLoopSource else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         self.runLoopSource = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
     }
 
     func setMode(_ newMode: AMDBatteryPowerMode) {
@@ -124,7 +140,8 @@ final class BatteryPowerService: ObservableObject {
         if mode != newMode { mode = newMode }
     }
 
-    /// Reads the power source again (IOPS told us something changed).
+    /// Reads the power source again (IOPS told us something changed, or the
+    /// Mac woke up).
     private func refresh() {
         let now = AMDPowerSource(hasBattery: hasBattery, onBattery: SystemInfo.batterySnapshot()?.isOnBattery)
         if source != now { source = now }
