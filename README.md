@@ -34,7 +34,7 @@
   <img src="docs/assets/readme/panel-amd-power.png" width="328" alt="AMD Ryzen Power tab with fan speed, Auto EPP, package power and temperature graphs and energy presets">
 </p>
 
-Per app volume, a real system monitor with AMD Ryzen telemetry and fan curves, a Dynamic Island with a companion that follows your hardware, a Command Bar, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
+Per app volume, a real system monitor with AMD Ryzen telemetry and fan curves, hardware AV1 and VP9 video and GPU control for AMD Radeon RX 6000 cards, a Dynamic Island with a companion that follows your hardware, a Command Bar, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
 
 ## Install only what you use
 
@@ -56,16 +56,18 @@ The rest bends the same way: Settings is grouped by tool and searchable down to 
 
 ### Know what your Mac is doing
 
-- **Menu bar monitor.** Keep the readings you care about in the bar itself: values, usage bars or history graphs drawn as one-point columns with the newest sample on the right. Network and disk put upload or writes above and download or reads below.
+- **Menu bar monitor.** Keep the readings you care about in the bar itself, each in its own style: label above, one line, value only, or icon and value. Usage readings can also be bars, a ring, a history graph or per-core graphs, drawn as one-point columns with the newest sample on the right. Network and disk put upload or writes above and download or reads below.
+- **Menu bar appearance.** Fixed width or fit to the value, narrow text, highlighted high values in system orange and red, and monochrome or color graphs. Readings are written only when they change, follow light and dark menu bars at once, and VoiceOver reads them as words.
 - **Graph themes.** Follow the system accent or pick one of ten palettes, soft variants or monochrome, separately for light and dark menu bars. The same columns are used in the panel, the metric details, the dashboards and the Dynamic Island.
 - **Your own menu bar icon.** Pick any system symbol to stand in for the RyzenStatus mark, from a gallery or by name.
-- **System monitor.** CPU (user and system time, average clock), GPU, memory pressure and app memory, temperatures, disk and power, with history graphs, metric detail pages, iStats widgets and a btop-style dashboard.
+- **System monitor.** CPU (user and system time, average clock), GPU, memory pressure and app memory, temperatures, disk and power, with history graphs, metric detail pages and iStats-style widgets in the panel.
+- **Monitor window.** A window of its own, like Activity Monitor, with Overview, Processes, Processor, Network, History and Diagnostics. Processes is one sortable, searchable table of every app with CPU, memory, GPU and estimated energy; Terminate asks first and refuses protected system processes. History charts the last 30 days. Control-Shift-Escape opens it from any app, and ⌘1 to ⌘6 switch sections. It reads only the section on screen, and nothing while it is closed.
 - **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address and a built in speed test.
 - **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, GPU power, memory pressure, low disk space and low battery, in your temperature unit.
 
 ### AMD Processors & Power Management
 
-All AMD pages live together in their own **AMD Ryzen** section of Settings: dashboard, fans, power, overclocking, sensors and hardware validation.
+All AMD pages live together in their own **AMD Ryzen** section of Settings: fans, power, overclocking, sensors and hardware validation. The SMU per-core telemetry is in the Processor section of the Monitor window.
 
 - **One CCD per app (new, `AMDCCDScheduler.kext`):** On a Ryzen with two CCDs, stock macOS keeps scattering each app's threads across both, so every hand-off between them crosses the Infinity Fabric (about 155 ns instead of 65 ns on a 5900XT). This kext fixes the macOS scheduler itself: each app gets a home CCD and its threads stay there while it has a free physical core, and spread to the other CCD only when it is full. On a 5900XT a Node worker pool ran **about 12% faster** with much steadier times, and an all-core zstd job ran at the same speed. As far as we could find, nothing else does this on macOS. It checks the kernel byte for byte before hooking it and stays off on any macOS build it was not checked against. [How it works and every measurement](docs/CCD_SCHEDULER.md).
 - **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw against the PPT limit, and frequencies per core.
@@ -82,9 +84,17 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 - **Gaming Mode:** A one-click toggle to apply the Extreme power preset and prevent display sleep during intense workloads.
 - **Hardware Validation:** Lists every power control your CPU accepts, the deep idle state, which path EPP takes and what the driver found in ACPI, and reads the CPPC values back from the firmware, so you can see what really reaches the processor.
 
-<p align="center">
-  <img src="docs/assets/readme/settings-dashboard.png" width="720" alt="The Performance Suite dashboard with CPU, RAM, GPU and network cards, SMU per-core telemetry and the process manager">
-</p>
+### AMD Radeon RX 6000 graphics
+
+For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac. macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
+
+- **Hardware AV1 and VP9 decoding.** Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU, YouTube in 4K60 included.
+- **Full-speed hardware encoding.** HEVC and H.264 encoding keep the video engine's clocks up: OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls.
+- **GPU sensors.** Edge, memory and VR temperatures, voltages, throttling, video and fabric clocks and the PCIe link, which Apple's driver already reads and keeps hidden. They show up everywhere in the app, like any other sensor.
+- **GPU control.** With the GPU sensors kext, a Settings page for the power limit (from the start-up value down to the card's own minimum, worked out the way Linux does), a five-point fan curve with zero RPM and a live check of what the card will accept, and a lower maximum GFX clock. Changes are opened with your administrator password until the Mac restarts, and **Remember** can apply your last settings again at launch and after a wake.
+- **GPU RX 6000 installer.** Checks the Mac, installs only what is needed, updates what is out of date, says when a part waits for a reboot, and removes everything again.
+
+Every part runs only on the macOS builds it was checked against and stays off on any other one. What each needs, what was run on which card, and how to build it: [GPU/README.md](GPU/README.md).
 
 ### Dynamic Island and companion
 
@@ -106,6 +116,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 - **Output switcher and audio priority.** Cycle between chosen outputs with one shortcut, rank your devices so the best one connected is used automatically, and drop the volume when headphones disconnect.
 - **Microphone tools.** Pin your favorite input so the Mac stops guessing, and mute the mic everywhere with a click or shortcut.
 - **Music app blocker.** Stops the Music app from bursting in when a media key or headphones launch it, opens the player you prefer instead, and can start playback in it.
+- **Every player.** On macOS 15.4 and later, TIDAL, browsers, video players and every other app that publishes what it plays show up with title, artist, album, position, cover and controls.
 - **Now Playing floating player.** A detachable floating desktop widget with compact Mini Card and regular view modes, right-click quick resize, pin-on-top, and adaptive background theming (6 palette styles) extracted live from album artwork.
 - **Live animated artwork.** Streams Apple Music motion album covers in real time with seamless crossfades between video and static cover art.
 - **Synced lyrics & song credits.** Synchronized LRC line-by-line scrolling lyrics, plain lyrics view, detailed track credits (composer, release year, genre, bitrate), and manual provider search.
@@ -162,7 +173,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 
 ## Install
 
-Grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications.
+Grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications. The kexts for OpenCore are in its **Kexts** folder, and the Radeon RX 6000 parts in **GPU RX 6000**. Once installed, the app updates itself.
 
 ## Uninstall
 
@@ -171,6 +182,8 @@ To remove RyzenStatus completely, including its settings and permissions:
 ```sh
 ./Tools/uninstall.sh
 ```
+
+The Radeon RX 6000 parts are removed with their own installer, from the **GPU RX 6000** folder of the disk image.
 
 ## Private by default
 
@@ -192,6 +205,7 @@ Permissions get the same treatment. Every one is optional, the app explains each
 | Full Disk Access, optional | Deeper cleaner and uninstaller scans, Repair permissions | Only reachable places are scanned |
 | Automation | Now Playing (Music, Spotify), Finder cut and paste, the uninstaller, the Homebrew Terminal handoff | Those players, Finder or Terminal steps stay out of reach |
 | Administrator, once, optional | Password free closed lid toggling | A password prompt per toggle |
+| Administrator, optional | Allow GPU Changes, until the next restart | The GPU control page stays read only |
 
 The shelf and almost every quick toggle need no permission at all. Automation is asked the first time RyzenStatus talks to Music, Spotify, Finder or Terminal: since macOS 15.4, Now Playing reads Music and Spotify this way. After an update, **Repair permissions** (Settings › Advanced) ties the permissions you already gave back to the new version without granting anything new.
 
@@ -200,6 +214,7 @@ The shelf and almost every quick toggle need no permission at all. Automation is
 - A Hackintosh with an **AMD Ryzen CPU**: Ryzen 1000 through Ryzen 9000, Threadripper 1000 through 7000, and the Raven Ridge, Picasso, Renoir, Cezanne, Rembrandt and Phoenix APUs. The per-family table is in the [driver README](SMCAMDProcessor_Source/README.md#supported-amd-processors). Everything outside the AMD pages also runs on any Intel Mac.
 - **macOS 14 Sonoma through macOS 26 Tahoe** for `RyzenStatus.app` (`AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` support macOS 13 Ventura through macOS 26 Tahoe)
 - **Kernel Extensions (for AMD telemetry, power controls and fan curves):** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected through OpenCore, after Lilu and VirtualSMC. Each release ships the matching pair in the disk image; install them together with the app. Their source lives in `SMCAMDProcessor_Source`.
+- **Optional, for AMD Radeon RX 6000 cards:** an OpenCore EFI with Lilu 1.7.0 or newer. The decoders also need authenticated root turned off from Recovery, and the encoding service needs SIP's debugging restriction off. Keep a USB stick that boots your previous EFI. Details in [GPU/README.md](GPU/README.md#before-you-start).
 - **Optional: `AMDCCDScheduler.kext`** (also in the disk image, after Lilu) for CPUs with two or more CCDs. It keeps the threads of each app on one CCD while that CCD has a free physical core, so they share its L3 cache instead of crossing the Infinity Fabric. It hooks the kernels of macOS 14.8.9, 15.8.2/15.8.3 and 26.7.2/26.7.3, each checked byte for byte, and stays off elsewhere; booted so far on one 5900XT with macOS 26.7.3, so keep a fallback EFI for the first boot. Details and measurements: [docs/CCD_SCHEDULER.md](docs/CCD_SCHEDULER.md).
 
 ### Kernel Extension Boot Arguments & Features
@@ -239,6 +254,8 @@ The [troubleshooting guide](docs/TROUBLESHOOTING.md) walks through the common ca
 - [Privacy](docs/PRIVACY.md), what does and does not leave your Mac
 - [Permissions](docs/PERMISSIONS.md), every macOS permission in plain words
 - [Troubleshooting](docs/TROUBLESHOOTING.md), the common fixes
+- [AMD Radeon RX 6000](GPU/README.md), the video, sensor and GPU control parts
+- [One CCD per app](docs/CCD_SCHEDULER.md), how the CCD scheduler works and what it measured
 - [Contributing](CONTRIBUTING.md), build, layout and conventions
 - [Support](SUPPORT.md), where to get help
 - [Security](SECURITY.md), how to report a vulnerability
