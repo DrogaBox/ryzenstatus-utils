@@ -39,15 +39,26 @@ struct SessionPeaks: Equatable, Sendable {
 
     /// Takes in one sample of the CPU readings; nil means not sampled.
     mutating func record(temperatureC: Double?, powerW: Double?, clockGHz: Double?) {
-        if let value = Self.usable(temperatureC) { temperature = SessionRange.widened(temperature, with: value) }
-        if let value = Self.usable(powerW) { power = SessionRange.widened(power, with: value) }
-        if let value = Self.usable(clockGHz) { clock = SessionRange.widened(clock, with: value) }
+        if let value = Self.usable(temperatureC, below: Self.temperatureCeilingC) {
+            temperature = SessionRange.widened(temperature, with: value)
+        }
+        if let value = Self.usable(powerW, below: Self.powerCeilingW) { power = SessionRange.widened(power, with: value) }
+        if let value = Self.usable(clockGHz, below: Self.clockCeilingGHz) { clock = SessionRange.widened(clock, with: value) }
     }
+
+    // A single bad read (a counter just after wake, a torn kext record)
+    // would stay as the session's highest forever, so readings no desktop
+    // CPU can produce are dropped. The fan bound is the one FanSnapshot
+    // already uses to reject tachometer glitches.
+    static let temperatureCeilingC = 150.0
+    static let powerCeilingW = 1_000.0
+    static let clockCeilingGHz = 10.0
+    static let fanCeilingRPM = 10_500.0
 
     /// Takes in the fastest of the fans that reported a speed this time.
     /// Nil (no fan reported) leaves the range as it is; zero is kept.
     mutating func record(fanRPM: Double?) {
-        guard let fanRPM, fanRPM.isFinite, fanRPM >= 0 else { return }
+        guard let fanRPM, fanRPM.isFinite, fanRPM >= 0, fanRPM <= Self.fanCeilingRPM else { return }
         fan = SessionRange.widened(fan, with: fanRPM)
     }
 
@@ -57,9 +68,18 @@ struct SessionPeaks: Equatable, Sendable {
     }
 
     /// A positive, finite reading, or nil.
-    static func usable(_ value: Double?) -> Double? {
-        guard let value, value.isFinite, value > 0 else { return nil }
+    static func usable(_ value: Double?, below ceiling: Double = .infinity) -> Double? {
+        guard let value, value.isFinite, value > 0, value < ceiling else { return nil }
         return value
+    }
+
+    /// The mean clock of the physical cores that reported one, in GHz, or
+    /// nil. Cores reading 0 MHz (a short kext record) are left out instead
+    /// of dragging the session's lowest clock toward zero.
+    static func averageClockGHz(_ cores: [CoreSnapshot]) -> Double? {
+        let clocks = cores.filter { !$0.isLogical && $0.freqMHz > 0 }.map { Double($0.freqMHz) }
+        guard !clocks.isEmpty else { return nil }
+        return clocks.reduce(0, +) / Double(clocks.count) / 1000
     }
 
     /// The fastest fan among those with a trusted reading that the user has
@@ -102,7 +122,7 @@ final class SessionPeaksTracker: ObservableObject {
         var next = peaks
         next.record(temperatureC: snapshot.cpuTemperature,
                     powerW: snapshot.cpuPower,
-                    clockGHz: SystemSection.averageFrequencyGHz(snapshot.cores))
+                    clockGHz: SessionPeaks.averageClockGHz(snapshot.cores))
         if next != peaks { peaks = next }
     }
 

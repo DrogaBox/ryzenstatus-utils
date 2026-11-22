@@ -44,6 +44,27 @@ enum SessionPeaksTests {
         suite.expect(peaks.temperature?.min == 45 && peaks.power?.min == 20 && peaks.clock?.max == 3,
                      "a zero, negative or infinite reading never becomes an end")
         suite.expect(SessionPeaks.usable(12.5) == 12.5 && SessionPeaks.usable(0) == nil, "usable keeps positives only")
+        glitches(suite)
+    }
+
+    /// One bad read must never become an end of the range for good.
+    private static func glitches(_ suite: TestSuite) {
+        var peaks = SessionPeaks(startedAt: start)
+        peaks.record(temperatureC: 55, powerW: 60, clockGHz: 4.2)
+        peaks.record(temperatureC: 200, powerW: 4_096, clockGHz: 50)
+        suite.expect(peaks.temperature?.max == 55 && peaks.power?.max == 60 && peaks.clock?.max == 4.2,
+                     "impossible temperature, power and clock reads are dropped")
+        peaks.record(fanRPM: 1_200)
+        peaks.record(fanRPM: 65_535)
+        suite.expect(peaks.fan == SessionRange(min: 1_200, max: 1_200), "a 65535 RPM tachometer glitch is dropped")
+
+        func core(_ id: Int, _ mhz: Float, logical: Bool = false) -> CoreSnapshot {
+            CoreSnapshot(id: id, freqMHz: mhz, loadPct: 0, isLogical: logical)
+        }
+        let partial = [core(0, 3_600), core(1, 0), core(2, 0), core(3, 0), core(4, 4_800, logical: true)]
+        suite.expect(SessionPeaks.averageClockGHz(partial) == 3.6,
+                     "cores reading 0 MHz and logical CPUs stay out of the average")
+        suite.expect(SessionPeaks.averageClockGHz([core(0, 0)]) == nil, "no core with a clock, no reading")
     }
 
     private static func fans(_ suite: TestSuite) {
