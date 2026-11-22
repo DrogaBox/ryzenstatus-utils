@@ -9,10 +9,11 @@ permissions:
   contents: read
   pull-requests: read
 
-# Only a newer pull request run cancels an older one. A push to main is the
-# tree a release may reuse, and a tag build must never be cancelled by CI.
+# Only a newer run of the same pull request cancels an older one. Each push to
+# main gets a group of its own (its commit), so no main run is cancelled, or
+# replaced while it waits in the queue: that tree is the one a release reuses.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
