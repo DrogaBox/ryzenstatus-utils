@@ -4,6 +4,8 @@
 
 **Another driver on the AMD SMU**: if a third-party kext also attaches to the AMD host bridge to reach the SMU, its SMU writes and RyzenStatus's could get mixed up, because the two drivers cannot share a lock. RyzenStatus now checks for that before each power-limit, Curve Optimizer or preset write and skips the write while such a driver is there; sensors and readings keep working. Hardware Validation shows it as a new "AMD SMU sharing" row. Macs without another driver there see no change. Tested with unit tests only; no Mac with such a driver was available.
 
+**Hardware Validation points at the right fix**: a write the kext refused for a reason other than permissions no longer turns the privilege row into "run as root"; a telemetry packet that reads 0 °C and 0 W is no longer a pass; when the driver version cannot be read the row says so instead of reporting a mismatch; and a board whose Super I/O is not the reference chip is shown as information, not as a warning.
+
 ## [1.87.0] — 2026-11-22 — kexts 3.41.0
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**
