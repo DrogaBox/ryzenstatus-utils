@@ -182,21 +182,36 @@ enum AMDIdleClockLimitPolicy {
 
 /// The idle clock limit's write bookkeeping (selector 69): whether a cap may
 /// be in the CPU, and when to stop sending a value the kext keeps refusing.
-/// Kept apart from the service so it can be tested.
+/// Kept apart from the service so it can be tested. Times are seconds of
+/// system uptime.
 struct AMDIdleClockLimitWrites: Equatable, Sendable {
-    /// Refusals in a row of one value before it is no longer sent.
+    /// Refusals of one value before it is no longer sent.
     static let maxFailures = 3
+    /// A value given up on is tried once more after this long, so a refusal
+    /// that was only passing (a busy firmware channel) does not lock the
+    /// limit out for the rest of the session.
+    static let retryAfter: TimeInterval = 300
 
     /// A non-zero max perf was sent and no lift has succeeded since. Set
     /// before the write: a refused write may still have reached some cores.
     private(set) var mayBeCapped = false
-    /// The value refused last and how many times in a row.
-    private(set) var failedValue: UInt8?
-    private(set) var failures = 0
+    /// Refusals per value since the kext last took a write. Kept per value,
+    /// so a preset that alternates between a cap and a lift does not reset
+    /// the other value's count and send it three more times.
+    private(set) var failures: [UInt8: Int] = [:]
+    /// When each value was last given up on.
+    private(set) var givenUpAt: [UInt8: TimeInterval] = [:]
 
-    /// `value` has been refused `maxFailures` times in a row.
-    func hasGivenUp(on value: UInt8) -> Bool {
-        failedValue == value && failures >= Self.maxFailures
+    /// `value` has been refused `maxFailures` times and its retry is not due.
+    func hasGivenUp(on value: UInt8, now: TimeInterval) -> Bool {
+        guard let since = givenUpAt[value] else { return false }
+        return now - since < Self.retryAfter
+    }
+
+    /// Whether any value is given up on and not due for a retry: the row
+    /// shows the limit as unavailable.
+    func anyGivenUp(now: TimeInterval) -> Bool {
+        givenUpAt.keys.contains { hasGivenUp(on: $0, now: now) }
     }
 
     /// Call before sending `value`.
@@ -204,29 +219,30 @@ struct AMDIdleClockLimitWrites: Equatable, Sendable {
         if value != 0 { mayBeCapped = true }
     }
 
-    /// Records the kext's answer. True only on the refusal that makes it
-    /// give up on `value`, so the caller logs once.
+    /// Records the kext's answer. True only on the refusal that first makes
+    /// it give up on `value`, so the caller logs once; a refused retry after
+    /// `retryAfter` gives up again quietly.
     @discardableResult
-    mutating func record(_ value: UInt8, succeeded: Bool) -> Bool {
+    mutating func record(_ value: UInt8, succeeded: Bool, now: TimeInterval) -> Bool {
         if succeeded {
             if value == 0 { mayBeCapped = false }
-            failedValue = nil
-            failures = 0
+            // The kext takes writes again: every value is worth sending.
+            clearFailures()
             return false
         }
-        if failedValue != value {
-            failedValue = value
-            failures = 0
-        }
-        failures += 1
-        return failures == Self.maxFailures
+        let count = (failures[value] ?? 0) + 1
+        failures[value] = count
+        guard count >= Self.maxFailures else { return false }
+        let first = givenUpAt[value] == nil
+        givenUpAt[value] = now
+        return first
     }
 
-    /// Forgets the refusals, so the next value is sent again (the user
-    /// switched Auto EPP on or off).
+    /// Forgets the refusals, so every value is sent again (Auto EPP switched
+    /// on or off, a wake, or a write the kext took).
     mutating func clearFailures() {
-        failedValue = nil
-        failures = 0
+        failures = [:]
+        givenUpAt = [:]
     }
 }
 
