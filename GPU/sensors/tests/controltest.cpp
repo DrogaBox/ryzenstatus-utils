@@ -594,6 +594,8 @@ static void margins() {
   check(kSleepWaitMs == 3000 && kSleepWaitMs > 2000,
         "ppSleep waits 3 s at most for a call in flight, more than one 2 s "
         "mailbox wait");
+  check(kTeardownWaitMs == 2000 && kTeardownWaitMs < kSleepWaitMs,
+        "GPU teardown waits at most 2 s for a call in flight");
 }
 
 static void prereqs() {

@@ -14,6 +14,7 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   rule still applies.
 - The kext still never reads the GPU itself: it only copies what Apple's driver asked for,
   and the GPU control already refuses driver calls between sleep and wake.
+- The GPU control no longer waits at shutdown or restart for a driver call that is still running, and waits at most 2 s when the GPU goes away. Before, a stuck call could hold that step forever. It is not the cause of the known restart hang after a sleep, which started before the GPU control existed.
 
 ## Decoders 0.3.4 (RyzenStatus 1.87.1)
 

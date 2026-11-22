@@ -377,6 +377,9 @@ inline WakeWait wakeMargin(uint64_t sleepGenAtWake, uint64_t sleepGenNow,
 // flight under the same lock, so a call either finishes before the sleep
 // starts or is never made.
 constexpr uint64_t kSleepWaitMs = 3000;
+// GPU termination: wait at most 2 s for a ppCWDDE call already running, then
+// let the driver finish tearing down. Power off and restart do not wait.
+constexpr uint64_t kTeardownWaitMs = 2000;
 
 // --------------------------------------------------------------- OD8 reads --
 //
