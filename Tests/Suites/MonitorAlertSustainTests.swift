@@ -102,6 +102,19 @@ enum MonitorAlertSustainTests {
                          && MonitorAlertSustain.isBreak(since: at(0), now: at(46))
                          && !MonitorAlertSustain.isBreak(since: nil, now: at(0)),
                      "a break is a gap over 45 s")
+        // The limit must stay well above the slowest snapshot cadence an
+        // alert can see, or every waited alert would silently never fire:
+        // each kind an alert reads, in the background, at every interval,
+        // with the timer's 15 % tolerance, must fit twice into the gap.
+        let alertKinds: [MonitorSamplingKind] = [.cpu, .memory, .disk, .power, .temperature, .gpuUsage]
+        for interval in Defaults.allowedMonitorIntervals {
+            for kind in alertKinds {
+                let stride = MonitorSamplingPolicy.sampleStride(for: kind, intervalSeconds: interval, foreground: false)
+                let cadence = Double(stride) * interval * 1.15
+                suite.expect(cadence * 2 <= MonitorAlertSustain.maxSampleGap,
+                             "\(kind.rawValue) at \(interval) s comes every \(cadence) s, well under the gap")
+            }
+        }
 
         var condition = SustainedCondition(duration: 12, allowedMisses: 2)
         _ = condition.update(true, now: at(0), atLeast: 60)

@@ -119,7 +119,7 @@ final class MonitorAlertService {
 
         if alertOn(DefaultsKey.monitorAlertCPUTemperature, .monitorCPU) {
             if let temperature = highCPUTemperature(from: snapshot, defaults: defaults, now: now, wait: wait(5)) {
-                send(.cpuTemperature,
+                send(at: now, .cpuTemperature,
                      title: strings.cpuTemperatureTitle,
                      body: String(format: strings.cpuTemperatureBodyFormat,
                                   Self.formattedTemperature(temperature, defaults: defaults)))
@@ -137,7 +137,7 @@ final class MonitorAlertService {
             if highCPUPower.update(isOver: Self.cpuPowerIsOver(power, thresholdWatts: threshold),
                                    now: now, wait: wait(12)),
                let power {
-                send(.cpuPower,
+                send(at: now, .cpuPower,
                      title: strings.cpuPowerTitle,
                      body: String(format: strings.cpuPowerBodyFormat, power))
             }
@@ -150,7 +150,7 @@ final class MonitorAlertService {
         // restarted the wait on every sample, so these alerts never fired.
         if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU) {
             if let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults, now: now, wait: wait(12)) {
-                send(.gpuTemperature,
+                send(at: now, .gpuTemperature,
                      title: strings.gpuTemperatureTitle,
                      body: String(format: strings.gpuTemperatureBodyFormat,
                                   Self.formattedTemperature(gpuTemp, defaults: defaults)))
@@ -161,7 +161,7 @@ final class MonitorAlertService {
 
         if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU) {
             if let gpuPower = highGPUPower(from: snapshot, defaults: defaults, now: now, wait: wait(12)) {
-                send(.gpuPower,
+                send(at: now, .gpuPower,
                      title: strings.gpuPowerTitle,
                      body: String(format: strings.gpuPowerBodyFormat, gpuPower))
             }
@@ -187,7 +187,7 @@ final class MonitorAlertService {
                     let memory = sensors.memory
                     if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: now,
                                            atLeast: wait(0)), let memory {
-                        send(.gpuMemoryTemperature,
+                        send(at: now, .gpuMemoryTemperature,
                              title: strings.gpuMemoryTemperatureTitle,
                              body: String(format: strings.gpuMemoryTemperatureBodyFormat,
                                           Self.formattedTemperature(memory, defaults: defaults)))
@@ -198,7 +198,7 @@ final class MonitorAlertService {
                     if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: now, atLeast: wait(0)), let throttle {
                         // The power limit is left out of the reasons: it is normal.
                         let reasons = throttle.subtracting(.power).text(FeatureStrings.sensors(L10n.shared.language))
-                        send(.gpuThrottle,
+                        send(at: now, .gpuThrottle,
                              title: strings.gpuThrottleTitle,
                              body: String(format: strings.gpuThrottleBodyFormat, reasons))
                     }
@@ -212,7 +212,7 @@ final class MonitorAlertService {
         // sample over the limit still notifies.
         if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory) {
             if criticalMemory.update(isOver: snapshot.memoryPressure == .critical, now: now, wait: wait(0)) {
-                send(.memory, title: strings.memoryTitle, body: strings.memoryBody)
+                send(at: now, .memory, title: strings.memoryTitle, body: strings.memoryBody)
             }
         } else {
             criticalMemory.reset()
@@ -222,7 +222,7 @@ final class MonitorAlertService {
             let disk = lowDisk(from: snapshot, defaults: defaults)
             if lowDiskSpace.update(isOver: disk != nil, now: now, wait: wait(0)), let disk {
                 let body = String(format: strings.diskBodyFormat, disk.name, disk.threshold)
-                send(.disk, title: strings.diskTitle, body: body)
+                send(at: now, .disk, title: strings.diskTitle, body: body)
             }
         } else {
             lowDiskSpace.reset()
@@ -232,7 +232,7 @@ final class MonitorAlertService {
             let battery = lowBattery(from: snapshot, defaults: defaults)
             if lowBatteryLevel.update(isOver: battery != nil, now: now, wait: wait(0)), let battery {
                 let body = String(format: strings.batteryBodyFormat, battery)
-                send(.battery, title: strings.batteryTitle, body: body)
+                send(at: now, .battery, title: strings.batteryTitle, body: body)
             }
         } else {
             lowBatteryLevel.reset()
@@ -254,7 +254,7 @@ final class MonitorAlertService {
             let ccdInfo = snapshot.ccd0Temperature.map {
                 " (CCD0: \(Self.formattedTemperature(Double($0), defaults: defaults)))"
             } ?? ""
-            send(.thermalThrottle,
+            send(at: now, .thermalThrottle,
                  title: strings.thermalThrottleTitle,
                  body: String(format: strings.thermalThrottleBodyFormat,
                               Self.formattedTemperature(temp, defaults: defaults)) + ccdInfo)
@@ -272,7 +272,7 @@ final class MonitorAlertService {
                                                   range: 50...100)
         let over = usage.map { $0 >= Double(threshold) / 100.0 } ?? false
         guard highCPU.update(isOver: over, now: now, wait: wait) else { return }
-        send(.cpu,
+        send(at: now, .cpu,
              title: strings.cpuTitle,
              body: String(format: strings.cpuBodyFormat, threshold))
     }
@@ -353,11 +353,13 @@ final class MonitorAlertService {
         return watts >= Double(thresholdWatts)
     }
 
-    private func send(_ kind: MonitorAlertKind, title: String, body: String) {
+    /// `now` is the time the sample was judged at, so the repeat interval
+    /// starts from the same clock as the waits.
+    private func send(at now: Date, _ kind: MonitorAlertKind, title: String, body: String) {
         let minutes = Defaults.sanitizedMonitorAlertCooldown(
             UserDefaults.standard.integer(forKey: DefaultsKey.monitorAlertCooldownMinutes)
         )
-        guard cooldown.allows(kind, now: Date(), interval: Double(minutes * 60)) else { return }
+        guard cooldown.allows(kind, now: now, interval: Double(minutes * 60)) else { return }
         Notifier.post(title: title, body: body)
     }
 }
