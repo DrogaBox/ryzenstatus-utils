@@ -1371,27 +1371,61 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
 
     // Off after being on: CPPC_ENABLE cannot be cleared before a reset, so
     // ask for full performance, the closest match to running without CPPC.
+    // The user's perf range only holds in autonomous mode.
     uint8_t epp = 0x00;
-    if (cppcActiveMode) epp = cppcThrottled ? 0xFF : cppcEPPValue;
+    uint8_t minLimit = 0, maxLimit = 0;
+    if (cppcActiveMode) {
+        epp = cppcThrottled ? 0xFF : cppcEPPValue;
+        minLimit = cppcMinPerfLimit;
+        maxLimit = cppcMaxPerfLimit;
+    }
 
-    const bool ok = cppcMsrSupported ? applyEPPMsr(epp) : applyEPPAcpi(epp);
+    const bool ok = cppcMsrSupported ? applyEPPMsr(epp, minLimit, maxLimit)
+                                     : applyEPPAcpi(epp, minLimit, maxLimit);
     if (ok) {
         cppcAppliedEPP = epp;
-        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU (%s)\n",
-              cppcActiveMode ? "autonomous" : "performance", epp, cppcMsrSupported ? "MSR" : "ACPI");
+        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X, perf limits %u..%u on every CPU (%s)\n",
+              cppcActiveMode ? "autonomous" : "performance", epp, minLimit, maxLimit,
+              cppcMsrSupported ? "MSR" : "ACPI");
     }
     return ok;
 }
 
-// MSR CPPC: CPPC_ENABLE, then CPPC_REQ with the core's own CAP1 range.
-bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp) {
+// The limits change under rendezvousLock, the lock the timer and the
+// post-wake tick hold around applyEPPControlLocked(), so no apply reads a
+// torn pair. Lock order controlLock -> rendezvousLock, as everywhere.
+bool AMDRyzenCPUPowerManagement::setCppcPerfLimits(uint8_t minLimit, uint8_t maxLimit) {
+    IOLockLock(rendezvousLock);
+    cppcMinPerfLimit = minLimit;
+    cppcMaxPerfLimit = maxLimit;
+    const bool applied = !cppcActiveMode || applyEPPControlLocked();
+    IOLockUnlock(rendezvousLock);
+    return applied;
+}
+
+// Linux amd-pstate clamps scaling_min_freq/scaling_max_freq the same way:
+// max inside [lowest, highest], then min inside [lowest, max]. A limit of 0
+// is the core's own bound, so 0/0 is the full CAP1 range.
+void AMDRyzenCPUPowerManagement::cppcPerfRange(uint8_t minLimit, uint8_t maxLimit, uint64_t lowest,
+                                               uint64_t highest, uint64_t &minPerf, uint64_t &maxPerf) {
+    maxPerf = highest;
+    if (maxLimit != 0 && maxLimit < highest) maxPerf = maxLimit < lowest ? lowest : maxLimit;
+    minPerf = lowest;
+    if (minLimit > lowest) minPerf = minLimit > maxPerf ? maxPerf : minLimit;
+}
+
+// MSR CPPC: CPPC_ENABLE, then CPPC_REQ with the core's own CAP1 range,
+// narrowed by the user's perf limits.
+bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp, uint8_t minLimit, uint8_t maxLimit) {
     struct EPPArgs {
         AMDRyzenCPUPowerManagement *provider;
         uint64_t epp;
+        uint8_t minLimit;
+        uint8_t maxLimit;
         volatile SInt32 enableFailures;
         volatile SInt32 capFailures;
         volatile SInt32 reqFailures;
-    } args{this, epp, 0, 0, 0};
+    } args{this, epp, minLimit, maxLimit, 0, 0, 0};
 
     // Integer-only handler: it runs on every CPU with interrupts off.
     mp_rendezvous(nullptr, [](void *obj) {
@@ -1423,6 +1457,9 @@ bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp) {
             return;
         }
 
+        uint64_t minPerf = lowest, maxPerf = highest;
+        cppcPerfRange(a->minLimit, a->maxLimit, lowest, highest, minPerf, maxPerf);
+
         // Bits 63:32 are reserved; keep what the CPU holds there.
         uint64_t req = 0;
         if (!p->read_msr(kMSR_AMD_CPPC_REQ, &req)) {
@@ -1430,8 +1467,8 @@ bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp) {
             return;
         }
         req = (req & 0xFFFFFFFF00000000ULL)
-            | highest                   // max perf
-            | (lowest << 8)             // min perf
+            | maxPerf                   // max perf
+            | (minPerf << 8)            // min perf
             | (0ULL << 16)              // desired perf: autonomous
             | ((a->epp & 0xFF) << 24);  // EPP
         if (!p->write_msr(kMSR_AMD_CPPC_REQ, req)) {
@@ -1801,7 +1838,7 @@ bool AMDRyzenCPUPowerManagement::cpcWrite(const CpcValue &v, uint64_t value) {
 // max = highest, desired = 0 (autonomous), autonomous selection and CPPC
 // enable on, EPP; one PCC WRITE per subspace carries all of them. Registers
 // in SystemMemory take the writes directly, no command needed.
-bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
+bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp, uint8_t minLimit, uint8_t maxLimit) {
     if (!acpiCppc.supported) return false;
 
     for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
@@ -1822,8 +1859,20 @@ bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
                   cpu, lowest, highest);
             return false;
         }
-        cpcWrite(c[kSlotMin], lowest);
-        cpcWrite(c[kSlotMax], highest);
+        // The first CPU's range is the one selector 68 reports.
+        if (cppcCapHighest == 0) {
+            uint64_t nominal = 0, nonlinear = 0;
+            if (cpcRead(c[kSlotNominal], nominal) && cpcRead(c[kSlotLowestNonlinear], nonlinear)) {
+                cppcCapLowest = (uint8_t)(lowest > 0xFF ? 0xFF : lowest);
+                cppcCapLowestNonlinear = (uint8_t)(nonlinear > 0xFF ? 0xFF : nonlinear);
+                cppcCapNominal = (uint8_t)(nominal > 0xFF ? 0xFF : nominal);
+                cppcCapHighest = (uint8_t)(highest > 0xFF ? 0xFF : highest);
+            }
+        }
+        uint64_t minPerf = lowest, maxPerf = highest;
+        cppcPerfRange(minLimit, maxLimit, lowest, highest, minPerf, maxPerf);
+        cpcWrite(c[kSlotMin], minPerf);
+        cpcWrite(c[kSlotMax], maxPerf);
         cpcWrite(c[kSlotDesired], 0);       // autonomous
         cpcWrite(c[kSlotEnable], 1);
         cpcWrite(c[kSlotAutoSel], 1);
@@ -3217,6 +3266,16 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
         && capHighest != 0 && capLowest != 0 && capLowest <= capHighest
         && read_msr(kMSR_AMD_CPPC_ENABLE, &cppcEnableProbe)
         && read_msr(kMSR_AMD_CPPC_REQ, &cppcReqProbe);
+
+    // CAP1 layout: [7:0] lowest, [15:8] lowest non-linear, [23:16] nominal,
+    // [31:24] highest perf. Preferred cores report a higher highest; the
+    // ranking pass keeps those per core.
+    if (cppcMsrSupported) {
+        cppcCapLowest = (uint8_t)capLowest;
+        cppcCapLowestNonlinear = (uint8_t)((cppcVal >> 8) & 0xFF);
+        cppcCapNominal = (uint8_t)((cppcVal >> 16) & 0xFF);
+        cppcCapHighest = (uint8_t)capHighest;
+    }
 
     // Firmware (boot) or S3 (wake) left CPPC_ENABLE in its reset state, so
     // the next applyEPPControl() must write it again.
