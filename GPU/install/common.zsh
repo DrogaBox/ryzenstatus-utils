@@ -28,6 +28,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # folders of a checkout, which the person in front of the app does not have.
 IN_APP=0
 [[ ${${(%):-%x}:A:h:h} == *.app/Contents/Resources/GPU ]] && IN_APP=1
+# The app runs a root-owned copy of these files from /private/tmp, and says where it came from.
+[[ ${GPU_APP_ROOT:-} == *.app/Contents/Resources/GPU ]] && IN_APP=1
 # pick <text for a checkout> <text for the app>
 pick() { if (( IN_APP )); then print -rn -- "$2"; else print -rn -- "$1"; fi; }
 # What a missing or broken file of the package means in the app.
@@ -389,7 +391,7 @@ efi_choice_help() { # kind "script [options]"
   [[ $2 == *" "* ]] && opts=" ${2#* }"
   local term
   if (( IN_APP )); then
-    term="name the partition in Terminal: sudo '$SELF_DIR/$script'$opts --efi diskNsM (diskutil list shows them)"
+    term="name the partition in Terminal: sudo '${GPU_APP_ROOT:+$GPU_APP_ROOT/install}${GPU_APP_ROOT:-$SELF_DIR}/$script'$opts --efi diskNsM (diskutil list shows them)"
   else
     term="name it: sudo install/$script$opts --efi diskNsM (diskutil list shows them)"
   fi

@@ -501,6 +501,7 @@ final class Engine: ObservableObject {
             "present=$(/usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort) || exit 1",
             "[ \"$listed\" = \"$present\" ] || { echo 'SHA256SUMS does not list exactly the files of the parts'; exit 1; }",
             "[ -z $(/usr/bin/find . -type l -print -quit) ] || { echo 'the parts hold a link'; exit 1; }",
+            "export GPU_APP_ROOT=\(Self.shq(root.path))",
             "/bin/zsh \"$stage/GPU/\(script)\"\(argStr.isEmpty ? "" : " " + argStr) 2>&1",
         ]
         return "/bin/zsh -c \(Self.shq(lines.joined(separator: "; ")))"
