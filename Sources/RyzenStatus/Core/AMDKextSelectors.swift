@@ -214,6 +214,14 @@ enum AMDKextSelector: UInt32, CaseIterable {
     case curveOptimizerAllWrite = 66
     /// Boost frequency ceiling (kext 3.40.0+, privileged): MHz.
     case boostLimitWrite = 67
+    /// CPPC performance range (kext 3.41.0+): [0] mechanism (0 none, 1 MSR,
+    /// 2 ACPI), [1] lowest, [2] lowest non-linear, [3] nominal, [4] highest
+    /// perf, [5] min limit, [6] max limit, [7] limits in force. See
+    /// `AMDCppcRange`.
+    case cppcRangeRead = 68
+    /// CPPC min/max perf limits (kext 3.41.0+, privileged): [0] min, [1] max,
+    /// 0…255 each, 0 = the CPU's own bound.
+    case cppcRangeWrite = 69
 
     // MARK: — Fan Control (via SuperIO)
 

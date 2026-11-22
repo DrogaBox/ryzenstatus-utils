@@ -348,11 +348,13 @@ struct SystemSection: View {
         sysTemps && expandedFromCards.contains(kind)
     }
 
-    /// What CPU unfolds: load averages, history and the busiest processes.
+    /// What CPU unfolds: load averages, the session's lowest and highest
+    /// readings, history and the busiest processes.
     @ViewBuilder
     private var cpuDetails: some View {
         if expandedKinds.contains(.cpu) {
             loadAverageRow
+            SessionPeaksRows()
             usageHistory(.cpu)
             breakdownList(for: .cpu)
         }

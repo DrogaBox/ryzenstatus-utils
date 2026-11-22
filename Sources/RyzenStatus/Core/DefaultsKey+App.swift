@@ -479,6 +479,7 @@ extension DefaultsKey {
     static let autoEppEnabled = "autoEppEnabled"                 // Bool: whether software Auto EPP is active
     static let autoEppIdleThreshold = "autoEppIdleThreshold"     // 0-100, CPU load % below which → Power Save (255)
     static let autoEppLoadThreshold = "autoEppLoadThreshold"     // 0-100, CPU load % above which → Performance (0)
+    static let autoEppIdleClockLimitMHz = "autoEppIdleClockLimitMHz" // Int MHz, CPPC max clock while Auto EPP holds Eco; 0 = off
     // AMD Power Presets — one-tap EPP + CPB + PPM/LPM profiles.
     static let amdPowerPreset = "amdPowerPreset"                 // AMDPowerPreset.rawValue, written when applied
     // Per-toggle persistence for the Priority-1 control features.
@@ -490,8 +491,10 @@ extension DefaultsKey {
     static let amdCustomProfileName = "amdCustomProfileName"     // String, custom profile last applied
     static let amdAdaptivePowerEnabled = "amdAdaptivePowerEnabled"   // Bool, adaptive power limit on
     static let amdAdaptiveTargetCelsius = "amdAdaptiveTargetCelsius" // Int, its target temperature
+    static let amdBatteryPowerMode = "amdBatteryPowerMode"       // AMDBatteryPowerMode.rawValue, On battery; absent = same as plugged in
     static let amdManualEpp = "amdManualEpp"                     // Int 0-255, last EPP chosen by hand (picker or preset); absent until one is
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
+    static let panelSessionPeaksExpanded = "panelSessionPeaksExpanded" // Bool, the CPU details' "Since <time>" lowest/highest disclosure expanded in the panel
     static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, per-core clock/temp/power disclosure in the AMD Power panel section
     static let showPmCoreVoltage = "showPmCoreVoltage"           // Bool, per-core SMU voltage column in the panel rows
     static let showPmCoreC0 = "showPmCoreC0"                     // Bool, per-core C0 residency column in the panel rows

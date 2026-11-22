@@ -78,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.setActivationPolicy(.accessory)
         // The companion's alarm clocks keep time from launch, companion or not.
         NotchMascotAlarms.shared.start()
+        // The panel's lowest and highest readings count from launch.
+        SessionPeaksTracker.shared.start()
         Self.boundAccessibilityWaits()
         // Pay the first AppKit process lookup before an input callback needs
         // it. Each click still resolves the current process independently.
@@ -214,6 +216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // ignores EPP writes. This call may run before the kext profile is
         // read: ProcessorModel starts it again once eppApplied is known.
         AutoEppService.shared.start()
+        // On a laptop, the On battery mode follows the IOPS power source
+        // notification (no poll); a Mac without a battery installs nothing.
+        BatteryPowerService.shared.start()
         // Fans mapped to curves get them back now (the app hands every fan to
         // the BIOS when it quits), not when Settings › Fans is next opened.
         FanCurveController.startIfConfigured()
@@ -321,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             BrightnessService.shared.restoreDisplaysBeforeTermination()
         }
         AutoEppService.shared.stop()
+        BatteryPowerService.shared.stop()
         C6ResidencyService.shared.stop()
         FanCurveController.shared.resetFansToAutoSync()
         // A GPU limit the app holds goes back now (the kext would also go

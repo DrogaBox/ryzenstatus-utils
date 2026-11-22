@@ -968,6 +968,8 @@ enum Defaults {
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
         DefaultsKey.showFansInAmdPower: true,
+        // The session lowest/highest readings under the CPU row start open.
+        DefaultsKey.panelSessionPeaksExpanded: true,
         // Per-core PM-table telemetry collapsed by default; expands on demand.
         DefaultsKey.showPmTableCoresInPanel: false,
         // Optional per-core columns default off — the base row stays minimal.
