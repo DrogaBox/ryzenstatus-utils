@@ -277,7 +277,7 @@ struct MetricDetailView: View {
                                                              step: 10, minimum: 10)
             LongHistoryGraph(series: .single(watts, ceiling: ceiling),
                              range: range, end: end, language: l10n.language,
-                             format: { value, _ in value.isFinite ? String(format: "%.1f W", value) : "—" })
+                             format: { value, _ in value.isFinite ? MetricFormat.fixed(value, decimals: 1, unit: "W") : "—" })
                 .frame(height: 38)
         case .cpu, .gpu, .memory:
             if let metrics = kind.longHistory {
@@ -301,7 +301,7 @@ struct MetricDetailView: View {
                             peak: (clock.filter(\.isFinite).max() ?? 0) / 1000, step: 1, minimum: 5) * 1000
                         LongHistoryGraph(series: .single(clock, ceiling: ceiling),
                                          range: range, end: end, language: l10n.language,
-                                         format: { value, _ in value.isFinite ? String(format: "%.2f GHz", value / 1000) : "—" })
+                                         format: { value, _ in value.isFinite ? MetricFormat.fixed(value / 1000, decimals: 2, unit: "GHz") : "—" })
                             .frame(height: 16)
                     }
                     let power = store.averages(.cpuPower, range: range, end: now)
@@ -310,7 +310,7 @@ struct MetricDetailView: View {
                                                                          step: 10, minimum: 10)
                         LongHistoryGraph(series: .single(power, ceiling: ceiling),
                                          range: range, end: end, language: l10n.language,
-                                         format: { value, _ in value.isFinite ? String(format: "%.1f W", value) : "—" })
+                                         format: { value, _ in value.isFinite ? MetricFormat.fixed(value, decimals: 1, unit: "W") : "—" })
                             .frame(height: 16)
                     }
                 }
