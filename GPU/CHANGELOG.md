@@ -2,7 +2,7 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
-## GPU sensors, next version (not released; host tests only, not booted)
+## GPU sensors 0.8.1 (RyzenStatus 1.88.0; host tests only, not booted)
 
 - Readings older than 5 s are no longer published. Before, a failed read, a sleeping card or a
   powered-down GPU left the last PMLog copy in `Sensors`, `Units`, `PMLog` and `SampleAgeMs`
@@ -16,7 +16,7 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   and the GPU control already refuses driver calls between sleep and wake.
 - The GPU control no longer waits at shutdown or restart for a driver call that is still running, and waits at most 2 s when the GPU goes away. Before, a stuck call could hold that step forever. It is not the cause of the known restart hang after a sleep, which started before the GPU control existed.
 
-## Decoders 0.3.4 (RyzenStatus 1.87.1)
+## Decoders 0.3.4 (RyzenStatus 1.88.0)
 
 - The VP9 decoder now declares a rating (`VTRating` 400 in its `CMMatchingInfo`, the value
   Apple gives its own hardware decoders). On a Mac with an Intel iGPU of the Kaby Lake or
