@@ -24,7 +24,7 @@ GPU_ZIP="ReleaseAssets/GPU-Package.zip"
 # Tools/build-gpu-assets.sh prints it; refresh it in the same commit as the zip.
 # The zip's own hash is not pinned: ditto stores modification times, so the same
 # files give another zip (the same lesson as the kext zip below).
-GPU_PAYLOAD_SUMS_SHA256="3e2f6f27d043cbd709d742491ec1bae10e5f22274ce772b88366d1244a4aeae0"
+GPU_PAYLOAD_SUMS_SHA256="34e7b2357497bb06d18259912eaf25e41d0740db51d2a4b24fa0765cf7e690b5"
 STAGING=""
 WORK=""
 MOUNT=""
@@ -91,10 +91,10 @@ fi
 # bytes the kernel loads and the identity it loads them under. They survive any
 # repackaging and they cover BOTH provenance paths, because the check now runs on
 # the staged bundles rather than on the archive.
-KEXT_PIN_DRIVER_MACHO="0412061163563c81b582d4be1eeef4b64e5acd5831f4344dd59161b24684dfe8"
-KEXT_PIN_DRIVER_PLIST="8bc89ade46fb4ec304fe5891e4648f660ea2390464cbe9ee50f159ba01801be9"
-KEXT_PIN_PLUGIN_MACHO="26e814b12d59cb4f6aeae60a4db324148f89add0f6b8be47f5c1cf8c571900d7"
-KEXT_PIN_PLUGIN_PLIST="9d2a99566d08efef4911de55d22e03b17ba8a19fa5e1c0863582e7a04142bd98"
+KEXT_PIN_DRIVER_MACHO="5244db7cc20b9b62c266d856aa5bf0b087106d6c07f87e90febbea0eec7c7f7f"
+KEXT_PIN_DRIVER_PLIST="689543539addf6e5f09ea3398ac3a9032d769e7779932db454da239c31f1827f"
+KEXT_PIN_PLUGIN_MACHO="a791c330dc8589de788afae3d74880e8d00c334ef467060a01a6c328948396a7"
+KEXT_PIN_PLUGIN_PLIST="9596b7e66a265e94816304e1e21987490d2c8faa4bfd8dd36f4c3666effe945d"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     # Structural pre-check: assert the archive's top level is exactly the two
     # kext bundles. Unlike a hash this never needs updating on a rebuild, and it

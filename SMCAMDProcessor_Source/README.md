@@ -1,6 +1,6 @@
 # AMDRyzenCPUPowerManagement & SMCAMDProcessor
 
-The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen processors (Zen 1 through Zen 5) on macOS 13 Ventura through macOS 26 Tahoe. Current version: **3.41.0**, shipped with RyzenStatus 1.87.0.
+The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen processors (Zen 1 through Zen 5) on macOS 13 Ventura through macOS 26 Tahoe. Current version: **3.42.0**, shipped with RyzenStatus 1.88.0.
 
 - **`AMDRyzenCPUPowerManagement.kext`** is the core driver: it reads the CPU's sensors, owns the idle loop, talks to the SMU, writes energy preference through CPPC, drives the Super I/O fan controllers and serves all of it to user space through an IOKit UserClient.
 - **`SMCAMDProcessor.kext`** is a VirtualSMC plugin that publishes those readings as SMC keys, so any app that reads the SMC (iStat Menus, TG Pro, HWMonitor) sees CPU temperature, power, clocks and fans.
@@ -13,7 +13,7 @@ A third, optional kext lives here too: **`AMDCCDScheduler.kext`** (0.3.0, in `AM
 
 ## What the driver does
 
-### Power management (3.41.0)
+### Power management (3.42.0)
 - **SMU per family.** Each family has its own SMU command set and mailbox registers: Zen and Zen+, Zen 2, Zen 3, Threadripper 5000 (Chagall), AM5 and Threadripper 7000, and the Raven Ridge/Picasso, Renoir/Cezanne and Rembrandt/Phoenix APUs. Power limits (PPT/TDC/EDC, or STAPM/fast/slow on APUs), the cHTC temperature limit, the PBO scalar, OC mode with all-core and per-CCD frequency and voltage, Curve Optimizer (per core and all-core), a boost ceiling and the PM table go through the commands of the running family. A family without a command reports it unsupported instead of receiving another chip's command. The driver publishes what the CPU accepts as a capability report, and the app builds its controls from it.
 - **Energy preference (EPP) through MSRs or ACPI.** Where the CPPC MSRs exist (probed, not trusted from CPUID), EPP is written there. Where the firmware publishes CPPC only through ACPI, as on Ryzen 5000 desktop parts, the driver reads each processor's `_CPC`, finds the PCC channel in the PCCT (or the system memory registers) and writes EPP, the request range and autonomous selection through it, the way Linux `amd-pstate` does in shared memory mode. A diagnostic report and a firmware read-back show what it found. The request range can be narrowed with a minimum and a maximum performance level (selectors 68/69, like `scaling_min_freq`/`scaling_max_freq`); each core clamps them to its own range, and they hold only in autonomous mode.
 - **Deep idle (CC6).** The driver owns the idle loop on every family and sends idle cores to CC6 through the firmware's C-state I/O address (read from MSR `0xC0010073`, never overwritten). It is switched live from the app; `amdcstate=1` forbids it and `-amdnoidle` leaves idle to macOS.
