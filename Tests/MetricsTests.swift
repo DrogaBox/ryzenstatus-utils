@@ -10541,6 +10541,13 @@ struct MetricsTests {
                "losing the IOAccelerator reading sends 0 once, so the curve falls back to the CPU")
         expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 0) == nil,
                "with 0 already sent, nothing more is written while the reading stays gone")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 0, sent: 0, previous: 52, succeeded: false) == 52
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 52) == 0,
+               "a 0 clear that failed puts the latch back, so the next poll sends 0 again")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 0, sent: 0, previous: 52, succeeded: true) == 0,
+               "a 0 clear that landed keeps the latch at 0")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 55, sent: 0, previous: 52, succeeded: false) == 55,
+               "a failed write never undoes a newer one")
 
         // MARK: Auto EPP targets and settling
 

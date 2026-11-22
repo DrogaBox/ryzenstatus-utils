@@ -332,6 +332,14 @@ enum FanCurveGPUTemperature {
         if isUsable(fresh) { return fresh }
         return lastSent > 0 ? 0 : nil
     }
+
+    /// The IOAccelerator latch once a selector-103 write finishes. The latch
+    /// moves to `sent` when the write is queued; a write that failed puts back
+    /// `previous`, so a 0 clear that did not land is sent again on the next
+    /// poll. A newer write that already moved the latch is left alone.
+    static func latchAfterWrite(current: Double, sent: Double, previous: Double, succeeded: Bool) -> Double {
+        succeeded || current != sent ? current : previous
+    }
 }
 
 // MARK: - Fan Write Plan
