@@ -7,6 +7,9 @@
 //   2. A profile 2 key frame header cut after its colour config is refused and
 //      does not change the bit depth of an 8-bit stream.
 //   3. A frame that ends where its headers end, with no tile data, is refused.
+//   4. A 65536 wide key frame header that codes more than 64 tile columns is
+//      refused and leaves the state as it was; the same header with 64 tile
+//      columns parses.
 //
 // usage: vp9state file.ivf   (a profile 0 VP9 stream; exit status 0 = pass)
 #include <stdbool.h>
@@ -51,6 +54,76 @@ static bool same_state(const VP9Parser* a, const VP9Parser* b) {
          a->last_show_frame == b->last_show_frame &&
          a->last_intra_only == b->last_intra_only &&
          a->have_last == b->have_last;
+}
+
+// A hand-made bit string, most significant bit first.
+typedef struct {
+  uint8_t d[64];
+  size_t pos;
+} BW;
+static void put(BW* w, uint32_t v, int n) {
+  for (int i = n - 1; i >= 0; i--, w->pos++)
+    if (v >> i & 1) w->d[w->pos >> 3] |= (uint8_t)(0x80 >> (w->pos & 7));
+}
+
+// A profile 0 key frame, 65536x64, that changes the loop filter deltas and the
+// segmentation before its tile info, with log2_tile_cols coded as
+// 4 (the minimum for this width) + extra. Returns the frame size in bytes.
+static size_t wide_key_frame(uint8_t* out, int extra) {
+  BW w = {{0}, 0};
+  put(&w, 2, 2);          // frame_marker
+  put(&w, 0, 2);          // profile 0
+  put(&w, 0, 1);          // show_existing_frame
+  put(&w, 0, 1);          // key frame
+  put(&w, 1, 1);          // show_frame
+  put(&w, 0, 1);          // error_resilient_mode
+  put(&w, 0x498342, 24);  // sync code
+  put(&w, 1, 3);          // color_space BT.601
+  put(&w, 0, 1);          // color_range
+  put(&w, 65535, 16);     // frame_width_minus_1
+  put(&w, 63, 16);        // frame_height_minus_1
+  put(&w, 0, 1);          // no render size
+  put(&w, 1, 1);          // refresh_frame_context
+  put(&w, 1, 1);          // frame_parallel_decoding_mode
+  put(&w, 0, 2);          // frame_context_idx
+  put(&w, 10, 6);         // filter_level
+  put(&w, 0, 3);          // sharpness
+  put(&w, 1, 1);          // loop_filter_delta_enabled
+  put(&w, 1, 1);          // loop_filter_delta_update
+  for (int i = 0; i < 4; i++) {
+    put(&w, 1, 1);  // update_ref_delta
+    put(&w, 5, 6);  // 5
+    put(&w, 1, 1);  // negative
+  }
+  for (int i = 0; i < 2; i++) {
+    put(&w, 1, 1);  // update_mode_delta
+    put(&w, 3, 6);
+    put(&w, 0, 1);
+  }
+  put(&w, 60, 8);  // base_q_idx
+  put(&w, 0, 3);   // no delta_q
+  put(&w, 1, 1);   // segmentation_enabled
+  put(&w, 0, 1);   // no update_map
+  put(&w, 1, 1);   // update_data
+  put(&w, 1, 1);   // abs_or_delta_update
+  for (int i = 0; i < 8; i++)
+    for (int j = 0; j < 4; j++) {
+      bool on = i == 0 && j == 0;
+      put(&w, on, 1);  // feature_enabled
+      if (on) {
+        put(&w, 40, 8);  // alternate quantizer 40
+        put(&w, 0, 1);
+      }
+    }
+  for (int i = 0; i < extra; i++) put(&w, 1, 1);  // increment_tile_cols_log2
+  put(&w, 0, 1);   // stop (the maximum for this width is 8)
+  put(&w, 0, 1);   // log2_tile_rows 0
+  put(&w, 1, 16);  // header_size_in_bytes
+  size_t n = (w.pos + 7) >> 3;
+  memcpy(out, w.d, n);
+  out[n] = 0;      // compressed header
+  out[n + 1] = 0;  // tile data
+  return n + 2;
 }
 
 static int slot;
@@ -131,6 +204,21 @@ int main(int argc, char** argv) {
   vp9_parser_init(q);
   expect("the same frame with no tile data is refused",
          headers && vp9_parse_frame_header(q, chunk, headers) != 0);
+
+  // More than 64 tile columns: 4 + 3 = log2 7.
+  uint8_t wide[64];
+  vp9_parser_init(q);
+  size_t wn = wide_key_frame(wide, 2);
+  expect("a 65536 wide key frame with 64 tile columns parses",
+         !vp9_parse_frame_header(q, wide, wn) && q->fh.width == 65536 &&
+             q->fh.log2_tile_cols == 6 && q->lf_ref_deltas[0] == -5 &&
+             q->seg_feature_mask[0] == 1);
+  memcpy(before, p, sizeof(*p));
+  wn = wide_key_frame(wide, 3);
+  expect("the same frame with 128 tile columns is refused",
+         vp9_parse_frame_header(p, wide, wn) != 0);
+  expect("the refused wide frame leaves the state as it was",
+         same_state(p, before));
 
   free(p);
   free(before);
