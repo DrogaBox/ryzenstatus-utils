@@ -558,6 +558,7 @@ final class FanCurveController: ObservableObject {
     func pushGPUTempIfNeeded(freshTemp: Double? = nil, fromAccelerator: Bool = false) {
         guard hasActiveGPUCurve else { return }
 
+        let latchBefore = lastAcceleratorGPUTempSent
         let tempToSend: Double
         if fromAccelerator {
             guard let value = FanCurveGPUTemperature.acceleratorBridgeValue(
@@ -602,6 +603,14 @@ final class FanCurveController: ObservableObject {
             let status = await Task.detached(priority: .utility) {
                 ProcessorModel.shared.setKextGPUTemp(temp)
             }.value
+            if fromAccelerator {
+                // The latch moved before the write: a failed write (a 0 clear
+                // refused with kIOReturnNotPrivileged, say) puts it back, so the
+                // next poll tries again instead of leaving the old temperature.
+                controller.lastAcceleratorGPUTempSent = FanCurveGPUTemperature.latchAfterWrite(
+                    current: controller.lastAcceleratorGPUTempSent, sent: tempToSend,
+                    previous: latchBefore, succeeded: status == KERN_SUCCESS)
+            }
             controller.noteGPUBridgeResult(status)
         }
     }
