@@ -414,6 +414,10 @@ uint64_t wrapWake(void* self) {
   uint64_t result = reinterpret_cast<t_event>(orgWake)(self);
   __atomic_fetch_add(&gWakes, 1, __ATOMIC_RELAXED);
   __atomic_store_n(&gInSleep, 0, __ATOMIC_SEQ_CST);
+  // A copy read before the sleep is not a reading of the card that just woke,
+  // and the clock its age comes from may pause while the Mac sleeps. Drop it
+  // so nothing is published until the driver samples again.
+  PMLogCopy::invalidate();
   signalWorker();
   return result;
 }

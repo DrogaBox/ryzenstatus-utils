@@ -31,9 +31,14 @@ const char* library();  // "AMDRadeonX6000HWLibs", or "" before one loads
 const char* allSensors();
 
 // Copies the last good log into `out` (kLogBytes). Returns false when there is
-// none yet. *ageNs is how long ago the driver read it, *samples how many good
-// logs were seen since boot.
+// none yet or when the kept one was invalidated. *ageNs is how long ago the
+// driver read it, *samples how many good logs were seen since boot.
 bool snapshot(uint8_t* out, uint64_t* ageNs, uint64_t* samples);
+
+// Drops the kept copy without losing the sample count. The wake path calls it:
+// a log read before the sleep is not a reading of the card that just woke, and
+// the clock the age is taken from can pause while the Mac sleeps.
+void invalidate();
 
 }  // namespace PMLogCopy
 

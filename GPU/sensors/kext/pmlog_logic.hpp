@@ -36,6 +36,21 @@ inline bool entry(const uint8_t* log, size_t id, uint32_t* value) {
   return true;
 }
 
+// The driver asks for the log about once a second while the GPU is up. A copy
+// older than this means the driver stopped sampling (the card is asleep,
+// powered down, or its driver is gone), so the readings are not current any
+// more and must not be published as if they were.
+constexpr uint64_t kMaxSampleAgeMs = 5000;
+
+inline bool sampleFresh(uint64_t ageMs) { return ageMs <= kMaxSampleAgeMs; }
+
+// Whether the properties built from a kept log may be published: there has to
+// be a log, and it has to be fresh. A missing or stale log is removed from the
+// property table, never published as zeros or as the last numbers.
+inline bool publishable(bool have, uint64_t ageMs) {
+  return have && sampleFresh(ageMs);
+}
+
 // A filled log: every flag is 0 or 1, and at least one is 1. The library
 // returns success without filling anything while the GPU is powered down, and
 // the caller then holds whatever its buffer had (the driver's own caller clears

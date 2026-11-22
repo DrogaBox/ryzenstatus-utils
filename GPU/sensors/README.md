@@ -99,7 +99,7 @@ The properties of `DrogaBoxGPUSensors` are:
 | `OD8Write` | OD8 writes (0.7.0): `off until restart: see WriteState`, `read only: this card can only be read (see WriteState)` (0.8.0), `waiting for a clean OD8 read (OD8State)`, `closed: sudo gpucontrol arm opens it until restart`, or `armed: ...` (OD8 at stock, a program holds a fan or clock change, going back to stock, the last call was not taken) |
 | `OD8WriteState` | `Held` (1 fan curve, 2 zero RPM off, 4 GFX max, 8 not confirmed), `Changes` and `Reverts` (confirmed since boot), `LastCheck` and `LastCheckText` (why the last OD8 request was refused, 0 = none), `SentPower` (power limit sends seen during OD8 calls), `FanCurveHeld` (C × 1000 + %) and `GfxMaxHeld` while held. See [OD8 writes](#od8-writes-070) |
 | `Samples` | readings copied since boot |
-| `SampleAgeMs` | how old the last reading is |
+| `SampleAgeMs` | how old the last reading is; with `Sensors`, `Units` and `PMLog` it is absent once the copy is older than 5 s (the driver stopped sampling: the card is asleep, powered down, or its driver is gone) |
 | `Sensors` | `{ name: value }`, in the units of `Units` |
 | `Units` | `{ name: unit }` |
 | `PMLog` | `{ "id": value }` for the same readings as `Sensors`, by AMD's id |
