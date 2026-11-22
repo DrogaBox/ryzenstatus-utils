@@ -142,14 +142,14 @@ static size_t av1_full_seq(uint8_t* out, unsigned maxw, unsigned maxh,
   while (maxw >= (1u << wb)) wb++;
   while (maxh >= (1u << hb)) hb++;
   bw_init(&w, out, kMaxBuf);
-  bw_put(&w, 0, 3);  // seq_profile
-  bw_put(&w, 0, 1);  // still_picture
-  bw_put(&w, 0, 1);  // reduced_still_picture_header
-  bw_put(&w, 0, 1);  // timing_info_present_flag
-  bw_put(&w, 0, 1);  // initial_display_delay_present_flag
-  bw_put(&w, 0, 5);  // operating_points_cnt_minus_1
-  bw_put(&w, 0, 12); // operating_point_idc[0]
-  bw_put(&w, 0, 5);  // seq_level_idx[0]
+  bw_put(&w, 0, 3);   // seq_profile
+  bw_put(&w, 0, 1);   // still_picture
+  bw_put(&w, 0, 1);   // reduced_still_picture_header
+  bw_put(&w, 0, 1);   // timing_info_present_flag
+  bw_put(&w, 0, 1);   // initial_display_delay_present_flag
+  bw_put(&w, 0, 5);   // operating_points_cnt_minus_1
+  bw_put(&w, 0, 12);  // operating_point_idc[0]
+  bw_put(&w, 0, 5);   // seq_level_idx[0]
   bw_put(&w, (uint32_t)(wb - 1), 4);
   bw_put(&w, (uint32_t)(hb - 1), 4);
   bw_put(&w, maxw, wb);
@@ -195,7 +195,7 @@ static size_t av1_key_frame(uint8_t* out, int nt, int ncb, int ncr, int lag) {
   bw_put(&w, 0, 1);  // segmentation_enabled
   bw_put(&w, 0, 1);  // reduced_tx_set
   // film grain
-  bw_put(&w, 1, 1);   // apply_grain
+  bw_put(&w, 1, 1);  // apply_grain
   bw_put(&w, 0x1234, 16);
   bw_put(&w, (uint32_t)nt, 4);
   for (int i = 0; i < nt; i++) {
@@ -216,13 +216,15 @@ static size_t av1_key_frame(uint8_t* out, int nt, int ncb, int ncr, int lag) {
       bw_put(&w, (uint32_t)(32 + i), 8);
     }
   }
-  bw_put(&w, 0, 2);                 // grain_scaling_minus_8
-  bw_put(&w, (uint32_t)lag, 2);     // ar_coeff_lag
+  bw_put(&w, 0, 2);              // grain_scaling_minus_8
+  bw_put(&w, (uint32_t)lag, 2);  // ar_coeff_lag
   int posLuma = 2 * lag * (lag + 1);
   for (int i = 0; i < posLuma; i++) bw_put(&w, (uint32_t)i, 8);
   int posChroma = posLuma + (nt ? 1 : 0);
-  if (ncb) for (int i = 0; i < posChroma; i++) bw_put(&w, (uint32_t)i, 8);
-  if (ncr) for (int i = 0; i < posChroma; i++) bw_put(&w, (uint32_t)i, 8);
+  if (ncb)
+    for (int i = 0; i < posChroma; i++) bw_put(&w, (uint32_t)i, 8);
+  if (ncr)
+    for (int i = 0; i < posChroma; i++) bw_put(&w, (uint32_t)i, 8);
   bw_put(&w, 0, 2);  // ar_coeff_shift_minus_6
   bw_put(&w, 0, 2);  // grain_scale_shift
   if (ncb) {
@@ -448,8 +450,8 @@ static void fuzz_av1(unsigned variants) {
         break;
       }
       case 6: {  // config OBUs: sequence payload, random and cut
-        size_t sn = av1_reduced_seq(seq, (i / 8) % 2 ? 65535 : 0, 63,
-                                    (i / 16) % 2);
+        size_t sn =
+            av1_reduced_seq(seq, (i / 8) % 2 ? 65535 : 0, 63, (i / 16) % 2);
         size_t cut = (i / 32) % (sn + 1);
         run_av1(seq, cut, true);
         break;
@@ -532,10 +534,11 @@ int main(int argc, char** argv) {
           (unsigned long long)kSeed, variants);
   fuzz_av1(variants);
   fuzz_vp9(variants);
-  printf("parsefuzz: seed=%016llx, %u AV1 and %u VP9 variants, no sanitizer "
-         "finding (%u/%u AV1 parsed, %u/%u VP9 parsed, %u AV1 frames, %u VP9 "
-         "frames)\n",
-         (unsigned long long)kSeed, variants, variants, av1_ok, variants, vp9_ok,
-         variants, av1_frames, vp9_frames);
+  printf(
+      "parsefuzz: seed=%016llx, %u AV1 and %u VP9 variants, no sanitizer "
+      "finding (%u/%u AV1 parsed, %u/%u VP9 parsed, %u AV1 frames, %u VP9 "
+      "frames)\n",
+      (unsigned long long)kSeed, variants, variants, av1_ok, variants, vp9_ok,
+      variants, av1_frames, vp9_frames);
   return 0;
 }
