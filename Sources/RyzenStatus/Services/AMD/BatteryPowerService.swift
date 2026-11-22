@@ -126,9 +126,10 @@ final class BatteryPowerService: ObservableObject {
 
     /// Removes the notification. Called on termination.
     func stop() {
-        guard let runLoopSource else { return }
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        self.runLoopSource = nil
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            self.runLoopSource = nil
+        }
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
@@ -141,8 +142,9 @@ final class BatteryPowerService: ObservableObject {
     }
 
     /// Reads the power source again (IOPS told us something changed, or the
-    /// Mac woke up).
-    private func refresh() {
+    /// Mac woke up). Auto EPP also calls it on wake, before its next poll,
+    /// so that poll never uses the source from before the sleep.
+    func refresh() {
         let now = AMDPowerSource(hasBattery: hasBattery, onBattery: SystemInfo.batterySnapshot()?.isOnBattery)
         if source != now { source = now }
     }

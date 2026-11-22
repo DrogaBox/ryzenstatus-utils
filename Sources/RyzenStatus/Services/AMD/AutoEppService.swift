@@ -81,6 +81,9 @@ final class AutoEppService: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                // The power source may have changed while asleep: read it
+                // first, so the re-apply uses the source after the wake.
+                BatteryPowerService.shared.refresh()
                 self?.resetApplied()
             }
         }
