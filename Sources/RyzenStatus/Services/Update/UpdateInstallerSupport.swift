@@ -72,16 +72,19 @@ enum UpdateInstallerSupport {
         fi
         """
 
-    /// The installer: waits for the app to exit, mounts the DMG, stages a
-    /// copy of the new bundle, verifies its signature, swaps it in and
+    /// The installer: waits for the app to exit, copies the DMG into its own
+    /// temporary folder, checks the copy against $7, mounts only that copy,
+    /// stages a copy of the new bundle, verifies its signature, swaps it in and
     /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
     /// $4 result marker path, $5 uid to relaunch as (used when running as
-    /// root, where a plain `open` could launch the app as root).
+    /// root, where a plain `open` could launch the app as root), $6 offered
+    /// version, $7 expected SHA-256 (empty when the release has none).
     static func installerScript(allowAdhoc: Bool = false) -> String {
         """
         #!/bin/sh
         ALLOW_ADHOC=\(allowAdhoc ? 1 : 0)
-        APP="$1"; DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"; EXPECTED_VERSION="$6"
+        APP="$1"; SOURCE_DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"; EXPECTED_VERSION="$6"
+        EXPECTED_SHA256="$7"; DMG="$SOURCE_DMG"
         SCRIPT="$0"
         # Write-ahead markers go to a progress file; only a FINISHED run
         # promotes it to the real marker. The app may relaunch while this
@@ -118,11 +121,30 @@ enum UpdateInstallerSupport {
         }
         while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
         note fail-tempdir
-        MNT="$(/usr/bin/mktemp -d)" || { /bin/rm -f "$DMG"; finalize; relaunch "$APP"; cleanup_script; exit 1; }
+        WORK="$(/usr/bin/mktemp -d)" || { /bin/rm -f "$SOURCE_DMG"; finalize; relaunch "$APP"; cleanup_script; exit 1; }
+        /bin/chmod 700 "$WORK" || { /bin/rm -rf "$WORK"; /bin/rm -f "$SOURCE_DMG"; finalize; relaunch "$APP"; cleanup_script; exit 1; }
+        DMG="$WORK/update.dmg"
+        if ! /bin/cp "$SOURCE_DMG" "$DMG"; then
+            /bin/rm -rf "$WORK"; /bin/rm -f "$SOURCE_DMG"
+            finalize; relaunch "$APP"; cleanup_script; exit 1
+        fi
+        HASH="$(/usr/bin/shasum -a 256 "$DMG")" || {
+            /bin/rm -rf "$WORK"; /bin/rm -f "$SOURCE_DMG"
+            finalize; relaunch "$APP"; cleanup_script; exit 1
+        }
+        HASH="${HASH%% *}"
+        if [ -n "$EXPECTED_SHA256" ] && [ "$HASH" != "$EXPECTED_SHA256" ]; then
+            note fail-hash
+            /bin/rm -rf "$WORK"; /bin/rm -f "$SOURCE_DMG"
+            finalize; relaunch "$APP"; cleanup_script; exit 1
+        fi
+        MNT="$WORK/mnt"
+        /bin/mkdir "$MNT" || { /bin/rm -rf "$WORK"; /bin/rm -f "$SOURCE_DMG"; finalize; relaunch "$APP"; cleanup_script; exit 1; }
         note fail-mount
         if ! /usr/bin/hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MNT"; then
             /bin/rmdir "$MNT" 2>/dev/null
-            /bin/rm -f "$DMG"
+            /bin/rm -rf "$WORK"
+            /bin/rm -f "$SOURCE_DMG"
             finalize
             relaunch "$APP"
             cleanup_script
@@ -205,7 +227,8 @@ enum UpdateInstallerSupport {
             || /usr/bin/hdiutil detach "$MNT" -force -quiet 2>/dev/null \
             || true
         /bin/rmdir "$MNT" 2>/dev/null
-        /bin/rm -f "$DMG"
+        /bin/rm -rf "$WORK"
+        /bin/rm -f "$SOURCE_DMG"
         finalize
         relaunch "$LAUNCH"
         cleanup_script
@@ -230,9 +253,10 @@ enum UpdateInstallerSupport {
                                        resultPath: String,
                                        uid: uid_t,
                                        expectedVersion: String = "",
+                                       expectedSHA256: String = "",
                                        allowAdhoc: Bool = false) -> String {
         let script = shellSingleQuoted(installerScript(allowAdhoc: allowAdhoc))
-        let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)", expectedVersion]
+        let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)", expectedVersion, expectedSHA256]
             .map(shellSingleQuoted)
             .joined(separator: " ")
         return "/usr/bin/nohup /bin/sh -c \(script) ryzenstatus-installer \(args) >/dev/null 2>&1 &"
