@@ -55,6 +55,7 @@ protected:
     bool fModifiedFanControl = false;
 
     bool hasPrivilege(uint32_t selector, bool quiet = false);
+    void releaseOwnedState();
 
     // KPI for supporting access from both 32-bit and 64-bit user processes beginning with Mac OS X 10.5.
     virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* arguments,
