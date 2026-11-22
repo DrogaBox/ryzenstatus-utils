@@ -491,6 +491,7 @@ extension DefaultsKey {
     static let amdCustomProfileName = "amdCustomProfileName"     // String, custom profile last applied
     static let amdAdaptivePowerEnabled = "amdAdaptivePowerEnabled"   // Bool, adaptive power limit on
     static let amdAdaptiveTargetCelsius = "amdAdaptiveTargetCelsius" // Int, its target temperature
+    static let amdBatteryPowerMode = "amdBatteryPowerMode"       // AMDBatteryPowerMode.rawValue, On battery; absent = same as plugged in
     static let amdManualEpp = "amdManualEpp"                     // Int 0-255, last EPP chosen by hand (picker or preset); absent until one is
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
     static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, per-core clock/temp/power disclosure in the AMD Power panel section

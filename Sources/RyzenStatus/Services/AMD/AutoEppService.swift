@@ -81,6 +81,9 @@ final class AutoEppService: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                // The power source may have changed while asleep: read it
+                // first, so the re-apply uses the source after the wake.
+                BatteryPowerService.shared.refresh()
                 self?.resetApplied()
                 // A refusal before the sleep may have been passing: try again.
                 self?.clearIdleLimitFailures()
@@ -336,7 +339,11 @@ final class AutoEppService: ObservableObject {
                                            pendingStepDownPolls: stepDownPolls)
         appliedTarget = settled.target
         stepDownPolls = settled.pendingStepDownPolls
-        let preset = settled.target.preset
+        // On battery the On battery mode may lower the load's target; the
+        // hysteresis above stays on the load alone, so plugging in or
+        // unplugging changes the preset at this poll.
+        let target = BatteryPowerService.shared.autoTarget(settled.target)
+        let preset = target.preset
 
         if preset != lastAppliedPreset {
             let result = await ProcessorModel.shared.applyPreset(preset)
@@ -346,7 +353,10 @@ final class AutoEppService: ObservableObject {
             // The boost, PPM/LPM and CC6 toggles show what the kext now holds.
             Task { await AmdPowerControlsModel.shared.syncFromKext() }
         }
-        if lastAppliedPreset == preset { applyIdleClockLimit(for: preset) }
+        if lastAppliedPreset == preset {
+            applyIdleClockLimit(for: AMDBatteryPowerPolicy.idleLimitPreset(loadTarget: settled.target,
+                                                                           appliedTarget: target))
+        }
 
         // A loop stopped while this poll ran must not publish its target.
         guard pollTask != nil else { return }
@@ -354,7 +364,7 @@ final class AutoEppService: ObservableObject {
         isActive = true
         if currentCPULoad != cpuLoad { currentCPULoad = cpuLoad }
         if currentGPULoad != gpuLoad { currentGPULoad = gpuLoad }
-        let label = applied ? settled.target.label : ""
+        let label = applied ? target.label : ""
         if currentTarget != label { currentTarget = label }
         let epp: UInt8? = applied && writesTakeEffect ? preset.eppValue : nil
         if currentEPP != epp { currentEPP = epp }

@@ -4,6 +4,8 @@
 
 **Idle clock limit, for Ryzen CPUs with CPPC (needs kext 3.41.0)**: Settings › AMD Ryzen Power has a new switch under Auto EPP that keeps the cores at or below a chosen clock while Auto EPP sees the CPU idle. The slider goes from the CPU's lowest clock up to its base clock and shows where the efficient minimum is. Any load above the idle threshold lifts the limit within 1.5 s, and turning Auto EPP off lifts it at once. If RyzenStatus crashes or is force quit with the limit on, the kext lifts it by itself. It does nothing until you set a limit, and setting one changes nothing outside Auto EPP.
 
+**Auto EPP on battery, for laptops with CPPC**: Settings › AMD Ryzen Power has a new On battery choice for Auto EPP, shown only on a Mac with an internal battery. Same as plugged in (the default) changes nothing. Save more keeps Auto EPP at Balance or lower on battery and never picks Performance. Maximum saving holds it on Eco, which also turns Core Performance Boost off; the idle clock limit still applies only when the CPU is really idle. It only changes what Auto EPP does: an energy profile or preset you picked by hand stays exactly as you chose it. Plugging back in gives Auto EPP its normal choice back within 1.5 seconds. It needs a kext that applies EPP, and it was checked with tests only: the Mac it was built on has no battery.
+
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
 **RyzenStatus now takes care of AMD Radeon RX 6000 cards too: hardware AV1 and VP9 video, full-speed encoding, GPU sensors and GPU control, installed from the DMG.** The AMD processor kexts are untouched; this release adds a GPU installer, a GPU control page, a Monitor window of its own, a style for every menu bar reading, and a much lighter island.

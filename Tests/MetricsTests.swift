@@ -14352,6 +14352,7 @@ struct MetricsTests {
                 ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),
                 ("MonitorShortcutTests", MonitorShortcutTests.run),
                 ("CppcIdleClockLimitTests", CppcIdleClockLimitTests.run),
+                ("BatteryPowerPolicyTests", BatteryPowerPolicyTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),

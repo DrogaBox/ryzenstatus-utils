@@ -274,3 +274,51 @@ struct IdleClockLimitRow: View {
         return ghz.formatted(.number.precision(.fractionLength(1...2))) + " GHz"
     }
 }
+
+/// On battery (Settings › AMD Ryzen Power, below the idle clock limit): what
+/// Auto EPP does while a laptop runs on its battery. Shown only on a Mac
+/// with an internal battery; it needs Auto EPP (a manual energy profile is
+/// the user's own choice and is left alone) and a kext that applies EPP.
+struct BatteryPowerRow: View {
+    @ObservedObject private var battery = BatteryPowerService.shared
+    @ObservedObject private var autoEpp = AutoEppService.shared
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        let s = l10n.amdPower
+        VStack(alignment: .leading, spacing: 4) {
+            Picker(s.batteryModeTitle, selection: Binding(
+                get: { battery.mode },
+                set: { battery.setMode($0) }
+            )) {
+                ForEach(AMDBatteryPowerMode.allCases) { mode in
+                    Text(Self.label(mode, s)).tag(mode)
+                }
+            }
+            .disabled(!autoEpp.writesTakeEffect || !autoEpp.isActive)
+
+            Text(caption(s))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func caption(_ s: AMDPowerFeatureStrings) -> String {
+        guard autoEpp.writesTakeEffect else { return s.batteryModeUnavailable }
+        guard autoEpp.isActive else { return s.batteryModeNeedsAutoEpp }
+        switch battery.mode {
+        case .sameAsPluggedIn: return s.batteryModeSameCaption
+        case .saveMore: return s.batteryModeSaveMoreCaption
+        case .maximumSaving: return s.batteryModeMaximumCaption
+        }
+    }
+
+    static func label(_ mode: AMDBatteryPowerMode, _ s: AMDPowerFeatureStrings) -> String {
+        switch mode {
+        case .sameAsPluggedIn: return s.batteryModeSame
+        case .saveMore: return s.batteryModeSaveMore
+        case .maximumSaving: return s.batteryModeMaximum
+        }
+    }
+}
