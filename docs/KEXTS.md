@@ -36,3 +36,5 @@ cp -R ~/Desktop/EFI-backup /Volumes/EFI/EFI
 ```
 
 Restart. Without a USB that boots, the copy from step 1 is your only way back, so keep one before every update.
+
+If the Mac restarts while loading the new kexts, add `-amdoff` to the OpenCore boot-args (`NVRAM › Add › 7C436110-AB2A-4BBB-A880-FE41995C9F82 › boot-args`) and restart: the CPU kext then does not start, so macOS can boot. Remove it after restoring the old pair, or boot your backup EFI.

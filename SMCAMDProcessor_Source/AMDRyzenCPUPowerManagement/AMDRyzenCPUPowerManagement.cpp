@@ -536,6 +536,11 @@ void AMDRyzenCPUPowerManagement::showLoadAlertAsync() {
 #pragma mark - start() — Main Initialization
 bool AMDRyzenCPUPowerManagement::start(IOService *provider){
 
+    if (checkKernelArgument("-amdoff")) {
+        IOLog("AMDRyzenCPUPowerManagement: -amdoff is set; not starting\n");
+        return false;
+    }
+
     bool success = IOService::start(provider);
     if(!success){
         IOLog("AMDRyzenCPUPowerManagement::start: IOService::start failed\n");
@@ -796,6 +801,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
 
     for (size_t i = 0; i < kMAX_FANS; i++) {
         fanToCurveMap[i] = -1;
+        fanOwner[i] = nullptr;
         lastAppliedPWM[i] = 0;
         lastPWMUpdateTime[i] = 0;
     }
@@ -811,6 +817,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         lastAppliedTempSeeded[i] = false;
     }
     gpuTempC = 0.0f;
+    gpuTempOwner = nullptr;
 
     initWorkLoop();
 
