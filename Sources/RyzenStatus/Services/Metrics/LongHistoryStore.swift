@@ -5,7 +5,7 @@ import Foundation
 
 /// A reading kept in the long history. Raw values are stored in the units
 /// the monitor publishes: usage as 0...1, traffic in bytes per second,
-/// temperatures in °C and power in watts.
+/// temperatures in °C, power in watts and clocks in MHz.
 enum LongHistoryMetric: Int, CaseIterable {
     case cpu, gpu, memory, networkDown, networkUp, diskRead, diskWrite
     case cpuTemperature, gpuTemperature, systemPower
@@ -13,6 +13,9 @@ enum LongHistoryMetric: Int, CaseIterable {
     // added in between would hand old history to the wrong metric.
     /// VRAM temperature from GPUSensors.kext; empty on other Macs.
     case gpuMemoryTemperature
+    /// CPU package power in watts and the average effective core clock in
+    /// MHz, both from the AMD kext; empty without it.
+    case cpuPower, cpuClock
 }
 
 /// How far back a long-history graph reaches. Every range is drawn with the

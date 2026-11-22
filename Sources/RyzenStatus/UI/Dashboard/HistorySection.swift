@@ -8,6 +8,8 @@ import SwiftUI
 /// What the History chart can show, mapped onto the long history's metrics.
 enum HistoryMetric: String, CaseIterable, Identifiable {
     case cpu, gpu, memory, network, disk, cpuTemperature, gpuTemperature, systemPower
+    /// From the AMD kext only; on other Macs the chart says there is no data.
+    case cpuPower, cpuClock
 
     static let defaultsKey = "monitorHistoryMetric"
     static var stored: HistoryMetric {
@@ -27,6 +29,8 @@ enum HistoryMetric: String, CaseIterable, Identifiable {
         case .cpuTemperature: return [.cpuTemperature]
         case .gpuTemperature: return [.gpuTemperature]
         case .systemPower: return [.systemPower]
+        case .cpuPower: return [.cpuPower]
+        case .cpuClock: return [.cpuClock]
         }
     }
 
@@ -34,7 +38,9 @@ enum HistoryMetric: String, CaseIterable, Identifiable {
     /// you look at them (the long history never samples on its own).
     func addNeeds(to needs: inout SystemMonitorPanelNeeds) {
         switch self {
-        case .cpu, .gpu, .memory, .network: break
+        // The window always samples the CPU, and the kext read that comes
+        // with it carries the package power and the core clocks.
+        case .cpu, .gpu, .memory, .network, .cpuPower, .cpuClock: break
         case .disk: needs.disk = true
         case .cpuTemperature: needs.cpuTemperature = true
         case .gpuTemperature: needs.gpuTemperature = true
@@ -300,7 +306,7 @@ struct HistorySection: View {
         case .network: return series == 0 ? MonitorPalette.networkDown : MonitorPalette.networkUp
         case .disk: return series == 0 ? MonitorPalette.diskRead : MonitorPalette.diskWrite
         case .cpuTemperature, .gpuTemperature: return MonitorPalette.temperature
-        case .systemPower: return MonitorPalette.cpu
+        case .systemPower, .cpuPower, .cpuClock: return MonitorPalette.cpu
         }
     }
 
@@ -316,6 +322,8 @@ struct HistorySection: View {
         case .cpuTemperature: return strings.cpuTemperature
         case .gpuTemperature: return strings.gpuTemperature
         case .systemPower: return strings.systemPower
+        case .cpuPower: return strings.cpuPower
+        case .cpuClock: return strings.cpuClock
         }
     }
 
@@ -325,7 +333,9 @@ struct HistorySection: View {
         case .network: return compact ? MetricFormat.networkRateCompact(value) : MetricFormat.networkRate(value)
         case .disk: return compact ? MetricFormat.bytesPerSecCompact(value) : MetricFormat.bytesPerSec(value)
         case .cpuTemperature, .gpuTemperature: return MetricFormat.temperatureCompact(value, unit: unit)
-        case .systemPower: return MetricFormat.fixed(value, decimals: compact ? 0 : 1, unit: "W")
+        case .systemPower, .cpuPower: return MetricFormat.fixed(value, decimals: compact ? 0 : 1, unit: "W")
+        // Stored in MHz, read in GHz like the live clock graph.
+        case .cpuClock: return MetricFormat.fixed(value / 1000, decimals: compact ? 1 : 2, unit: "GHz")
         }
     }
 

@@ -1071,8 +1071,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 return sample
             }
 
+            // Whether this tick read the cores, so the long history keeps
+            // one package power and clock per CPU sample, not a carry-over.
+            var cpuSampled = false
             if plan.needCPU {
                 if take(.cpu) {
+                    cpuSampled = true
                     // Fetch per-core metrics only when CPU is actually being sampled (F3.2)
                     let (cores, ccdTemps) = self.readCoreUsageAndTelemetry(now: now)
                     self.cores = cores
@@ -1354,7 +1358,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if plan.needAMDPower {
                 let cpuW = ProcessorModel.shared.lastCPUPowerWatts
                 let gpuW = ProcessorModel.shared.lastGPUPowerWatts
-                if cpuW > 0 { next.cpuPower = cpuW }
+                if cpuW > 0 {
+                    next.cpuPower = cpuW
+                    if cpuSampled { LongHistoryStore.shared.record(.cpuPower, cpuW) }
+                }
                 if gpuW > 0 { next.gpuPower = gpuW }
 
                 // Build GPU device snapshots from kext (selectors 27-30)
@@ -1437,6 +1444,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 next.peakCPUFreq = peak
                 next.avgCPUFreq = rawAvg
                 self.cpuFreqHistory.push(rawAvg / 1000.0)
+                if cpuSampled { LongHistoryStore.shared.record(.cpuClock, rawAvg) }
             }
             if let kextCores = self.lastAmdSnapshot?.numPhysicalCores, kextCores > 0 {
                 next.numPhysicalCores = kextCores
