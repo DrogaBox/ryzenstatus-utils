@@ -16,6 +16,7 @@ You can review or change every grant in System Settings, under Privacy and Secur
 | Bluetooth | Yes | Accessory notices in the Dynamic Island and Bluetooth sleep |
 | Full Disk Access | Yes | A deeper uninstaller scan and Repair permissions |
 | Administrator (one time) | Yes | Password free closed lid toggling |
+| Administrator (until restart) | Yes | Allow GPU Changes: the power limit, fan curve and clock on the GPU control page |
 | Automation | Yes | Now Playing from Music and Spotify, Finder cut and paste, moving leftovers to the Trash, emptying the Trash and Homebrew Terminal handoff |
 
 ## Accessibility
@@ -135,6 +136,16 @@ You can review or change every grant in System Settings, under Privacy and Secur
 **If you say no.** Closed lid mode still works. macOS just asks for your administrator password each time you turn it on or off.
 
 **Optional.** Yes, and it is a one time choice. The rule is limited to `pmset disablesleep` and nothing else, and it goes away on its own when you uninstall RyzenStatus or reset things from Settings under Advanced.
+
+## Administrator, until restart and optional
+
+**Why it comes up.** With the GPU sensors kext on an AMD Radeon RX 6000 card, the GPU control page can change the power limit, the fan curve and the maximum clock. Those changes reach the card's driver, so they are opened only when you click Allow GPU Changes and type your administrator password.
+
+**What uses it.** The GPU control page in Settings and its row in the menu bar panel.
+
+**If you say no.** The page still shows the card's readings and settings, but changes nothing.
+
+**Optional.** Yes. Changes stay open until the Mac restarts or you close them again, and RyzenStatus never asks for the password on its own.
 
 ## Automation
 
