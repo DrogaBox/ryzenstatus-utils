@@ -11,7 +11,9 @@ enum CppcIdleClockLimitTests {
         rangeDecoding(suite)
         conversion(suite)
         policy(suite)
+        writes(suite)
         kextSource(suite)
+        appSource(suite)
     }
 
     /// A Cezanne-like range: lowest 13, lowest non-linear 38, nominal 100,
@@ -73,6 +75,62 @@ enum CppcIdleClockLimitTests {
                      "the idle clock limit is off unless the user sets it")
     }
 
+    /// Write bookkeeping: a refused lift stays owed, a refused value is
+    /// sent at most `maxFailures` times in a row.
+    private static func writes(_ suite: TestSuite) {
+        var w = AMDIdleClockLimitWrites()
+        suite.expect(!w.mayBeCapped && !w.hasGivenUp(on: 0), "nothing written: no cap, nothing given up")
+
+        w.willWrite(25)
+        w.record(25, succeeded: false)
+        suite.expect(w.mayBeCapped, "a refused cap may still have reached some cores")
+
+        w.willWrite(0)
+        w.record(0, succeeded: false)
+        suite.expect(w.mayBeCapped, "a refused lift leaves the cap owed, so it is tried again")
+        w.willWrite(0)
+        w.record(0, succeeded: true)
+        suite.expect(!w.mayBeCapped && w.failures == 0, "a lift the kext took clears the cap and the refusals")
+
+        w.willWrite(25)
+        w.record(25, succeeded: true)
+        w.willWrite(30)
+        w.record(30, succeeded: true)
+        suite.expect(w.mayBeCapped, "a cap the kext took is in force until a lift succeeds")
+
+        var gaveUpAt: [Int] = []
+        for attempt in 1...(AMDIdleClockLimitWrites.maxFailures + 2) {
+            w.willWrite(25)
+            if w.record(25, succeeded: false) { gaveUpAt.append(attempt) }
+        }
+        suite.expect(gaveUpAt == [AMDIdleClockLimitWrites.maxFailures],
+                     "gives up once, on refusal \(AMDIdleClockLimitWrites.maxFailures) (got \(gaveUpAt))")
+        suite.expect(w.hasGivenUp(on: 25) && !w.hasGivenUp(on: 0), "only the refused value is given up on")
+
+        w.record(0, succeeded: false)
+        suite.expect(!w.hasGivenUp(on: 25) && w.failures == 1, "another value starts its own count")
+        w.record(0, succeeded: false)
+        w.clearFailures()
+        suite.expect(!w.hasGivenUp(on: 0) && w.failures == 0 && w.mayBeCapped,
+                     "switching Auto EPP forgets the refusals but not the cap")
+    }
+
+    private static func appSource(_ suite: TestSuite) {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let file = root.appendingPathComponent("Sources/RyzenStatus/Services/AMD/AutoEppService.swift")
+        guard let svc = try? String(contentsOf: file, encoding: .utf8) else {
+            suite.expect(false, "AutoEppService.swift readable")
+            return
+        }
+        suite.expect(!svc.contains("appliedIdleMaxPerf = 0")
+                     && svc.contains("appliedIdleMaxPerf = ok ? maxPerf : nil"),
+                     "the written max perf is recorded only after the kext took it")
+        suite.expect(svc.contains("guard idleLimitWrites.mayBeCapped, canRun else { return }")
+                     && svc.contains("if !writeIdleClockLimit(0) { scheduleLiftRetry() }"),
+                     "a lift follows the cap, not the last value, and a refused one is retried")
+    }
+
     private static func kextSource(_ suite: TestSuite) {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -96,5 +154,14 @@ enum CppcIdleClockLimitTests {
         suite.expect(uc.contains("if (minPerf != 0 && maxPerf != 0 && minPerf > maxPerf) return kIOReturnBadArgument;"),
                      "selector 69 refuses an inverted range")
         suite.expect(!uc.contains("hasPrivilege(68)"), "selector 68 is a read for everyone")
+        suite.expect(uc.contains("provider->cppcLimitsOwner = (minPerf != 0 || maxPerf != 0) ? (const void *)this : nullptr;"),
+                     "selector 69 records which client set the limits")
+        suite.expect(uc.contains("if (provider->cppcLimitsOwner == (const void *)this) {")
+                     && uc.contains("const bool lifted = provider->setCppcPerfLimits(0, 0);"),
+                     "clientClose of the client that set them lifts the limits")
+        suite.expect(!uc.contains("provider->cppcMinPerfLimit = ") && !uc.contains("provider->cppcMaxPerfLimit = "),
+                     "the user client never stores the limits outside setCppcPerfLimits")
+        suite.expect(pm.contains("IOLockLock(rendezvousLock);\n    cppcMinPerfLimit = minLimit;\n    cppcMaxPerfLimit = maxLimit;"),
+                     "the limits change under rendezvousLock, the lock the timer's apply holds")
     }
 }
