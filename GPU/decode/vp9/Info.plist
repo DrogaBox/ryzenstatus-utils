@@ -45,6 +45,8 @@
 				<string>vp09</string>
 				<key>VTIsHardwareAccelerated</key>
 				<true/>
+				<key>VTRating</key>
+				<integer>400</integer>
 			</dict>
 		</dict>
 	</array>

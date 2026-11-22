@@ -2,6 +2,23 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Decoders 0.3.4 (RyzenStatus 1.87.1)
+
+- The VP9 decoder now declares a rating (`VTRating` 400 in its `CMMatchingInfo`, the value
+  Apple gives its own hardware decoders). On a Mac with an Intel iGPU of the Kaby Lake or
+  Ice Lake families active next to the Radeon, macOS also offers Apple's Intel VP9 decoder
+  (AppleGVAVPXDecoder, which needs the iGPU's `IOGVAXDecode` key). Both declared the same
+  codec, hardware and version, and VideoToolbox breaks that tie by an internal hash order
+  that put Apple's first; on a user's Mac with a UHD 630 it decoded one frame and stalled,
+  so ours never got the video. Read in VideoToolbox with IDA (Tahoe 26.7.x and Sequoia
+  15.8.2): candidates are sorted by GPU preference, Apple-internal flag, then `VTRating`,
+  then the hardware flag, and a missing rating counts as 0. Checked through the real
+  selection code with two stand-in decoders: with the rating, ours is tried first. If ours
+  fails to start, VideoToolbox still falls back to Apple's. Macs without such an iGPU see no
+  change. Not run on a Mac with an Intel iGPU.
+- The AV1 decoder only moves to 0.3.4 with it; macOS has no Apple AV1 hardware decoder to
+  compete with.
+
 ## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
 Run on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21: YouTube 4K60 in Safari, AV1 and VP9,
