@@ -4,6 +4,8 @@
 
 **GPU fan curves when the kext sees no GPU**: the curve editor in Settings › Fans now offers the GPU sensor when the kext lists no GPU but macOS reports a GPU temperature, and a fan following a GPU curve then reads that temperature on its own every few seconds, so it keeps following the GPU with Settings and the Monitor window closed instead of the last value it had seen. If that GPU reading goes away, the fan goes back to the CPU temperature. AMD GPUs work as before. GPUs other than AMD are not supported or tested.
 
+**Idle clock limit and On battery appear with Auto EPP**: in Settings › AMD Ryzen Power these two options now show only while Auto EPP is on, because they work only through it. Before, they stayed greyed out with Auto EPP off, and on CPUs that report CPPC through ACPI the idle clock limit said it needed kext 3.41.0 even with that kext loaded.
+
 ## [1.87.0] — 2026-11-22 — kexts 3.41.0
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**
