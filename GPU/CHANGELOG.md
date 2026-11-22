@@ -17,12 +17,13 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   fails to start, VideoToolbox still falls back to Apple's. Macs without such an iGPU see no
   change. Not run on a Mac with an Intel iGPU.
 - The AV1 decoder moves to 0.3.4 with it; macOS has no Apple AV1 hardware decoder to
-  compete with, so its only change is the header check below.
+  compete with, so its only changes are the header check and the shift guard below.
 - Both parsers now refuse frame headers outside the format's limits: an AV1 frame with more
   than 14 luma or 10 chroma film grain points, or a VP9 frame with more than 64 tile
   columns (libvpx refuses those too). Such streams were never valid; the hardware only has
-  room for 14 and 10 grain points. A refused header leaves the parser state as it was, as
-  for any other bad header.
+  room for 14 and 10 grain points. The AV1 parser also refuses a subexponential value
+  (`decode_subexp`) long enough to shift an int past its width, instead of overflowing. A
+  refused header leaves the reference frames as they were, as for any other bad header.
 
 ## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
