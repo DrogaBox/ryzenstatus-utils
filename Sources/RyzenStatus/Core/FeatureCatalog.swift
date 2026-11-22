@@ -466,6 +466,7 @@ extension AppFeature {
                     || BrightnessSupport.KeyStep.sanitized(stringFor(DefaultsKey.brightnessKeyStep)) != .standard
             case (.monitorCPU, .notifications):
                 return boolFor(DefaultsKey.monitorAlertCPU) || boolFor(DefaultsKey.monitorAlertCPUTemperature)
+                    || boolFor(DefaultsKey.monitorAlertCPUPower)
             case (.monitorMemory, .notifications):
                 return boolFor(DefaultsKey.monitorAlertMemory)
             case (.monitorDisk, .notifications):
@@ -509,6 +510,7 @@ extension AppFeature {
         // stopped the snapshot sink and the Settings toggles did nothing.
         (DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
         (DefaultsKey.monitorAlertGPUPower, .monitorGPU),
+        (DefaultsKey.monitorAlertCPUPower, .monitorCPU),
         // GPUSensors.kext alerts. Their sampling need is added only while the
         // kext is present (`SystemMonitorPanelNeeds.alerts`).
         (DefaultsKey.monitorAlertGPUMemoryTemperature, .monitorGPU),

@@ -227,6 +227,16 @@ enum Defaults {
     static let allowedClipboardMenuBarPreviewLengthRange = 5...50
     static let defaultClipboardMenuBarPreviewLength = 20
     static let allowedMonitorAlertCooldowns = [2, 5, 15, 30, 60]
+    /// "For at least" choices of the monitor alerts, in seconds; 0 keeps
+    /// every alert's own built-in wait.
+    static let allowedMonitorAlertSustainSeconds = [0, 10, 30, 60]
+    /// CPU package power limits, in watts. 10 W reaches low-power laptop
+    /// parts and 300 W is past any stock desktop socket limit. 120 W starts
+    /// under the 142 W package limit of a stock 105 W AM4 part, so a long
+    /// all-core load is noticed; every other value of this alert (the wait,
+    /// the repeat interval) comes from the service's existing alerts.
+    static let monitorAlertCPUPowerRange = 10...300
+    static let defaultMonitorAlertCPUPowerThreshold = 120
 
     /// Every registered default: the table below plus one style key per
     /// menu bar metric, registered at the look the metric had before it had
@@ -795,6 +805,7 @@ enum Defaults {
         DefaultsKey.monitorAlertCPUTemperature: false,
         DefaultsKey.monitorAlertGPUTemperature: false,
         DefaultsKey.monitorAlertGPUPower: false,
+        DefaultsKey.monitorAlertCPUPower: false,
         DefaultsKey.monitorAlertGPUMemoryTemperature: false,
         DefaultsKey.monitorAlertGPUThrottle: false,
         DefaultsKey.monitorAlertMemory: false,
@@ -804,10 +815,12 @@ enum Defaults {
         DefaultsKey.monitorAlertCPUTemperatureThreshold: 90,
         DefaultsKey.monitorAlertGPUTemperatureThreshold: 85,
         DefaultsKey.monitorAlertGPUPowerThreshold: 250,
+        DefaultsKey.monitorAlertCPUPowerThreshold: defaultMonitorAlertCPUPowerThreshold,
         DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold: 90,
         DefaultsKey.monitorAlertDiskFreePercent: 10,
         DefaultsKey.monitorAlertBatteryPercent: 15,
         DefaultsKey.monitorAlertCooldownMinutes: 15,
+        DefaultsKey.monitorAlertSustainSeconds: 0,
         DefaultsKey.mediaLastTool: MediaTool.videoCompressor.rawValue,
         DefaultsKey.mediaVideoStart: 0.0,
         DefaultsKey.mediaVideoEnd: 0.0,
@@ -1569,6 +1582,14 @@ enum Defaults {
 
     static func sanitizedMonitorAlertCooldown(_ value: Int) -> Int {
         allowedMonitorAlertCooldowns.contains(value) ? value : 15
+    }
+
+    static func sanitizedMonitorAlertSustain(_ value: Int) -> Int {
+        allowedMonitorAlertSustainSeconds.contains(value) ? value : 0
+    }
+
+    static func sanitizedMonitorAlertCPUPowerThreshold(_ value: Int) -> Int {
+        sanitizedPercent(value, fallback: defaultMonitorAlertCPUPowerThreshold, range: monitorAlertCPUPowerRange)
     }
 
     static func sanitizedPercent(_ value: Int, fallback: Int, range: ClosedRange<Int>) -> Int {

@@ -12,6 +12,8 @@ struct MonitorAlertsControls: View {
     @AppStorage(DefaultsKey.monitorAlertCPUTemperature) private var alertCPUTemperature = false
     @AppStorage(DefaultsKey.monitorAlertGPUTemperature) private var alertGPUTemperature = false
     @AppStorage(DefaultsKey.monitorAlertGPUPower) private var alertGPUPower = false
+    @AppStorage(DefaultsKey.monitorAlertCPUPower) private var alertCPUPower = false
+    @AppStorage(DefaultsKey.monitorAlertCPUPowerThreshold) private var alertCPUPowerThreshold = Defaults.defaultMonitorAlertCPUPowerThreshold
     @AppStorage(DefaultsKey.monitorAlertGPUMemoryTemperature) private var alertGPUMemoryTemperature = false
     @AppStorage(DefaultsKey.monitorAlertGPUThrottle) private var alertGPUThrottle = false
     @AppStorage(DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold) private var alertGPUMemoryTemperatureThreshold = 90
@@ -27,6 +29,7 @@ struct MonitorAlertsControls: View {
     @AppStorage(DefaultsKey.monitorAlertDiskFreePercent) private var alertDiskFreePercent = 10
     @AppStorage(DefaultsKey.monitorAlertBatteryPercent) private var alertBatteryPercent = 15
     @AppStorage(DefaultsKey.monitorAlertCooldownMinutes) private var alertCooldown = 15
+    @AppStorage(DefaultsKey.monitorAlertSustainSeconds) private var alertSustain = 0
 
     private var text: MonitorAlertFeatureStrings {
         FeatureStrings.monitorAlerts(l10n.language)
@@ -52,6 +55,17 @@ struct MonitorAlertsControls: View {
                             value: $alertCPUTemperatureThreshold,
                             in: 70...105,
                             step: 5)
+                }
+                // CPU package power comes from the AMD kext; without it there
+                // is no reading. A switch left on stays so it can be turned off.
+                if ProcessorModel.shared.isConnected || alertCPUPower {
+                    Toggle(text.cpuPower, isOn: $alertCPUPower)
+                    if alertCPUPower {
+                        Stepper("\(text.cpuPowerThreshold) \(alertCPUPowerThreshold) W",
+                                value: $alertCPUPowerThreshold,
+                                in: Defaults.monitorAlertCPUPowerRange,
+                                step: 5)
+                    }
                 }
             }
             if AppFeature.monitorGPU.isAvailable {
@@ -113,6 +127,13 @@ struct MonitorAlertsControls: View {
                 }
             }
             if anyAlertEnabled {
+                Picker(text.sustain, selection: $alertSustain) {
+                    Text(text.sustainImmediately).tag(0)
+                    Text(text.sustain10).tag(10)
+                    Text(text.sustain30).tag(30)
+                    Text(text.sustain60).tag(60)
+                }
+                .pickerStyle(.menu)
                 Picker(text.cooldown, selection: $alertCooldown) {
                     Text(text.cooldown2).tag(2)
                     Text(text.cooldown5).tag(5)
@@ -159,16 +180,17 @@ struct MonitorAlertsControls: View {
     }
 
     private var alertSwitches: [Bool] {
-        [alertCPU, alertCPUTemperature, alertGPUTemperature, alertGPUPower, alertGPUMemoryTemperature,
+        [alertCPU, alertCPUTemperature, alertCPUPower, alertGPUTemperature, alertGPUPower, alertGPUMemoryTemperature,
          alertGPUThrottle, alertMemory, alertDisk, alertBattery]
     }
 
     private var alertValues: [Int] {
         [alertCPUThreshold, alertCPUTemperatureThreshold, alertGPUTemperatureThreshold, alertGPUPowerThreshold,
-         alertGPUMemoryTemperatureThreshold, alertDiskFreePercent, alertBatteryPercent, alertCooldown]
+         alertGPUMemoryTemperatureThreshold, alertDiskFreePercent, alertBatteryPercent, alertCooldown,
+         alertCPUPowerThreshold, alertSustain]
     }
     private var anyAlertEnabled: Bool {
-        alertCPU || alertCPUTemperature || alertGPUTemperature || alertGPUPower || alertMemory || alertDisk
+        alertCPU || alertCPUTemperature || alertCPUPower || alertGPUTemperature || alertGPUPower || alertMemory || alertDisk
             || alertGPUMemoryTemperature || alertGPUThrottle
             || (PowerSampler.hasInternalBattery && alertBattery)
     }
@@ -194,5 +216,7 @@ struct MonitorAlertsControls: View {
         alertDiskFreePercent = Defaults.sanitizedPercent(alertDiskFreePercent, fallback: 10, range: 5...30)
         alertBatteryPercent = Defaults.sanitizedPercent(alertBatteryPercent, fallback: 15, range: 5...50)
         alertCooldown = Defaults.sanitizedMonitorAlertCooldown(alertCooldown)
+        alertCPUPowerThreshold = Defaults.sanitizedMonitorAlertCPUPowerThreshold(alertCPUPowerThreshold)
+        alertSustain = Defaults.sanitizedMonitorAlertSustain(alertSustain)
     }
 }

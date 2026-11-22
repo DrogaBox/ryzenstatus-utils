@@ -2,6 +2,8 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
+**CPU power alert, and a wait for every alert**: Settings › Monitor › Alerts can notify when the CPU package power from the AMD kext stays over a limit you pick, from 10 to 300 W in 5 W steps (120 W to start). The row is there only while the kext answers. A new "For at least" menu (Immediately, 10, 30 or 60 seconds) makes any alert wait until its reading has stayed over the limit that long, and a drop under the limit, or the Mac going to sleep, starts the wait over. Immediately is the default, so the existing alerts behave exactly as before, each with its own short wait.
+
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
 **RyzenStatus now takes care of AMD Radeon RX 6000 cards too: hardware AV1 and VP9 video, full-speed encoding, GPU sensors and GPU control, installed from the DMG.** The AMD processor kexts are untouched; this release adds a GPU installer, a GPU control page, a Monitor window of its own, a style for every menu bar reading, and a much lighter island.

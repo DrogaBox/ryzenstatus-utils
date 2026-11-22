@@ -384,7 +384,16 @@ extension MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU 메모리 과열",
         gpuMemoryTemperatureBodyFormat: "GPU 메모리(VRAM)가 %@에 도달했습니다.",
         gpuThrottleTitle: "GPU 클럭 제한",
-        gpuThrottleBodyFormat: "GPU 드라이버가 클럭을 제한하고 있습니다: %@."
+        gpuThrottleBodyFormat: "GPU 드라이버가 클럭을 제한하고 있습니다: %@.",
+        cpuPower: "CPU 전력 높음",
+        cpuPowerThreshold: "CPU 전력 기준",
+        cpuPowerTitle: "CPU 전력 높음",
+        cpuPowerBodyFormat: "CPU 패키지 전력이 %.0f W에 도달했습니다.",
+        sustain: "지속 시간",
+        sustainImmediately: "즉시",
+        sustain10: "10초 이상",
+        sustain30: "30초 이상",
+        sustain60: "60초 이상"
     )
 }
 
@@ -3076,6 +3085,15 @@ struct MonitorAlertFeatureStrings {
     let gpuMemoryTemperatureBodyFormat: String
     let gpuThrottleTitle: String
     let gpuThrottleBodyFormat: String
+    let cpuPower: String
+    let cpuPowerThreshold: String
+    let cpuPowerTitle: String
+    let cpuPowerBodyFormat: String
+    let sustain: String
+    let sustainImmediately: String
+    let sustain10: String
+    let sustain30: String
+    let sustain60: String
 
     static let enUS = MonitorAlertFeatureStrings(
         section: "Alerts",
@@ -3124,7 +3142,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Hot GPU memory",
         gpuMemoryTemperatureBodyFormat: "GPU memory (VRAM) reached %@.",
         gpuThrottleTitle: "GPU held back",
-        gpuThrottleBodyFormat: "The GPU driver is limiting clocks: %@."
+        gpuThrottleBodyFormat: "The GPU driver is limiting clocks: %@.",
+        cpuPower: "High CPU power",
+        cpuPowerThreshold: "CPU power above",
+        cpuPowerTitle: "High CPU power",
+        cpuPowerBodyFormat: "CPU package power reached %.0f W.",
+        sustain: "For at least",
+        sustainImmediately: "Immediately",
+        sustain10: "10 seconds",
+        sustain30: "30 seconds",
+        sustain60: "60 seconds"
     )
 
     static let ptBR = MonitorAlertFeatureStrings(
@@ -3174,7 +3201,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Memória da GPU quente",
         gpuMemoryTemperatureBodyFormat: "A memória da GPU (VRAM) chegou a %@.",
         gpuThrottleTitle: "GPU contida",
-        gpuThrottleBodyFormat: "O driver da GPU está limitando os clocks: %@."
+        gpuThrottleBodyFormat: "O driver da GPU está limitando os clocks: %@.",
+        cpuPower: "Potência alta do CPU",
+        cpuPowerThreshold: "Potência do CPU acima de",
+        cpuPowerTitle: "Potência alta do CPU",
+        cpuPowerBodyFormat: "A potência do pacote do CPU atingiu %.0f W.",
+        sustain: "Por pelo menos",
+        sustainImmediately: "Imediatamente",
+        sustain10: "10 segundos",
+        sustain30: "30 segundos",
+        sustain60: "60 segundos"
     )
 
     static let tr = MonitorAlertFeatureStrings(
@@ -3224,7 +3260,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU belleği sıcak",
         gpuMemoryTemperatureBodyFormat: "GPU belleği (VRAM) %@ değerine ulaştı.",
         gpuThrottleTitle: "GPU yavaşlatılıyor",
-        gpuThrottleBodyFormat: "GPU sürücüsü saat hızlarını sınırlıyor: %@."
+        gpuThrottleBodyFormat: "GPU sürücüsü saat hızlarını sınırlıyor: %@.",
+        cpuPower: "Yüksek CPU gücü",
+        cpuPowerThreshold: "CPU gücü şunun üstünde",
+        cpuPowerTitle: "Yüksek CPU gücü",
+        cpuPowerBodyFormat: "CPU paket gücü %.0f W değerine ulaştı.",
+        sustain: "En az şu süre boyunca",
+        sustainImmediately: "Hemen",
+        sustain10: "10 saniye",
+        sustain30: "30 saniye",
+        sustain60: "60 saniye"
     )
 
     static let ru = MonitorAlertFeatureStrings(
@@ -3274,7 +3319,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Видеопамять горячая",
         gpuMemoryTemperatureBodyFormat: "Видеопамять (VRAM) достигла %@.",
         gpuThrottleTitle: "GPU сбрасывает частоты",
-        gpuThrottleBodyFormat: "Драйвер GPU ограничивает частоты: %@."
+        gpuThrottleBodyFormat: "Драйвер GPU ограничивает частоты: %@.",
+        cpuPower: "Высокая мощность CPU",
+        cpuPowerThreshold: "Мощность CPU выше",
+        cpuPowerTitle: "Высокая мощность CPU",
+        cpuPowerBodyFormat: "Мощность пакета CPU достигла %.0f Вт.",
+        sustain: "Не меньше",
+        sustainImmediately: "Сразу",
+        sustain10: "10 секунд",
+        sustain30: "30 секунд",
+        sustain60: "60 секунд"
     )
 
     static let es = MonitorAlertFeatureStrings(
@@ -3324,7 +3378,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Memoria de GPU caliente",
         gpuMemoryTemperatureBodyFormat: "La memoria de la GPU (VRAM) llegó a %@.",
         gpuThrottleTitle: "GPU frenada",
-        gpuThrottleBodyFormat: "El driver de la GPU está limitando los relojes: %@."
+        gpuThrottleBodyFormat: "El driver de la GPU está limitando los relojes: %@.",
+        cpuPower: "Potencia alta de CPU",
+        cpuPowerThreshold: "Potencia de CPU por encima de",
+        cpuPowerTitle: "Potencia alta de CPU",
+        cpuPowerBodyFormat: "La potencia del paquete de la CPU llegó a %.0f W.",
+        sustain: "Durante al menos",
+        sustainImmediately: "Inmediatamente",
+        sustain10: "10 segundos",
+        sustain30: "30 segundos",
+        sustain60: "60 segundos"
     )
 
     static let de = MonitorAlertFeatureStrings(
@@ -3374,7 +3437,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU-Speicher heiß",
         gpuMemoryTemperatureBodyFormat: "Der GPU-Speicher (VRAM) hat %@ erreicht.",
         gpuThrottleTitle: "GPU gebremst",
-        gpuThrottleBodyFormat: "Der GPU-Treiber begrenzt die Takte: %@."
+        gpuThrottleBodyFormat: "Der GPU-Treiber begrenzt die Takte: %@.",
+        cpuPower: "Hohe CPU-Leistung",
+        cpuPowerThreshold: "CPU-Leistung über",
+        cpuPowerTitle: "Hohe CPU-Leistung",
+        cpuPowerBodyFormat: "Die CPU-Package-Leistung hat %.0f W erreicht.",
+        sustain: "Für mindestens",
+        sustainImmediately: "Sofort",
+        sustain10: "10 Sekunden",
+        sustain30: "30 Sekunden",
+        sustain60: "60 Sekunden"
     )
 
     static let fr = MonitorAlertFeatureStrings(
@@ -3424,7 +3496,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Mémoire GPU chaude",
         gpuMemoryTemperatureBodyFormat: "La mémoire GPU (VRAM) a atteint %@.",
         gpuThrottleTitle: "GPU freiné",
-        gpuThrottleBodyFormat: "Le pilote GPU limite les fréquences : %@."
+        gpuThrottleBodyFormat: "Le pilote GPU limite les fréquences : %@.",
+        cpuPower: "Puissance CPU élevée",
+        cpuPowerThreshold: "Puissance CPU au-dessus de",
+        cpuPowerTitle: "Puissance CPU élevée",
+        cpuPowerBodyFormat: "La puissance du package CPU a atteint %.0f W.",
+        sustain: "Pendant au moins",
+        sustainImmediately: "Immédiatement",
+        sustain10: "10 secondes",
+        sustain30: "30 secondes",
+        sustain60: "60 secondes"
     )
 
     static let it = MonitorAlertFeatureStrings(
@@ -3474,7 +3555,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Memoria GPU calda",
         gpuMemoryTemperatureBodyFormat: "La memoria GPU (VRAM) ha raggiunto %@.",
         gpuThrottleTitle: "GPU frenata",
-        gpuThrottleBodyFormat: "Il driver della GPU sta limitando le frequenze: %@."
+        gpuThrottleBodyFormat: "Il driver della GPU sta limitando le frequenze: %@.",
+        cpuPower: "Potenza CPU alta",
+        cpuPowerThreshold: "Potenza CPU sopra",
+        cpuPowerTitle: "Potenza CPU elevata",
+        cpuPowerBodyFormat: "La potenza del package CPU ha raggiunto %.0f W.",
+        sustain: "Per almeno",
+        sustainImmediately: "Subito",
+        sustain10: "10 secondi",
+        sustain30: "30 secondi",
+        sustain60: "60 secondi"
     )
 
     static let ja = MonitorAlertFeatureStrings(
@@ -3524,7 +3614,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU メモリが高温",
         gpuMemoryTemperatureBodyFormat: "GPU メモリ（VRAM）が %@ に達しました。",
         gpuThrottleTitle: "GPU が抑えられています",
-        gpuThrottleBodyFormat: "GPU ドライバーがクロックを制限しています：%@。"
+        gpuThrottleBodyFormat: "GPU ドライバーがクロックを制限しています：%@。",
+        cpuPower: "CPU 電力が高い",
+        cpuPowerThreshold: "CPU 電力がこれを超えたら",
+        cpuPowerTitle: "CPU 消費電力大",
+        cpuPowerBodyFormat: "CPU パッケージ電力が %.0f W に達しました。",
+        sustain: "継続時間",
+        sustainImmediately: "すぐに",
+        sustain10: "10 秒以上",
+        sustain30: "30 秒以上",
+        sustain60: "60 秒以上"
     )
 
     static let zhHans = MonitorAlertFeatureStrings(
@@ -3574,7 +3673,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU 显存过热",
         gpuMemoryTemperatureBodyFormat: "GPU 显存（VRAM）达到 %@。",
         gpuThrottleTitle: "GPU 正在降频",
-        gpuThrottleBodyFormat: "GPU 驱动程序正在限制频率：%@。"
+        gpuThrottleBodyFormat: "GPU 驱动程序正在限制频率：%@。",
+        cpuPower: "CPU 功耗过高",
+        cpuPowerThreshold: "CPU 功耗高于",
+        cpuPowerTitle: "CPU 功耗高",
+        cpuPowerBodyFormat: "CPU 封装功耗达到 %.0f W。",
+        sustain: "持续至少",
+        sustainImmediately: "立即",
+        sustain10: "10 秒",
+        sustain30: "30 秒",
+        sustain60: "60 秒"
     )
 
     static let zhTW = MonitorAlertFeatureStrings(
@@ -3624,7 +3732,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU 顯示記憶體過熱",
         gpuMemoryTemperatureBodyFormat: "GPU 顯示記憶體（VRAM）達到 %@。",
         gpuThrottleTitle: "GPU 正在降頻",
-        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。"
+        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。",
+        cpuPower: "CPU 功耗過高",
+        cpuPowerThreshold: "CPU 功耗高於",
+        cpuPowerTitle: "CPU 功耗高",
+        cpuPowerBodyFormat: "CPU 封裝功耗達到 %.0f W。",
+        sustain: "持續至少",
+        sustainImmediately: "立即",
+        sustain10: "10 秒",
+        sustain30: "30 秒",
+        sustain60: "60 秒"
     )
 
     static let zhHK = MonitorAlertFeatureStrings(
@@ -3674,7 +3791,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "GPU 顯示記憶體過熱",
         gpuMemoryTemperatureBodyFormat: "GPU 顯示記憶體（VRAM）達到 %@。",
         gpuThrottleTitle: "GPU 正在降頻",
-        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。"
+        gpuThrottleBodyFormat: "GPU 驅動程式正在限制時脈：%@。",
+        cpuPower: "CPU 功耗過高",
+        cpuPowerThreshold: "CPU 功耗高於",
+        cpuPowerTitle: "CPU 功耗高",
+        cpuPowerBodyFormat: "CPU 封裝功耗達到 %.0f W。",
+        sustain: "持續至少",
+        sustainImmediately: "即時",
+        sustain10: "10 秒",
+        sustain30: "30 秒",
+        sustain60: "60 秒"
     )
 
     static let sk = MonitorAlertFeatureStrings(
@@ -3724,7 +3850,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Horúca pamäť GPU",
         gpuMemoryTemperatureBodyFormat: "Pamäť GPU (VRAM) dosiahla %@.",
         gpuThrottleTitle: "GPU je brzdená",
-        gpuThrottleBodyFormat: "Ovládač GPU obmedzuje takty: %@."
+        gpuThrottleBodyFormat: "Ovládač GPU obmedzuje takty: %@.",
+        cpuPower: "Vysoký príkon CPU",
+        cpuPowerThreshold: "Príkon CPU nad",
+        cpuPowerTitle: "Vysoký príkon CPU",
+        cpuPowerBodyFormat: "Príkon puzdra CPU dosiahol %.0f W.",
+        sustain: "Aspoň počas",
+        sustainImmediately: "Okamžite",
+        sustain10: "10 sekúnd",
+        sustain30: "30 sekúnd",
+        sustain60: "60 sekúnd"
     )
 
     static let uk = MonitorAlertFeatureStrings(
@@ -3774,7 +3909,16 @@ struct MonitorAlertFeatureStrings {
         gpuMemoryTemperatureTitle: "Відеопам’ять гаряча",
         gpuMemoryTemperatureBodyFormat: "Відеопам’ять (VRAM) досягла %@.",
         gpuThrottleTitle: "GPU скидає частоти",
-        gpuThrottleBodyFormat: "Драйвер GPU обмежує частоти: %@."
+        gpuThrottleBodyFormat: "Драйвер GPU обмежує частоти: %@.",
+        cpuPower: "Висока потужність CPU",
+        cpuPowerThreshold: "Потужність CPU вище",
+        cpuPowerTitle: "Висока потужність CPU",
+        cpuPowerBodyFormat: "Потужність пакета CPU досягла %.0f Вт.",
+        sustain: "Щонайменше",
+        sustainImmediately: "Одразу",
+        sustain10: "10 секунд",
+        sustain30: "30 секунд",
+        sustain60: "60 секунд"
     )
 }
 
