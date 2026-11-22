@@ -300,7 +300,7 @@ fi
 # by Tools/build-gpu-assets.sh on a Mac with Lilu; this script checks them against
 # the pinned SHA256SUMS and compiles none of them.
 echo "▸ GPU parts…"
-zsh GPU/installer/build.sh > /dev/null
+GPU_PAYLOAD_SUMS_SHA256="$GPU_PAYLOAD_SUMS_SHA256" zsh GPU/installer/build.sh > /dev/null
 codesign --verify --deep --strict "$GPU_APP_BUILD"
 if [[ ! -f "$GPU_ZIP" ]]; then
     echo "✗ Error: $GPU_ZIP is missing; build it with Tools/build-gpu-assets.sh." >&2

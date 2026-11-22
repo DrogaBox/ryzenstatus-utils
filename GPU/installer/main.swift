@@ -482,11 +482,19 @@ final class Engine: ObservableObject {
     /// package's SHA256SUMS, and runs the copy. The app bundle belongs to the user, so
     /// root must not run a script from it.
     ///
-    /// The SHA256SUMS file itself is not pinned here yet: Tools/make-dmg.sh holds
-    /// GPU_PAYLOAD_SUMS_SHA256, and the build script would have to pass it to swiftc.
-    /// Until then, this checks every copied file but not the list itself.
+    /// The SHA256SUMS file itself is pinned by the build: Tools/make-dmg.sh
+    /// passes GPU_PAYLOAD_SUMS_SHA256 to build.sh, which writes InstallerPin.swift.
+    /// A development build has no pin and says so instead of checking one.
     static func stagedCommand(root: URL, script: String, args: [String]) -> String {
         let argStr = args.map { Self.shq($0) }.joined(separator: " ")
+        let pin = InstallerPin.payloadSumsSHA256
+        let pinCheck: String
+        if pin.isEmpty {
+            pinCheck = "echo 'the parts have no pinned SHA256SUMS (development build); the list is not pinned'"
+        } else {
+            pinCheck = "actual=$(/usr/bin/shasum -a 256 SHA256SUMS | /usr/bin/awk '{print $1}') || exit 1; "
+                + "[ \"$actual\" = \(Self.shq(pin)) ] || { echo 'SHA256SUMS is not the pinned list'; exit 1; }"
+        }
         let lines = [
             "stage=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-gpu.XXXXXX) || exit 1",
             "trap '/bin/rm -rf \"$stage\"' EXIT HUP INT TERM",
@@ -496,6 +504,7 @@ final class Engine: ObservableObject {
             "/bin/chmod -R -N \"$stage/GPU\" 2>/dev/null || exit 1",
             "cd \"$stage/GPU\" || exit 1",
             "[ -f SHA256SUMS ] && [ ! -L SHA256SUMS ] || { echo 'the parts have no SHA256SUMS'; exit 1; }",
+            pinCheck,
             "/usr/bin/shasum -a 256 -c -s SHA256SUMS || exit 1",
             "listed=$(/usr/bin/awk '{ sub(/^[0-9a-f]+  /, \"\"); print }' SHA256SUMS | LC_ALL=C /usr/bin/sort) || exit 1",
             "present=$(/usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort) || exit 1",

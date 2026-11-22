@@ -193,6 +193,8 @@ enum GPUInstallerDMGTests {
 
     /// Root runs a verified copy of the parts, not the app bundle the user owns.
     private static func installerCopies(_ suite: TestSuite, _ root: URL, _ main: String) {
+        let build = text(root, "GPU/installer/build.sh")
+        let script = text(root, "Tools/make-dmg.sh")
         suite.expect(main.contains("static func stagedCommand(root: URL, script: String, args: [String]) -> String")
                          && main.contains("let inner = Self.stagedCommand(root: root, script: script, args: args)"),
                      "runAction runs the staged copy, not the script in the selected folder")
@@ -226,6 +228,26 @@ enum GPUInstallerDMGTests {
         suite.expect(common.contains("gpu_dir_unsafe()")
                          && sensors.contains("tool_dir_unsafe() { gpu_dir_unsafe \"$TOOL_DIR\"; }"),
                      "sensors.sh uses the shared folder rule without changing what it refuses")
+
+        // The root shell must compare the list itself with the pin compiled
+        // into this build, before it trusts any file the list names.
+        if let start = main.range(of: "static func stagedCommand"),
+           let end = main.range(of: "static func asq") {
+            let body = String(main[start.lowerBound..<end.lowerBound])
+            suite.expect(body.contains("InstallerPin.payloadSumsSHA256")
+                             && body.contains("shasum -a 256 SHA256SUMS")
+                             && body.contains("SHA256SUMS is not the pinned list")
+                             && body.contains("the list is not pinned"),
+                         "the staged command checks SHA256SUMS against the compiled pin before running a part")
+        } else {
+            suite.expect(false, "stagedCommand has a SHA256SUMS pin check")
+        }
+        suite.expect(build.contains("PIN_FILE=\"build/PayloadPin.swift\"")
+                         && build.contains("GPU_PAYLOAD_SUMS_SHA256")
+                         && build.contains("main.swift \"$PIN_FILE\""),
+                     "the installer build compiles the release pin into the app")
+        suite.expect(script.contains("GPU_PAYLOAD_SUMS_SHA256=\"$GPU_PAYLOAD_SUMS_SHA256\" zsh GPU/installer/build.sh"),
+                     "make-dmg.sh passes its existing payload pin to the installer build")
     }
 
     /// Every script the installer runs, with every literal argument it passes, is in the
