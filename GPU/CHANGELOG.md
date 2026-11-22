@@ -2,6 +2,10 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors, next version (not released; host tests only, not booted)
+
+- The GPU control no longer waits at shutdown or restart for a driver call that is still running, and waits at most 2 s when the GPU goes away. Before, a stuck call could hold that step forever. It is not the cause of the known restart hang after a sleep, which started before the GPU control existed.
+
 ## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
 Run on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21: YouTube 4K60 in Safari, AV1 and VP9,
