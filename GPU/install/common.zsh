@@ -391,7 +391,8 @@ efi_choice_help() { # kind "script [options]"
   [[ $2 == *" "* ]] && opts=" ${2#* }"
   local term
   if (( IN_APP )); then
-    term="name the partition in Terminal: sudo '${GPU_APP_ROOT:+$GPU_APP_ROOT/install}${GPU_APP_ROOT:-$SELF_DIR}/$script'$opts --efi diskNsM (diskutil list shows them)"
+    local dir=${GPU_APP_ROOT:+$GPU_APP_ROOT/install}
+    term="name the partition in Terminal: sudo '${dir:-$SELF_DIR}/$script'$opts --efi diskNsM (diskutil list shows them)"
   else
     term="name it: sudo install/$script$opts --efi diskNsM (diskutil list shows them)"
   fi
