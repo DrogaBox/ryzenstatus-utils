@@ -291,6 +291,29 @@ struct MetricDetailView: View {
                                      format: { value, _ in value.isFinite ? formatTemperature(value) : "—" })
                         .frame(height: 16)
                 }
+                // The AMD kext's average clock and package power, kept only
+                // with the kext; each strip appears once the range holds any.
+                if kind == .cpu {
+                    let clock = store.averages(.cpuClock, range: range, end: now)
+                    if clock.contains(where: \.isFinite) {
+                        // Stored in MHz; scaled like the live clock graph.
+                        let ceiling = ColumnGraphGeometry.roundedCeiling(
+                            peak: (clock.filter(\.isFinite).max() ?? 0) / 1000, step: 1, minimum: 5) * 1000
+                        LongHistoryGraph(series: .single(clock, ceiling: ceiling),
+                                         range: range, end: end, language: l10n.language,
+                                         format: { value, _ in value.isFinite ? String(format: "%.2f GHz", value / 1000) : "—" })
+                            .frame(height: 16)
+                    }
+                    let power = store.averages(.cpuPower, range: range, end: now)
+                    if power.contains(where: \.isFinite) {
+                        let ceiling = ColumnGraphGeometry.roundedCeiling(peak: power.filter(\.isFinite).max() ?? 0,
+                                                                         step: 10, minimum: 10)
+                        LongHistoryGraph(series: .single(power, ceiling: ceiling),
+                                         range: range, end: end, language: l10n.language,
+                                         format: { value, _ in value.isFinite ? String(format: "%.1f W", value) : "—" })
+                            .frame(height: 16)
+                    }
+                }
                 // GPUSensors.kext's VRAM temperature, kept only on Macs with
                 // the kext; the strip appears once the range holds any.
                 if kind == .gpu {
