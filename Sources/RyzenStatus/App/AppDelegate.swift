@@ -333,6 +333,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // back when the connection closes with the process).
         GPUControlService.shared.shutdown()
         LongHistoryStore.shared.save(synchronously: true)
+        // A log in progress ends with the app; nothing restarts it on launch.
+        MonitorCSVLogger.shared.stop(synchronously: true)
         ExtraBrightnessService.shared.stop()
         ProcessUsageService.shared.stopNetworkMonitoring(force: true)
         URLCleanerService.shared.stop()
