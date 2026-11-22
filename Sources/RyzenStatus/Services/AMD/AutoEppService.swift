@@ -188,9 +188,13 @@ final class AutoEppService: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 guard self.pollTask == nil, self.canRun, self.idleLimitWrites.mayBeCapped else { break }
-                // Given up for now: keep waiting for the retry instead of
-                // leaving a cap that may be in force for the whole session.
-                if self.idleLimitWrites.hasGivenUp(on: 0, now: Self.uptime) { continue }
+                // Given up for now: wait out the retry instead of leaving a
+                // cap that may be in force for the whole session.
+                let delay = self.idleLimitWrites.retryDelay(for: 0, now: Self.uptime)
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
                 if self.writeIdleClockLimit(0) { break }
             }
             // start() and stop() cancel and clear it themselves.
@@ -393,7 +397,11 @@ extension AutoEppService {
         guard let range = currentCppcRange() else { return }
         let limit = AmdSettingsStore.shared.autoEppIdleClockLimitMHz
         let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
-        guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf, now: Self.uptime) else { return }
+        let now = Self.uptime
+        // A retry window that ran out shows the row as available again.
+        let failed = idleLimitWrites.anyGivenUp(now: now)
+        if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
+        guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf, now: now) else { return }
         writeIdleClockLimit(maxPerf)
     }
 }
