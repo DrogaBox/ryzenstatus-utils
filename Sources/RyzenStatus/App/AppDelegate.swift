@@ -78,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.setActivationPolicy(.accessory)
         // The companion's alarm clocks keep time from launch, companion or not.
         NotchMascotAlarms.shared.start()
+        // The panel's lowest and highest readings count from launch.
+        SessionPeaksTracker.shared.start()
         Self.boundAccessibilityWaits()
         // Pay the first AppKit process lookup before an input callback needs
         // it. Each click still resolves the current process independently.

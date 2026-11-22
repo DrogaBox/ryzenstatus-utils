@@ -13,7 +13,10 @@ final class FanCurveController: ObservableObject {
 
     // MARK: - Published State
 
-    @Published var fans: [FanState] = []
+    @Published var fans: [FanState] = [] {
+        // Every poll's speeds feed the panel's session lowest and highest.
+        didSet { SessionPeaksTracker.shared.record(fans: fans) }
+    }
     @Published var customCurves: [FanCurveDefinition] = [] {
         didSet {
             persistCurves()

@@ -492,6 +492,7 @@ extension DefaultsKey {
     static let amdAdaptiveTargetCelsius = "amdAdaptiveTargetCelsius" // Int, its target temperature
     static let amdManualEpp = "amdManualEpp"                     // Int 0-255, last EPP chosen by hand (picker or preset); absent until one is
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
+    static let panelSessionPeaksExpanded = "panelSessionPeaksExpanded" // Bool, the CPU details' "Since <time>" lowest/highest disclosure expanded in the panel
     static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, per-core clock/temp/power disclosure in the AMD Power panel section
     static let showPmCoreVoltage = "showPmCoreVoltage"           // Bool, per-core SMU voltage column in the panel rows
     static let showPmCoreC0 = "showPmCoreC0"                     // Bool, per-core C0 residency column in the panel rows
