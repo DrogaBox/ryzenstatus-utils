@@ -26,6 +26,18 @@ public final class AmdSettingsStore: ObservableObject {
         defaults.integer(forKey: DefaultsKey.autoEppLoadThreshold)
     }
 
+    /// CPPC max clock (MHz) while Auto EPP holds Eco; 0 = no limit.
+    public var autoEppIdleClockLimitMHz: Int {
+        get { max(0, defaults.integer(forKey: DefaultsKey.autoEppIdleClockLimitMHz)) }
+        set { defaults.set(max(0, newValue), forKey: DefaultsKey.autoEppIdleClockLimitMHz) }
+    }
+
+    /// On battery: what Auto EPP does on a laptop's battery.
+    var batteryPowerMode: AMDBatteryPowerMode {
+        get { AMDBatteryPowerMode(stored: defaults.string(forKey: DefaultsKey.amdBatteryPowerMode)) }
+        set { defaults.set(newValue.rawValue, forKey: DefaultsKey.amdBatteryPowerMode) }
+    }
+
     // MARK: - Gaming Mode Settings
 
     public var gamingModeActive: Bool {

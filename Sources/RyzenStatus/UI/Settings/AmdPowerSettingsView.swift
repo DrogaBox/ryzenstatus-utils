@@ -320,6 +320,12 @@ struct AmdPowerSettingsView: View {
 
                         AdaptivePowerRow()
 
+                        IdleClockLimitRow()
+
+                        if BatteryPowerService.shared.hasBattery {
+                            BatteryPowerRow()
+                        }
+
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {

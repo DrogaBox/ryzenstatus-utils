@@ -49,6 +49,20 @@ struct AMDPowerFeatureStrings {
 
     let deepCStatesTitle: String
     let c6IdleCaption: String
+    let idleClockToggle: String
+    let idleClockCaption: String
+    let idleClockNeedsAutoEpp: String
+    let idleClockRangeFormat: String
+    let idleClockUnavailable: String
+    let batteryModeTitle: String
+    let batteryModeSame: String
+    let batteryModeSaveMore: String
+    let batteryModeMaximum: String
+    let batteryModeSameCaption: String
+    let batteryModeSaveMoreCaption: String
+    let batteryModeMaximumCaption: String
+    let batteryModeNeedsAutoEpp: String
+    let batteryModeUnavailable: String
     let c6IdleForbidden: String
     let c6IdleUnavailable: String
 
@@ -343,6 +357,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Deep idle (CC6)",
         c6IdleCaption: "Idle cores sleep in CC6 instead of only halting, which lowers idle power and temperature. Takes effect at once, no restart.",
+        idleClockToggle: "Limit clock speed at idle",
+        idleClockCaption: "While Auto EPP sees the CPU idle (Eco), the cores run at or below this clock. Load above the idle threshold lifts the limit within 1.5 s. Below the efficient minimum the CPU draws less power at any moment but spends more energy per task.",
+        idleClockNeedsAutoEpp: "Turn on Auto EPP to use it: the limit applies only while Auto EPP sees the CPU idle.",
+        idleClockRangeFormat: "This CPU: lowest %@, efficient minimum %@, base %@.",
+        idleClockUnavailable: "Needs CPPC and kext 3.41.0 or later.",
+        batteryModeTitle: "On battery",
+        batteryModeSame: "Same as plugged in",
+        batteryModeSaveMore: "Save more",
+        batteryModeMaximum: "Maximum saving",
+        batteryModeSameCaption: "On battery, Auto EPP picks its presets the same way as when plugged in.",
+        batteryModeSaveMoreCaption: "On battery, Auto EPP never picks Performance and stops at Balance. Plugging in gives its normal choice back within 1.5 s.",
+        batteryModeMaximumCaption: "On battery, Auto EPP holds Eco, which also turns Core Performance Boost off; the idle clock limit still applies only at idle. Plugging in gives its normal choice back within 1.5 s.",
+        batteryModeNeedsAutoEpp: "Turn on Auto EPP to use it: a manual energy profile or preset stays as you chose it.",
+        batteryModeUnavailable: "Needs CPPC and a kext that applies EPP.",
         c6IdleForbidden: "Off: the amdcstate=1 boot argument forbids it.",
         c6IdleUnavailable: "Not available: needs AMDRyzenCPUPowerManagement 3.40.0 or newer and a firmware C-state address.",
 
@@ -566,6 +594,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Reposo profundo (CC6)",
         c6IdleCaption: "Los núcleos en reposo duermen en CC6 en vez de solo detenerse, lo que baja el consumo y la temperatura en reposo. Se aplica al instante, sin reiniciar.",
+        idleClockToggle: "Limitar la velocidad de reloj en reposo",
+        idleClockCaption: "Mientras Auto EPP ve la CPU en reposo (Eco), los núcleos van a este reloj o menos. Una carga por encima del umbral de reposo quita el límite en menos de 1,5 s. Por debajo del mínimo eficiente la CPU consume menos en cada momento, pero gasta más energía por tarea.",
+        idleClockNeedsAutoEpp: "Activa Auto EPP para usarlo: el límite solo se aplica mientras Auto EPP ve la CPU en reposo.",
+        idleClockRangeFormat: "Esta CPU: mínimo %@, mínimo eficiente %@, base %@.",
+        idleClockUnavailable: "Necesita CPPC y el kext 3.41.0 o posterior.",
+        batteryModeTitle: "En batería",
+        batteryModeSame: "Igual que enchufada",
+        batteryModeSaveMore: "Ahorrar más",
+        batteryModeMaximum: "Máximo ahorro",
+        batteryModeSameCaption: "Con batería, Auto EPP elige sus preajustes igual que enchufada.",
+        batteryModeSaveMoreCaption: "Con batería, Auto EPP nunca elige Rendimiento y se queda como máximo en Equilibrado. Al enchufarla vuelve a su elección normal en menos de 1,5 s.",
+        batteryModeMaximumCaption: "Con batería, Auto EPP se queda en Eco, que también apaga Core Performance Boost; el límite de reloj en reposo sigue aplicándose solo en reposo. Al enchufarla vuelve a su elección normal en menos de 1,5 s.",
+        batteryModeNeedsAutoEpp: "Activa Auto EPP para usarlo: un perfil energético o preajuste manual queda como lo elegiste.",
+        batteryModeUnavailable: "Necesita CPPC y un kext que aplique el EPP.",
         c6IdleForbidden: "Desactivado: el argumento de arranque amdcstate=1 lo prohíbe.",
         c6IdleUnavailable: "No disponible: requiere AMDRyzenCPUPowerManagement 3.40.0 o posterior y una dirección de C-states del firmware.",
 
@@ -789,6 +831,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Repouso profundo (CC6)",
         c6IdleCaption: "Os núcleos ociosos dormem em CC6 em vez de apenas parar, o que reduz o consumo e a temperatura em repouso. Aplica-se na hora, sem reiniciar.",
+        idleClockToggle: "Limitar a velocidade de clock em repouso",
+        idleClockCaption: "Enquanto o Auto EPP vê a CPU em repouso (Eco), os núcleos rodam neste clock ou abaixo. Uma carga acima do limite de repouso tira o limite em até 1,5 s. Abaixo do mínimo eficiente a CPU consome menos a cada instante, mas gasta mais energia por tarefa.",
+        idleClockNeedsAutoEpp: "Ative o Auto EPP para usar: o limite só vale enquanto o Auto EPP vê a CPU em repouso.",
+        idleClockRangeFormat: "Esta CPU: mínimo %@, mínimo eficiente %@, base %@.",
+        idleClockUnavailable: "Requer CPPC e o kext 3.41.0 ou posterior.",
+        batteryModeTitle: "Na bateria",
+        batteryModeSame: "Igual a na tomada",
+        batteryModeSaveMore: "Economizar mais",
+        batteryModeMaximum: "Economia máxima",
+        batteryModeSameCaption: "Na bateria, o Auto EPP escolhe as predefinições do mesmo jeito que na tomada.",
+        batteryModeSaveMoreCaption: "Na bateria, o Auto EPP nunca escolhe Desempenho e para em Equilíbrio. Ao ligar na tomada, ele volta à escolha normal em até 1,5 s.",
+        batteryModeMaximumCaption: "Na bateria, o Auto EPP fica em Eco, que também desliga o Core Performance Boost; o limite de clock em repouso continua valendo só em repouso. Ao ligar na tomada, ele volta à escolha normal em até 1,5 s.",
+        batteryModeNeedsAutoEpp: "Ative o Auto EPP para usar: um perfil de energia ou predefinição manual fica como você escolheu.",
+        batteryModeUnavailable: "Requer CPPC e um kext que aplique o EPP.",
         c6IdleForbidden: "Desativado: o argumento de inicialização amdcstate=1 o proíbe.",
         c6IdleUnavailable: "Indisponível: requer AMDRyzenCPUPowerManagement 3.40.0 ou mais recente e um endereço de C-states do firmware.",
 
@@ -1012,6 +1068,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Tiefer Leerlauf (CC6)",
         c6IdleCaption: "Kerne im Leerlauf schlafen in CC6, statt nur anzuhalten. Das senkt Leistungsaufnahme und Temperatur im Leerlauf. Wirkt sofort, ohne Neustart.",
+        idleClockToggle: "Taktfrequenz im Leerlauf begrenzen",
+        idleClockCaption: "Solange Auto EPP die CPU im Leerlauf sieht (Eco), laufen die Kerne höchstens mit diesem Takt. Last über der Leerlaufschwelle hebt die Grenze innerhalb von 1,5 s auf. Unter dem effizienten Minimum nimmt die CPU in jedem Moment weniger Leistung auf, braucht aber mehr Energie pro Aufgabe.",
+        idleClockNeedsAutoEpp: "Schalte Auto EPP ein, um sie zu nutzen: Die Grenze gilt nur, solange Auto EPP die CPU im Leerlauf sieht.",
+        idleClockRangeFormat: "Diese CPU: niedrigster %@, effizientes Minimum %@, Basis %@.",
+        idleClockUnavailable: "Erfordert CPPC und Kext 3.41.0 oder neuer.",
+        batteryModeTitle: "Im Akkubetrieb",
+        batteryModeSame: "Wie am Netzteil",
+        batteryModeSaveMore: "Mehr sparen",
+        batteryModeMaximum: "Maximal sparen",
+        batteryModeSameCaption: "Im Akkubetrieb wählt Auto-EPP seine Profile genauso wie am Netzteil.",
+        batteryModeSaveMoreCaption: "Im Akkubetrieb wählt Auto-EPP nie Leistung und geht höchstens bis Ausgewogen. Beim Anschließen kehrt es innerhalb von 1,5 s zu seiner normalen Wahl zurück.",
+        batteryModeMaximumCaption: "Im Akkubetrieb bleibt Auto-EPP auf Eco, was auch Core Performance Boost abschaltet; die Taktgrenze im Leerlauf gilt weiterhin nur im Leerlauf. Beim Anschließen kehrt es innerhalb von 1,5 s zu seiner normalen Wahl zurück.",
+        batteryModeNeedsAutoEpp: "Schalte Auto-EPP ein, um es zu nutzen: Ein manuelles Energieprofil oder Profil bleibt so, wie du es gewählt hast.",
+        batteryModeUnavailable: "Erfordert CPPC und einen Kext, der EPP anwendet.",
         c6IdleForbidden: "Aus: Das Boot-Argument amdcstate=1 verbietet es.",
         c6IdleUnavailable: "Nicht verfügbar: erfordert AMDRyzenCPUPowerManagement 3.40.0 oder neuer und eine C-State-Adresse der Firmware.",
 
@@ -1235,6 +1305,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Veille profonde (CC6)",
         c6IdleCaption: "Les cœurs au repos dorment en CC6 au lieu de simplement s'arrêter, ce qui réduit la consommation et la température au repos. Effet immédiat, sans redémarrage.",
+        idleClockToggle: "Limiter la fréquence au repos",
+        idleClockCaption: "Tant qu’Auto EPP voit le processeur au repos (Éco), les cœurs tournent à cette fréquence ou en dessous. Une charge au-dessus du seuil de repos lève la limite en moins de 1,5 s. Sous le minimum efficace, le processeur consomme moins à chaque instant mais dépense plus d’énergie par tâche.",
+        idleClockNeedsAutoEpp: "Activez Auto EPP pour l’utiliser : la limite ne s’applique que tant qu’Auto EPP voit le processeur au repos.",
+        idleClockRangeFormat: "Ce processeur : minimum %@, minimum efficace %@, base %@.",
+        idleClockUnavailable: "Nécessite CPPC et le kext 3.41.0 ou ultérieur.",
+        batteryModeTitle: "Sur batterie",
+        batteryModeSame: "Comme sur secteur",
+        batteryModeSaveMore: "Économiser plus",
+        batteryModeMaximum: "Économie maximale",
+        batteryModeSameCaption: "Sur batterie, Auto EPP choisit ses préréglages comme sur secteur.",
+        batteryModeSaveMoreCaption: "Sur batterie, Auto EPP ne choisit jamais Performance et s’arrête à Équilibré. Sur secteur, il revient à son choix normal en moins de 1,5 s.",
+        batteryModeMaximumCaption: "Sur batterie, Auto EPP reste sur Éco, ce qui coupe aussi Core Performance Boost ; la limite de fréquence au repos ne s’applique toujours qu’au repos. Sur secteur, il revient à son choix normal en moins de 1,5 s.",
+        batteryModeNeedsAutoEpp: "Activez Auto EPP pour l’utiliser : un profil énergétique ou un préréglage manuel reste tel que vous l’avez choisi.",
+        batteryModeUnavailable: "Nécessite CPPC et un kext qui applique l’EPP.",
         c6IdleForbidden: "Désactivé : l'argument de démarrage amdcstate=1 l'interdit.",
         c6IdleUnavailable: "Indisponible : nécessite AMDRyzenCPUPowerManagement 3.40.0 ou plus récent et une adresse de C-states du firmware.",
 
@@ -1458,6 +1542,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Inattività profonda (CC6)",
         c6IdleCaption: "I core inattivi dormono in CC6 invece di fermarsi soltanto, riducendo consumo e temperatura a riposo. Effetto immediato, senza riavvio.",
+        idleClockToggle: "Limita la frequenza a riposo",
+        idleClockCaption: "Finché Auto EPP vede la CPU a riposo (Eco), i core girano a questa frequenza o meno. Un carico sopra la soglia di riposo toglie il limite entro 1,5 s. Sotto il minimo efficiente la CPU assorbe meno in ogni istante, ma spende più energia per attività.",
+        idleClockNeedsAutoEpp: "Attiva Auto EPP per usarlo: il limite vale solo finché Auto EPP vede la CPU a riposo.",
+        idleClockRangeFormat: "Questa CPU: minimo %@, minimo efficiente %@, base %@.",
+        idleClockUnavailable: "Richiede CPPC e il kext 3.41.0 o successivo.",
+        batteryModeTitle: "A batteria",
+        batteryModeSame: "Come con l’alimentatore",
+        batteryModeSaveMore: "Risparmia di più",
+        batteryModeMaximum: "Risparmio massimo",
+        batteryModeSameCaption: "A batteria, Auto EPP sceglie i preset come con l’alimentatore.",
+        batteryModeSaveMoreCaption: "A batteria, Auto EPP non sceglie mai Prestazioni e si ferma a Bilanciato. Collegando l’alimentatore torna alla scelta normale entro 1,5 s.",
+        batteryModeMaximumCaption: "A batteria, Auto EPP resta su Eco, che spegne anche Core Performance Boost; il limite di frequenza a riposo vale sempre solo a riposo. Collegando l’alimentatore torna alla scelta normale entro 1,5 s.",
+        batteryModeNeedsAutoEpp: "Attiva Auto EPP per usarlo: un profilo energetico o un preset manuale resta come l’hai scelto.",
+        batteryModeUnavailable: "Richiede CPPC e un kext che applichi l’EPP.",
         c6IdleForbidden: "Disattivato: l'argomento di avvio amdcstate=1 lo vieta.",
         c6IdleUnavailable: "Non disponibile: richiede AMDRyzenCPUPowerManagement 3.40.0 o successivo e un indirizzo C-state del firmware.",
 
@@ -1681,6 +1779,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Глубокий простой (CC6)",
         c6IdleCaption: "Простаивающие ядра засыпают в CC6, а не просто останавливаются, что снижает потребление и температуру в простое. Действует сразу, без перезагрузки.",
+        idleClockToggle: "Ограничить частоту в простое",
+        idleClockCaption: "Пока Auto EPP видит процессор в простое (Eco), ядра работают на этой частоте или ниже. Нагрузка выше порога простоя снимает ограничение в течение 1,5 с. Ниже эффективного минимума процессор потребляет меньше в каждый момент, но тратит больше энергии на задачу.",
+        idleClockNeedsAutoEpp: "Включите Auto EPP, чтобы использовать это: ограничение действует, только пока Auto EPP видит процессор в простое.",
+        idleClockRangeFormat: "Этот процессор: минимум %@, эффективный минимум %@, базовая %@.",
+        idleClockUnavailable: "Нужны CPPC и kext 3.41.0 или новее.",
+        batteryModeTitle: "От батареи",
+        batteryModeSame: "Как от сети",
+        batteryModeSaveMore: "Экономить больше",
+        batteryModeMaximum: "Максимальная экономия",
+        batteryModeSameCaption: "От батареи Auto EPP выбирает пресеты так же, как от сети.",
+        batteryModeSaveMoreCaption: "От батареи Auto EPP никогда не выбирает «Производительность» и останавливается на «Балансе». При подключении к сети он возвращается к обычному выбору в течение 1,5 с.",
+        batteryModeMaximumCaption: "От батареи Auto EPP остаётся в режиме «Эко», который также отключает Core Performance Boost; ограничение частоты в простое по-прежнему действует только в простое. При подключении к сети он возвращается к обычному выбору в течение 1,5 с.",
+        batteryModeNeedsAutoEpp: "Включите Auto EPP, чтобы использовать это: ручной энергопрофиль или пресет остаётся таким, как вы выбрали.",
+        batteryModeUnavailable: "Нужны CPPC и kext, который применяет EPP.",
         c6IdleForbidden: "Выключено: аргумент загрузки amdcstate=1 запрещает это.",
         c6IdleUnavailable: "Недоступно: нужен AMDRyzenCPUPowerManagement 3.40.0 или новее и адрес C-состояний от прошивки.",
 
@@ -1904,6 +2016,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Derin boşta (CC6)",
         c6IdleCaption: "Boştaki çekirdekler yalnızca durmak yerine CC6'da uyur; bu, boşta güç tüketimini ve sıcaklığı düşürür. Yeniden başlatmadan hemen etkili olur.",
+        idleClockToggle: "Boştayken saat hızını sınırla",
+        idleClockCaption: "Auto EPP işlemciyi boşta (Eko) gördüğü sürece çekirdekler bu saat hızında veya altında çalışır. Boşta eşiğinin üzerindeki yük sınırı 1,5 sn içinde kaldırır. Verimli minimumun altında işlemci her an daha az güç çeker ama iş başına daha fazla enerji harcar.",
+        idleClockNeedsAutoEpp: "Kullanmak için Auto EPP’yi açın: sınır yalnızca Auto EPP işlemciyi boşta gördüğünde uygulanır.",
+        idleClockRangeFormat: "Bu işlemci: en düşük %@, verimli minimum %@, taban %@.",
+        idleClockUnavailable: "CPPC ve kext 3.41.0 veya üstü gerekir.",
+        batteryModeTitle: "Pildeyken",
+        batteryModeSame: "Prize takılıyken olduğu gibi",
+        batteryModeSaveMore: "Daha fazla tasarruf",
+        batteryModeMaximum: "En yüksek tasarruf",
+        batteryModeSameCaption: "Pildeyken Auto EPP hazır ayarlarını prize takılıyken olduğu gibi seçer.",
+        batteryModeSaveMoreCaption: "Pildeyken Auto EPP hiçbir zaman Performans’ı seçmez ve Denge’de durur. Prize takınca 1,5 sn içinde normal seçimine döner.",
+        batteryModeMaximumCaption: "Pildeyken Auto EPP Eko’da kalır, bu da Core Performance Boost’u kapatır; boşta saat sınırı yine yalnızca boştayken uygulanır. Prize takınca 1,5 sn içinde normal seçimine döner.",
+        batteryModeNeedsAutoEpp: "Kullanmak için Auto EPP’yi açın: elle seçilen enerji profili veya hazır ayar seçtiğiniz gibi kalır.",
+        batteryModeUnavailable: "CPPC ve EPP’yi uygulayan bir kext gerekir.",
         c6IdleForbidden: "Kapalı: amdcstate=1 önyükleme argümanı buna izin vermiyor.",
         c6IdleUnavailable: "Kullanılamıyor: AMDRyzenCPUPowerManagement 3.40.0 veya üstü ve bir ürün yazılımı C-state adresi gerekir.",
 
@@ -2127,6 +2253,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "ディープアイドル (CC6)",
         c6IdleCaption: "アイドル中のコアは停止するだけでなくCC6でスリープし、アイドル時の消費電力と温度を下げます。再起動なしですぐに反映されます。",
+        idleClockToggle: "アイドル時のクロックを制限",
+        idleClockCaption: "Auto EPP が CPU をアイドル（Eco）と判断している間、コアはこのクロック以下で動作します。アイドルしきい値を超える負荷があると 1.5 秒以内に制限が解除されます。効率的な最低値より下では瞬間の消費電力は下がりますが、処理あたりのエネルギーは増えます。",
+        idleClockNeedsAutoEpp: "使うには Auto EPP をオンにしてください。制限は Auto EPP が CPU をアイドルと判断している間だけ適用されます。",
+        idleClockRangeFormat: "この CPU：最低 %@、効率的な最低 %@、ベース %@。",
+        idleClockUnavailable: "CPPC と kext 3.41.0 以降が必要です。",
+        batteryModeTitle: "バッテリー使用時",
+        batteryModeSame: "電源接続時と同じ",
+        batteryModeSaveMore: "さらに節約",
+        batteryModeMaximum: "最大限に節約",
+        batteryModeSameCaption: "バッテリー使用時も、自動EPP は電源接続時と同じようにプリセットを選びます。",
+        batteryModeSaveMoreCaption: "バッテリー使用時、自動EPP はパフォーマンスを選ばず、バランスまでにとどめます。電源に接続すると 1.5 秒以内に通常の選択に戻ります。",
+        batteryModeMaximumCaption: "バッテリー使用時、自動EPP はエコのままで、Core Performance Boost もオフになります。アイドル時のクロック制限は引き続きアイドル時のみ適用されます。電源に接続すると 1.5 秒以内に通常の選択に戻ります。",
+        batteryModeNeedsAutoEpp: "使うには自動EPP をオンにしてください。手動のエネルギープロファイルやプリセットは選んだとおりのままです。",
+        batteryModeUnavailable: "CPPC と EPP を適用する kext が必要です。",
         c6IdleForbidden: "オフ: 起動引数 amdcstate=1 によって禁止されています。",
         c6IdleUnavailable: "利用不可: AMDRyzenCPUPowerManagement 3.40.0以降と、ファームウェアのCステートアドレスが必要です。",
 
@@ -2350,6 +2490,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "딥 유휴 (CC6)",
         c6IdleCaption: "유휴 코어가 단순히 멈추는 대신 CC6에서 절전하여 유휴 전력과 온도를 낮춥니다. 재시작 없이 바로 적용됩니다.",
+        idleClockToggle: "유휴 시 클럭 속도 제한",
+        idleClockCaption: "Auto EPP가 CPU를 유휴(Eco)로 보는 동안 코어는 이 클럭 이하로 동작합니다. 유휴 임계값을 넘는 부하가 생기면 1.5초 안에 제한이 풀립니다. 효율 최저값 아래에서는 순간 전력은 줄지만 작업당 에너지는 더 듭니다.",
+        idleClockNeedsAutoEpp: "사용하려면 Auto EPP를 켜세요. 제한은 Auto EPP가 CPU를 유휴로 보는 동안에만 적용됩니다.",
+        idleClockRangeFormat: "이 CPU: 최저 %@, 효율 최저 %@, 기본 %@.",
+        idleClockUnavailable: "CPPC와 kext 3.41.0 이상이 필요합니다.",
+        batteryModeTitle: "배터리 사용 시",
+        batteryModeSame: "전원 연결 시와 동일",
+        batteryModeSaveMore: "더 절약",
+        batteryModeMaximum: "최대 절약",
+        batteryModeSameCaption: "배터리 사용 시에도 자동 EPP는 전원 연결 시와 같은 방식으로 프리셋을 고릅니다.",
+        batteryModeSaveMoreCaption: "배터리 사용 시 자동 EPP는 성능을 고르지 않고 균형까지만 사용합니다. 전원을 연결하면 1.5초 안에 평소 선택으로 돌아갑니다.",
+        batteryModeMaximumCaption: "배터리 사용 시 자동 EPP는 에코를 유지하며 Core Performance Boost도 꺼집니다. 유휴 클럭 제한은 계속 유휴 상태에서만 적용됩니다. 전원을 연결하면 1.5초 안에 평소 선택으로 돌아갑니다.",
+        batteryModeNeedsAutoEpp: "사용하려면 자동 EPP를 켜세요. 수동 에너지 프로필이나 프리셋은 선택한 그대로 유지됩니다.",
+        batteryModeUnavailable: "CPPC와 EPP를 적용하는 kext가 필요합니다.",
         c6IdleForbidden: "꺼짐: 부팅 인수 amdcstate=1이 이를 금지합니다.",
         c6IdleUnavailable: "사용 불가: AMDRyzenCPUPowerManagement 3.40.0 이상과 펌웨어 C-state 주소가 필요합니다.",
 
@@ -2573,6 +2727,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "深度空闲 (CC6)",
         c6IdleCaption: "空闲核心进入 CC6 睡眠而不只是暂停，可降低空闲功耗和温度。立即生效，无需重启。",
+        idleClockToggle: "限制空闲时的时钟频率",
+        idleClockCaption: "当 Auto EPP 判断 CPU 处于空闲（节能）时，核心以此频率或更低运行。负载超过空闲阈值时，限制会在 1.5 秒内解除。低于高效最低频率时，CPU 每一刻的功耗更低，但每项任务消耗的能量更多。",
+        idleClockNeedsAutoEpp: "要使用此功能，请打开 Auto EPP：仅在 Auto EPP 判断 CPU 空闲时才会限制。",
+        idleClockRangeFormat: "此 CPU：最低 %@，高效最低 %@，基础 %@。",
+        idleClockUnavailable: "需要 CPPC 和 kext 3.41.0 或更高版本。",
+        batteryModeTitle: "使用电池时",
+        batteryModeSame: "与接通电源时相同",
+        batteryModeSaveMore: "更省电",
+        batteryModeMaximum: "最省电",
+        batteryModeSameCaption: "使用电池时，自动 EPP 选择预设的方式与接通电源时相同。",
+        batteryModeSaveMoreCaption: "使用电池时，自动 EPP 从不选择性能，最高只到平衡。接通电源后 1.5 秒内恢复正常选择。",
+        batteryModeMaximumCaption: "使用电池时，自动 EPP 保持节能，同时关闭 Core Performance Boost；空闲时钟限制仍只在空闲时生效。接通电源后 1.5 秒内恢复正常选择。",
+        batteryModeNeedsAutoEpp: "打开自动 EPP 才能使用：手动能耗配置或预设保持你的选择。",
+        batteryModeUnavailable: "需要 CPPC 和可应用 EPP 的 kext。",
         c6IdleForbidden: "已关闭：启动参数 amdcstate=1 禁止此功能。",
         c6IdleUnavailable: "不可用：需要 AMDRyzenCPUPowerManagement 3.40.0 或更高版本以及固件提供的 C-state 地址。",
 
@@ -2796,6 +2964,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "深度閒置 (CC6)",
         c6IdleCaption: "閒置核心進入 CC6 睡眠而不只是暫停，可降低閒置功耗與溫度。立即生效，無需重新開機。",
+        idleClockToggle: "限制閒置時的時脈",
+        idleClockCaption: "當 Auto EPP 判斷 CPU 處於閒置（節能）時，核心以此時脈或更低執行。負載超過閒置門檻時，限制會在 1.5 秒內解除。低於高效最低時脈時，CPU 每一刻的功耗較低，但每項工作消耗的能量較多。",
+        idleClockNeedsAutoEpp: "若要使用，請開啟 Auto EPP：只有在 Auto EPP 判斷 CPU 閒置時才會限制。",
+        idleClockRangeFormat: "此 CPU：最低 %@，高效最低 %@，基礎 %@。",
+        idleClockUnavailable: "需要 CPPC 和 kext 3.41.0 或更新版本。",
+        batteryModeTitle: "使用電池時",
+        batteryModeSame: "與接上電源時相同",
+        batteryModeSaveMore: "更省電",
+        batteryModeMaximum: "最省電",
+        batteryModeSameCaption: "使用電池時，自動 EPP 選擇預設的方式與接上電源時相同。",
+        batteryModeSaveMoreCaption: "使用電池時，自動 EPP 從不選擇效能，最高只到平衡。接上電源後 1.5 秒內恢復正常選擇。",
+        batteryModeMaximumCaption: "使用電池時，自動 EPP 維持節能，同時關閉 Core Performance Boost；閒置時脈限制仍只在閒置時生效。接上電源後 1.5 秒內恢復正常選擇。",
+        batteryModeNeedsAutoEpp: "開啟自動 EPP 才能使用：手動能源設定檔或預設維持你的選擇。",
+        batteryModeUnavailable: "需要 CPPC 和可套用 EPP 的 kext。",
         c6IdleForbidden: "已關閉：開機參數 amdcstate=1 禁止此功能。",
         c6IdleUnavailable: "無法使用：需要 AMDRyzenCPUPowerManagement 3.40.0 或更新版本，以及韌體提供的 C-state 位址。",
 
@@ -3021,6 +3203,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Hlboká nečinnosť (CC6)",
         c6IdleCaption: "Nečinné jadrá spia v CC6 namiesto obyčajného zastavenia, čo znižuje spotrebu a teplotu v nečinnosti. Prejaví sa hneď, bez reštartu.",
+        idleClockToggle: "Obmedziť takt pri nečinnosti",
+        idleClockCaption: "Kým Auto EPP vidí procesor nečinný (Eco), jadrá bežia na tomto takte alebo nižšie. Záťaž nad prahom nečinnosti zruší obmedzenie do 1,5 s. Pod efektívnym minimom procesor v každom okamihu odoberá menej, ale na úlohu minie viac energie.",
+        idleClockNeedsAutoEpp: "Na použitie zapnite Auto EPP: obmedzenie platí, len kým Auto EPP vidí procesor nečinný.",
+        idleClockRangeFormat: "Tento procesor: najnižší %@, efektívne minimum %@, základný %@.",
+        idleClockUnavailable: "Vyžaduje CPPC a kext 3.41.0 alebo novší.",
+        batteryModeTitle: "Na batérii",
+        batteryModeSame: "Rovnako ako pri napájaní zo siete",
+        batteryModeSaveMore: "Šetriť viac",
+        batteryModeMaximum: "Maximálna úspora",
+        batteryModeSameCaption: "Na batérii vyberá Auto EPP predvoľby rovnako ako pri napájaní zo siete.",
+        batteryModeSaveMoreCaption: "Na batérii Auto EPP nikdy nevyberie Výkon a zastaví sa na Vyváženom. Po pripojení k sieti sa do 1,5 s vráti k bežnej voľbe.",
+        batteryModeMaximumCaption: "Na batérii Auto EPP zostane na Úspornom, ktorý vypne aj Core Performance Boost; limit taktu v nečinnosti platí naďalej len v nečinnosti. Po pripojení k sieti sa do 1,5 s vráti k bežnej voľbe.",
+        batteryModeNeedsAutoEpp: "Na použitie zapnite Auto EPP: ručný energetický profil alebo predvoľba zostane tak, ako ste ju vybrali.",
+        batteryModeUnavailable: "Vyžaduje CPPC a kext, ktorý uplatňuje EPP.",
         c6IdleForbidden: "Vypnuté: zavádzací argument amdcstate=1 to zakazuje.",
         c6IdleUnavailable: "Nedostupné: vyžaduje AMDRyzenCPUPowerManagement 3.40.0 alebo novší a adresu C-stavov z firmvéru.",
 
@@ -3243,6 +3439,20 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Глибокий простій (CC6)",
         c6IdleCaption: "Ядра в простої засинають у CC6, а не просто зупиняються, що знижує споживання й температуру в простої. Діє одразу, без перезавантаження.",
+        idleClockToggle: "Обмежити частоту в простої",
+        idleClockCaption: "Поки Auto EPP бачить процесор у простої (Eco), ядра працюють на цій частоті або нижче. Навантаження вище порогу простою знімає обмеження протягом 1,5 с. Нижче ефективного мінімуму процесор споживає менше в кожну мить, але витрачає більше енергії на завдання.",
+        idleClockNeedsAutoEpp: "Увімкніть Auto EPP, щоб скористатися цим: обмеження діє, лише поки Auto EPP бачить процесор у простої.",
+        idleClockRangeFormat: "Цей процесор: мінімум %@, ефективний мінімум %@, базова %@.",
+        idleClockUnavailable: "Потрібні CPPC і kext 3.41.0 або новіший.",
+        batteryModeTitle: "Від батареї",
+        batteryModeSame: "Як від мережі",
+        batteryModeSaveMore: "Заощаджувати більше",
+        batteryModeMaximum: "Максимальна економія",
+        batteryModeSameCaption: "Від батареї Auto EPP обирає пресети так само, як від мережі.",
+        batteryModeSaveMoreCaption: "Від батареї Auto EPP ніколи не обирає «Продуктивність» і зупиняється на «Балансі». Після підключення до мережі він повертається до звичайного вибору протягом 1,5 с.",
+        batteryModeMaximumCaption: "Від батареї Auto EPP лишається в режимі «Еко», який також вимикає Core Performance Boost; обмеження частоти в простої, як і раніше, діє лише в простої. Після підключення до мережі він повертається до звичайного вибору протягом 1,5 с.",
+        batteryModeNeedsAutoEpp: "Увімкніть Auto EPP, щоб скористатися цим: ручний енергопрофіль або пресет лишається таким, як ви обрали.",
+        batteryModeUnavailable: "Потрібні CPPC і kext, який застосовує EPP.",
         c6IdleForbidden: "Вимкнено: аргумент завантаження amdcstate=1 це забороняє.",
         c6IdleUnavailable: "Недоступно: потрібен AMDRyzenCPUPowerManagement 3.40.0 або новіший і адреса C-станів від прошивки.",
 

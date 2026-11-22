@@ -388,8 +388,10 @@ public:
     volatile uint8_t *cpcAddress(const AcpiGas &reg);
     bool cpcRead(const CpcValue &v, uint64_t &out);
     bool cpcWrite(const CpcValue &v, uint64_t value);
-    bool applyEPPAcpi(uint8_t epp);
-    bool applyEPPMsr(uint8_t epp);
+    // minLimit/maxLimit: cppcMinPerfLimit/cppcMaxPerfLimit, or 0/0 for the
+    // full range.
+    bool applyEPPAcpi(uint8_t epp, uint8_t minLimit, uint8_t maxLimit);
+    bool applyEPPMsr(uint8_t epp, uint8_t minLimit, uint8_t maxLimit);
     /// Wanted: CPPC autonomous mode with cppcEPPValue (selector 24/25 or
     /// the -amdcppcactive boot-arg).
     bool cppcActiveMode {false};
@@ -400,6 +402,33 @@ public:
     uint8_t cppcAppliedEPP {0};
     uint8_t cppcHighestPerf_perCore[CPUInfo::MaxCpus] {};
     bool cppcThrottled {false};
+    // CPPC performance range the user asked for (selector 69), the
+    // scaling_min_freq / scaling_max_freq of Linux amd-pstate in CPPC perf
+    // units. 0 = the CPU's own bound (LowestPerf / HighestPerf). Each core
+    // clamps them to its own CAP1 range, and min never exceeds max. Only
+    // used in autonomous mode; turning CPPC off goes back to the full range.
+    // Written only by setCppcPerfLimits(), so the timer's apply (under
+    // rendezvousLock) never sees a new min with an old max.
+    uint8_t cppcMinPerfLimit {0};
+    uint8_t cppcMaxPerfLimit {0};
+    /// The user client that set the limits in force (selector 69), compared
+    /// by address and never dereferenced. Its clientClose() lifts them, so a
+    /// crash or a kill cannot leave the CPU capped. Under controlLock.
+    const void *cppcLimitsOwner {nullptr};
+    /// Stores the limits and, in autonomous mode, applies them. The caller
+    /// holds controlLock; takes rendezvousLock. False when the apply failed.
+    bool setCppcPerfLimits(uint8_t minLimit, uint8_t maxLimit);
+    /// The perf range of the CPU (selector 68): CAP1 of the boot CPU on MSR
+    /// CPPC (reinitHwState), the first _CPC after a PCC read on ACPI CPPC
+    /// (applyEPPAcpi). Zero until known.
+    uint8_t cppcCapLowest {0};
+    uint8_t cppcCapLowestNonlinear {0};
+    uint8_t cppcCapNominal {0};
+    uint8_t cppcCapHighest {0};
+    /// The min/max perf pair one core gets for the requested limits, given
+    /// its own CAP1 range. Integer-only: called from rendezvous handlers.
+    static void cppcPerfRange(uint8_t minLimit, uint8_t maxLimit, uint64_t lowest, uint64_t highest,
+                              uint64_t &minPerf, uint64_t &maxPerf);
     // CC6 idle (selector 61). The kext owns the idle loop on every supported
     // family unless `-amdnoidle`; amdcstate=1 forbids CC6, otherwise the app
     // switches it on and off live. cstateIoBase is the firmware's
