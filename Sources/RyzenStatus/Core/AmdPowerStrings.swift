@@ -49,6 +49,11 @@ struct AMDPowerFeatureStrings {
 
     let deepCStatesTitle: String
     let c6IdleCaption: String
+    let idleClockToggle: String
+    let idleClockCaption: String
+    let idleClockNeedsAutoEpp: String
+    let idleClockRangeFormat: String
+    let idleClockUnavailable: String
     let c6IdleForbidden: String
     let c6IdleUnavailable: String
 
@@ -343,6 +348,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Deep idle (CC6)",
         c6IdleCaption: "Idle cores sleep in CC6 instead of only halting, which lowers idle power and temperature. Takes effect at once, no restart.",
+        idleClockToggle: "Limit clock speed at idle",
+        idleClockCaption: "While Auto EPP sees the CPU idle (Eco), the cores run at or below this clock. Load above the idle threshold lifts the limit within 1.5 s. Below the efficient minimum the CPU draws less power at any moment but spends more energy per task.",
+        idleClockNeedsAutoEpp: "Turn on Auto EPP to use it: the limit applies only while Auto EPP sees the CPU idle.",
+        idleClockRangeFormat: "This CPU: lowest %@, efficient minimum %@, base %@.",
+        idleClockUnavailable: "Needs CPPC and kext 3.41.0 or later.",
         c6IdleForbidden: "Off: the amdcstate=1 boot argument forbids it.",
         c6IdleUnavailable: "Not available: needs AMDRyzenCPUPowerManagement 3.40.0 or newer and a firmware C-state address.",
 
@@ -566,6 +576,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Reposo profundo (CC6)",
         c6IdleCaption: "Los núcleos en reposo duermen en CC6 en vez de solo detenerse, lo que baja el consumo y la temperatura en reposo. Se aplica al instante, sin reiniciar.",
+        idleClockToggle: "Limitar la velocidad de reloj en reposo",
+        idleClockCaption: "Mientras Auto EPP ve la CPU en reposo (Eco), los núcleos van a este reloj o menos. Una carga por encima del umbral de reposo quita el límite en menos de 1,5 s. Por debajo del mínimo eficiente la CPU consume menos en cada momento, pero gasta más energía por tarea.",
+        idleClockNeedsAutoEpp: "Activa Auto EPP para usarlo: el límite solo se aplica mientras Auto EPP ve la CPU en reposo.",
+        idleClockRangeFormat: "Esta CPU: mínimo %@, mínimo eficiente %@, base %@.",
+        idleClockUnavailable: "Necesita CPPC y el kext 3.41.0 o posterior.",
         c6IdleForbidden: "Desactivado: el argumento de arranque amdcstate=1 lo prohíbe.",
         c6IdleUnavailable: "No disponible: requiere AMDRyzenCPUPowerManagement 3.40.0 o posterior y una dirección de C-states del firmware.",
 
@@ -789,6 +804,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Repouso profundo (CC6)",
         c6IdleCaption: "Os núcleos ociosos dormem em CC6 em vez de apenas parar, o que reduz o consumo e a temperatura em repouso. Aplica-se na hora, sem reiniciar.",
+        idleClockToggle: "Limitar a velocidade de clock em repouso",
+        idleClockCaption: "Enquanto o Auto EPP vê a CPU em repouso (Eco), os núcleos rodam neste clock ou abaixo. Uma carga acima do limite de repouso tira o limite em até 1,5 s. Abaixo do mínimo eficiente a CPU consome menos a cada instante, mas gasta mais energia por tarefa.",
+        idleClockNeedsAutoEpp: "Ative o Auto EPP para usar: o limite só vale enquanto o Auto EPP vê a CPU em repouso.",
+        idleClockRangeFormat: "Esta CPU: mínimo %@, mínimo eficiente %@, base %@.",
+        idleClockUnavailable: "Requer CPPC e o kext 3.41.0 ou posterior.",
         c6IdleForbidden: "Desativado: o argumento de inicialização amdcstate=1 o proíbe.",
         c6IdleUnavailable: "Indisponível: requer AMDRyzenCPUPowerManagement 3.40.0 ou mais recente e um endereço de C-states do firmware.",
 
@@ -1012,6 +1032,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Tiefer Leerlauf (CC6)",
         c6IdleCaption: "Kerne im Leerlauf schlafen in CC6, statt nur anzuhalten. Das senkt Leistungsaufnahme und Temperatur im Leerlauf. Wirkt sofort, ohne Neustart.",
+        idleClockToggle: "Taktfrequenz im Leerlauf begrenzen",
+        idleClockCaption: "Solange Auto EPP die CPU im Leerlauf sieht (Eco), laufen die Kerne höchstens mit diesem Takt. Last über der Leerlaufschwelle hebt die Grenze innerhalb von 1,5 s auf. Unter dem effizienten Minimum nimmt die CPU in jedem Moment weniger Leistung auf, braucht aber mehr Energie pro Aufgabe.",
+        idleClockNeedsAutoEpp: "Schalte Auto EPP ein, um sie zu nutzen: Die Grenze gilt nur, solange Auto EPP die CPU im Leerlauf sieht.",
+        idleClockRangeFormat: "Diese CPU: niedrigster %@, effizientes Minimum %@, Basis %@.",
+        idleClockUnavailable: "Erfordert CPPC und Kext 3.41.0 oder neuer.",
         c6IdleForbidden: "Aus: Das Boot-Argument amdcstate=1 verbietet es.",
         c6IdleUnavailable: "Nicht verfügbar: erfordert AMDRyzenCPUPowerManagement 3.40.0 oder neuer und eine C-State-Adresse der Firmware.",
 
@@ -1235,6 +1260,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Veille profonde (CC6)",
         c6IdleCaption: "Les cœurs au repos dorment en CC6 au lieu de simplement s'arrêter, ce qui réduit la consommation et la température au repos. Effet immédiat, sans redémarrage.",
+        idleClockToggle: "Limiter la fréquence au repos",
+        idleClockCaption: "Tant qu’Auto EPP voit le processeur au repos (Éco), les cœurs tournent à cette fréquence ou en dessous. Une charge au-dessus du seuil de repos lève la limite en moins de 1,5 s. Sous le minimum efficace, le processeur consomme moins à chaque instant mais dépense plus d’énergie par tâche.",
+        idleClockNeedsAutoEpp: "Activez Auto EPP pour l’utiliser : la limite ne s’applique que tant qu’Auto EPP voit le processeur au repos.",
+        idleClockRangeFormat: "Ce processeur : minimum %@, minimum efficace %@, base %@.",
+        idleClockUnavailable: "Nécessite CPPC et le kext 3.41.0 ou ultérieur.",
         c6IdleForbidden: "Désactivé : l'argument de démarrage amdcstate=1 l'interdit.",
         c6IdleUnavailable: "Indisponible : nécessite AMDRyzenCPUPowerManagement 3.40.0 ou plus récent et une adresse de C-states du firmware.",
 
@@ -1458,6 +1488,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Inattività profonda (CC6)",
         c6IdleCaption: "I core inattivi dormono in CC6 invece di fermarsi soltanto, riducendo consumo e temperatura a riposo. Effetto immediato, senza riavvio.",
+        idleClockToggle: "Limita la frequenza a riposo",
+        idleClockCaption: "Finché Auto EPP vede la CPU a riposo (Eco), i core girano a questa frequenza o meno. Un carico sopra la soglia di riposo toglie il limite entro 1,5 s. Sotto il minimo efficiente la CPU assorbe meno in ogni istante, ma spende più energia per attività.",
+        idleClockNeedsAutoEpp: "Attiva Auto EPP per usarlo: il limite vale solo finché Auto EPP vede la CPU a riposo.",
+        idleClockRangeFormat: "Questa CPU: minimo %@, minimo efficiente %@, base %@.",
+        idleClockUnavailable: "Richiede CPPC e il kext 3.41.0 o successivo.",
         c6IdleForbidden: "Disattivato: l'argomento di avvio amdcstate=1 lo vieta.",
         c6IdleUnavailable: "Non disponibile: richiede AMDRyzenCPUPowerManagement 3.40.0 o successivo e un indirizzo C-state del firmware.",
 
@@ -1681,6 +1716,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Глубокий простой (CC6)",
         c6IdleCaption: "Простаивающие ядра засыпают в CC6, а не просто останавливаются, что снижает потребление и температуру в простое. Действует сразу, без перезагрузки.",
+        idleClockToggle: "Ограничить частоту в простое",
+        idleClockCaption: "Пока Auto EPP видит процессор в простое (Eco), ядра работают на этой частоте или ниже. Нагрузка выше порога простоя снимает ограничение в течение 1,5 с. Ниже эффективного минимума процессор потребляет меньше в каждый момент, но тратит больше энергии на задачу.",
+        idleClockNeedsAutoEpp: "Включите Auto EPP, чтобы использовать это: ограничение действует, только пока Auto EPP видит процессор в простое.",
+        idleClockRangeFormat: "Этот процессор: минимум %@, эффективный минимум %@, базовая %@.",
+        idleClockUnavailable: "Нужны CPPC и kext 3.41.0 или новее.",
         c6IdleForbidden: "Выключено: аргумент загрузки amdcstate=1 запрещает это.",
         c6IdleUnavailable: "Недоступно: нужен AMDRyzenCPUPowerManagement 3.40.0 или новее и адрес C-состояний от прошивки.",
 
@@ -1904,6 +1944,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Derin boşta (CC6)",
         c6IdleCaption: "Boştaki çekirdekler yalnızca durmak yerine CC6'da uyur; bu, boşta güç tüketimini ve sıcaklığı düşürür. Yeniden başlatmadan hemen etkili olur.",
+        idleClockToggle: "Boştayken saat hızını sınırla",
+        idleClockCaption: "Auto EPP işlemciyi boşta (Eko) gördüğü sürece çekirdekler bu saat hızında veya altında çalışır. Boşta eşiğinin üzerindeki yük sınırı 1,5 sn içinde kaldırır. Verimli minimumun altında işlemci her an daha az güç çeker ama iş başına daha fazla enerji harcar.",
+        idleClockNeedsAutoEpp: "Kullanmak için Auto EPP’yi açın: sınır yalnızca Auto EPP işlemciyi boşta gördüğünde uygulanır.",
+        idleClockRangeFormat: "Bu işlemci: en düşük %@, verimli minimum %@, taban %@.",
+        idleClockUnavailable: "CPPC ve kext 3.41.0 veya üstü gerekir.",
         c6IdleForbidden: "Kapalı: amdcstate=1 önyükleme argümanı buna izin vermiyor.",
         c6IdleUnavailable: "Kullanılamıyor: AMDRyzenCPUPowerManagement 3.40.0 veya üstü ve bir ürün yazılımı C-state adresi gerekir.",
 
@@ -2127,6 +2172,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "ディープアイドル (CC6)",
         c6IdleCaption: "アイドル中のコアは停止するだけでなくCC6でスリープし、アイドル時の消費電力と温度を下げます。再起動なしですぐに反映されます。",
+        idleClockToggle: "アイドル時のクロックを制限",
+        idleClockCaption: "Auto EPP が CPU をアイドル（Eco）と判断している間、コアはこのクロック以下で動作します。アイドルしきい値を超える負荷があると 1.5 秒以内に制限が解除されます。効率的な最低値より下では瞬間の消費電力は下がりますが、処理あたりのエネルギーは増えます。",
+        idleClockNeedsAutoEpp: "使うには Auto EPP をオンにしてください。制限は Auto EPP が CPU をアイドルと判断している間だけ適用されます。",
+        idleClockRangeFormat: "この CPU：最低 %@、効率的な最低 %@、ベース %@。",
+        idleClockUnavailable: "CPPC と kext 3.41.0 以降が必要です。",
         c6IdleForbidden: "オフ: 起動引数 amdcstate=1 によって禁止されています。",
         c6IdleUnavailable: "利用不可: AMDRyzenCPUPowerManagement 3.40.0以降と、ファームウェアのCステートアドレスが必要です。",
 
@@ -2350,6 +2400,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "딥 유휴 (CC6)",
         c6IdleCaption: "유휴 코어가 단순히 멈추는 대신 CC6에서 절전하여 유휴 전력과 온도를 낮춥니다. 재시작 없이 바로 적용됩니다.",
+        idleClockToggle: "유휴 시 클럭 속도 제한",
+        idleClockCaption: "Auto EPP가 CPU를 유휴(Eco)로 보는 동안 코어는 이 클럭 이하로 동작합니다. 유휴 임계값을 넘는 부하가 생기면 1.5초 안에 제한이 풀립니다. 효율 최저값 아래에서는 순간 전력은 줄지만 작업당 에너지는 더 듭니다.",
+        idleClockNeedsAutoEpp: "사용하려면 Auto EPP를 켜세요. 제한은 Auto EPP가 CPU를 유휴로 보는 동안에만 적용됩니다.",
+        idleClockRangeFormat: "이 CPU: 최저 %@, 효율 최저 %@, 기본 %@.",
+        idleClockUnavailable: "CPPC와 kext 3.41.0 이상이 필요합니다.",
         c6IdleForbidden: "꺼짐: 부팅 인수 amdcstate=1이 이를 금지합니다.",
         c6IdleUnavailable: "사용 불가: AMDRyzenCPUPowerManagement 3.40.0 이상과 펌웨어 C-state 주소가 필요합니다.",
 
@@ -2573,6 +2628,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "深度空闲 (CC6)",
         c6IdleCaption: "空闲核心进入 CC6 睡眠而不只是暂停，可降低空闲功耗和温度。立即生效，无需重启。",
+        idleClockToggle: "限制空闲时的时钟频率",
+        idleClockCaption: "当 Auto EPP 判断 CPU 处于空闲（节能）时，核心以此频率或更低运行。负载超过空闲阈值时，限制会在 1.5 秒内解除。低于高效最低频率时，CPU 每一刻的功耗更低，但每项任务消耗的能量更多。",
+        idleClockNeedsAutoEpp: "要使用此功能，请打开 Auto EPP：仅在 Auto EPP 判断 CPU 空闲时才会限制。",
+        idleClockRangeFormat: "此 CPU：最低 %@，高效最低 %@，基础 %@。",
+        idleClockUnavailable: "需要 CPPC 和 kext 3.41.0 或更高版本。",
         c6IdleForbidden: "已关闭：启动参数 amdcstate=1 禁止此功能。",
         c6IdleUnavailable: "不可用：需要 AMDRyzenCPUPowerManagement 3.40.0 或更高版本以及固件提供的 C-state 地址。",
 
@@ -2796,6 +2856,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "深度閒置 (CC6)",
         c6IdleCaption: "閒置核心進入 CC6 睡眠而不只是暫停，可降低閒置功耗與溫度。立即生效，無需重新開機。",
+        idleClockToggle: "限制閒置時的時脈",
+        idleClockCaption: "當 Auto EPP 判斷 CPU 處於閒置（節能）時，核心以此時脈或更低執行。負載超過閒置門檻時，限制會在 1.5 秒內解除。低於高效最低時脈時，CPU 每一刻的功耗較低，但每項工作消耗的能量較多。",
+        idleClockNeedsAutoEpp: "若要使用，請開啟 Auto EPP：只有在 Auto EPP 判斷 CPU 閒置時才會限制。",
+        idleClockRangeFormat: "此 CPU：最低 %@，高效最低 %@，基礎 %@。",
+        idleClockUnavailable: "需要 CPPC 和 kext 3.41.0 或更新版本。",
         c6IdleForbidden: "已關閉：開機參數 amdcstate=1 禁止此功能。",
         c6IdleUnavailable: "無法使用：需要 AMDRyzenCPUPowerManagement 3.40.0 或更新版本，以及韌體提供的 C-state 位址。",
 
@@ -3021,6 +3086,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Hlboká nečinnosť (CC6)",
         c6IdleCaption: "Nečinné jadrá spia v CC6 namiesto obyčajného zastavenia, čo znižuje spotrebu a teplotu v nečinnosti. Prejaví sa hneď, bez reštartu.",
+        idleClockToggle: "Obmedziť takt pri nečinnosti",
+        idleClockCaption: "Kým Auto EPP vidí procesor nečinný (Eco), jadrá bežia na tomto takte alebo nižšie. Záťaž nad prahom nečinnosti zruší obmedzenie do 1,5 s. Pod efektívnym minimom procesor v každom okamihu odoberá menej, ale na úlohu minie viac energie.",
+        idleClockNeedsAutoEpp: "Na použitie zapnite Auto EPP: obmedzenie platí, len kým Auto EPP vidí procesor nečinný.",
+        idleClockRangeFormat: "Tento procesor: najnižší %@, efektívne minimum %@, základný %@.",
+        idleClockUnavailable: "Vyžaduje CPPC a kext 3.41.0 alebo novší.",
         c6IdleForbidden: "Vypnuté: zavádzací argument amdcstate=1 to zakazuje.",
         c6IdleUnavailable: "Nedostupné: vyžaduje AMDRyzenCPUPowerManagement 3.40.0 alebo novší a adresu C-stavov z firmvéru.",
 
@@ -3243,6 +3313,11 @@ extension AMDPowerFeatureStrings {
 
         deepCStatesTitle: "Глибокий простій (CC6)",
         c6IdleCaption: "Ядра в простої засинають у CC6, а не просто зупиняються, що знижує споживання й температуру в простої. Діє одразу, без перезавантаження.",
+        idleClockToggle: "Обмежити частоту в простої",
+        idleClockCaption: "Поки Auto EPP бачить процесор у простої (Eco), ядра працюють на цій частоті або нижче. Навантаження вище порогу простою знімає обмеження протягом 1,5 с. Нижче ефективного мінімуму процесор споживає менше в кожну мить, але витрачає більше енергії на завдання.",
+        idleClockNeedsAutoEpp: "Увімкніть Auto EPP, щоб скористатися цим: обмеження діє, лише поки Auto EPP бачить процесор у простої.",
+        idleClockRangeFormat: "Цей процесор: мінімум %@, ефективний мінімум %@, базова %@.",
+        idleClockUnavailable: "Потрібні CPPC і kext 3.41.0 або новіший.",
         c6IdleForbidden: "Вимкнено: аргумент завантаження amdcstate=1 це забороняє.",
         c6IdleUnavailable: "Недоступно: потрібен AMDRyzenCPUPowerManagement 3.40.0 або новіший і адреса C-станів від прошивки.",
 

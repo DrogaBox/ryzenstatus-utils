@@ -53,6 +53,12 @@ final class AutoEppService: ObservableObject {
     /// preset than it (see `AutoEppPolicy.settle`).
     private var appliedTarget: AutoEppTarget?
     private var stepDownPolls = 0
+    /// The CPPC max perf this service last wrote for the idle clock limit
+    /// (0 = none), nil when unknown: the next poll writes it again.
+    fileprivate var appliedIdleMaxPerf: UInt8?
+    /// The CPU's CPPC range, read once per kext load (selector 68).
+    fileprivate var cppcRange: AMDCppcRange?
+    fileprivate var cppcUnsupported = false
     private var wakeObserver: Any?
     /// Set by suspend()/resume(): Gaming Mode holds the power settings.
     private(set) var isSuspended: Bool = false
@@ -83,6 +89,7 @@ final class AutoEppService: ObservableObject {
         lastAppliedPreset = nil
         appliedTarget = nil
         stepDownPolls = 0
+        appliedIdleMaxPerf = nil
     }
 
     // MARK: - Lifecycle
@@ -111,6 +118,15 @@ final class AutoEppService: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         AmdPresetController.shared.showAutoPreset(nil)
+        liftIdleClockLimit()
+    }
+
+    /// Puts the full CPPC range back when this service may have narrowed it:
+    /// Auto EPP off, paused for Gaming Mode, or the app quitting.
+    private func liftIdleClockLimit() {
+        guard let applied = appliedIdleMaxPerf, applied != 0, canRun else { return }
+        appliedIdleMaxPerf = 0
+        _ = ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: 0)
     }
 
     /// Stops the monitoring loop. Called on termination.
@@ -132,6 +148,8 @@ final class AutoEppService: ObservableObject {
         writesTakeEffect = ProcessorModel.eppWritesTakeEffect
         canRun = loaded
         resetApplied()
+        cppcRange = nil
+        cppcUnsupported = false
         currentEPP = nil
         currentTarget = ""
         if !loaded { stopLoop() }
@@ -228,6 +246,7 @@ final class AutoEppService: ObservableObject {
             // The boost, PPM/LPM and CC6 toggles show what the kext now holds.
             Task { await AmdPowerControlsModel.shared.syncFromKext() }
         }
+        if lastAppliedPreset == preset { applyIdleClockLimit(for: preset) }
 
         // A loop stopped while this poll ran must not publish its target.
         guard pollTask != nil else { return }
@@ -240,6 +259,36 @@ final class AutoEppService: ObservableObject {
         let epp: UInt8? = applied && writesTakeEffect ? preset.eppValue : nil
         if currentEPP != epp { currentEPP = epp }
         AmdPresetController.shared.showAutoPreset(applied ? preset : nil)
+    }
+}
+
+extension AutoEppService {
+    /// The CPPC range the idle clock limit is set in (selector 68). Kept once
+    /// known; nil while the kext cannot report it, and `cppcUnsupported`
+    /// stops asking a kext without selector 68 or without CPPC.
+    func currentCppcRange() -> AMDCppcRange? {
+        if let cppcRange { return cppcRange }
+        guard canRun, !cppcUnsupported else { return nil }
+        guard let range = ProcessorModel.shared.getCppcRange(), range.mechanism != .none else {
+            cppcUnsupported = true
+            return nil
+        }
+        // ACPI CPPC reports its range only after the first EPP write.
+        if range.isKnown { cppcRange = range }
+        return range
+    }
+
+    /// Writes the CPPC max perf for this preset (the idle clock limit while
+    /// Eco holds, none otherwise) when it differs from the last one written.
+    /// A refused write records nothing, so the next poll retries.
+    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset) {
+        guard let range = currentCppcRange() else { return }
+        let limit = AmdSettingsStore.shared.autoEppIdleClockLimitMHz
+        let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
+        guard maxPerf != appliedIdleMaxPerf else { return }
+        if ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: maxPerf) == KERN_SUCCESS {
+            appliedIdleMaxPerf = maxPerf
+        }
     }
 }
 

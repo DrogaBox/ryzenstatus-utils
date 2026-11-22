@@ -26,6 +26,8 @@ struct AMDPowerCapabilities: OptionSet, Equatable, Sendable {
     static let pmTable         = AMDPowerCapabilities(rawValue: 1 << 10)
     static let c6Idle          = AMDPowerCapabilities(rawValue: 1 << 11)
     static let epp             = AMDPowerCapabilities(rawValue: 1 << 12)
+    /// CPPC min/max perf limits, selectors 68/69 (kext 3.41.0+).
+    static let cppcLimits      = AMDPowerCapabilities(rawValue: 1 << 13)
 
     /// Any power limit at all (selector 41).
     var hasPowerLimits: Bool { !isDisjoint(with: [.pptTdcEdcLimits, .apuPowerLimit]) }
@@ -99,6 +101,82 @@ struct AMDCStatePolicy: Equatable, Sendable {
         ioBase = count > 3 ? raw[3] : 0
         c6Available = count > 4 && raw[4] == 1
         forbiddenByBootArg = count > 5 && raw[5] == 1
+    }
+}
+
+// MARK: - CPPC performance range (selectors 68/69)
+
+/// The CPU's CPPC performance scale and the min/max limits the kext holds,
+/// the macOS side of Linux amd-pstate's cpuinfo_min_freq /
+/// amd_pstate_lowest_nonlinear_freq / scaling_min_freq / scaling_max_freq.
+/// Perf units are abstract; like amd-pstate, MHz = perf × base clock ÷
+/// nominal perf, with the base clock taken from P-state 0.
+struct AMDCppcRange: Equatable, Sendable {
+    enum Mechanism: UInt64, Sendable { case none = 0, msr = 1, acpi = 2 }
+
+    let mechanism: Mechanism
+    let lowest: UInt8
+    let lowestNonlinear: UInt8
+    let nominal: UInt8
+    let highest: UInt8
+    /// 0 = the CPU's own bound.
+    let minLimit: UInt8
+    let maxLimit: UInt8
+    /// CPPC autonomous mode is engaged, so the limits reach the cores.
+    let limitsInForce: Bool
+    /// P-state 0 (base clock) in MHz, nil when the kext has none.
+    let baseMHz: Double?
+
+    init(raw: [UInt64], count: Int, baseMHz: Double?) {
+        func byte(_ i: Int) -> UInt8 { i < count ? UInt8(truncatingIfNeeded: raw[i]) : 0 }
+        mechanism = Mechanism(rawValue: count > 0 ? raw[0] : 0) ?? .none
+        lowest = byte(1)
+        lowestNonlinear = byte(2)
+        nominal = byte(3)
+        highest = byte(4)
+        minLimit = byte(5)
+        maxLimit = byte(6)
+        limitsInForce = count > 7 && raw[7] == 1
+        if let baseMHz, baseMHz.isFinite, baseMHz >= 400 { self.baseMHz = baseMHz } else { self.baseMHz = nil }
+    }
+
+    /// The perf scale is known and usable for a MHz slider.
+    var isKnown: Bool {
+        mechanism != .none && lowest > 0 && nominal >= lowest && highest >= nominal && baseMHz != nil
+    }
+
+    /// The clock a perf level stands for, rounded to 25 MHz.
+    func mhz(perf: UInt8) -> Int? {
+        guard let baseMHz, nominal > 0 else { return nil }
+        let value = Double(perf) * baseMHz / Double(nominal)
+        return Int((value / 25).rounded()) * 25
+    }
+
+    /// The highest perf level whose clock does not pass `mhz`, kept inside
+    /// lowest…highest.
+    func perf(atMost mhz: Int) -> UInt8 {
+        guard let baseMHz, nominal > 0 else { return highest }
+        let raw = (Double(mhz) * Double(nominal) / baseMHz).rounded(.down)
+        return UInt8(min(max(raw, Double(lowest)), Double(highest)))
+    }
+
+    /// The idle limit slider: from the lowest clock up to the base clock.
+    var idleLimitRangeMHz: ClosedRange<Int>? {
+        guard isKnown, let low = mhz(perf: lowest), let base = mhz(perf: nominal), base > low else { return nil }
+        return low...base
+    }
+}
+
+/// When the idle clock limit is written. Kept apart from the service so it
+/// can be tested.
+enum AMDIdleClockLimitPolicy {
+    /// The CPPC max perf for one Auto EPP decision: the limit while Auto EPP
+    /// holds Eco (the CPU is idle), 0 (no limit) otherwise or when the limit
+    /// is off, the range is unknown or the limit would not lower anything.
+    static func maxPerf(preset: AMDPowerPreset, limitMHz: Int, range: AMDCppcRange?) -> UInt8 {
+        guard preset == .eco, limitMHz > 0, let range, range.isKnown else { return 0 }
+        let perf = range.perf(atMost: limitMHz)
+        return perf >= range.highest ? 0 : perf
     }
 }
 
@@ -177,7 +255,7 @@ struct AMDAcpiCppcReport: Equatable, Sendable {
     }
 }
 
-// MARK: - Kext calls (selectors 34, 61–67)
+// MARK: - Kext calls (selectors 34, 61–69)
 
 extension ProcessorModel {
     nonisolated func getPowerControlState() -> AMDPowerControlState? {
@@ -232,6 +310,31 @@ extension ProcessorModel {
         }
         guard res == KERN_SUCCESS else { return nil }
         return AMDAcpiCppcReport(words: words)
+    }
+
+    /// The CPPC range and limits (selector 68) with the base clock from
+    /// P-state 0 (selector 1); nil when the kext predates selector 68.
+    nonisolated func getCppcRange() -> AMDCppcRange? {
+        var output = [UInt64](repeating: 0, count: 8)
+        var outputCount: UInt32 = 8
+        let res = safeIOConnectCallMethod(AMDKextSelector.cppcRangeRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 1 else { return nil }
+        var clocks = [Float](repeating: 0, count: 8)
+        var size = clocks.count * MemoryLayout<Float>.size
+        let clockRes = clocks.withUnsafeMutableBytes { buffer in
+            safeIOConnectCallMethod(AMDKextSelector.pStateDefClock, nil, 0, nil, 0,
+                                    nil, nil, buffer.baseAddress, &size)
+        }
+        let base = clockRes == KERN_SUCCESS ? Double(clocks[0]) : 0
+        return AMDCppcRange(raw: output, count: Int(outputCount), baseMHz: base)
+    }
+
+    /// CPPC min/max perf limits, 0 = the CPU's own bound (selector 69).
+    @discardableResult
+    nonisolated func setCppcLimits(minPerf: UInt8, maxPerf: UInt8) -> kern_return_t {
+        var input: [UInt64] = [UInt64(minPerf), UInt64(maxPerf)]
+        return safeIOConnectCallMethod(AMDKextSelector.cppcRangeWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
     }
 
     /// One PCC read: (highest, nominal, lowest non-linear, lowest, EPP,

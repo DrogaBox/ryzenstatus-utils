@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import Foundation
+
+/// Idle clock limit (issue 108): the CPPC perf range the kext reports
+/// (selector 68), its MHz conversion, when Auto EPP writes a max perf
+/// (selector 69), and the kext's clamping of the limits.
+enum CppcIdleClockLimitTests {
+    static func run(_ suite: TestSuite) {
+        rangeDecoding(suite)
+        conversion(suite)
+        policy(suite)
+        kextSource(suite)
+    }
+
+    /// A Cezanne-like range: lowest 13, lowest non-linear 38, nominal 100,
+    /// highest 139, base clock 3200 MHz (lowest = 416 MHz).
+    private static func cezanne(min: UInt64 = 0, max: UInt64 = 0, base: Double? = 3200) -> AMDCppcRange {
+        AMDCppcRange(raw: [1, 13, 38, 100, 139, min, max, 1], count: 8, baseMHz: base)
+    }
+
+    private static func rangeDecoding(_ suite: TestSuite) {
+        let r = cezanne(min: 0, max: 25)
+        suite.expect(r.mechanism == .msr && r.lowest == 13 && r.lowestNonlinear == 38
+                     && r.nominal == 100 && r.highest == 139, "selector 68 words decode in order")
+        suite.expect(r.minLimit == 0 && r.maxLimit == 25 && r.limitsInForce, "limits and in-force flag decode")
+        suite.expect(r.isKnown, "a complete range with a base clock is known")
+        suite.expect(!cezanne(base: nil).isKnown, "no base clock: no MHz slider")
+        suite.expect(!cezanne(base: 0).isKnown, "a zero P0 clock counts as no base clock")
+        let acpiBeforeEngage = AMDCppcRange(raw: [2, 0, 0, 0, 0, 0, 0, 0], count: 8, baseMHz: 3800)
+        suite.expect(acpiBeforeEngage.mechanism == .acpi && !acpiBeforeEngage.isKnown,
+                     "ACPI CPPC before the first PCC read is not known yet")
+        let short = AMDCppcRange(raw: [1, 13, 0, 0, 0, 0, 0, 0], count: 2, baseMHz: 3200)
+        suite.expect(short.nominal == 0 && !short.isKnown, "a short reply leaves the missing words at 0")
+        let none = AMDCppcRange(raw: [9], count: 1, baseMHz: 3200)
+        suite.expect(none.mechanism == .none, "an unknown mechanism reads as none")
+    }
+
+    private static func conversion(_ suite: TestSuite) {
+        let r = cezanne()
+        suite.expect(r.mhz(perf: 100) == 3200, "nominal perf is the base clock")
+        suite.expect(r.mhz(perf: 13) == 425, "lowest perf 13 → 416 MHz, rounded to 25 MHz (got \(r.mhz(perf: 13) ?? -1))")
+        suite.expect(r.mhz(perf: 38) == 1225, "lowest non-linear 38 → 1216 MHz → 1225 (got \(r.mhz(perf: 38) ?? -1))")
+        suite.expect(r.perf(atMost: 800) == 25, "800 MHz → perf 25 (800 MHz exactly)")
+        suite.expect(r.perf(atMost: 799) == 24, "the perf never passes the asked clock")
+        suite.expect(r.perf(atMost: 100) == 13, "below the lowest clock it clamps to lowest perf")
+        suite.expect(r.perf(atMost: 9000) == 139, "above the boost clock it clamps to highest perf")
+        suite.expect(r.idleLimitRangeMHz == 425...3200, "the slider spans lowest…base clock")
+        suite.expect(cezanne(base: nil).idleLimitRangeMHz == nil, "no slider without a base clock")
+        suite.expect(IdleClockLimitRow.clock(800) == "800 MHz", "clocks below 1 GHz read in MHz")
+    }
+
+    private static func policy(_ suite: TestSuite) {
+        let r = cezanne()
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 800, range: r) == 25,
+                     "Eco (idle) with an 800 MHz limit writes max perf 25")
+        for preset in [AMDPowerPreset.balance, .performance, .extreme] {
+            suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: 800, range: r) == 0,
+                         "\(preset) lifts the limit")
+        }
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 0, range: r) == 0,
+                     "limit off: no max perf")
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 800, range: nil) == 0,
+                     "no range: nothing written")
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 800, range: cezanne(base: nil)) == 0,
+                     "unknown base clock: nothing written")
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 9000, range: r) == 0,
+                     "a limit at or above the boost clock is no limit")
+        suite.expect(AMDIdleClockLimitPolicy.maxPerf(preset: .eco, limitMHz: 100, range: r) == 13,
+                     "a limit under the lowest clock holds at lowest perf")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.autoEppIdleClockLimitMHz] == nil,
+                     "the idle clock limit is off unless the user sets it")
+    }
+
+    private static func kextSource(_ suite: TestSuite) {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let dir = root.appendingPathComponent("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement")
+        guard let pm = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8),
+              let uc = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8)
+        else {
+            suite.expect(false, "kext sources readable")
+            return
+        }
+        suite.expect(pm.contains("if (maxLimit != 0 && maxLimit < highest) maxPerf = maxLimit < lowest ? lowest : maxLimit;")
+                     && pm.contains("if (minLimit > lowest) minPerf = minLimit > maxPerf ? maxPerf : minLimit;"),
+                     "the kext clamps max into lowest…highest and min into lowest…max")
+        suite.expect(pm.contains("cppcPerfRange(a->minLimit, a->maxLimit, lowest, highest, minPerf, maxPerf);")
+                     && pm.contains("cppcPerfRange(minLimit, maxLimit, lowest, highest, minPerf, maxPerf);"),
+                     "both the MSR and the ACPI path apply the limits per core")
+        suite.expect(pm.contains("minLimit = cppcMinPerfLimit;") && pm.contains("uint8_t minLimit = 0, maxLimit = 0;"),
+                     "limits hold only in autonomous mode; CPPC off goes back to the full range")
+        suite.expect(uc.contains("if (!hasPrivilege(69)) return kIOReturnNotPrivileged;"),
+                     "selector 69 needs privilege")
+        suite.expect(uc.contains("if (minPerf != 0 && maxPerf != 0 && minPerf > maxPerf) return kIOReturnBadArgument;"),
+                     "selector 69 refuses an inverted range")
+        suite.expect(!uc.contains("hasPrivilege(68)"), "selector 68 is a read for everyone")
+    }
+}

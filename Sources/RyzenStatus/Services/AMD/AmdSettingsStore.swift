@@ -26,6 +26,12 @@ public final class AmdSettingsStore: ObservableObject {
         defaults.integer(forKey: DefaultsKey.autoEppLoadThreshold)
     }
 
+    /// CPPC max clock (MHz) while Auto EPP holds Eco; 0 = no limit.
+    public var autoEppIdleClockLimitMHz: Int {
+        get { max(0, defaults.integer(forKey: DefaultsKey.autoEppIdleClockLimitMHz)) }
+        set { defaults.set(max(0, newValue), forKey: DefaultsKey.autoEppIdleClockLimitMHz) }
+    }
+
     // MARK: - Gaming Mode Settings
 
     public var gamingModeActive: Bool {
