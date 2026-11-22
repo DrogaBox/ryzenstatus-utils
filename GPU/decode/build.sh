@@ -69,6 +69,7 @@ if [[ ${1:-} == tests ]]; then
   TFLAGS=(-arch x86_64 -O1 -g -Wall -Wextra -Wno-unused-function -Wno-unused-parameter
           -fsanitize=address,undefined -fno-sanitize-recover=undefined)
   xcrun clang $TFLAGS -Iav1 -Ivp9 tests/parsedigest.c av1/av1parse.c vp9/vp9parse.c -o $T/parsedigest
+  xcrun clang $TFLAGS -Iav1 -Ivp9 tests/parsefuzz.c av1/av1parse.c vp9/vp9parse.c -o $T/parsefuzz
   xcrun clang $TFLAGS -Iav1 tests/av1state.c av1/av1parse.c -o $T/av1state
   xcrun clang $TFLAGS -Ivp9 tests/vp9state.c vp9/vp9parse.c -o $T/vp9state
   for c in AV1 VP9; do
