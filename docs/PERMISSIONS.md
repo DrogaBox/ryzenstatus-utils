@@ -137,6 +137,16 @@ You can review or change every grant in System Settings, under Privacy and Secur
 
 **Optional.** Yes, and it is a one time choice. The rule is limited to `pmset disablesleep` and nothing else, and it goes away on its own when you uninstall RyzenStatus or reset things from Settings under Advanced.
 
+## Administrator, until restart and optional
+
+**Why it comes up.** With the GPU sensors kext on an AMD Radeon RX 6000 card, the GPU control page can change the power limit, the fan curve and the maximum clock. Those changes reach the card's driver, so they are opened only when you click Allow GPU Changes and type your administrator password.
+
+**What uses it.** The GPU control page in Settings and its row in the menu bar panel.
+
+**If you say no.** The page still shows the card's readings and settings, but changes nothing.
+
+**Optional.** Yes. Changes stay open until the Mac restarts or you close them again, and RyzenStatus never asks for the password on its own.
+
 ## Automation
 
 **Why it comes up.** A few features ask another app, Music, Spotify, Finder or Terminal, to answer or do something for you, and macOS guards that with an Automation prompt the first time it happens.
