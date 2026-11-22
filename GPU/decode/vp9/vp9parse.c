@@ -136,6 +136,11 @@ static void tile_info(BR* b, VP9Frame* h) {
   max_log2--;
   h->log2_tile_cols = min_log2;
   while (h->log2_tile_cols < max_log2 && f(b, 1)) h->log2_tile_cols++;
+  // At most 64 tile columns, as libvpx setup_tile_info enforces.
+  if (h->log2_tile_cols > 6) {
+    b->over = true;
+    return;
+  }
   h->log2_tile_rows = (int)f(b, 1);
   if (h->log2_tile_rows) h->log2_tile_rows += (int)f(b, 1);
 }

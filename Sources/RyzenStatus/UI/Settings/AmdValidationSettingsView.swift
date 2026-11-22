@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import SwiftUI
 
 /// The evidence surface for the pending on-hardware probes.
@@ -44,6 +45,11 @@ struct AmdValidationSettingsView: View {
         // Fan count is the one precondition a topology change (kext reload, a
         // different board) shows up in without any user action.
         .onChange(of: fans.fans.count) { _, _ in refreshSnapshot() }
+        // A driver attached to the host bridge can appear or go away across
+        // a sleep, so the coexistence row is read again on wake.
+        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            refreshSnapshot()
+        }
         .overlay(alignment: .bottom) {
             if showCopiedToast {
                 Text(l10n.amdPower.diagBundleCopied)
@@ -220,10 +226,13 @@ struct AmdValidationSettingsView: View {
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if result.verdict != .pass {
+            if result.verdict != .pass,
+               !(result.gate == .privilege && result.neutral) {
                 Text(gateHint(result.gate))
                     .font(.caption2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(result.neutral
+                        ? Color(nsColor: .secondaryLabelColor)
+                        : .orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -246,6 +255,7 @@ struct AmdValidationSettingsView: View {
         case .fanTopology: return s.gateFanTopology
         case .tachValidity: return s.gateTachValidity
         case .superIOFamily: return s.gateSuperIOFamily
+        case .smuSharing: return s.gateSmuSharing
         }
     }
 
@@ -257,6 +267,7 @@ struct AmdValidationSettingsView: View {
         case .fanTopology: return s.hintFanTopology
         case .tachValidity: return s.hintTachValidity
         case .superIOFamily: return s.hintSuperIOFamily
+        case .smuSharing: return s.hintSmuSharing
         }
     }
 
@@ -357,12 +368,13 @@ extension HardwareValidation {
         snapshot.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         snapshot.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         let cachedKextVersion = ProcessorModel.shared.identityCache.kextVersion
-        if !cachedKextVersion.isEmpty && cachedKextVersion != "6" {
-            snapshot.kextVersion = cachedKextVersion
-        } else if let liveKextVersion = ProcessorModel.queryLoadedKextVersion() {
+        if let liveKextVersion = ProcessorModel.queryLoadedKextVersion() {
             snapshot.kextVersion = liveKextVersion
-        } else {
+        } else if !cachedKextVersion.isEmpty {
+            // The cache is only a fallback: it cannot prove which binary is
+            // loaded now, so the gate reports UNKNOWN instead of a mismatch.
             snapshot.kextVersion = cachedKextVersion
+            snapshot.kextVersionIsCachedFallback = true
         }
         snapshot.kextConnected = ProcessorModel.shared.isConnected
 
@@ -373,8 +385,32 @@ extension HardwareValidation {
 
         snapshot.privilegeChecked = controls.smuDiagnostics != nil || controls.smuDiagnosticsDenied
         snapshot.privilegeReported = controls.smuDiagnostics != nil
-        snapshot.privilegeDenied = controls.smuDiagnosticsDenied
-        snapshot.privilegeMessage = FanCurveController.shared.privilegeError ?? controls.privilegeWarning
+        let notPrivileged = ProcessorModel.kIOReturnNotPrivilegedCode
+        let fanStatus = FanCurveController.shared.lastWriteStatus
+        let controlStatus = controls.lastWriteStatus
+        let presetMessage = AmdPresetController.shared.privilegeMessage
+        let privilegeDenied = controls.smuDiagnosticsDenied
+            || presetMessage != nil
+            || fanStatus == notPrivileged
+            || controlStatus == notPrivileged
+        snapshot.privilegeDenied = privilegeDenied
+        if privilegeDenied {
+            if fanStatus == notPrivileged {
+                snapshot.privilegeMessage = FanCurveController.shared.privilegeError
+            } else if controlStatus == notPrivileged {
+                snapshot.privilegeMessage = controls.privilegeWarning
+            } else if let message = presetMessage {
+                snapshot.privilegeMessage = message
+            } else {
+                snapshot.privilegeMessage = "kext refused the privileged probe"
+            }
+        } else {
+            // A warning from another refusal says nothing about privilege.
+            // Keep it as a plain detail; never turn it into "run as root".
+            let fanRefusal = fanStatus == nil ? nil : FanCurveController.shared.privilegeError
+            let controlRefusal = controlStatus == nil ? nil : controls.privilegeWarning
+            snapshot.writeRefusal = fanRefusal ?? controlRefusal
+        }
 
         snapshot.fans = FanCurveController.shared.fans.map { fan in
             FanEvidence(id: fan.id,
@@ -396,6 +432,7 @@ extension HardwareValidation {
 
         snapshot.smuLines = controls.smuStateLines()
         snapshot.pmTableLine = controls.pmTableSummaryLine()
+        snapshot.foreignSmuClients = AMDSmuCoexistence.foreignDriverNames()
         snapshot.capturedAt = Date()
         return snapshot
     }

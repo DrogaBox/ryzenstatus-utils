@@ -88,6 +88,9 @@ static IOSimpleLock* gLock{nullptr};
 static uint8_t gLog[gpusens::kLogBytes];
 static uint64_t gStamp{0};  // mach absolute time of the last good copy
 static uint64_t gSamples{0};
+// False once invalidate() dropped the copy (a wake) and until the driver reads
+// the log again. gSamples keeps counting, so "since boot" stays true.
+static bool gValid{false};
 
 static void keep(const void* out) {
   auto log = static_cast<const uint8_t*>(out);
@@ -97,6 +100,7 @@ static void keep(const void* out) {
   memcpy(gLog, log, sizeof(gLog));
   gStamp = now;
   gSamples++;
+  gValid = true;
   IOSimpleLockUnlock(gLock);
 }
 
@@ -325,14 +329,22 @@ bool PMLogCopy::snapshot(uint8_t* out, uint64_t* ageNs, uint64_t* samples) {
   if (gLock == nullptr) return false;
   IOSimpleLockLock(gLock);
   uint64_t stamp = gStamp, count = gSamples;
-  if (count != 0) memcpy(out, gLog, sizeof(gLog));
+  bool valid = gValid;
+  if (valid) memcpy(out, gLog, sizeof(gLog));
   IOSimpleLockUnlock(gLock);
   if (samples) *samples = count;
-  if (count == 0) return false;
+  if (!valid) return false;
   if (ageNs) {
     uint64_t elapsed = mach_absolute_time() - stamp, ns = 0;
     absolutetime_to_nanoseconds(elapsed, &ns);
     *ageNs = ns;
   }
   return true;
+}
+
+void PMLogCopy::invalidate() {
+  if (gLock == nullptr) return;
+  IOSimpleLockLock(gLock);
+  gValid = false;
+  IOSimpleLockUnlock(gLock);
 }

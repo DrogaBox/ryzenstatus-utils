@@ -779,6 +779,10 @@ public:
     volatile uint32_t fanRPMCache[kMAX_FANS] {};
     FanCurveConfig fanCurves[MAX_FAN_CURVES] {};
     int8_t fanToCurveMap[kMAX_FANS] {}; // Maps each physical fan index to a curve index (-1 = Auto; set in start())
+    // The client that last changed each fan (selectors 95, 96, 97, 101, 102),
+    // compared by address and never dereferenced. clientClose() resets only
+    // the fans this client still owns. Under superIOLock.
+    const void *fanOwner[kMAX_FANS] {};
     uint8_t lastAppliedPWM[kMAX_FANS] {};
     uint64_t lastPWMUpdateTime[kMAX_FANS] {};
     // When a curve fan's duty last reached the chip (ms, 0 = write on the
@@ -812,6 +816,8 @@ public:
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");
     float gpuTempC {0};
+    // The client that last set gpuTempC through selector 103. Under controlLock.
+    const void *gpuTempOwner {nullptr};
     float curveSmoothedTemp[MAX_FAN_CURVES] {};
     bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
     // Per-curve trust flag for the smoothed temperature, plus the

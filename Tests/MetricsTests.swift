@@ -4478,10 +4478,27 @@ struct MetricsTests {
                 && updateServiceSource.contains("fileSHA256Matches(at: tempURL")
                 && !updateServiceSource.contains("allowAdhoc: AppInfo.isDeveloperBuild"),
                "the updater checks the release asset's digest and only then allows an ad-hoc install")
+        expect(updateServiceSource.contains("expectedSHA256: expectedSHA256")
+                && updateServiceSource.contains("task.arguments = [\"-c\", script, \"ryzenstatus-installer\"")
+                && !updateServiceSource.contains("ryzenstatus-update-\\(pid)"),
+               "the user-level installer is inline and receives the expected SHA-256")
         expect(installerScript.contains("EXPECTED_VERSION=\"$6\"")
                 && installerScript.contains("CFBundleShortVersionString")
                 && installerScript.contains("note fail-version"),
                "the installer refuses a DMG whose app is not the offered version")
+        expect(installerScript.contains("EXPECTED_SHA256=\"$7\"")
+                && installerScript.contains("/bin/cp \"$SOURCE_DMG\" \"$DMG\"")
+                && installerScript.contains("shasum -a 256 \"$DMG\"")
+                && installerScript.contains("note fail-hash"),
+               "the installer copies the DMG and checks the copy against the expected SHA-256")
+        if let copy = installerScript.range(of: "/bin/cp \"$SOURCE_DMG\""),
+           let hash = installerScript.range(of: "shasum -a 256 \"$DMG\""),
+           let attach = installerScript.range(of: "hdiutil attach \"$DMG\"") {
+            expect(copy.lowerBound < hash.lowerBound && hash.lowerBound < attach.lowerBound,
+                   "the copy is hashed before it is mounted")
+        } else {
+            expect(false, "the installer has a copy, a hash and a mount")
+        }
         expect(UpdateInstallerSupport.elevatedInstallCommand(appPath: "/A.app", dmgPath: "/u.dmg", pid: 1,
                                                              resultPath: "/r", uid: 501,
                                                              expectedVersion: "1.42.0")
@@ -4507,6 +4524,15 @@ struct MetricsTests {
                "elevated installer detaches so the app can quit")
         expect(elevated.contains("'/Applications/RyzenStatus.app'"),
                "elevated installer passes the app path quoted for the shell")
+        let hashCommand = UpdateInstallerSupport.elevatedInstallCommand(
+            appPath: "/A.app", dmgPath: "/u.dmg", pid: 1, resultPath: "/r", uid: 501,
+            expectedSHA256: "a'b")
+        expect(hashCommand.contains("'a'\\''b'"),
+               "elevated installer quotes the expected SHA-256 safely")
+        expect(UpdateInstallerSupport.elevatedInstallCommand(
+                   appPath: "/A.app", dmgPath: "/u.dmg", pid: 1, resultPath: "/r", uid: 501,
+                   expectedSHA256: digestHex).contains("'\(digestHex)'"),
+               "elevated installer passes the expected SHA-256 to the script")
 
         // MARK: Launch at login reconciliation
 
@@ -10488,6 +10514,41 @@ struct MetricsTests {
         expect(!FanPollingPolicy.needsStartAtLaunch(curvesEnabled: false, mappings: [0: 0]),
                "curves switched off do not start the fan controller")
 
+        // MARK: GPU curve temperature source (issue 129)
+
+        expect(FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 1, acceleratorCelsius: nil),
+               "an AMD GPU in the kext's list offers the GPU sensor")
+        expect(FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 48),
+               "with no kext GPU, the sensor is offered when IOAccelerator reports a temperature")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: nil),
+               "no kext GPU and no IOAccelerator temperature: CPU sensor only")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 0),
+               "an IOAccelerator 0 °C is no reading")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 255),
+               "an out-of-range IOAccelerator value is no reading")
+        expect(!FanCurveGPUTemperature.isUsable(.nan) && !FanCurveGPUTemperature.isUsable(-5)
+                && FanCurveGPUTemperature.isUsable(FanCurveGPUTemperature.maximumCelsius)
+                && !FanCurveGPUTemperature.isUsable(FanCurveGPUTemperature.maximumCelsius + 0.5),
+               "the usable window is (0, 120] °C, finite")
+        expect(FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 0)
+                && !FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 2),
+               "the fan poll reads IOAccelerator only when the kext lists no GPU")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 52, lastSent: 0) == 52
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 52, lastSent: 50) == 52,
+               "a usable IOAccelerator reading is sent as is")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 52) == 0
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 255, lastSent: 52) == 0,
+               "losing the IOAccelerator reading sends 0 once, so the curve falls back to the CPU")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 0) == nil,
+               "with 0 already sent, nothing more is written while the reading stays gone")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 0, sent: 0, previous: 52, succeeded: false) == 52
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 52) == 0,
+               "a 0 clear that failed puts the latch back, so the next poll sends 0 again")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 0, sent: 0, previous: 52, succeeded: true) == 0,
+               "a 0 clear that landed keeps the latch at 0")
+        expect(FanCurveGPUTemperature.latchAfterWrite(current: 55, sent: 0, previous: 52, succeeded: false) == 55,
+               "a failed write never undoes a newer one")
+
         // MARK: Auto EPP targets and settling
 
         do {
@@ -11457,6 +11518,39 @@ struct MetricsTests {
                "a clean reference-machine snapshot passes every gate: "
                + healthy.map { "\($0.gate.rawValue)=\($0.verdict.rawValue)" }.joined(separator: " "))
 
+        // The SMU coexistence rule, without IOKit: Apple and our own bundles
+        // are never foreign, a named third-party client is, and the PCI nub
+        // itself is the bus rather than a driver.
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: "com.apple.iokit.IOPCIFamily", ioClass: "IOPCIDevice"),
+               "an Apple PCI nub is not a foreign SMU client")
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: "wtf.spinach.AMDRyzenCPUPowerManagement", ioClass: "AMDRyzenCPUPowerManagement"),
+               "our own kext is not a foreign client")
+        expect(AMDSmuCoexistence.isForeignClient(bundle: "com.example.smudriver", ioClass: "ExampleSmu"),
+               "a third-party bundle on the host bridge is foreign")
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: nil, ioClass: "IOPCIDevice"),
+               "the PCI nub itself carries no driver bundle and is skipped")
+
+        // Only mailbox writes are paused; reads and fan writes stay available.
+        expect(AMDKextSelector.pboLimitsWrite.isSMUMailboxWrite,
+               "PBO limit writes are SMU mailbox writes")
+        expect(AMDKextSelector.curveOptimizerWrite.isSMUMailboxWrite,
+               "per-core Curve Optimizer writes are SMU mailbox writes")
+        expect(!AMDKextSelector.pboLimitsRead.isSMUMailboxWrite,
+               "PBO limit reads must keep working while a driver shares the SMU")
+        expect(!AMDKextSelector.fanCurveLUTWrite.isSMUMailboxWrite,
+               "fan curve uploads are Super I/O, not SMU mailbox traffic")
+
+        // Coexistence gate: only the absence of a foreign client is a pass.
+        expect(gate(healthy, .smuSharing) == .pass,
+               "an unshared SMU passes the coexistence gate")
+        var sharedSMU = snapshot
+        sharedSMU.foreignSmuClients = ["com.example.smudriver"]
+        let sharedResults = HardwareValidation.gates(sharedSMU)
+        expect(gate(sharedResults, .smuSharing) == .unknown,
+               "a third-party client on the host bridge is a warning, never a pass")
+        expect(sharedResults.first { $0.gate == .smuSharing }?.detail.contains("com.example.smudriver") == true,
+               "the coexistence row names the driver that shares the SMU")
+
         // Version pin: a mismatch is a failure, not a warning — a probe run
         // against a binary the runbook was not written for measures nothing.
         var wrongVersion = snapshot
@@ -11467,6 +11561,13 @@ struct MetricsTests {
         noVersion.kextVersion = ""
         expect(gate(HardwareValidation.gates(noVersion), .kextVersion) == .unknown,
                "an unreported kext version is unknown, never a pass")
+        var cachedVersion = snapshot
+        cachedVersion.kextVersion = "3.40.0"
+        cachedVersion.kextVersionIsCachedFallback = true
+        let cachedResult = HardwareValidation.gates(cachedVersion).first { $0.gate == .kextVersion }
+        expect(cachedResult?.verdict == .unknown
+               && cachedResult?.detail.contains("could not read the driver version") == true,
+               "a cached version after a failed live query is UNKNOWN, not a mismatch FAIL")
 
         var noPacket = snapshot
         noPacket.hasTelemetryPacket = false
@@ -11476,6 +11577,17 @@ struct MetricsTests {
         disconnected.kextConnected = false
         expect(gate(HardwareValidation.gates(disconnected), .kextTelemetry) == .fail,
                "a closed kext connection fails the telemetry gate")
+        var zeroPacket = snapshot
+        zeroPacket.packageTempC = 0
+        zeroPacket.packagePowerW = 0
+        let zeroResult = HardwareValidation.gates(zeroPacket).first { $0.gate == .kextTelemetry }
+        expect(zeroResult?.verdict == .fail
+               && zeroResult?.detail.contains("zero or out of range") == true,
+               "a zeroed selector-100 packet is FAIL, not a PASS")
+        var impossiblePacket = snapshot
+        impossiblePacket.packageTempC = 140
+        expect(gate(HardwareValidation.gates(impossiblePacket), .kextTelemetry) == .fail,
+               "an out-of-range selector-100 temperature fails the telemetry gate")
 
         var unchecked = snapshot
         unchecked.privilegeChecked = false
@@ -11487,13 +11599,22 @@ struct MetricsTests {
         denied.privilegeDenied = true
         expect(gate(HardwareValidation.gates(denied), .privilege) == .fail,
                "a refused privileged probe fails the gate — this is probe 2's perfect false positive")
-        var writeDenied = snapshot
-        writeDenied.privilegeReported = false
-        writeDenied.privilegeMessage = "Root privileges required"
-        expect(gate(HardwareValidation.gates(writeDenied), .privilege) == .fail,
-               "a denial recorded on any write path fails the gate")
-        expect(unchecked.privilegeMessage == nil,
-               "an untouched snapshot carries no fabricated denial message")
+        var writeRefused = snapshot
+        writeRefused.privilegeReported = false
+        writeRefused.writeRefusal = "Not supported by the kext on this CPU"
+        let refusedResult = HardwareValidation.gates(writeRefused).first { $0.gate == .privilege }
+        expect(refusedResult?.verdict == .unknown
+               && refusedResult?.detail.contains("another reason") == true
+               && refusedResult?.neutral == true,
+               "a non-privilege write refusal is UNKNOWN and neutral, with no root hint")
+        var messageOnly = snapshot
+        messageOnly.privilegeReported = false
+        messageOnly.privilegeMessage = "Root privileges required"
+        let messageOnlyResult = HardwareValidation.gates(messageOnly).first { $0.gate == .privilege }
+        expect(messageOnlyResult?.verdict == .unknown && messageOnlyResult?.neutral == true,
+               "a message without a confirmed kIOReturnNotPrivileged is not a root failure")
+        expect(unchecked.privilegeMessage == nil && unchecked.writeRefusal == nil,
+               "an untouched snapshot carries no fabricated refusal")
 
         var onlyPump = snapshot
         onlyPump.fans = [fan(5, "System 3 Fan", pump: true)]
@@ -11533,9 +11654,13 @@ struct MetricsTests {
                "an unknown label set is reported, not guessed")
         expect(HardwareValidation.superIOFamily(for: [fan(0, "")]).isEmpty,
                "unnamed channels report no family at all")
-        expect(gate(HardwareValidation.gates({ var s = snapshot; s.fans = nct668xFans; return s }()),
-                    .superIOFamily) == .unknown,
+        let nctResults = HardwareValidation.gates({ var s = snapshot; s.fans = nct668xFans; return s }())
+        expect(gate(nctResults, .superIOFamily) == .unknown,
                "a non-reference family is UNKNOWN: the runbook's expected values are calibrated for ITE")
+        expect(nctResults.first { $0.gate == .superIOFamily }?.neutral == true,
+               "the non-reference family UNKNOWN is informational, not a warning")
+        expect(healthy.first { $0.gate == .superIOFamily }?.neutral == false,
+               "the reference family PASS keeps its normal look")
 
         // The three label tables are transcribed from the drivers, so they are
         // pinned against the drivers themselves. A renamed label in a header
@@ -14411,8 +14536,8 @@ struct MetricsTests {
                        "AUD-001: selector 2 clamps numPhyCores to CPUInfo::MaxCpus")
                 expect(userClientSrc.contains("if (numLogicalCores > CPUInfo::MaxCpus) numLogicalCores = CPUInfo::MaxCpus;"),
                        "AUD-001: selector 21 clamps numLogicalCores to CPUInfo::MaxCpus")
-                expect(userClientSrc.contains("if (fModifiedFanControl && provider && provider->superIOLock)"),
-                       "AUD-002: clientClose only resets fan curves when fModifiedFanControl is set")
+                expect(userClientSrc.contains("if (provider->fanOwner[i] != (const void *)this) continue;"),
+                       "AUD-002: clientClose only resets the fans this client owns")
                 expect(userClientSrc.contains("hasPrivilege(90, true)"),
                        "AUD-010: selector 90 uses quiet privilege probe to avoid false-positive DENIED logs")
             } else {

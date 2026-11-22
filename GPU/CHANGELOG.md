@@ -2,6 +2,43 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.8.1 (RyzenStatus 1.88.0; host tests only, not booted)
+
+- Readings older than 5 s are no longer published. Before, a failed read, a sleeping card or a
+  powered-down GPU left the last PMLog copy in `Sensors`, `Units`, `PMLog` and `SampleAgeMs`
+  for good; the app already hid it after 5 s, but ioreg and scripts saw the old numbers. Now
+  those four properties go away until Apple's driver samples again. `Samples` keeps counting
+  since boot.
+- The kept copy is dropped on wake, so a reading from before the sleep cannot show up as
+  current after it. This rides on the GPU control's wake route; with `-gpuctloff` the 5 s
+  rule still applies.
+- The kext still never reads the GPU itself: it only copies what Apple's driver asked for,
+  and the GPU control already refuses driver calls between sleep and wake.
+- The GPU control no longer waits at shutdown or restart for a driver call that is still running, and waits at most 2 s when the GPU goes away. Before, a stuck call could hold that step forever. It is not the cause of the known restart hang after a sleep, which started before the GPU control existed.
+
+## Decoders 0.3.4 (RyzenStatus 1.88.0)
+
+- The VP9 decoder now declares a rating (`VTRating` 400 in its `CMMatchingInfo`, the value
+  Apple gives its own hardware decoders). On a Mac with an Intel iGPU of the Kaby Lake or
+  Ice Lake families active next to the Radeon, macOS also offers Apple's Intel VP9 decoder
+  (AppleGVAVPXDecoder, which needs the iGPU's `IOGVAXDecode` key). Both declared the same
+  codec, hardware and version, and VideoToolbox breaks that tie by an internal hash order
+  that put Apple's first; on a user's Mac with a UHD 630 it decoded one frame and stalled,
+  so ours never got the video. Read in VideoToolbox with IDA (Tahoe 26.7.x and Sequoia
+  15.8.2): candidates are sorted by GPU preference, Apple-internal flag, then `VTRating`,
+  then the hardware flag, and a missing rating counts as 0. Checked through the real
+  selection code with two stand-in decoders: with the rating, ours is tried first. If ours
+  fails to start, VideoToolbox still falls back to Apple's. Macs without such an iGPU see no
+  change. Not run on a Mac with an Intel iGPU.
+- The AV1 decoder moves to 0.3.4 with it; macOS has no Apple AV1 hardware decoder to
+  compete with, so its only changes are the header check and the shift guard below.
+- Both parsers now refuse frame headers outside the format's limits: an AV1 frame with more
+  than 14 luma or 10 chroma film grain points, or a VP9 frame with more than 64 tile
+  columns (libvpx refuses those too). Such streams were never valid; the hardware only has
+  room for 14 and 10 grain points. The AV1 parser also refuses a subexponential value
+  (`decode_subexp`) long enough to shift an int past its width, instead of overflowing. A
+  refused header leaves the reference frames as they were, as for any other bad header.
+
 ## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
 Run on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21: YouTube 4K60 in Safari, AV1 and VP9,

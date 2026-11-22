@@ -345,7 +345,8 @@ final class UpdateService: ObservableObject {
                     DispatchQueue.main.async {
                         self.state = .installing
                         self.launchInstaller(dmgPath: dmgURL.path, offered: offered,
-                                             digestVerified: digestVerified)
+                                             digestVerified: digestVerified,
+                                             expectedSHA256: expectedSHA256)
                     }
                 })
         } catch {
@@ -367,7 +368,8 @@ final class UpdateService: ObservableObject {
     /// safely while we exit. When the app's folder is not writable by this
     /// user (standard account with the app in /Applications), the script runs
     /// through an admin prompt instead of failing silently.
-    private func launchInstaller(dmgPath: String, offered: String?, digestVerified: Bool) {
+    private func launchInstaller(dmgPath: String, offered: String?, digestVerified: Bool,
+                                 expectedSHA256: String?) {
         let allowAdhoc = UpdateInstallerSupport.allowsAdhocInstall(isDeveloperBuild: AppInfo.isDeveloperBuild,
                                                                    digestVerified: digestVerified)
         let appPath = Bundle.main.bundlePath
@@ -388,36 +390,31 @@ final class UpdateService: ObservableObject {
         let lastFailure = UserDefaults.standard.string(forKey: DefaultsKey.updateLastInstallFailure)
         if isWritable && !UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: lastFailure) {
             launchUserInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
-                                resultPath: resultURL.path, offered: offered, allowAdhoc: allowAdhoc)
+                                resultPath: resultURL.path, offered: offered,
+                                expectedSHA256: expectedSHA256 ?? "", allowAdhoc: allowAdhoc)
         } else {
             // Either the folder is not writable, or the last attempt died at
             // the copy/swap step: retry with admin rights instead of failing
             // the same way twice.
             launchAdminInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
-                                 resultPath: resultURL.path, offered: offered, allowAdhoc: allowAdhoc)
+                                 resultPath: resultURL.path, offered: offered,
+                                 expectedSHA256: expectedSHA256 ?? "", allowAdhoc: allowAdhoc)
         }
     }
 
     private func launchUserInstaller(appPath: String, dmgPath: String, pid: Int32,
-                                     resultPath: String, offered: String?, allowAdhoc: Bool) {
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ryzenstatus-update-\(pid)-\(UUID().uuidString).sh")
-        do {
-            try UpdateInstallerSupport.installerScript(allowAdhoc: allowAdhoc)
-                .write(to: scriptURL, atomically: true, encoding: .utf8)
-        } catch {
-            failInstall(dmgPath: dmgPath, message: error.localizedDescription)
-            return
-        }
-
+                                     resultPath: String, offered: String?, expectedSHA256: String,
+                                     allowAdhoc: Bool) {
+        // Inline, like the admin path: another process could rewrite a script
+        // file in the temporary folder before this one runs it.
+        let script = UpdateInstallerSupport.installerScript(allowAdhoc: allowAdhoc)
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = [scriptURL.path, appPath, dmgPath, "\(pid)", resultPath, "\(getuid())",
-                          offered ?? ""]
+        task.arguments = ["-c", script, "ryzenstatus-installer", appPath, dmgPath, "\(pid)",
+                          resultPath, "\(getuid())", offered ?? "", expectedSHA256]
         do {
             try task.run()
         } catch {
-            try? FileManager.default.removeItem(at: scriptURL)
             failInstall(dmgPath: dmgPath, message: error.localizedDescription)
             return
         }
@@ -434,13 +431,15 @@ final class UpdateService: ObservableObject {
     /// with nohup so the prompt returns while the installer waits for our
     /// exit.
     private func launchAdminInstaller(appPath: String, dmgPath: String, pid: Int32,
-                                      resultPath: String, offered: String?, allowAdhoc: Bool) {
+                                      resultPath: String, offered: String?, expectedSHA256: String,
+                                      allowAdhoc: Bool) {
         let command = UpdateInstallerSupport.elevatedInstallCommand(appPath: appPath,
                                                                     dmgPath: dmgPath,
                                                                     pid: pid,
                                                                     resultPath: resultPath,
                                                                     uid: getuid(),
                                                                     expectedVersion: offered ?? "",
+                                                                    expectedSHA256: expectedSHA256,
                                                                     allowAdhoc: allowAdhoc)
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptUpdate) { [weak self] granted in
             DispatchQueue.main.async {

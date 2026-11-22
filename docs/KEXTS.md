@@ -1,6 +1,6 @@
 # Updating the AMD kexts
 
-RyzenStatus ships the two kexts it needs in the `Kexts` folder of the disk image: `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext`. Always replace them as a pair, from the same release as the app. The app also runs with an older pair, but then Hardware Validation reports the driver version, and features that need the newer kext stay off (the idle clock limit needs 3.41.0 or later).
+RyzenStatus ships the two kexts it needs in the `Kexts` folder of the disk image: `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext`. Always replace them as a pair, from the same release as the app, and never mix versions: `SMCAMDProcessor.kext` reads data straight out of `AMDRyzenCPUPowerManagement.kext`, and 3.42.0 changed its layout, so a 3.42.0 kext next to an older one reads wrong values. The app also runs with an older pair, but then Hardware Validation reports the driver version, and features that need the newer kext stay off (the idle clock limit needs 3.41.0 or later).
 
 ## 1. Keep a copy of the EFI that boots today
 
@@ -23,7 +23,7 @@ Keep the folder names as they are. OpenCore loads only the kexts listed under `K
 kmutil showloaded | grep -E 'AMDRyzen|SMCAMD'
 ```
 
-Both lines should show the new version, for example `(3.41.0)`. In RyzenStatus, Hardware Validation's kext version row should pass. If it still shows the old version, the old kext is the one OpenCore loaded: check that you copied into the EFI you boot from.
+Both lines should show the same, new version, for example `(3.42.0)`. If they differ, one kext is still the old one: replace it too before using the app. In RyzenStatus, Hardware Validation's kext version row should pass. If it still shows the old version, the old kext is the one OpenCore loaded: check that you copied into the EFI you boot from.
 
 ## 4. If the Mac does not boot
 
@@ -36,3 +36,5 @@ cp -R ~/Desktop/EFI-backup /Volumes/EFI/EFI
 ```
 
 Restart. Without a USB that boots, the copy from step 1 is your only way back, so keep one before every update.
+
+If the Mac restarts while loading the new kexts, add `-amdoff` to the OpenCore boot-args (`NVRAM › Add › 7C436110-AB2A-4BBB-A880-FE41995C9F82 › boot-args`) and restart: the CPU kext then does not start, so macOS can boot. Remove it after restoring the old pair, or boot your backup EFI.

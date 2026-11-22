@@ -187,14 +187,14 @@ enum GPUControlFanTests {
                      "another kext build: not checked, Apply off")
         other.kextVersion = nil
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .notChecked, "no build name: not checked")
-        // GPUSensors 0.8.0: the build date follows the package build, so any
-        // date of a release build is the same checked source.
-        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05"] {
+        // GPUSensors 0.8.0 and 0.8.1: the build date follows the package
+        // build, so any date of a release build is the same checked source.
+        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05", "REL-081-2026-11-22"] {
             other.kextVersion = build
             suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .accepted,
-                         "\(build): GPUSensors 0.8.0, checked")
+                         "\(build): GPUSensors 0.8.0 or 0.8.1, checked")
         }
-        for build in ["DBG-080-2026-11-21", "REL-081-2026-11-21", "REL-080", "REL-080-2026-11", "REL-080-2026-11-21x",
+        for build in ["DBG-080-2026-11-21", "REL-082-2026-11-21", "REL-080", "REL-080-2026-11", "REL-080-2026-11-21x",
                       "REL-080-2026-11-21-1", "REL-08-2026-11-21", "REL-072-2026-11-20", "rel-080-2026-11-21", ""] {
             suite.expect(!GPUControlCurveRules.isChecked(build), "\(build.isEmpty ? "empty" : build): not checked")
         }

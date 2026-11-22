@@ -320,10 +320,14 @@ struct AmdPowerSettingsView: View {
 
                         AdaptivePowerRow()
 
-                        IdleClockLimitRow()
+                        // Both act only through Auto EPP, so they show only
+                        // while it is on, like the load readout below.
+                        if autoEpp.isActive {
+                            IdleClockLimitRow()
 
-                        if BatteryPowerService.shared.hasBattery {
-                            BatteryPowerRow()
+                            if BatteryPowerService.shared.hasBattery {
+                                BatteryPowerRow()
+                            }
                         }
 
                         if autoEpp.isActive {

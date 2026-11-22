@@ -215,9 +215,10 @@ Then read duty and RPM:
 ```
 
 Note that `--sensors` is not a passive observer. It opens and closes a user
-client, and `clientClose()` releases **all** fans to BIOS control, so it destroys
-any probe state and writes its own `clientClose released` line to the log. It
-also advances the rate-limit counters itself, which means it perturbs the very
+client. Since kext 3.42.0, closing it hands back only the fans that client set,
+and `--sensors` sets none; older kexts release **all** fans to BIOS control at
+that point, which destroys any probe state, and write a `clientClose released`
+line to the log. It also advances the rate-limit counters itself, which means it perturbs the very
 cadence it is measuring. Use it before and after a probe, never in the middle —
 read live values from the app's UI instead.
 

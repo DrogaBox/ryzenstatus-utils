@@ -2,6 +2,44 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
+## [1.88.0] — 2026-11-22 — kexts 3.42.0
+
+**Update both kexts together: put AMDRyzenCPUPowerManagement.kext and SMCAMDProcessor.kext 3.42.0 from the disk image's Kexts folder into your EFI, then restart. Never mix an old one with a new one: SMCAMDProcessor reads the other kext's data, and 3.42.0 changed its layout, so a mixed pair reads wrong values.**
+
+If you use the RyzenStatus GPU parts, update them too with the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder: decoders 0.3.4 and GPUSensors.kext 0.8.1. If the Mac does not boot after the kext update, add `-amdoff` to OpenCore's boot-args so the CPU kext does not start, then put the old pair back; [Updating the AMD kexts](https://github.com/DrogaBox/ryzenstatus-utils/blob/main/docs/KEXTS.md) has the steps.
+
+### Fans
+
+- **GPU fan curves when the kext sees no GPU**: the curve editor in Settings › Fans now offers the GPU sensor when the kext lists no GPU but macOS reports a GPU temperature. A fan on a GPU curve then reads that temperature on its own every few seconds, so it keeps following the GPU with Settings and the Monitor window closed. If the reading goes away, the fan goes back to the CPU temperature, and if the kext refuses that change it is tried again on the next reading. AMD GPUs work as before. GPUs other than AMD are not supported or tested.
+- **Two programs no longer undo each other's fans (kext 3.42.0)**: when two programs talk to the CPU kext and one quits, the kext now hands back only the fans and the GPU temperature that program set, instead of every fan. That also holds when the kext stops or drops a program without the usual close.
+
+### AMD Ryzen Power
+
+- **Idle clock limit and On battery appear with Auto EPP**: in Settings › AMD Ryzen Power these two options now show only while Auto EPP is on, because they work only through it. Before, they stayed greyed out with Auto EPP off, and on CPUs that report CPPC through ACPI the idle clock limit said it needed kext 3.41.0 even with that kext loaded.
+- **Another driver on the AMD SMU**: if a third-party kext also attaches to the AMD host bridge to reach the SMU, its SMU writes and RyzenStatus's could get mixed up, because the two drivers cannot share a lock. RyzenStatus now checks for that before each power limit, Curve Optimizer or preset write and skips the write while such a driver is there; sensors and readings keep working. Macs without another driver there see no change. Tested with unit tests only; no Mac with such a driver was available.
+
+### Hardware Validation
+
+- A new "AMD SMU sharing" row says whether another driver shares the SMU.
+- A write the kext refused for a reason other than permissions no longer turns the privilege row into "run as root"; a telemetry packet that reads 0 °C and 0 W is no longer a pass; when the driver version cannot be read the row says so instead of reporting a mismatch; and a board whose Super I/O is not the reference chip is shown as information, not as a warning.
+
+### GPU
+
+- **VP9 on Macs with an Intel iGPU too (decoders 0.3.4)**: on a Mac where an Intel iGPU is active next to the Radeon, macOS could hand VP9 videos to Apple's Intel decoder instead of ours, and there it could stall after the first frame. The VP9 decoder now tells macOS to prefer it; Macs without an active Intel iGPU see no change. Not tested on a Mac with an Intel iGPU.
+- **Stricter parsers (decoders 0.3.4)**: the AV1 and VP9 parsers refuse frame headers outside the format's limits, which valid streams never use, and the tests now also feed both parsers random data from a fixed seed.
+- **No stale GPU readings (GPUSensors 0.8.1)**: readings older than 5 s are no longer published, and the kept copy is dropped on wake, so ioreg and scripts no longer see old numbers after a failed read or a sleep. The app already hid them.
+- **No endless wait at shutdown (GPUSensors 0.8.1)**: the GPU control no longer waits at shutdown or restart for a driver call that is still running, and waits at most 2 s when the GPU goes away.
+- **GPU control hides on a Mac without a supported card**: with GPUSensors.kext loaded but no RX 6800 XT or RX 6900 XT, Settings and the panel showed a GPU control page where nothing could be changed. It is hidden in that case now; the other reasons GPU changes can be off still show the page with their explanation.
+
+### Updater
+
+- **Updates check the same file they install**: the in-app updater already compared the downloaded disk image with the release's SHA-256 before installing, but the installer then opened the file again from a folder other programs can write to. It now copies the image into a private folder, checks that copy, and installs only from it.
+
+### Kext 3.42.0
+
+- Per-program fan and GPU temperature ownership, as above.
+- A new `-amdoff` boot argument keeps the CPU kext from starting, as a way out if a kext update ever stops the Mac from booting.
+
 ## [1.87.0] — 2026-11-22 — kexts 3.41.0
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**

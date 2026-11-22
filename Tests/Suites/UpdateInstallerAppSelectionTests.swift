@@ -236,7 +236,8 @@ enum UpdateInstallerAppSelectionTests {
                          "the installer never names Kexts/ or the GPU folder (allowAdhoc \(allowAdhoc))")
             let mountLines = script.split(separator: "\n").filter { $0.contains("$MNT") }
             let allowed = mountLines.allSatisfy { line in
-                line.contains("mktemp") || line.contains("hdiutil") || line.contains("rmdir")
+                line.contains("mktemp") || line.contains("/bin/mkdir \"$MNT\"") || line.contains("hdiutil")
+                    || line.contains("rmdir")
                     || line.contains("$MNT/\(appName)")
             }
             suite.expect(allowed,

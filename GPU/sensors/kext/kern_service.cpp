@@ -254,7 +254,9 @@ void DrogaBoxGPUSensors::publish() {
   uint64_t ageNs = 0, samples = 0;
   bool have = PMLogCopy::snapshot(log, &ageNs, &samples);
   setProperty("Samples", samples, 64);
-  if (!have) {
+  // A failed read leaves the previous copy in place; a stale one is removed
+  // rather than published as if it were current.
+  if (!gpusens::publishable(have, ageNs / 1000000)) {
     removeProperty("SampleAgeMs");
     removeProperty("Sensors");
     removeProperty("Units");

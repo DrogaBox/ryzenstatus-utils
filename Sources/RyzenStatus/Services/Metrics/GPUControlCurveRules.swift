@@ -42,8 +42,9 @@ enum GPUControlCurveRules {
     /// commit under GPU/), so it changes with every rebuild of the same
     /// source. GPUSensors 0.8.0 ("080"): its `od8CheckWant` gives the same
     /// answers as 0.7.2's for every line of `curve-cases.jsonl`, and its
-    /// source is GPU/sensors/kext in this repository.
-    static let checkedReleases: Set<String> = ["080"]
+    /// source is GPU/sensors/kext in this repository. GPUSensors 0.8.1
+    /// ("081") leaves these checks as they were in 0.8.0.
+    static let checkedReleases: Set<String> = ["080", "081"]
 
     /// The kext build is one this copy was checked against. Neither the
     /// editor nor a remembered fan state sends anything to another build.

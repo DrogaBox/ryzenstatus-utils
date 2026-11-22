@@ -256,6 +256,12 @@ struct IdleClockLimitRow: View {
     }
 
     private func caption(bounds: ClosedRange<Int>?) -> String {
+        // ACPI CPPC reports its range only after Auto EPP's first EPP write,
+        // a moment after it is switched on: that is not a missing kext.
+        if bounds == nil, !autoEpp.idleClockLimitFailed, let range,
+           range.mechanism != .none, !range.isKnown {
+            return l10n.amdPower.idleClockCaption
+        }
         guard bounds != nil, let range,
               let low = range.mhz(perf: range.lowest),
               let efficient = range.mhz(perf: range.lowestNonlinear),

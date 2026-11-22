@@ -14,7 +14,9 @@ struct GPUControlPanelRow: View {
     @ObservedObject private var l10n = L10n.shared
 
     var body: some View {
-        if sensors.hasWritePath || service.mode == .fake {
+        if GPUControlVisibility.visible(hasWritePath: sensors.hasWritePath,
+                                        hasUnsupportedCard: sensors.hasUnsupportedCard,
+                                        fake: service.mode == .fake) {
             GPUControlPanelRowContent(
                 input: GPUControlPageInput(service: service),
                 strings: FeatureStrings.gpuControlPage(l10n.language),

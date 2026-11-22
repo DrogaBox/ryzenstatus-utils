@@ -167,7 +167,8 @@ enum CppcIdleClockLimitTests {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let dir = root.appendingPathComponent("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement")
         guard let pm = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8),
-              let uc = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8)
+              let uc = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8),
+              let hpp = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPowerManagement.hpp"), encoding: .utf8)
         else {
             suite.expect(false, "kext sources readable")
             return
@@ -194,5 +195,36 @@ enum CppcIdleClockLimitTests {
                      "the user client never stores the limits outside setCppcPerfLimits")
         suite.expect(pm.contains("IOLockLock(rendezvousLock);\n    cppcMinPerfLimit = minLimit;\n    cppcMaxPerfLimit = maxLimit;"),
                      "the limits change under rendezvousLock, the lock the timer's apply holds")
+        suite.expect(hpp.contains("const void *fanOwner[kMAX_FANS]") && hpp.contains("const void *gpuTempOwner")
+                     && uc.contains("provider->fanOwner[fanSel] = (const void *)this;")
+                     && uc.contains("provider->fanOwner[fanIdx] = (const void *)this;")
+                     && uc.contains("provider->gpuTempOwner = (const void *)this;"),
+                     "selectors 95, 96, 97, 101, 102 and 103 record the client that changed the state")
+        suite.expect(uc.contains("void AMDRyzenCPUPMUserClient::releaseOwnedState()")
+                     && uc.contains("if (provider->fanOwner[i] != (const void *)this) continue;")
+                     && uc.contains("provider->superIO->setDefaultFanControl(i);")
+                     && uc.contains("provider->fanToCurveMap[i] = -1;")
+                     && uc.contains("released++;"),
+                     "the shared release gives only this client's fans back to BIOS")
+        let releaseCalls = uc.components(separatedBy: "releaseOwnedState();").count - 1
+        suite.expect(releaseCalls == 3,
+                     "stop, clientClose and free all run the shared owner release (got \(releaseCalls))")
+        suite.expect(uc.contains("    releaseOwnedState();\n    fProvider = nullptr;"),
+                     "stop releases owners before it drops the provider pointer")
+        suite.expect(uc.contains("if (provider->gpuTempOwner == (const void *)this)")
+                     && uc.contains("provider->gpuTempC = 0.0f;"),
+                     "the shared release clears the GPU temperature it set")
+        suite.expect(uc.contains("if (provider->cppcLimitsOwner == (const void *)this) {")
+                     && uc.contains("const bool lifted = provider->setCppcPerfLimits(0, 0);"),
+                     "the shared release lifts the CPPC limits it set")
+        if let freeStart = uc.range(of: "void AMDRyzenCPUPMUserClient::free()"),
+           let freeEnd = uc.range(of: "IOUserClient::free();") {
+            suite.expect(uc[freeStart.lowerBound..<freeEnd.lowerBound].contains("releaseOwnedState();"),
+                         "free() runs the shared release when stop() did not run first")
+        } else {
+            suite.expect(false, "free() body readable")
+        }
+        suite.expect(pm.contains("checkKernelArgument(\"-amdoff\")") && pm.contains("not starting"),
+                     "-amdoff stops the CPU kext before it starts")
     }
 }

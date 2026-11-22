@@ -12,8 +12,17 @@ enum GPUControlVisibility {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var fake = false
 
+    /// `fake` is for a development build's model. Without the write path
+    /// there is no page; with it, the page stays for every off state except
+    /// the kext's no-supported-card state.
+    static func visible(hasWritePath: Bool, hasUnsupportedCard: Bool, fake: Bool = false) -> Bool {
+        fake || (hasWritePath && !hasUnsupportedCard)
+    }
+
     static var isVisible: Bool {
-        lock.withLock { fake } || GPUSensorsService.shared.hasWritePathNow
+        visible(hasWritePath: GPUSensorsService.shared.hasWritePathNow,
+                hasUnsupportedCard: GPUSensorsService.shared.hasUnsupportedCardNow,
+                fake: lock.withLock { fake })
     }
 
     static func setFake(_ on: Bool) { lock.withLock { fake = on } }
