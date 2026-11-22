@@ -109,6 +109,7 @@ check "a refused AV1 sample leaves the parser consistent" av1state
 vp9state() { decode/build/tests/vp9state tests/media/vp9/vp90-2-05-resize.ivf > decode/build/tests/vp9state.txt ||
   { cat decode/build/tests/vp9state.txt; return 1; }; }
 check "a refused VP9 header leaves the parser consistent" vp9state
+check "5000 damaged AV1 and VP9 headers each are survived" decode/build/tests/parsefuzz 5000
 plugins() {
   local c
   for c in av1 vp9; do
