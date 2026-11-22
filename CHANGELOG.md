@@ -2,6 +2,8 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
+**Kext: two programs no longer undo each other's fans (kext update)**: when two programs talk to the CPU kext and one quits, the kext now hands back only the fans and the GPU temperature that program set, instead of every fan. A new `-amdoff` boot argument keeps the CPU kext from starting, as a way out if a kext update ever stops the Mac from booting; [Updating the AMD kexts](https://github.com/DrogaBox/ryzenstatus-utils/blob/main/docs/KEXTS.md) explains it. Needs the next kext release.
+
 ## [1.87.0] — 2026-11-22 — kexts 3.41.0
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**
