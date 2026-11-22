@@ -60,6 +60,7 @@ Since macOS 15.4, Now Playing reads Music and Spotify by asking them directly, w
 - **A control says your processor does not accept it.** The driver reports what each family supports, and the app only offers those controls. The table of families and command sets is in the [driver README](../SMCAMDProcessor_Source/README.md#supported-amd-processors).
 - **Changes are refused.** Hardware writes need root, or the `-amdpnopchk` boot argument on a trusted personal machine. Reading telemetry needs neither.
 - **The app warns about the driver version.** Install the two kexts from the same release as the app, into `EFI/OC/Kexts`, and restart. [Updating the AMD kexts](KEXTS.md) has the steps, with a way back if the Mac does not boot.
+- **The Mac restarts while booting after a kext update.** Add `-amdoff` to OpenCore's boot-args so the CPU kext does not start, or boot your backup EFI; then restore the old kexts. [Updating the AMD kexts](KEXTS.md#4-if-the-mac-does-not-boot) has both steps.
 - **You want to know whether the energy preference reaches the CPU.** Settings › AMD Ryzen › Hardware Validation shows the path it takes (CPPC MSRs or ACPI) and can read the values back from the firmware.
 - **Deep idle cannot be switched on.** The `amdcstate=1` or `-amdnoidle` boot arguments forbid it; remove them and restart.
 

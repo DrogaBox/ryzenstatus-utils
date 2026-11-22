@@ -167,7 +167,8 @@ enum CppcIdleClockLimitTests {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let dir = root.appendingPathComponent("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement")
         guard let pm = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8),
-              let uc = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8)
+              let uc = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8),
+              let hpp = try? String(contentsOf: dir.appendingPathComponent("AMDRyzenCPUPowerManagement.hpp"), encoding: .utf8)
         else {
             suite.expect(false, "kext sources readable")
             return
@@ -194,5 +195,21 @@ enum CppcIdleClockLimitTests {
                      "the user client never stores the limits outside setCppcPerfLimits")
         suite.expect(pm.contains("IOLockLock(rendezvousLock);\n    cppcMinPerfLimit = minLimit;\n    cppcMaxPerfLimit = maxLimit;"),
                      "the limits change under rendezvousLock, the lock the timer's apply holds")
+        suite.expect(hpp.contains("const void *fanOwner[kMAX_FANS]") && hpp.contains("const void *gpuTempOwner")
+                     && uc.contains("provider->fanOwner[fanSel] = (const void *)this;")
+                     && uc.contains("provider->fanOwner[fanIdx] = (const void *)this;")
+                     && uc.contains("provider->gpuTempOwner = (const void *)this;"),
+                     "selectors 95, 96, 97, 101, 102 and 103 record the client that changed the state")
+        suite.expect(uc.contains("if (provider->fanOwner[i] != (const void *)this) continue;")
+                     && uc.contains("released++;") && uc.contains("provider->fanToCurveMap[i] = -1;"),
+                     "clientClose releases only the fans still owned by that client")
+        suite.expect(uc.contains("if (provider->gpuTempOwner == (const void *)this)")
+                     && uc.contains("provider->gpuTempC = 0.0f;"),
+                     "clientClose clears the GPU temperature it set")
+        suite.expect(uc.contains("if (provider->cppcLimitsOwner == (const void *)this) provider->cppcLimitsOwner = nullptr;")
+                     && uc.contains("if (provider->fanOwner[i] == (const void *)this) provider->fanOwner[i] = nullptr;"),
+                     "free() clears owner tokens that still point at the client")
+        suite.expect(pm.contains("checkKernelArgument(\"-amdoff\")") && pm.contains("not starting"),
+                     "-amdoff stops the CPU kext before it starts")
     }
 }

@@ -12,6 +12,8 @@
 
 **Updates check the same file they install**: the in-app updater already compared the downloaded disk image with the release's SHA-256 before installing, but the installer then opened the file again from a folder other programs can write to. It now copies the image into a private folder, checks that copy, and installs only from it.
 
+**Kext: two programs no longer undo each other's fans (kext update)**: when two programs talk to the CPU kext and one quits, the kext now hands back only the fans and the GPU temperature that program set, instead of every fan. A new `-amdoff` boot argument keeps the CPU kext from starting, as a way out if a kext update ever stops the Mac from booting; [Updating the AMD kexts](https://github.com/DrogaBox/ryzenstatus-utils/blob/main/docs/KEXTS.md) explains it. Needs the next kext release.
+
 ## [1.87.0] — 2026-11-22 — kexts 3.41.0
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**

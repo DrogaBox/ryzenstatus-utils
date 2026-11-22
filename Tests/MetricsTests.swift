@@ -14498,8 +14498,8 @@ struct MetricsTests {
                        "AUD-001: selector 2 clamps numPhyCores to CPUInfo::MaxCpus")
                 expect(userClientSrc.contains("if (numLogicalCores > CPUInfo::MaxCpus) numLogicalCores = CPUInfo::MaxCpus;"),
                        "AUD-001: selector 21 clamps numLogicalCores to CPUInfo::MaxCpus")
-                expect(userClientSrc.contains("if (fModifiedFanControl && provider && provider->superIOLock)"),
-                       "AUD-002: clientClose only resets fan curves when fModifiedFanControl is set")
+                expect(userClientSrc.contains("if (provider->fanOwner[i] != (const void *)this) continue;"),
+                       "AUD-002: clientClose only resets the fans this client owns")
                 expect(userClientSrc.contains("hasPrivilege(90, true)"),
                        "AUD-010: selector 90 uses quiet privilege probe to avoid false-positive DENIED logs")
             } else {

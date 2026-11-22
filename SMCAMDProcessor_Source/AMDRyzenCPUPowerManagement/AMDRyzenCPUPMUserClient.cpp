@@ -99,22 +99,27 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
     // Curve-mode fans are released too — they are re-uploaded and re-mapped on
     // the next client connection (selectors 101/102).
     //
-    // Only reset fan control when this specific client instance actually
-    // modified fan state (cases 95, 96, 97, 101, 102). Otherwise a transient
-    // read-only client (such as --selftest or --sensors) or an unprivileged
-    // process closing its connection would wipe active kernel fan curves.
+    // Only reset the fans this client still owns (cases 95, 96, 97, 101,
+    // 102). A transient read-only client (such as --selftest or --sensors)
+    // owns none, and another client's fans are left alone.
     AMDRyzenCPUPowerManagement *provider = fProvider;
-    if (fModifiedFanControl && provider && provider->superIOLock) {
+    if (provider && provider->superIOLock) {
         IOLockLock(provider->superIOLock);
         if (provider->superIO) {
             int fanCount = provider->superIO->getNumberOfFans();
+            int released = 0;
             for (int i = 0; i < fanCount; i++) {
+                if (provider->fanOwner[i] != (const void *)this) continue;
+                provider->fanOwner[i] = nullptr;
                 provider->fanToCurveMap[i] = -1;
                 provider->superIO->setDefaultFanControl(i);
                 provider->lastAppliedPWM[i] = 0;
                 provider->lastPWMAssertMs[i] = 0;
+                released++;
             }
-            IOLog("AMDRyzenCPUPMUserClient: clientClose released %d fan(s) to BIOS control\n", fanCount);
+            if (released) {
+                IOLog("AMDRyzenCPUPMUserClient: clientClose released %d fan(s) to BIOS control\n", released);
+            }
         }
         IOLockUnlock(provider->superIOLock);
     }
@@ -134,6 +139,11 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
                       lifted ? "full range" : "apply failed");
             }
         }
+        if (provider->gpuTempOwner == (const void *)this) {
+            provider->gpuTempOwner = nullptr;
+            provider->gpuTempC = 0.0f;
+            IOLog("AMDRyzenCPUPMUserClient: clientClose cleared the GPU temperature\n");
+        }
         IOLockUnlock(provider->controlLock);
     }
 
@@ -145,6 +155,25 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
 // is the final teardown point for every IOService exit path, so releasing the
 // extra task reference here closes the use-after-free window in hasPrivilege().
 void AMDRyzenCPUPMUserClient::free() {
+    // A client can be freed without clientClose() running first. Clear the
+    // owner tokens that still point here so a later close cannot match them.
+    AMDRyzenCPUPowerManagement *provider = fProvider;
+    if (provider && provider->superIOLock) {
+        IOLockLock(provider->superIOLock);
+        for (size_t i = 0; i < AMDRyzenCPUPowerManagement::kMAX_FANS; i++) {
+            if (provider->fanOwner[i] == (const void *)this) provider->fanOwner[i] = nullptr;
+        }
+        IOLockUnlock(provider->superIOLock);
+    }
+    if (provider && provider->controlLock) {
+        IOLockLock(provider->controlLock);
+        if (provider->cppcLimitsOwner == (const void *)this) provider->cppcLimitsOwner = nullptr;
+        if (provider->gpuTempOwner == (const void *)this) {
+            provider->gpuTempOwner = nullptr;
+            provider->gpuTempC = 0.0f;
+        }
+        IOLockUnlock(provider->controlLock);
+    }
     if (fOwningTask) {
         task_deallocate(fOwningTask);
         fOwningTask = nullptr;
@@ -1675,6 +1704,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 pwm = kCURVE_MIN_ACTIVE_PWM;
             }
             provider->superIO->overrideFanControl(fanSel, pwm);
+            provider->fanOwner[fanSel] = (const void *)this;
             fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
@@ -1704,6 +1734,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             provider->superIO->setDefaultFanControl(fanSel);
+            provider->fanOwner[fanSel] = (const void *)this;
             fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
@@ -1732,6 +1763,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                     provider->superIO->overrideFanControl(i, 0xC8);
                 else
                     provider->superIO->setDefaultFanControl(i);
+                provider->fanOwner[i] = (const void *)this;
             }
             fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
@@ -1840,6 +1872,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             provider->fanCurves[idx].hysteresis   = hyst;
             provider->fanCurves[idx].rampRate     = ramp;
             memcpy(provider->fanCurves[idx].lut, input->lut, 256);
+            int fanCount = provider->superIO ? provider->superIO->getNumberOfFans() : 0;
+            for (int i = 0; i < fanCount; i++) {
+                if (provider->fanToCurveMap[i] == (int8_t)idx) provider->fanOwner[i] = (const void *)this;
+            }
             fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
@@ -1874,6 +1910,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             provider->fanToCurveMap[fanIdx] = (int8_t)curveIdx;
+            provider->fanOwner[fanIdx] = (const void *)this;
             // Whatever the fan held (a manual duty, another curve), the next
             // curve tick writes it.
             provider->lastPWMAssertMs[fanIdx] = 0;
@@ -1905,7 +1942,15 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             float t = (float)arguments->scalarInput[0];
             if (t < 0.0f) t = 0.0f;
             if (t > 120.0f) t = 120.0f;
-            provider->gpuTempC = t;
+            if (provider->controlLock) {
+                IOLockLock(provider->controlLock);
+                provider->gpuTempC = t;
+                provider->gpuTempOwner = (const void *)this;
+                IOLockUnlock(provider->controlLock);
+            } else {
+                provider->gpuTempC = t;
+                provider->gpuTempOwner = (const void *)this;
+            }
 
             break;
         }
