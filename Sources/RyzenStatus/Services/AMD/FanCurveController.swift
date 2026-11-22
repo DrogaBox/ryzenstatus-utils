@@ -868,6 +868,9 @@ final class FanCurveController: ObservableObject {
             )
         }
         self.rpmRuns.removeAll()
+        // The poll that rebuilds the list returns before it records, so the
+        // first readings of a new fan set reach the session peaks from here.
+        SessionPeaksTracker.shared.record(fans: fans)
         updatePollTimer()
     }
 
