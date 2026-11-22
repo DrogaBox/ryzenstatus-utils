@@ -102,10 +102,14 @@ enum MonitorAlertSustainTests {
                          && MonitorAlertSustain.isBreak(since: at(0), now: at(46))
                          && !MonitorAlertSustain.isBreak(since: nil, now: at(0)),
                      "a break is a gap over 45 s")
-        // The limit must stay well above the slowest snapshot cadence an
-        // alert can see, or every waited alert would silently never fire:
-        // each kind an alert reads, in the background, at every interval,
-        // with the timer's 15 % tolerance, must fit twice into the gap.
+        // With any alert on, the CPU is sampled every tick, so snapshots are
+        // published far more often than this. What can be slower is the
+        // reading an alert judges: a temperature or disk value refreshed on
+        // its own stride. Each kind an alert reads, in the background, at
+        // every interval, with the timer's 15 % tolerance, must fit twice
+        // into the gap, or a waited alert would restart on every refresh.
+        // This bounds only one side: a limit raised too far would let a
+        // short sleep count as watched, which the sleep tests above catch.
         let alertKinds: [MonitorSamplingKind] = [.cpu, .memory, .disk, .power, .temperature, .gpuUsage]
         for interval in Defaults.allowedMonitorIntervals {
             for kind in alertKinds {
