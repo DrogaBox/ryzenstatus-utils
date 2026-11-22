@@ -63,11 +63,11 @@ The rest bends the same way: Settings is grouped by tool and searchable down to 
 - **System monitor.** CPU (user and system time, average clock), GPU, memory pressure and app memory, temperatures, disk and power, with history graphs, metric detail pages and iStats-style widgets in the panel.
 - **Monitor window.** A window of its own, like Activity Monitor, with Overview, Processes, Processor, Network, History and Diagnostics. Processes is one sortable, searchable table of every app with CPU, memory, GPU and estimated energy; Terminate asks first and refuses protected system processes. History charts the last 30 days. Control-Shift-Escape opens it from any app, and ⌘1 to ⌘6 switch sections. It reads only the section on screen, and nothing while it is closed.
 - **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address and a built in speed test.
-- **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, GPU power, memory pressure, low disk space and low battery, in your temperature unit.
+- **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, GPU power, memory pressure, low disk space, low battery, VRAM temperature and CPU or GPU throttling, in your temperature unit.
 
 ### AMD Processors & Power Management
 
-All AMD pages live together in their own **AMD Ryzen** section of Settings: fans, power, overclocking, sensors and hardware validation. The SMU per-core telemetry is in the Processor section of the Monitor window.
+All AMD pages live together in their own **AMD Ryzen** section of Settings: fans, power, overclocking, sensors and hardware validation, plus a Dashboard page that opens the Monitor window. The SMU per-core telemetry is in the Monitor's Processor section.
 
 - **One CCD per app (new, `AMDCCDScheduler.kext`):** On a Ryzen with two CCDs, stock macOS keeps scattering each app's threads across both, so every hand-off between them crosses the Infinity Fabric (about 155 ns instead of 65 ns on a 5900XT). This kext fixes the macOS scheduler itself: each app gets a home CCD and its threads stay there while it has a free physical core, and spread to the other CCD only when it is full. On a 5900XT a Node worker pool ran **about 12% faster** with much steadier times, and an all-core zstd job ran at the same speed. As far as we could find, nothing else does this on macOS. It checks the kernel byte for byte before hooking it and stays off on any macOS build it was not checked against. [How it works and every measurement](docs/CCD_SCHEDULER.md).
 - **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw against the PPT limit, and frequencies per core.
@@ -86,7 +86,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: fans
 
 ### AMD Radeon RX 6000 graphics
 
-For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac. macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
+For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac (an RX 6950 XT should work too, but has not been run). macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
 
 - **Hardware AV1 and VP9 decoding.** Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU, YouTube in 4K60 included.
 - **Full-speed hardware encoding.** HEVC and H.264 encoding keep the video engine's clocks up: OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls.

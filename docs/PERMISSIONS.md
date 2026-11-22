@@ -16,6 +16,7 @@ You can review or change every grant in System Settings, under Privacy and Secur
 | Bluetooth | Yes | Accessory notices in the Dynamic Island and Bluetooth sleep |
 | Full Disk Access | Yes | A deeper uninstaller scan and Repair permissions |
 | Administrator (one time) | Yes | Password free closed lid toggling |
+| Administrator (until restart) | Yes | Allow GPU Changes: the power limit, fan curve and clock on the GPU control page |
 | Automation | Yes | Now Playing from Music and Spotify, Finder cut and paste, moving leftovers to the Trash, emptying the Trash and Homebrew Terminal handoff |
 
 ## Accessibility
