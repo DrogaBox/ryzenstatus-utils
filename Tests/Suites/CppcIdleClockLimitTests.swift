@@ -92,7 +92,8 @@ enum CppcIdleClockLimitTests {
         suite.expect(w.mayBeCapped, "a refused lift leaves the cap owed, so it is tried again")
         w.willWrite(0)
         w.record(0, succeeded: true, now: t0)
-        suite.expect(!w.mayBeCapped && w.failures.isEmpty, "a lift the kext took clears the cap and the refusals")
+        suite.expect(!w.mayBeCapped && w.failures[0] == nil && w.failures[25] == 1,
+                     "a lift the kext took clears the cap and its own refusals, not the cap's")
 
         w.willWrite(25)
         w.record(25, succeeded: true, now: t0)
@@ -117,6 +118,15 @@ enum CppcIdleClockLimitTests {
         for _ in 1...AMDIdleClockLimitWrites.maxFailures { w.record(0, succeeded: false, now: t0) }
         suite.expect(w.hasGivenUp(on: 25, now: t0) && w.hasGivenUp(on: 0, now: t0),
                      "each value keeps its own count: alternating re-arms nothing")
+        var lifted = w
+        lifted.willWrite(0)
+        lifted.record(0, succeeded: true, now: t0)
+        suite.expect(lifted.hasGivenUp(on: 25, now: t0) && !lifted.hasGivenUp(on: 0, now: t0),
+                     "a lift the kext takes clears only the lift: the refused cap stays given up")
+        suite.expect(w.retryDelay(for: 25, now: t0 + 100) == AMDIdleClockLimitWrites.retryAfter - 100
+                         && w.retryDelay(for: 25, now: t0 + AMDIdleClockLimitWrites.retryAfter) == 0
+                         && w.retryDelay(for: 30, now: t0) == 0,
+                     "the retry delay counts down to 0")
 
         // A passing refusal does not lock the limit out for the session.
         let later = t0 + AMDIdleClockLimitWrites.retryAfter
@@ -127,8 +137,8 @@ enum CppcIdleClockLimitTests {
                      "a refused retry gives up again quietly, for another retryAfter")
         w.willWrite(25)
         w.record(25, succeeded: true, now: later)
-        suite.expect(w.failures.isEmpty && !w.anyGivenUp(now: later),
-                     "a write the kext took clears every value's refusals")
+        suite.expect(w.failures[25] == nil && !w.hasGivenUp(on: 25, now: later),
+                     "a write the kext took clears that value's refusals")
 
         w.record(0, succeeded: false, now: later)
         w.clearFailures()
