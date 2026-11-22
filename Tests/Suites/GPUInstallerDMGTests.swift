@@ -188,6 +188,44 @@ enum GPUInstallerDMGTests {
         toolsOffered(suite, root, main)
         scriptCalls(suite, main, parts)
         windowStates(suite, main, parts)
+        installerCopies(suite, root, main)
+    }
+
+    /// Root runs a verified copy of the parts, not the app bundle the user owns.
+    private static func installerCopies(_ suite: TestSuite, _ root: URL, _ main: String) {
+        suite.expect(main.contains("static func stagedCommand(root: URL, script: String, args: [String]) -> String")
+                         && main.contains("let inner = Self.stagedCommand(root: root, script: script, args: args)"),
+                     "runAction runs the staged copy, not the script in the selected folder")
+        suite.expect(main.contains("mktemp -d /private/tmp/ryzenstatus-gpu")
+                         && main.contains("ditto --norsrc --noextattr")
+                         && main.contains("chown -R root:wheel") && main.contains("chmod -R go-w"),
+                     "the installer copies the parts into a fresh root-only folder")
+        suite.expect(main.contains("shasum -a 256 -c -s SHA256SUMS")
+                         && main.contains("SHA256SUMS does not list exactly the files of the parts")
+                         && main.contains("find . -type l"),
+                     "the installer checks every copied file against SHA256SUMS before it runs one")
+        if let mktemp = main.range(of: "mktemp -d /private/tmp/ryzenstatus-gpu"),
+           let sums = main.range(of: "shasum -a 256 -c -s SHA256SUMS"),
+           let run = main.range(of: "/bin/zsh \\\"$stage/GPU/") {
+            suite.expect(mktemp.lowerBound < sums.lowerBound && sums.lowerBound < run.lowerBound,
+                         "the copy and its SHA256SUMS check come before the zsh run")
+        } else {
+            suite.expect(false, "stagedCommand has a copy, a SHA256SUMS check and a zsh run")
+        }
+        let encode = text(root, "GPU/encode/scripts/install.sh")
+        suite.expect(encode.contains("libexec_unsafe /usr/local/libexec")
+                         && encode.contains("mkdir -p -m 755 /usr/local/libexec")
+                         && encode.contains("chown root:wheel /usr/local/libexec"),
+                     "the encoding fix creates or checks a root-owned /usr/local/libexec")
+        suite.expect(encode.contains("stage_package \"$PKG\"")
+                         && encode.contains("$STAGE_PKG/install.sh")
+                         && encode.contains("$STAGE_PKG/uninstall.sh"),
+                     "the encoding fix runs its package from a verified root-owned copy")
+        let common = text(root, "GPU/install/common.zsh")
+        let sensors = text(root, "GPU/install/sensors.sh")
+        suite.expect(common.contains("gpu_dir_unsafe()")
+                         && sensors.contains("tool_dir_unsafe() { gpu_dir_unsafe \"$TOOL_DIR\"; }"),
+                     "sensors.sh uses the shared folder rule without changing what it refuses")
     }
 
     /// Every script the installer runs, with every literal argument it passes, is in the

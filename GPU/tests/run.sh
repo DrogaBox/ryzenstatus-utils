@@ -72,6 +72,7 @@ syntax() {
 check "every shell script parses" syntax
 check "the validated builds list agrees with the decoders' driver lists" install/check_lists.sh
 check "install.sh plan decides as expected on made-up Macs" tests/install_plan.sh
+check "root installers refuse folders another user can change" tests/install_paths.sh
 
 step "decoders: build"
 build_twice() {

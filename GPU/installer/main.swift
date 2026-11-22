@@ -408,9 +408,7 @@ final class Engine: ObservableObject {
         phase = .running(title)
         lastActionTitle = title
         lastOutput = ""
-        let scriptPath = root.appendingPathComponent(script).path
-        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
-        let inner = "/bin/zsh \(Self.shq(scriptPath))\(argStr.isEmpty ? "" : " " + argStr) 2>&1"
+        let inner = Self.stagedCommand(root: root, script: script, args: args)
 
         DispatchQueue.global().async {
             let result = self.runPrivileged(inner)
@@ -478,6 +476,34 @@ final class Engine: ObservableObject {
 
     static func shq(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Copies the parts into a root-only folder, checks every copied file against the
+    /// package's SHA256SUMS, and runs the copy. The app bundle belongs to the user, so
+    /// root must not run a script from it.
+    ///
+    /// The SHA256SUMS file itself is not pinned here yet: Tools/make-dmg.sh holds
+    /// GPU_PAYLOAD_SUMS_SHA256, and the build script would have to pass it to swiftc.
+    /// Until then, this checks every copied file but not the list itself.
+    static func stagedCommand(root: URL, script: String, args: [String]) -> String {
+        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
+        let lines = [
+            "stage=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-gpu.XXXXXX) || exit 1",
+            "trap '/bin/rm -rf \"$stage\"' EXIT HUP INT TERM",
+            "/usr/bin/ditto --norsrc --noextattr \(Self.shq(root.path)) \"$stage/GPU\" || exit 1",
+            "/usr/bin/chown -R root:wheel \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R go-w \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R -N \"$stage/GPU\" 2>/dev/null || exit 1",
+            "cd \"$stage/GPU\" || exit 1",
+            "[ -f SHA256SUMS ] && [ ! -L SHA256SUMS ] || { echo 'the parts have no SHA256SUMS'; exit 1; }",
+            "/usr/bin/shasum -a 256 -c -s SHA256SUMS || exit 1",
+            "listed=$(/usr/bin/awk '{ sub(/^[0-9a-f]+  /, \"\"); print }' SHA256SUMS | LC_ALL=C /usr/bin/sort) || exit 1",
+            "present=$(/usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort) || exit 1",
+            "[ \"$listed\" = \"$present\" ] || { echo 'SHA256SUMS does not list exactly the files of the parts'; exit 1; }",
+            "[ -z $(/usr/bin/find . -type l -print -quit) ] || { echo 'the parts hold a link'; exit 1; }",
+            "/bin/zsh \"$stage/GPU/\(script)\"\(argStr.isEmpty ? "" : " " + argStr) 2>&1",
+        ]
+        return "/bin/zsh -c \(Self.shq(lines.joined(separator: "; ")))"
     }
 
     static func asq(_ s: String) -> String {

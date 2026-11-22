@@ -25,6 +25,23 @@ say()  { print -r -- "$@"; }
 die()  { print -r -- "error: $*" >&2; exit 1; }
 step() { print -r -- ""; print -r -- "== $*"; }
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }  # plist key
+# The service runs as root from /usr/local/libexec. Refuse a folder another user could change.
+libexec_unsafe() {
+  local d=$1 owner mode
+  while [[ $d != / ]]; do
+    if [[ -e $d || -L $d ]]; then
+      [[ -d $d && ! -L $d ]] || { print -r -- "$d is not a folder"; return 0; }
+      owner=$(/usr/bin/stat -f '%Su' "$d")
+      mode=$(/usr/bin/stat -f '%Lp' "$d")
+      [[ $owner == root ]] || { print -r -- "$d belongs to $owner, not root"; return 0; }
+      (( (8#$mode & 8#022) == 0 )) || { print -r -- "$d can be written by others than root (mode $mode)"; return 0; }
+      [[ $(/bin/ls -lde "$d" 2>/dev/null | head -1 | cut -c11) == "+" ]] &&
+        { print -r -- "$d has an access control list"; return 0; }
+    fi
+    d=${d:h}
+  done
+  return 1
+}
 
 efi="" force=0 args=()
 while (( $# )); do
@@ -96,7 +113,14 @@ if [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] || launchctl print 
   rm -f /Library/LaunchDaemons/com.droga.vcnpreset.plist /usr/local/libexec/vcnpreset
 fi
 # Everything is staged next to its place first; the running service is only stopped once that worked.
-mkdir -p /usr/local/libexec || die "cannot create /usr/local/libexec. Nothing was changed."
+if [[ ! -e /usr/local/libexec ]]; then
+  why=$(libexec_unsafe /usr/local) || true
+  [[ -z $why ]] || die "will not create /usr/local/libexec: $why. Nothing was changed."
+  mkdir -p -m 755 /usr/local/libexec || die "cannot create /usr/local/libexec. Nothing was changed."
+  chown root:wheel /usr/local/libexec || die "cannot make /usr/local/libexec root-owned."
+fi
+why=$(libexec_unsafe /usr/local/libexec) || true
+[[ -z $why ]] || die "will not install the service: $why."
 rm -f $bin_dst.new $plist_dst.tmp
 install -m 755 -o root -g wheel $tool $bin_dst.new || { rm -f $bin_dst.new; die "cannot write $bin_dst.new. Nothing was changed."; }
 argxml=""

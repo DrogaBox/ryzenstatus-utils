@@ -409,6 +409,8 @@ do_install() {
   preflight
   [[ $CAN_INSTALL -eq 1 ]] || { echo "the encoding fix cannot be installed on this Mac (see the checks)" >&2; print -rl -u2 -- "${CHECK_LINES[@]}"; exit 2; }
   local rc
+  stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
+  trap stage_cleanup EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     OPEN_ID=$EFI_ID
@@ -420,14 +422,14 @@ do_install() {
       echo "config.plist on $EFI_ID: ${ENTRY_WHY:-cannot be checked}. Fix or remove the VCNEncodeFloor.kext entry by hand (or enable Lilu), then run this again. Nothing was changed." >&2
       exit 3
     fi
-    /bin/zsh "$PKG/install.sh" --efi "$EFI_MP" 2>&1
+    /bin/zsh "$STAGE_PKG/install.sh" --efi "$EFI_MP" 2>&1
     rc=$?
     # the record of this install, for the checks until the reboot (common.zsh)
     (( rc == 0 )) && record_write VCNEncodeFloor "$(efi_field $EFI_ID 'Disk / Partition UUID')" "$(efi_field $EFI_ID 'Volume Name')" $EFI_ID \
       com.droga.VCNEncodeFloor "$(pkg_version)" "$(files_hash "$PKG_KEXT_BIN")"
     enc_cleanup
   else
-    /bin/zsh "$PKG/install.sh" 2>&1
+    /bin/zsh "$STAGE_PKG/install.sh" 2>&1
     rc=$?
   fi
   [[ $rc -eq 0 ]] || { echo "VCNEncodeFix install.sh failed ($rc); see the lines above" >&2; exit $rc; }
@@ -438,17 +440,19 @@ do_uninstall() {
   need_root uninstall
   [[ -f $PKG/uninstall.sh ]] || { echo "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")" >&2; exit 1; }
   local rc
+  stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
+  trap stage_cleanup EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     # taking the kext off needs no Lilu on that EFI
     OPEN_ID=$EFI_ID
     efi_open "$EFI_ID" || { OPEN_ID=""; exit 1; }
     record_remove VCNEncodeFloor
-    /bin/zsh "$PKG/uninstall.sh" --efi "$EFI_MP" 2>&1
+    /bin/zsh "$STAGE_PKG/uninstall.sh" --efi "$EFI_MP" 2>&1
     rc=$?
     enc_cleanup
   else
-    /bin/zsh "$PKG/uninstall.sh" 2>&1
+    /bin/zsh "$STAGE_PKG/uninstall.sh" 2>&1
     rc=$?
   fi
   [[ $rc -eq 0 ]] || { echo "VCNEncodeFix uninstall.sh failed ($rc); see the lines above" >&2; exit $rc; }

@@ -358,21 +358,7 @@ TOOL_DIR=$GPU_TOOL_DIR
 TOOLS=($GPU_TOOL_NAMES)
 tool_id() { gpu_tool_id "$1"; }
 has_acl() { [[ $(/bin/ls -lde "$1" 2>/dev/null | head -1 | cut -c11) == "+" ]]; }
-tool_dir_unsafe() {
-  local d=$TOOL_DIR owner mode
-  while [[ $d != / ]]; do
-    if [[ -e $d || -L $d ]]; then
-      [[ -d $d && ! -L $d ]] || { print -r -- "$d is not a folder"; return 0; }
-      owner=$(/usr/bin/stat -f '%Su' "$d")
-      mode=$(/usr/bin/stat -f '%Lp' "$d")
-      [[ $owner == root ]] || { print -r -- "$d belongs to $owner, not root"; return 0; }
-      (( (8#$mode & 8#022) == 0 )) || { print -r -- "$d can be written by others than root (mode $mode)"; return 0; }
-      has_acl "$d" && { print -r -- "$d has an access control list"; return 0; }
-    fi
-    d=${d:h}
-  done
-  return 1
-}
+tool_dir_unsafe() { gpu_dir_unsafe "$TOOL_DIR"; }
 tool_file_unsound() { # file name
   local f=$1 owner mode
   [[ -f $f && ! -L $f ]] || { print -r -- "$f is not a plain file"; return 0; }
