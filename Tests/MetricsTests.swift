@@ -9266,7 +9266,7 @@ struct MetricsTests {
                && !kextSrc.contains("smuSendCmd(0x56") && !kextSrc.contains("smuSendCmd(0x6F"),
                "SMU call sites take their numbers from the command set")
         expect(kextSrc.contains("void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider)")
-               && kextSrc.contains("bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp)"),
+               && kextSrc.contains("bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp, uint8_t minLimit, uint8_t maxLimit)"),
                "EPP has an ACPI PCC path")
 
         expect(AMDCurveOptimizer.clamp(-100) == -30, "clamp floor is -30")
@@ -14351,6 +14351,7 @@ struct MetricsTests {
                 ("GPUFolderTests", GPUFolderTests.run),
                 ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),
                 ("MonitorShortcutTests", MonitorShortcutTests.run),
+                ("CppcIdleClockLimitTests", CppcIdleClockLimitTests.run),
                 ("IStatsWidgetTests", IStatsWidgetTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
                 ("NotchMascotFusionTests", NotchMascotFusionTests.run),
@@ -14389,8 +14390,8 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 68,
-                       "AMDKextSelector enumerates all 68 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 70,
+                       "AMDKextSelector enumerates all 70 app-used IOKit selectors (got \(selectors.count))")
                 expect(AMDKextSelector.corePower.rawValue == 60, "corePower selector is 60")
                 expect(userClientSrc.contains("provider->corePowerW_perCore[i]")
                        && userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),

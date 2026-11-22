@@ -190,3 +190,87 @@ struct AdaptivePowerRow: View {
         }
     }
 }
+
+/// Idle clock limit (Settings › AMD Ryzen Power, below Auto EPP): the CPPC
+/// max clock while Auto EPP holds Eco, Linux amd-pstate's scaling_max_freq
+/// applied only at idle. CPUs whose kext reports a CPPC range only.
+struct IdleClockLimitRow: View {
+    @ObservedObject private var autoEpp = AutoEppService.shared
+    @ObservedObject private var l10n = L10n.shared
+    @State private var range: AMDCppcRange?
+    @State private var limitMHz = Double(AmdSettingsStore.shared.autoEppIdleClockLimitMHz)
+
+    var body: some View {
+        // A kext that keeps refusing the limit shows it as unavailable.
+        let bounds = autoEpp.idleClockLimitFailed ? nil : range?.idleLimitRangeMHz
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(l10n.amdPower.idleClockToggle, isOn: Binding(
+                get: { limitMHz > 0 && bounds != nil },
+                set: { on in
+                    guard let bounds, let range else { return }
+                    // Starts at the efficient minimum, where amd-pstate puts
+                    // its default floor.
+                    let start = range.mhz(perf: range.lowestNonlinear) ?? bounds.lowerBound
+                    store(on ? Double(min(max(start, bounds.lowerBound), bounds.upperBound)) : 0)
+                }
+            ))
+            .disabled(bounds == nil || !autoEpp.isActive)
+
+            if let bounds, limitMHz > 0 {
+                HStack {
+                    Slider(value: $limitMHz,
+                           in: Double(bounds.lowerBound)...Double(bounds.upperBound),
+                           step: 25) {
+                        Text(l10n.amdPower.idleClockToggle)
+                    } minimumValueLabel: {
+                        Text(Self.clock(bounds.lowerBound)).font(.caption2)
+                    } maximumValueLabel: {
+                        Text(Self.clock(bounds.upperBound)).font(.caption2)
+                    } onEditingChanged: { editing in
+                        if !editing { store(limitMHz) }
+                    }
+                    .labelsHidden()
+                    .disabled(!autoEpp.isActive)
+                    Text(Self.clock(Int(limitMHz)))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .frame(minWidth: 64, alignment: .trailing)
+                }
+            }
+
+            Text(caption(bounds: bounds))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear(perform: refresh)
+        .onChange(of: autoEpp.currentTarget) { _, _ in refresh() }
+    }
+
+    private func refresh() {
+        range = autoEpp.currentCppcRange()
+    }
+
+    private func store(_ mhz: Double) {
+        limitMHz = mhz
+        AmdSettingsStore.shared.autoEppIdleClockLimitMHz = Int(mhz)
+    }
+
+    private func caption(bounds: ClosedRange<Int>?) -> String {
+        guard bounds != nil, let range,
+              let low = range.mhz(perf: range.lowest),
+              let efficient = range.mhz(perf: range.lowestNonlinear),
+              let base = range.mhz(perf: range.nominal)
+        else { return l10n.amdPower.idleClockUnavailable }
+        let lead = autoEpp.isActive ? l10n.amdPower.idleClockCaption : l10n.amdPower.idleClockNeedsAutoEpp
+        let cpu = String(format: l10n.amdPower.idleClockRangeFormat,
+                         Self.clock(low), Self.clock(efficient), Self.clock(base))
+        return lead + " " + cpu
+    }
+
+    /// 400 MHz, 1.2 GHz, 3.2 GHz.
+    static func clock(_ mhz: Int) -> String {
+        if mhz < 1000 { return "\(mhz) MHz" }
+        let ghz = Double(mhz) / 1000
+        return ghz.formatted(.number.precision(.fractionLength(1...2))) + " GHz"
+    }
+}

@@ -40,6 +40,9 @@ final class AutoEppService: ObservableObject {
     @Published private(set) var writesTakeEffect: Bool = ProcessorModel.eppWritesTakeEffect
     /// A kext is loaded, so presets have something to write to.
     @Published private(set) var canRun: Bool = false
+    /// The kext refused the idle clock limit `AMDIdleClockLimitWrites.maxFailures`
+    /// times in a row; the settings row shows it as unavailable.
+    @Published private(set) var idleClockLimitFailed = false
 
     // MARK: - Internal state
 
@@ -53,7 +56,18 @@ final class AutoEppService: ObservableObject {
     /// preset than it (see `AutoEppPolicy.settle`).
     private var appliedTarget: AutoEppTarget?
     private var stepDownPolls = 0
+    /// The CPPC max perf this service last wrote for the idle clock limit
+    /// (0 = none), nil when unknown: the next poll writes it again.
+    fileprivate var appliedIdleMaxPerf: UInt8?
+    /// Whether a cap may be in force, and the kext's refusals in a row.
+    fileprivate var idleLimitWrites = AMDIdleClockLimitWrites()
+    /// Retries a refused lift while the loop is stopped.
+    private var liftRetryTask: Task<Void, Never>?
+    /// The CPU's CPPC range, read once per kext load (selector 68).
+    fileprivate var cppcRange: AMDCppcRange?
+    fileprivate var cppcUnsupported = false
     private var wakeObserver: Any?
+    private var reconnectObserver: Any?
     /// Set by suspend()/resume(): Gaming Mode holds the power settings.
     private(set) var isSuspended: Bool = false
 
@@ -68,6 +82,20 @@ final class AutoEppService: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.resetApplied()
+                // A refusal before the sleep may have been passing: try again.
+                self?.clearIdleLimitFailures()
+            }
+        }
+        // The watchdog reopens the kext connection after a kext reload or a
+        // dead handle. Closing the old connection lifts the idle clock limit
+        // in the kext, so the next poll writes it again on the new one.
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: ProcessorModel.kextReconnectedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.forgetIdleClockLimit()
             }
         }
     }
@@ -76,13 +104,35 @@ final class AutoEppService: ObservableObject {
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+        }
     }
+
+    /// The kext holds no idle clock limit from this service: a fresh kext, or
+    /// a connection that just closed (the kext lifts the limit itself then).
+    private func forgetIdleClockLimit() {
+        appliedIdleMaxPerf = nil
+        idleLimitWrites = AMDIdleClockLimitWrites()
+        if idleClockLimitFailed { idleClockLimitFailed = false }
+    }
+
+    /// Every value is sent again, and the row stops showing the limit as
+    /// unavailable until the kext refuses it again.
+    private func clearIdleLimitFailures() {
+        idleLimitWrites.clearFailures()
+        if idleClockLimitFailed { idleClockLimitFailed = false }
+    }
+
+    /// Seconds of system uptime, the clock of `AMDIdleClockLimitWrites`.
+    private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// The next poll applies its target in full even if it did not change.
     private func resetApplied() {
         lastAppliedPreset = nil
         appliedTarget = nil
         stepDownPolls = 0
+        appliedIdleMaxPerf = nil
     }
 
     // MARK: - Lifecycle
@@ -95,6 +145,9 @@ final class AutoEppService: ObservableObject {
               AutoEppPolicy.shouldRun(enabled: AmdSettingsStore.shared.autoEppEnabled,
                                       suspended: isSuspended, kextLoaded: canRun)
         else { return }
+        // The loop writes the limit it wants from its first poll.
+        liftRetryTask?.cancel()
+        liftRetryTask = nil
         pollTask = Task.detached(priority: .background) { [weak self] in
             // Exit when the owner is gone; nothing else cancels the loop.
             guard let strong = self else { return }
@@ -111,15 +164,75 @@ final class AutoEppService: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         AmdPresetController.shared.showAutoPreset(nil)
+        liftIdleClockLimit()
+    }
+
+    /// Puts the full CPPC range back when this service may have narrowed it:
+    /// Auto EPP off, paused for Gaming Mode, or the app quitting. A refused
+    /// lift is tried again every poll interval while the loop stays stopped,
+    /// until it succeeds; after `AMDIdleClockLimitWrites.maxFailures`
+    /// refusals only once every `retryAfter`. If the app dies first, the
+    /// kext lifts the limit itself when the connection closes.
+    private func liftIdleClockLimit() {
+        guard idleLimitWrites.mayBeCapped, canRun else { return }
+        if !writeIdleClockLimit(0) { scheduleLiftRetry() }
+    }
+
+    private func scheduleLiftRetry() {
+        guard liftRetryTask == nil else { return }
+        liftRetryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                guard self.pollTask == nil, self.canRun, self.idleLimitWrites.mayBeCapped else { break }
+                // Given up for now: wait out the retry instead of leaving a
+                // cap that may be in force for the whole session.
+                let delay = self.idleLimitWrites.retryDelay(for: 0, now: Self.uptime)
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
+                if self.writeIdleClockLimit(0) { break }
+            }
+            // start() and stop() cancel and clear it themselves.
+            if !Task.isCancelled { self?.liftRetryTask = nil }
+        }
+    }
+
+    /// Sends the CPPC max perf (min stays the CPU's own) and records the
+    /// answer. A refusal leaves the written value unknown, so whatever the
+    /// next poll wants is sent, and a lift is still owed while a cap may be
+    /// in force. True when the kext took it.
+    @discardableResult
+    fileprivate func writeIdleClockLimit(_ maxPerf: UInt8) -> Bool {
+        idleLimitWrites.willWrite(maxPerf)
+        let ok = ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: maxPerf) == KERN_SUCCESS
+        appliedIdleMaxPerf = ok ? maxPerf : nil
+        let now = Self.uptime
+        if idleLimitWrites.record(maxPerf, succeeded: ok, now: now) {
+            NSLog("AutoEppService: the kext refused CPPC max perf %u %ld times; trying it again every %.0f s",
+                  UInt32(maxPerf), AMDIdleClockLimitWrites.maxFailures, AMDIdleClockLimitWrites.retryAfter)
+        }
+        // Shown until a write succeeds, a wake, Auto EPP is switched or the
+        // kext reloads.
+        let failed = idleLimitWrites.anyGivenUp(now: now)
+        if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
+        return ok
     }
 
     /// Stops the monitoring loop. Called on termination.
     func stop() {
         stopLoop()
+        liftRetryTask?.cancel()
+        liftRetryTask = nil
         // Deinit never fires on a `static let shared` singleton.
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
+        }
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+            self.reconnectObserver = nil
         }
     }
 
@@ -132,6 +245,9 @@ final class AutoEppService: ObservableObject {
         writesTakeEffect = ProcessorModel.eppWritesTakeEffect
         canRun = loaded
         resetApplied()
+        cppcRange = nil
+        cppcUnsupported = false
+        forgetIdleClockLimit()
         currentEPP = nil
         currentTarget = ""
         if !loaded { stopLoop() }
@@ -170,6 +286,8 @@ final class AutoEppService: ObservableObject {
         AmdSettingsStore.shared.autoEppEnabled = on
         isActive = on
         resetApplied()
+        idleLimitWrites.clearFailures()
+        if idleClockLimitFailed { idleClockLimitFailed = false }
         currentEPP = nil
         currentTarget = ""
         if on {
@@ -228,6 +346,7 @@ final class AutoEppService: ObservableObject {
             // The boost, PPM/LPM and CC6 toggles show what the kext now holds.
             Task { await AmdPowerControlsModel.shared.syncFromKext() }
         }
+        if lastAppliedPreset == preset { applyIdleClockLimit(for: preset) }
 
         // A loop stopped while this poll ran must not publish its target.
         guard pollTask != nil else { return }
@@ -240,6 +359,40 @@ final class AutoEppService: ObservableObject {
         let epp: UInt8? = applied && writesTakeEffect ? preset.eppValue : nil
         if currentEPP != epp { currentEPP = epp }
         AmdPresetController.shared.showAutoPreset(applied ? preset : nil)
+    }
+}
+
+extension AutoEppService {
+    /// The CPPC range the idle clock limit is set in (selector 68). Kept once
+    /// known; nil while the kext cannot report it, and `cppcUnsupported`
+    /// stops asking a kext without selector 68 or without CPPC.
+    func currentCppcRange() -> AMDCppcRange? {
+        if let cppcRange { return cppcRange }
+        guard canRun, !cppcUnsupported else { return nil }
+        guard let range = ProcessorModel.shared.getCppcRange(), range.mechanism != .none else {
+            cppcUnsupported = true
+            return nil
+        }
+        // ACPI CPPC reports its range only after the first EPP write.
+        if range.isKnown { cppcRange = range }
+        return range
+    }
+
+    /// Writes the CPPC max perf for this preset (the idle clock limit while
+    /// Eco holds, none otherwise) when it differs from the last one written.
+    /// A refused write records nothing, so the next poll retries, up to
+    /// `AMDIdleClockLimitWrites.maxFailures` refusals of the same value and
+    /// then once every `retryAfter`.
+    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset) {
+        guard let range = currentCppcRange() else { return }
+        let limit = AmdSettingsStore.shared.autoEppIdleClockLimitMHz
+        let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
+        let now = Self.uptime
+        // A retry window that ran out shows the row as available again.
+        let failed = idleLimitWrites.anyGivenUp(now: now)
+        if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
+        guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf, now: now) else { return }
+        writeIdleClockLimit(maxPerf)
     }
 }
 

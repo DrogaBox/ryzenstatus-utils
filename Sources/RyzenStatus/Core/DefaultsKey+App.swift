@@ -479,6 +479,7 @@ extension DefaultsKey {
     static let autoEppEnabled = "autoEppEnabled"                 // Bool: whether software Auto EPP is active
     static let autoEppIdleThreshold = "autoEppIdleThreshold"     // 0-100, CPU load % below which → Power Save (255)
     static let autoEppLoadThreshold = "autoEppLoadThreshold"     // 0-100, CPU load % above which → Performance (0)
+    static let autoEppIdleClockLimitMHz = "autoEppIdleClockLimitMHz" // Int MHz, CPPC max clock while Auto EPP holds Eco; 0 = off
     // AMD Power Presets — one-tap EPP + CPB + PPM/LPM profiles.
     static let amdPowerPreset = "amdPowerPreset"                 // AMDPowerPreset.rawValue, written when applied
     // Per-toggle persistence for the Priority-1 control features.

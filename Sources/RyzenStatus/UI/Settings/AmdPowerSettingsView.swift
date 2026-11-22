@@ -320,6 +320,8 @@ struct AmdPowerSettingsView: View {
 
                         AdaptivePowerRow()
 
+                        IdleClockLimitRow()
+
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
