@@ -46,6 +46,18 @@ int main(int argc, char** argv) {
   check(!plausible(log),
         "a flag other than 0 or 1 means the buffer is not a log");
 
+  // Freshness: the driver samples about once a second, so a copy older than
+  // 5 s means it stopped (asleep, powered down, driver gone) and the values
+  // must be removed instead of published as current.
+  check(sampleFresh(0) && sampleFresh(kMaxSampleAgeMs),
+        "a sample up to 5 s old is fresh");
+  check(!sampleFresh(kMaxSampleAgeMs + 1), "a sample older than 5 s is stale");
+  check(!publishable(false, 0), "no sample publishes nothing, even at age 0");
+  check(publishable(true, 0) && publishable(true, kMaxSampleAgeMs),
+        "a fresh log is published");
+  check(!publishable(true, kMaxSampleAgeMs + 1),
+        "a stale log is not published");
+
   // The ids the samplePMStatistics of the driver reads must keep their names.
   struct {
     uint16_t id;
