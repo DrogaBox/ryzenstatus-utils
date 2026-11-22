@@ -122,6 +122,17 @@ enum HardwareValidation {
         /// Technical, unlocalized detail (versions, counts, indices), same
         /// convention as the diagnostics bundle.
         let detail: String
+        /// An UNKNOWN that is information, not a warning (a non-reference
+        /// Super I/O, or a refusal that does not prove a privilege problem):
+        /// the row keeps its verdict colour without an orange hint.
+        let neutral: Bool
+
+        init(gate: Gate, verdict: Verdict, detail: String, neutral: Bool = false) {
+            self.gate = gate
+            self.verdict = verdict
+            self.detail = detail
+            self.neutral = neutral
+        }
     }
 
     // MARK: - Evidence
@@ -162,6 +173,8 @@ enum HardwareValidation {
         var appVersion: String = ""
         var appBuild: String = ""
         var kextVersion: String = ""
+        /// The version above came from the cache because the live query failed.
+        var kextVersionIsCachedFallback: Bool = false
         var kextConnected: Bool = false
         /// Selector 100 produced a packet this snapshot.
         var hasTelemetryPacket: Bool = false
@@ -169,10 +182,13 @@ enum HardwareValidation {
         var privilegeChecked: Bool = false
         /// …and the kext answered with a report.
         var privilegeReported: Bool = false
-        /// …or refused it.
+        /// …or refused it with `kIOReturnNotPrivileged`.
         var privilegeDenied: Bool = false
-        /// Last denial text observed on any write path this session.
+        /// Text of that confirmed privilege denial.
         var privilegeMessage: String? = nil
+        /// A write refused for a different reason (unsupported control, bad
+        /// argument, device busy); it says nothing about privilege.
+        var writeRefusal: String? = nil
         var fans: [FanEvidence] = []
         var packageTempC: Double = 0
         var packagePowerW: Double = 0
@@ -215,6 +231,11 @@ enum HardwareValidation {
     }
 
     private static func kextVersionGate(_ s: Snapshot) -> GateResult {
+        if s.kextVersionIsCachedFallback {
+            return GateResult(gate: .kextVersion, verdict: .unknown,
+                              detail: "could not read the driver version (cached \(s.kextVersion)); "
+                                    + "the live version query failed")
+        }
         if s.kextVersion.isEmpty {
             return GateResult(gate: .kextVersion, verdict: .unknown,
                               detail: "driver version not reported (no connection)")
@@ -236,12 +257,25 @@ enum HardwareValidation {
             return GateResult(gate: .kextTelemetry, verdict: .fail,
                               detail: "selector 100 packet unavailable")
         }
+        let temp = s.packageTempC
+        let power = s.packagePowerW
+        let zero = temp == 0 && power == 0
+        let outOfRange = !temp.isFinite || !power.isFinite
+            || temp <= 0 || temp > 125 || power < 0 || power > 1000
+        if zero || outOfRange {
+            return GateResult(gate: .kextTelemetry, verdict: .fail,
+                              detail: String(format: "selector 100 has no usable reading: %.1f C / %.1f W (zero or out of range)",
+                                             temp, power))
+        }
         return GateResult(gate: .kextTelemetry, verdict: .pass,
                           detail: String(format: "selector 100: %.1f C / %.1f W",
-                                         s.packageTempC, s.packagePowerW))
+                                         temp, power))
     }
 
     private static func privilegeGate(_ s: Snapshot) -> GateResult {
+        // Only kIOReturnNotPrivileged proves that the write path was denied for
+        // privilege. A warning from any other failed write says nothing about
+        // privilege and must not send the user to "run as root".
         if s.privilegeDenied {
             let why = s.privilegeMessage ?? "kext refused the privileged probe"
             return GateResult(gate: .privilege, verdict: .fail, detail: why)
@@ -250,9 +284,15 @@ enum HardwareValidation {
             return GateResult(gate: .privilege, verdict: .pass,
                               detail: "privileged read-only probe answered (selector 58)")
         }
+        if let refusal = s.writeRefusal {
+            return GateResult(gate: .privilege, verdict: .unknown,
+                              detail: "last write was refused for another reason: \(refusal)",
+                              neutral: true)
+        }
         if let message = s.privilegeMessage {
-            return GateResult(gate: .privilege, verdict: .fail,
-                              detail: "write denied this session: \(message)")
+            return GateResult(gate: .privilege, verdict: .unknown,
+                              detail: "last write was refused without a privilege denial: \(message)",
+                              neutral: true)
         }
         return GateResult(gate: .privilege, verdict: .unknown,
                           detail: s.privilegeChecked
@@ -303,11 +343,11 @@ enum HardwareValidation {
         }
         if family.isEmpty {
             return GateResult(gate: .superIOFamily, verdict: .unknown,
-                              detail: "no driver header names reported")
+                              detail: "no driver header names reported", neutral: true)
         }
         return GateResult(gate: .superIOFamily, verdict: .unknown,
                           detail: "\(family) — the runbook's expected values are calibrated "
-                                + "for \(referenceSuperIOFamily)")
+                                + "for \(referenceSuperIOFamily)", neutral: true)
     }
 
     // MARK: - Super I/O family inference

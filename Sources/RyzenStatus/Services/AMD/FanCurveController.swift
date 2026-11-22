@@ -29,6 +29,9 @@ final class FanCurveController: ObservableObject {
         }
     }
     @Published var privilegeError: String? = nil
+    /// Status of the last failed write, so a caller can tell a privilege
+    /// denial from an unsupported or out-of-range one.
+    @Published private(set) var lastWriteStatus: kern_return_t? = nil
     @Published var kextMissing: Bool = false
     @Published var isLoadingFans: Bool = false
 
@@ -392,8 +395,10 @@ final class FanCurveController: ObservableObject {
                 // Remember success only — a failed upload retries on the
                 // next change or forced sync, never on unchanged refreshes.
                 controller.lastUploadedCurvesFingerprint = fingerprint
+                controller.lastWriteStatus = nil
             } else {
                 controller.privilegeError = ProcessorModel.privilegeHint(for: status)
+                controller.lastWriteStatus = status
             }
         }
     }
@@ -488,6 +493,9 @@ final class FanCurveController: ObservableObject {
         }
         if firstFailure != KERN_SUCCESS {
             privilegeError = ProcessorModel.privilegeHint(for: firstFailure)
+            lastWriteStatus = firstFailure
+        } else {
+            lastWriteStatus = nil
         }
     }
 
@@ -587,8 +595,10 @@ final class FanCurveController: ObservableObject {
     private func noteGPUBridgeResult(_ status: kern_return_t) {
         if status == KERN_SUCCESS {
             gpuBridgeWarned = false
+            lastWriteStatus = nil
         } else if !gpuBridgeWarned {
             gpuBridgeWarned = true
+            lastWriteStatus = status
             if status == kIOReturnNotPrivileged {
                 privilegeError = ProcessorModel.privilegeHint(for: status)
             }
