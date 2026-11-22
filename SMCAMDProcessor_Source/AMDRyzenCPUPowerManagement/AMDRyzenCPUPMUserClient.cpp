@@ -119,6 +119,24 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
         IOLockUnlock(provider->superIOLock);
     }
 
+    // Same dead-man switch for the CPPC perf limits (selector 69): a cap set
+    // by the app is CPU state, so a crash, a kill or a force quit would leave
+    // every core capped until reboot, and every wake would put the cap back.
+    // Only the client that set the limits in force lifts them, so a
+    // read-only client closing never touches another client's cap.
+    if (provider && provider->controlLock) {
+        IOLockLock(provider->controlLock);
+        if (provider->cppcLimitsOwner == (const void *)this) {
+            provider->cppcLimitsOwner = nullptr;
+            if (provider->cppcMinPerfLimit != 0 || provider->cppcMaxPerfLimit != 0) {
+                const bool lifted = provider->setCppcPerfLimits(0, 0);
+                IOLog("AMDRyzenCPUPMUserClient: clientClose lifted the CPPC perf limits (%s)\n",
+                      lifted ? "full range" : "apply failed");
+            }
+        }
+        IOLockUnlock(provider->controlLock);
+    }
+
     terminate();
     return kIOReturnSuccess;
 }
@@ -1087,14 +1105,19 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 }
             }
             const uint64_t mechanism = provider->cppcMsrSupported ? 1 : (provider->acpiCppc.supported ? 2 : 0);
+            // Both limits under controlLock, so the pair is one selector 69 wrote.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            const uint64_t minLimit = provider->cppcMinPerfLimit;
+            const uint64_t maxLimit = provider->cppcMaxPerfLimit;
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
             const uint64_t report[] = {
                 mechanism,
                 provider->cppcCapLowest,
                 provider->cppcCapLowestNonlinear,
                 provider->cppcCapNominal,
                 highest,
-                provider->cppcMinPerfLimit,
-                provider->cppcMaxPerfLimit,
+                minLimit,
+                maxLimit,
                 (provider->cppcActiveMode && provider->cppcEngaged) ? 1ULL : 0ULL,
             };
             const uint32_t count = (uint32_t)(sizeof(report) / sizeof(report[0]));
@@ -1118,10 +1141,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (minPerf > 0xFF || maxPerf > 0xFF) return kIOReturnBadArgument;
             if (minPerf != 0 && maxPerf != 0 && minPerf > maxPerf) return kIOReturnBadArgument;
 
+            // This client now owns the limits: its clientClose() lifts them.
             if (provider->controlLock) IOLockLock(provider->controlLock);
-            provider->cppcMinPerfLimit = (uint8_t)minPerf;
-            provider->cppcMaxPerfLimit = (uint8_t)maxPerf;
-            bool applied = !provider->cppcActiveMode || provider->applyEPPControl();
+            bool applied = provider->setCppcPerfLimits((uint8_t)minPerf, (uint8_t)maxPerf);
+            provider->cppcLimitsOwner = (minPerf != 0 || maxPerf != 0) ? (const void *)this : nullptr;
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
             if (!applied) return kIOReturnError;

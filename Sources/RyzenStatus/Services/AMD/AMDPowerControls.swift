@@ -180,6 +180,56 @@ enum AMDIdleClockLimitPolicy {
     }
 }
 
+/// The idle clock limit's write bookkeeping (selector 69): whether a cap may
+/// be in the CPU, and when to stop sending a value the kext keeps refusing.
+/// Kept apart from the service so it can be tested.
+struct AMDIdleClockLimitWrites: Equatable, Sendable {
+    /// Refusals in a row of one value before it is no longer sent.
+    static let maxFailures = 3
+
+    /// A non-zero max perf was sent and no lift has succeeded since. Set
+    /// before the write: a refused write may still have reached some cores.
+    private(set) var mayBeCapped = false
+    /// The value refused last and how many times in a row.
+    private(set) var failedValue: UInt8?
+    private(set) var failures = 0
+
+    /// `value` has been refused `maxFailures` times in a row.
+    func hasGivenUp(on value: UInt8) -> Bool {
+        failedValue == value && failures >= Self.maxFailures
+    }
+
+    /// Call before sending `value`.
+    mutating func willWrite(_ value: UInt8) {
+        if value != 0 { mayBeCapped = true }
+    }
+
+    /// Records the kext's answer. True only on the refusal that makes it
+    /// give up on `value`, so the caller logs once.
+    @discardableResult
+    mutating func record(_ value: UInt8, succeeded: Bool) -> Bool {
+        if succeeded {
+            if value == 0 { mayBeCapped = false }
+            failedValue = nil
+            failures = 0
+            return false
+        }
+        if failedValue != value {
+            failedValue = value
+            failures = 0
+        }
+        failures += 1
+        return failures == Self.maxFailures
+    }
+
+    /// Forgets the refusals, so the next value is sent again (the user
+    /// switched Auto EPP on or off).
+    mutating func clearFailures() {
+        failedValue = nil
+        failures = 0
+    }
+}
+
 // MARK: - ACPI CPPC report (selector 63)
 
 /// What the kext found while looking for CPPC in ACPI (_CPC + PCCT), shown

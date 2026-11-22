@@ -407,8 +407,17 @@ public:
     // units. 0 = the CPU's own bound (LowestPerf / HighestPerf). Each core
     // clamps them to its own CAP1 range, and min never exceeds max. Only
     // used in autonomous mode; turning CPPC off goes back to the full range.
+    // Written only by setCppcPerfLimits(), so the timer's apply (under
+    // rendezvousLock) never sees a new min with an old max.
     uint8_t cppcMinPerfLimit {0};
     uint8_t cppcMaxPerfLimit {0};
+    /// The user client that set the limits in force (selector 69), compared
+    /// by address and never dereferenced. Its clientClose() lifts them, so a
+    /// crash or a kill cannot leave the CPU capped. Under controlLock.
+    const void *cppcLimitsOwner {nullptr};
+    /// Stores the limits and, in autonomous mode, applies them. The caller
+    /// holds controlLock; takes rendezvousLock. False when the apply failed.
+    bool setCppcPerfLimits(uint8_t minLimit, uint8_t maxLimit);
     /// The perf range of the CPU (selector 68): CAP1 of the boot CPU on MSR
     /// CPPC (reinitHwState), the first _CPC after a PCC read on ACPI CPPC
     /// (applyEPPAcpi). Zero until known.

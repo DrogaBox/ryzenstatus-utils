@@ -1391,6 +1391,18 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
     return ok;
 }
 
+// The limits change under rendezvousLock, the lock the timer and the
+// post-wake tick hold around applyEPPControlLocked(), so no apply reads a
+// torn pair. Lock order controlLock -> rendezvousLock, as everywhere.
+bool AMDRyzenCPUPowerManagement::setCppcPerfLimits(uint8_t minLimit, uint8_t maxLimit) {
+    IOLockLock(rendezvousLock);
+    cppcMinPerfLimit = minLimit;
+    cppcMaxPerfLimit = maxLimit;
+    const bool applied = !cppcActiveMode || applyEPPControlLocked();
+    IOLockUnlock(rendezvousLock);
+    return applied;
+}
+
 // Linux amd-pstate clamps scaling_min_freq/scaling_max_freq the same way:
 // max inside [lowest, highest], then min inside [lowest, max]. A limit of 0
 // is the core's own bound, so 0/0 is the full CAP1 range.

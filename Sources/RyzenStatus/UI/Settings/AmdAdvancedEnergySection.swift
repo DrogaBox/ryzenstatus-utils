@@ -201,7 +201,8 @@ struct IdleClockLimitRow: View {
     @State private var limitMHz = Double(AmdSettingsStore.shared.autoEppIdleClockLimitMHz)
 
     var body: some View {
-        let bounds = range?.idleLimitRangeMHz
+        // A kext that keeps refusing the limit shows it as unavailable.
+        let bounds = autoEpp.idleClockLimitFailed ? nil : range?.idleLimitRangeMHz
         VStack(alignment: .leading, spacing: 4) {
             Toggle(l10n.amdPower.idleClockToggle, isOn: Binding(
                 get: { limitMHz > 0 && bounds != nil },
