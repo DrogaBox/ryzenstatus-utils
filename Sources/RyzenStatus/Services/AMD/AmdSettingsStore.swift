@@ -32,6 +32,12 @@ public final class AmdSettingsStore: ObservableObject {
         set { defaults.set(max(0, newValue), forKey: DefaultsKey.autoEppIdleClockLimitMHz) }
     }
 
+    /// On battery: what Auto EPP does on a laptop's battery.
+    var batteryPowerMode: AMDBatteryPowerMode {
+        get { AMDBatteryPowerMode(stored: defaults.string(forKey: DefaultsKey.amdBatteryPowerMode)) }
+        set { defaults.set(newValue.rawValue, forKey: DefaultsKey.amdBatteryPowerMode) }
+    }
+
     // MARK: - Gaming Mode Settings
 
     public var gamingModeActive: Bool {
