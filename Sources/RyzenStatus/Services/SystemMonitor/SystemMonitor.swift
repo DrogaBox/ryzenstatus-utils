@@ -184,6 +184,8 @@ struct SystemMonitorPanelNeeds: Equatable {
             // The GPU power reading comes with the kext power read, which
             // GPU usage switches on.
             case DefaultsKey.monitorAlertGPUPower: needs.gpu = true
+            // CPU package power is read with CPU load (`needAMDPower`).
+            case DefaultsKey.monitorAlertCPUPower: needs.cpu = true
             // Read from GPUSensors.kext on the GPU temperature stride; without
             // the kext these alerts cannot fire, so they wake nothing.
             case DefaultsKey.monitorAlertGPUMemoryTemperature, DefaultsKey.monitorAlertGPUThrottle:

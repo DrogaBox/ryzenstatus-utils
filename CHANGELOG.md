@@ -8,6 +8,8 @@
 
 **Lowest and highest CPU readings of the session**: click the CPU row in the panel to see the lowest and highest CPU temperature, package power, average clock and fan speed since RyzenStatus opened, with the time they started counting. Reset starts them again from now. They are kept only while the app runs and follow the °C or °F setting; the fan row shows when the processor kext reports fans.
 
+**CPU power alert, and a wait for every alert**: Settings › Monitor › Alerts can notify when the CPU package power from the AMD kext stays over a limit you pick, from 10 to 300 W in 5 W steps (120 W to start). The row is there only while the kext answers. A new "For at least" menu (Immediately, 10, 30 or 60 seconds) makes any alert wait until its reading has stayed over the limit that long, and a drop under the limit, or the Mac going to sleep, starts the wait over. Immediately is the default, so the existing alerts behave exactly as before, each with its own short wait.
+
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
 **RyzenStatus now takes care of AMD Radeon RX 6000 cards too: hardware AV1 and VP9 video, full-speed encoding, GPU sensors and GPU control, installed from the DMG.** The AMD processor kexts are untouched; this release adds a GPU installer, a GPU control page, a Monitor window of its own, a style for every menu bar reading, and a much lighter island.
