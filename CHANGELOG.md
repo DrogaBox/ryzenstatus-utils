@@ -6,6 +6,8 @@
 
 **Auto EPP on battery, for laptops with CPPC**: Settings › AMD Ryzen Power has a new On battery choice for Auto EPP, shown only on a Mac with an internal battery. Same as plugged in (the default) changes nothing. Save more keeps Auto EPP at Balance or lower on battery and never picks Performance. Maximum saving holds it on Eco, which also turns Core Performance Boost off; the idle clock limit still applies only when the CPU is really idle. It only changes what Auto EPP does: an energy profile or preset you picked by hand stays exactly as you chose it. Plugging back in gives Auto EPP its normal choice back within 1.5 seconds. It needs a kext that applies EPP, and it was checked with tests only: the Mac it was built on has no battery.
 
+**Lowest and highest CPU readings of the session**: click the CPU row in the panel to see the lowest and highest CPU temperature, package power, average clock and fan speed since RyzenStatus opened, with the time they started counting. Reset starts them again from now. They are kept only while the app runs and follow the °C or °F setting; the fan row shows when the processor kext reports fans.
+
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
 **RyzenStatus now takes care of AMD Radeon RX 6000 cards too: hardware AV1 and VP9 video, full-speed encoding, GPU sensors and GPU control, installed from the DMG.** The AMD processor kexts are untouched; this release adds a GPU installer, a GPU control page, a Monitor window of its own, a style for every menu bar reading, and a much lighter island.

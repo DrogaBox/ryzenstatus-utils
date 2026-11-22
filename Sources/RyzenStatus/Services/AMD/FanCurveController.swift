@@ -868,6 +868,9 @@ final class FanCurveController: ObservableObject {
             )
         }
         self.rpmRuns.removeAll()
+        // The poll that rebuilds the list returns before it records, so the
+        // first readings of a new fan set reach the session peaks from here.
+        SessionPeaksTracker.shared.record(fans: fans)
         updatePollTimer()
     }
 
@@ -948,9 +951,13 @@ final class FanCurveController: ObservableObject {
                 return
             }
 
+            // Every field of every fan changes on a copy and lands in one
+            // assignment: observers (and the session peaks) never see a fan
+            // with this poll's speed and the last poll's trust.
+            var updated = self.fans
             for (i, snap) in snapshots.enumerated() {
                 let frozen = self.recordRPM(snap.rpm, for: snap.id)
-                self.fans[i].rpm = snap.rpm
+                updated[i].rpm = snap.rpm
                 // The detector only ever REMOVES trust, never grants it: an
                 // unconnected header (or a channel reading electrical
                 // residue) reports the same plausible non-zero count
@@ -959,10 +966,12 @@ final class FanCurveController: ObservableObject {
                 // floor, which then declines to help a genuinely stalled
                 // fan. Untrusted readings render as "— RPM" rather than a
                 // number that cannot be true.
-                self.fans[i].rpmValid = snap.rpmValid && !frozen
-                self.fans[i].throttlePWM = snap.throttle
-                self.fans[i].isKextAuto = !snap.isOverridden
+                updated[i].rpmValid = snap.rpmValid && !frozen
+                updated[i].throttlePWM = snap.throttle
+                updated[i].isKextAuto = !snap.isOverridden
             }
+            self.fans = updated
+            SessionPeaksTracker.shared.record(fans: updated)
             self.pushGPUTempIfNeeded(freshKextTemp: kextGPUTemp)
             self.enforceManualThermalGuard(packageTemp: packageTemp)
         }
