@@ -109,6 +109,11 @@ enum HardwareValidation {
         case tachValidity = "tach-validity"
         /// Which Super I/O answered.
         case superIOFamily = "superio-family"
+        /// Nobody else is attached to the AMD host bridge that gives access to
+        /// the SMU. A second driver there has its own lock, so the two can
+        /// send mailbox commands over each other; the app yields while it is
+        /// present and says so instead of writing.
+        case smuSharing = "smu-sharing"
     }
 
     struct GateResult: Equatable {
@@ -177,6 +182,9 @@ enum HardwareValidation {
         var smuLines: [String] = []
         var pmTableLine: String? = nil
         var expectedKextVersion: String = HardwareValidation.expectedKextVersion
+        /// Third-party drivers attached to the AMD host bridge, by bundle
+        /// identifier. Empty when the SMU is ours alone.
+        var foreignSmuClients: [String] = []
         /// When the values above were read. The gates read like a live meter,
         /// so the page has to be able to say how stale they are.
         var capturedAt: Date? = nil
@@ -191,7 +199,19 @@ enum HardwareValidation {
 
     static func gates(_ s: Snapshot) -> [GateResult] {
         [kextVersionGate(s), telemetryGate(s), privilegeGate(s),
-         topologyGate(s), tachGate(s), familyGate(s)]
+         topologyGate(s), tachGate(s), familyGate(s), sharingGate(s)]
+    }
+
+    private static func sharingGate(_ s: Snapshot) -> GateResult {
+        guard !s.foreignSmuClients.isEmpty else {
+            return GateResult(gate: .smuSharing, verdict: .pass,
+                              detail: "no third-party driver on the AMD host bridge")
+        }
+        return GateResult(gate: .smuSharing, verdict: .unknown,
+                          detail: "another driver also uses the AMD SMU "
+                                + "(\(s.foreignSmuClients.joined(separator: ", "))). "
+                                + "Changing power limits is paused so the two do not collide; "
+                                + "sensors still work.")
     }
 
     private static func kextVersionGate(_ s: Snapshot) -> GateResult {

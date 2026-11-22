@@ -11485,6 +11485,39 @@ struct MetricsTests {
                "a clean reference-machine snapshot passes every gate: "
                + healthy.map { "\($0.gate.rawValue)=\($0.verdict.rawValue)" }.joined(separator: " "))
 
+        // The SMU coexistence rule, without IOKit: Apple and our own bundles
+        // are never foreign, a named third-party client is, and the PCI nub
+        // itself is the bus rather than a driver.
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: "com.apple.iokit.IOPCIFamily", ioClass: "IOPCIDevice"),
+               "an Apple PCI nub is not a foreign SMU client")
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: "wtf.spinach.AMDRyzenCPUPowerManagement", ioClass: "AMDRyzenCPUPowerManagement"),
+               "our own kext is not a foreign client")
+        expect(AMDSmuCoexistence.isForeignClient(bundle: "com.example.smudriver", ioClass: "ExampleSmu"),
+               "a third-party bundle on the host bridge is foreign")
+        expect(!AMDSmuCoexistence.isForeignClient(bundle: nil, ioClass: "IOPCIDevice"),
+               "the PCI nub itself carries no driver bundle and is skipped")
+
+        // Only mailbox writes are paused; reads and fan writes stay available.
+        expect(AMDKextSelector.pboLimitsWrite.isSMUMailboxWrite,
+               "PBO limit writes are SMU mailbox writes")
+        expect(AMDKextSelector.curveOptimizerWrite.isSMUMailboxWrite,
+               "per-core Curve Optimizer writes are SMU mailbox writes")
+        expect(!AMDKextSelector.pboLimitsRead.isSMUMailboxWrite,
+               "PBO limit reads must keep working while a driver shares the SMU")
+        expect(!AMDKextSelector.fanCurveLUTWrite.isSMUMailboxWrite,
+               "fan curve uploads are Super I/O, not SMU mailbox traffic")
+
+        // Coexistence gate: only the absence of a foreign client is a pass.
+        expect(gate(healthy, .smuSharing) == .pass,
+               "an unshared SMU passes the coexistence gate")
+        var sharedSMU = snapshot
+        sharedSMU.foreignSmuClients = ["com.example.smudriver"]
+        let sharedResults = HardwareValidation.gates(sharedSMU)
+        expect(gate(sharedResults, .smuSharing) == .unknown,
+               "a third-party client on the host bridge is a warning, never a pass")
+        expect(sharedResults.first { $0.gate == .smuSharing }?.detail.contains("com.example.smudriver") == true,
+               "the coexistence row names the driver that shares the SMU")
+
         // Version pin: a mismatch is a failure, not a warning — a probe run
         // against a binary the runbook was not written for measures nothing.
         var wrongVersion = snapshot
