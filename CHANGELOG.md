@@ -2,7 +2,7 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
-**Lowest and highest CPU readings of the session**: click the CPU row in the panel to see, under "Since" and the time they started counting, the lowest and highest CPU temperature, package power, average clock and fastest fan since RyzenStatus opened. Reset starts them again from now. They are kept only while the app runs and follow the °C or °F setting; the fan row shows when the processor kext reports fans.
+**Lowest and highest CPU readings of the session**: click the CPU row in the panel to see the lowest and highest CPU temperature, package power, average clock and fan speed since RyzenStatus opened, with the time they started counting. Reset starts them again from now. They are kept only while the app runs and follow the °C or °F setting; the fan row shows when the processor kext reports fans.
 
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
