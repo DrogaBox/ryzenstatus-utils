@@ -196,6 +196,20 @@ and makes no snapshot.
   the next boot does not use them. Run the same command again.
 - Video stops working after the reboot: uninstall, or use the second way under "How to
   undo".
+- The Mac does not boot after an install or uninstall (it stops right after OpenCore,
+  before the Apple logo): start macOS Recovery and open Terminal. Find your system volume
+  with `diskutil list` (the one named like your Mac's disk, without "- Data"), then:
+
+  ```bash
+  diskutil unmount /Volumes/<your volume>
+  mkdir -p /Volumes/sysrw
+  mount -t apfs -o nobrowse /dev/diskXsY /Volumes/sysrw
+  bless --mount /Volumes/sysrw --bootefi --last-sealed-snapshot
+  ```
+
+  Use your volume's name and its `diskXsY`. Restart: the Mac boots the last sealed
+  snapshot, from before the change. `bless --mount /` does not work in Recovery, because
+  that volume is read-only there.
 
 ## The loader kext
 

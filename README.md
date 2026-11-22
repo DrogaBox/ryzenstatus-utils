@@ -61,13 +61,15 @@ The rest bends the same way: Settings is grouped by tool and searchable down to 
 - **Graph themes.** Follow the system accent or pick one of ten palettes, soft variants or monochrome, separately for light and dark menu bars. The same columns are used in the panel, the metric details, the dashboards and the Dynamic Island.
 - **Your own menu bar icon.** Pick any system symbol to stand in for the RyzenStatus mark, from a gallery or by name.
 - **System monitor.** CPU (user and system time, average clock), GPU, memory pressure and app memory, temperatures, disk and power, with history graphs, metric detail pages and iStats-style widgets in the panel.
-- **Monitor window.** A window of its own, like Activity Monitor, with Overview, Processes, Processor, Network, History and Diagnostics. Processes is one sortable, searchable table of every app with CPU, memory, GPU and estimated energy; Terminate asks first and refuses protected system processes. History charts the last 30 days. Control-Shift-Escape opens it from any app, and ⌘1 to ⌘6 switch sections. It reads only the section on screen, and nothing while it is closed.
+- **Session lowest and highest.** Click the CPU row in the panel for the lowest and highest CPU temperature, package power, average clock and fan speed since RyzenStatus opened, with a Reset.
+- **Monitor window.** A window of its own, like Activity Monitor, with Overview, Processes, Processor, Network, History and Diagnostics. Processes is one sortable, searchable table of every app with CPU, memory, GPU and estimated energy; Terminate asks first and refuses protected system processes. History charts the last 30 days, and with the AMD kext also CPU package power and the average core clock. Control-Shift-Escape opens it from any app, and ⌘1 to ⌘6 switch sections. It reads only the section on screen, and nothing while it is closed.
+- **CSV log and export.** Settings › Monitor writes one row a second to a file you choose, and saves the history for a range you pick as a CSV, with commas and a dot for decimals in every language.
 - **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address and a built in speed test.
-- **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, GPU power, memory pressure, low disk space and low battery, in your temperature unit.
+- **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, CPU package power, GPU power, memory pressure, low disk space, low battery, VRAM temperature and CPU or GPU throttling, in your temperature unit. Any alert can wait until its reading has stayed over the limit for 10 to 60 seconds.
 
 ### AMD Processors & Power Management
 
-All AMD pages live together in their own **AMD Ryzen** section of Settings: fans, power, overclocking, sensors and hardware validation. The SMU per-core telemetry is in the Processor section of the Monitor window.
+All AMD pages live together in their own **AMD Ryzen** section of Settings: fans, power, overclocking, sensors and hardware validation, plus a Dashboard page that opens the Monitor window. The SMU per-core telemetry is in the Monitor's Processor section.
 
 - **One CCD per app (new, `AMDCCDScheduler.kext`):** On a Ryzen with two CCDs, stock macOS keeps scattering each app's threads across both, so every hand-off between them crosses the Infinity Fabric (about 155 ns instead of 65 ns on a 5900XT). This kext fixes the macOS scheduler itself: each app gets a home CCD and its threads stay there while it has a free physical core, and spread to the other CCD only when it is full. On a 5900XT a Node worker pool ran **about 12% faster** with much steadier times, and an all-core zstd job ran at the same speed. As far as we could find, nothing else does this on macOS. It checks the kernel byte for byte before hooking it and stays off on any macOS build it was not checked against. [How it works and every measurement](docs/CCD_SCHEDULER.md).
 - **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw against the PPT limit, and frequencies per core.
@@ -77,6 +79,8 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: fans
 - **SuperIO Hardware Read-Back:** Accurate fan speed (RPM) and duty cycle (PWM %) derived directly from physical SuperIO chips (Nuvoton NCT668X / NCT67XX, ITE IT86XXE).
 - **Power presets per CPU:** Eco, Balance, Performance and Extreme carry the PPT/TDC/EDC and Tctl limits ZenTune publishes for your CPU's class (desktop X3D, E, X 9-series, X, standard; desktop and mobile APUs), together with deep idle, boost and EPP. Each card shows the values that apply on your CPU.
 - **Auto EPP:** Moves the CPU between the Eco, Balance and Performance presets by your idle and load thresholds, stepping up at once and down slowly. An optional adaptive power limit trims PPT 5 W at a time above a target temperature and climbs back when the CPU cools.
+- **Idle clock limit (kext 3.41.0):** with Auto EPP on, keeps the cores at or below a clock you pick while the CPU is idle, from its lowest clock up to its base clock. Load above the idle threshold lifts it.
+- **On battery:** Auto EPP can save more on battery, or hold Eco with boost off, and goes back to its normal choice when you plug in. Shown on Macs with an internal battery.
 - **Custom profiles:** Your own combinations of every lever, exported to a JSON file, imported back, or imported from a ZenTune backup.
 - **Deep idle (CC6):** The driver sends idle cores to CC6 through the firmware's C-state address, switched on and off live from settings, no restart.
 - **EPP through MSRs or ACPI:** Energy Performance Preference reaches CPUs with the CPPC MSRs directly and, on CPUs that publish CPPC only through ACPI (`_CPC` and PCC shared memory, such as Ryzen 5000 desktop parts), through PCC. Hardware Validation shows which path your CPU uses and what the driver found.
@@ -86,7 +90,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: fans
 
 ### AMD Radeon RX 6000 graphics
 
-For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac. macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
+For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac (an RX 6950 XT should work too, but has not been run). macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
 
 - **Hardware AV1 and VP9 decoding.** Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU, YouTube in 4K60 included.
 - **Full-speed hardware encoding.** HEVC and H.264 encoding keep the video engine's clocks up: OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls.
@@ -173,7 +177,7 @@ Every part runs only on the macOS builds it was checked against and stays off on
 
 ## Install
 
-Grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications. The kexts for OpenCore are in its **Kexts** folder, and the Radeon RX 6000 parts in **GPU RX 6000**. Once installed, the app updates itself.
+Grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications. The kexts for OpenCore are in its **Kexts** folder ([how to update them](docs/KEXTS.md)), and the Radeon RX 6000 parts in **GPU RX 6000**. Once installed, the app updates itself.
 
 ## Uninstall
 
@@ -254,6 +258,7 @@ The [troubleshooting guide](docs/TROUBLESHOOTING.md) walks through the common ca
 - [Privacy](docs/PRIVACY.md), what does and does not leave your Mac
 - [Permissions](docs/PERMISSIONS.md), every macOS permission in plain words
 - [Troubleshooting](docs/TROUBLESHOOTING.md), the common fixes
+- [Updating the AMD kexts](docs/KEXTS.md), replacing the pair in your EFI safely
 - [AMD Radeon RX 6000](GPU/README.md), the video, sensor and GPU control parts
 - [One CCD per app](docs/CCD_SCHEDULER.md), how the CCD scheduler works and what it measured
 - [Contributing](CONTRIBUTING.md), build, layout and conventions

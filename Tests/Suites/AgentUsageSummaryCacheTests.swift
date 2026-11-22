@@ -28,8 +28,14 @@ enum AgentUsageSummaryCacheTests {
                                         providers: providers, now: now, calendar: calendar)
             let expected = AgentUsageSummary.snapshot(records: records, limits: limits, live: live, plans: plans,
                                                        providers: providers, now: now, calendar: calendar)
-            suite.expect(actual == expected, message)
+            suite.expect(actual == expected, actual == expected ? message
+                         : message + " (differs in: " + differingFields(actual, expected).joined(separator: ", ") + ")")
         }
+        let tied = [AgentShare(id: "copilot:Opus 5.5", name: "Opus 5.5", provider: .copilot, totals: AgentTotals()),
+                    AgentShare(id: "claude:Opus 5.5", name: "Opus 5.5", provider: .claude, totals: AgentTotals())]
+        suite.expect(AgentUsageSummary.sorted(tied, byCost: false).map(\.id)
+                        == AgentUsageSummary.sorted(tied.reversed(), byCost: false).map(\.id),
+                     "shares with the same name and weight sort the same whatever order they arrive in")
         check("cached history matches every field of the full summary")
         suite.expect(cache.accumulatedRecords == records.count, "the first snapshot accumulates history once")
         live = [AgentLiveSession(id: "live", provider: .codex, started: now, lastActivity: now,
@@ -91,6 +97,36 @@ enum AgentUsageSummaryCacheTests {
         cache.invalidate()
         check("repricing rebuilds cost, savings and unpriced totals")
         storeIntegration(suite, now: now, calendar: calendar)
+    }
+
+    /// Which parts of two snapshots differ, so a failure on CI says where to
+    /// look instead of only that something did.
+    static func differingFields(_ actual: AgentUsageSnapshot, _ expected: AgentUsageSnapshot) -> [String] {
+        var fields: [String] = []
+        for period in AgentPeriod.allCases {
+            let left = actual.usage(period), right = expected.usage(period)
+            if left.total != right.total { fields.append("\(period.rawValue).total") }
+            if left.byProvider != right.byProvider { fields.append("\(period.rawValue).byProvider") }
+            if left.models != right.models {
+                fields.append("\(period.rawValue).models \(left.models.map(\.id)) vs \(right.models.map(\.id))")
+            }
+            if left.projects != right.projects {
+                fields.append("\(period.rawValue).projects \(left.projects.map(\.id)) vs \(right.projects.map(\.id))")
+            }
+        }
+        if actual.periods.keys.sorted(by: { $0.rawValue < $1.rawValue })
+            != expected.periods.keys.sorted(by: { $0.rawValue < $1.rawValue }) { fields.append("periods.keys") }
+        if actual.days != expected.days { fields.append("days") }
+        if actual.hours != expected.hours { fields.append("hours") }
+        if actual.burnRate != expected.burnRate { fields.append("burnRate") }
+        if actual.claudeBlock != expected.claudeBlock { fields.append("claudeBlock") }
+        if actual.lastActivity != expected.lastActivity { fields.append("lastActivity") }
+        if actual.seen != expected.seen { fields.append("seen") }
+        if actual.limits != expected.limits { fields.append("limits") }
+        if actual.plans != expected.plans { fields.append("plans") }
+        if actual.live != expected.live { fields.append("live") }
+        if actual.now != expected.now || actual.loaded != expected.loaded { fields.append("now/loaded") }
+        return fields.isEmpty ? ["no field compared here"] : fields
     }
 
     private static func storeIntegration(_ suite: TestSuite, now: Date, calendar: Calendar) {

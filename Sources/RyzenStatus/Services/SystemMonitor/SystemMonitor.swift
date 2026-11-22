@@ -184,6 +184,8 @@ struct SystemMonitorPanelNeeds: Equatable {
             // The GPU power reading comes with the kext power read, which
             // GPU usage switches on.
             case DefaultsKey.monitorAlertGPUPower: needs.gpu = true
+            // CPU package power is read with CPU load (`needAMDPower`).
+            case DefaultsKey.monitorAlertCPUPower: needs.cpu = true
             // Read from GPUSensors.kext on the GPU temperature stride; without
             // the kext these alerts cannot fire, so they wake nothing.
             case DefaultsKey.monitorAlertGPUMemoryTemperature, DefaultsKey.monitorAlertGPUThrottle:
@@ -216,6 +218,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var notchVisible = false
     private var notchDetailNeeds: SystemMonitorPanelNeeds = .none
     private var dashboardNeeds: SystemMonitorPanelNeeds = .none
+    private var loggingNeeds: SystemMonitorPanelNeeds = .none
     private var notchAccessoryMonitoring = false
     private var menuBarActive = false
     private var alertsActive = false
@@ -504,6 +507,26 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The CSV log reports the families its columns read while it runs and
+    /// `.none` when it stops. It samples on the foreground strides, so the
+    /// file gets a fresh reading every second rather than a temperature
+    /// carried over from the slow background stride.
+    func setLoggingNeeds(_ needs: SystemMonitorPanelNeeds) {
+        runOnMain { [weak self] in
+            guard let self, self.loggingNeeds != needs else { return }
+            self.loggingNeeds = needs
+            self.stopTimerIfIdle()
+            if self.timer != nil {
+                self.resyncIfPlanChanged()
+                self.ensureTimer()
+            } else if needs.any {
+                self.ensureTimer()
+                self.refresh(suppressImmediateGPU: true)
+                self.scheduleDeferredGPURefreshIfNeeded()
+            }
+        }
+    }
+
     private func resetHistories() {
         queue.async { [weak self] in
             guard let self else { return }
@@ -739,7 +762,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// A surface someone is looking at: its readings follow the foreground
     /// strides.
     private var samplesInForeground: Bool {
-        Self.samplesInForeground(fullMonitor: fullMonitorVisible, menuPanel: menuPanelNeeds, dashboard: dashboardNeeds)
+        Self.samplesInForeground(fullMonitor: fullMonitorVisible, menuPanel: menuPanelNeeds,
+                                dashboard: dashboardNeeds.merging(loggingNeeds))
     }
 
     /// A full monitor surface, the menu panel or the Monitor window on screen.
@@ -748,7 +772,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         fullMonitor || menuPanel.any || dashboard.any
     }
 
-    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || dashboardNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
+    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || dashboardNeeds.any || loggingNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
 
     private func shouldSample(defaults: UserDefaults = .standard) -> Bool {
         shouldRun && currentPlan(defaults: defaults).any
@@ -803,7 +827,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        var effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds).merging(dashboardNeeds)
+        var effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds).merging(dashboardNeeds).merging(loggingNeeds)
         if fullMonitorVisible || effectiveNeeds.system {
             enableAll(&plan)
         } else {
@@ -1069,8 +1093,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 return sample
             }
 
+            // Whether this tick read the cores, so the long history keeps
+            // one package power and clock per CPU sample, not a carry-over.
+            var cpuSampled = false
             if plan.needCPU {
                 if take(.cpu) {
+                    cpuSampled = true
                     // Fetch per-core metrics only when CPU is actually being sampled (F3.2)
                     let (cores, ccdTemps) = self.readCoreUsageAndTelemetry(now: now)
                     self.cores = cores
@@ -1352,7 +1380,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if plan.needAMDPower {
                 let cpuW = ProcessorModel.shared.lastCPUPowerWatts
                 let gpuW = ProcessorModel.shared.lastGPUPowerWatts
-                if cpuW > 0 { next.cpuPower = cpuW }
+                if cpuW > 0 {
+                    next.cpuPower = cpuW
+                    if cpuSampled { LongHistoryStore.shared.record(.cpuPower, cpuW) }
+                }
                 if gpuW > 0 { next.gpuPower = gpuW }
 
                 // Build GPU device snapshots from kext (selectors 27-30)
@@ -1435,6 +1466,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 next.peakCPUFreq = peak
                 next.avgCPUFreq = rawAvg
                 self.cpuFreqHistory.push(rawAvg / 1000.0)
+                if cpuSampled { LongHistoryStore.shared.record(.cpuClock, rawAvg) }
             }
             if let kextCores = self.lastAmdSnapshot?.numPhysicalCores, kextCores > 0 {
                 next.numPhysicalCores = kextCores

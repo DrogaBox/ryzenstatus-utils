@@ -229,7 +229,11 @@ enum AgentUsageSummary {
     static func sorted(_ shares: [AgentShare], byCost: Bool) -> [AgentShare] {
         shares.sorted {
             let left = $0.totals.weight(byCost: byCost), right = $1.totals.weight(byCost: byCost)
-            return left != right ? left > right : $0.name < $1.name
+            if left != right { return left > right }
+            // Two providers can serve a model under the same name, so the id,
+            // unique by construction, settles the order: input order comes from
+            // a dictionary and differs between the cache and a full summary.
+            return $0.name != $1.name ? $0.name < $1.name : $0.id < $1.id
         }
     }
 

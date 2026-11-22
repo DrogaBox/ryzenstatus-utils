@@ -14391,6 +14391,9 @@ struct MetricsTests {
                 ("Batch185Tests", Batch185Tests.run),
                 ("UpdateInstallerAppSelectionTests", UpdateInstallerAppSelectionTests.run),
                 ("SessionPeaksTests", SessionPeaksTests.run),
+                ("MonitorAlertSustainTests", MonitorAlertSustainTests.run),
+                ("LongHistoryCPUTests", LongHistoryCPUTests.run),
+                ("MonitorCSVTests", MonitorCSVTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

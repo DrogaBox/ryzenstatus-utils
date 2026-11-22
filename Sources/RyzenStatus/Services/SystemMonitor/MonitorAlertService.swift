@@ -11,17 +11,21 @@ final class MonitorAlertService {
     static let shared = MonitorAlertService()
 
     private var cancellables = Set<AnyCancellable>()
-    private var highCPUSince: Date?
-    private var highCPUTempSince: Date?
-    private var thermalThrottleSince: Date?
-    private var highGPUTempSince: Date?
-    private var highGPUPowerSince: Date?
+    private var highCPU = OverLimitTimer()
+    private var highCPUTemp = OverLimitTimer()
+    private var highCPUPower = OverLimitTimer()
+    private var thermalThrottle = OverLimitTimer()
+    private var highGPUTemp = OverLimitTimer()
+    private var highGPUPower = OverLimitTimer()
+    private var criticalMemory = OverLimitTimer()
+    private var lowDiskSpace = OverLimitTimer()
+    private var lowBatteryLevel = OverLimitTimer()
     private var gpuMemoryHot = SustainedCondition(duration: 12, allowedMisses: 2)
     private var gpuHeldBack = SustainedCondition(duration: 12, allowedMisses: 2)
     /// The GPUSensors sample the two kext alerts last counted; a sample
     /// carried over between strides is counted once, not once per tick.
     private var gpuSensorsGate = FreshSampleGate()
-    private var lastSent: [MonitorAlertKind: Date] = [:]
+    private var cooldown = AlertCooldownGate<MonitorAlertKind>()
 
     private init() {}
 
@@ -73,11 +77,15 @@ final class MonitorAlertService {
     }
 
     private func stopTimers() {
-        highCPUSince = nil
-        highCPUTempSince = nil
-        thermalThrottleSince = nil
-        highGPUTempSince = nil
-        highGPUPowerSince = nil
+        highCPU.reset()
+        highCPUTemp.reset()
+        highCPUPower.reset()
+        thermalThrottle.reset()
+        highGPUTemp.reset()
+        highGPUPower.reset()
+        criticalMemory.reset()
+        lowDiskSpace.reset()
+        lowBatteryLevel.reset()
         gpuMemoryHot.reset()
         gpuHeldBack.reset()
         gpuSensorsGate = FreshSampleGate()
@@ -90,6 +98,12 @@ final class MonitorAlertService {
             return
         }
         let strings = FeatureStrings.monitorAlerts(L10n.shared.language)
+        let now = Date()
+        let sustain = defaults.integer(forKey: DefaultsKey.monitorAlertSustainSeconds)
+        /// Each alert's own wait, made longer by the "for at least" choice.
+        func wait(_ builtIn: TimeInterval) -> TimeInterval {
+            MonitorAlertSustain.wait(builtIn: builtIn, chosenSeconds: sustain)
+        }
 
         func alertOn(_ key: String, _ feature: AppFeature) -> Bool {
             defaults.bool(forKey: key)
@@ -98,44 +112,61 @@ final class MonitorAlertService {
         }
 
         if alertOn(DefaultsKey.monitorAlertCPU, .monitorCPU) {
-            evaluateCPU(snapshot.cpuUsage, defaults: defaults, strings: strings)
+            evaluateCPU(snapshot.cpuUsage, defaults: defaults, strings: strings, now: now, wait: wait(12))
         } else {
-            highCPUSince = nil
+            highCPU.reset()
         }
 
         if alertOn(DefaultsKey.monitorAlertCPUTemperature, .monitorCPU) {
-            if let temperature = highCPUTemperature(from: snapshot, defaults: defaults) {
-                send(.cpuTemperature,
+            if let temperature = highCPUTemperature(from: snapshot, defaults: defaults, now: now, wait: wait(5)) {
+                send(at: now, .cpuTemperature,
                      title: strings.cpuTemperatureTitle,
                      body: String(format: strings.cpuTemperatureBodyFormat,
                                   Self.formattedTemperature(temperature, defaults: defaults)))
             }
         } else {
-            highCPUTempSince = nil
+            highCPUTemp.reset()
+        }
+
+        // Same 12 s wait as the GPU power alert, so a short boost spike of
+        // the package power does not notify.
+        if alertOn(DefaultsKey.monitorAlertCPUPower, .monitorCPU) {
+            let threshold = Defaults.sanitizedMonitorAlertCPUPowerThreshold(
+                defaults.integer(forKey: DefaultsKey.monitorAlertCPUPowerThreshold))
+            let power = snapshot.cpuPower
+            if highCPUPower.update(isOver: Self.cpuPowerIsOver(power, thresholdWatts: threshold),
+                                   now: now, wait: wait(12)),
+               let power {
+                send(at: now, .cpuPower,
+                     title: strings.cpuPowerTitle,
+                     body: String(format: strings.cpuPowerBodyFormat, power))
+            }
+        } else {
+            highCPUPower.reset()
         }
 
         // The helpers own their timers: they start one on the first hot
         // reading and return nil while it runs. Clearing it here on that nil
         // restarted the wait on every sample, so these alerts never fired.
         if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU) {
-            if let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults) {
-                send(.gpuTemperature,
+            if let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults, now: now, wait: wait(12)) {
+                send(at: now, .gpuTemperature,
                      title: strings.gpuTemperatureTitle,
                      body: String(format: strings.gpuTemperatureBodyFormat,
                                   Self.formattedTemperature(gpuTemp, defaults: defaults)))
             }
         } else {
-            highGPUTempSince = nil
+            highGPUTemp.reset()
         }
 
         if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU) {
-            if let gpuPower = highGPUPower(from: snapshot, defaults: defaults) {
-                send(.gpuPower,
+            if let gpuPower = highGPUPower(from: snapshot, defaults: defaults, now: now, wait: wait(12)) {
+                send(at: now, .gpuPower,
                      title: strings.gpuPowerTitle,
                      body: String(format: strings.gpuPowerBodyFormat, gpuPower))
             }
         } else {
-            highGPUPowerSince = nil
+            highGPUPower.reset()
         }
 
         // GPUSensors.kext alerts. Without the kext `gpuSensors` is nil and
@@ -148,15 +179,15 @@ final class MonitorAlertService {
         if !throttleAlertOn { gpuHeldBack.reset() }
         if let sensors = snapshot.gpuSensors {
             if gpuSensorsGate.isFresh(snapshot.gpuSensorsTakenAt) {
-                let now = Date()
                 if memoryAlertOn {
                     let threshold = Defaults.sanitizedPercent(
                         defaults.integer(forKey: DefaultsKey.monitorAlertGPUMemoryTemperatureThreshold),
                         fallback: 90,
                         range: 60...110)
                     let memory = sensors.memory
-                    if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: now), let memory {
-                        send(.gpuMemoryTemperature,
+                    if gpuMemoryHot.update(memory.map { $0 >= Double(threshold) } ?? false, now: now,
+                                           atLeast: wait(0)), let memory {
+                        send(at: now, .gpuMemoryTemperature,
                              title: strings.gpuMemoryTemperatureTitle,
                              body: String(format: strings.gpuMemoryTemperatureBodyFormat,
                                           Self.formattedTemperature(memory, defaults: defaults)))
@@ -164,10 +195,10 @@ final class MonitorAlertService {
                 }
                 if throttleAlertOn {
                     let throttle = sensors.throttle
-                    if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: now), let throttle {
+                    if gpuHeldBack.update(throttle?.holdsClocksBack ?? false, now: now, atLeast: wait(0)), let throttle {
                         // The power limit is left out of the reasons: it is normal.
                         let reasons = throttle.subtracting(.power).text(FeatureStrings.sensors(L10n.shared.language))
-                        send(.gpuThrottle,
+                        send(at: now, .gpuThrottle,
                              title: strings.gpuThrottleTitle,
                              body: String(format: strings.gpuThrottleBodyFormat, reasons))
                     }
@@ -177,21 +208,34 @@ final class MonitorAlertService {
             gpuMemoryHot.reset()
             gpuHeldBack.reset()
         }
-        if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory),
-           snapshot.memoryPressure == .critical {
-            send(.memory, title: strings.memoryTitle, body: strings.memoryBody)
+        // These three had no wait of their own: with "Immediately" the first
+        // sample over the limit still notifies.
+        if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory) {
+            if criticalMemory.update(isOver: snapshot.memoryPressure == .critical, now: now, wait: wait(0)) {
+                send(at: now, .memory, title: strings.memoryTitle, body: strings.memoryBody)
+            }
+        } else {
+            criticalMemory.reset()
         }
 
-        if alertOn(DefaultsKey.monitorAlertDisk, .monitorDisk),
-           let disk = lowDisk(from: snapshot, defaults: defaults) {
-            let body = String(format: strings.diskBodyFormat, disk.name, disk.threshold)
-            send(.disk, title: strings.diskTitle, body: body)
+        if alertOn(DefaultsKey.monitorAlertDisk, .monitorDisk) {
+            let disk = lowDisk(from: snapshot, defaults: defaults)
+            if lowDiskSpace.update(isOver: disk != nil, now: now, wait: wait(0)), let disk {
+                let body = String(format: strings.diskBodyFormat, disk.name, disk.threshold)
+                send(at: now, .disk, title: strings.diskTitle, body: body)
+            }
+        } else {
+            lowDiskSpace.reset()
         }
 
-        if alertOn(DefaultsKey.monitorAlertBattery, .monitorPower),
-           let battery = lowBattery(from: snapshot, defaults: defaults) {
-            let body = String(format: strings.batteryBodyFormat, battery)
-            send(.battery, title: strings.batteryTitle, body: body)
+        if alertOn(DefaultsKey.monitorAlertBattery, .monitorPower) {
+            let battery = lowBattery(from: snapshot, defaults: defaults)
+            if lowBatteryLevel.update(isOver: battery != nil, now: now, wait: wait(0)), let battery {
+                let body = String(format: strings.batteryBodyFormat, battery)
+                send(at: now, .battery, title: strings.batteryTitle, body: body)
+            }
+        } else {
+            lowBatteryLevel.reset()
         }
 
         let tempThreshold = Defaults.sanitizedPercent(
@@ -201,44 +245,34 @@ final class MonitorAlertService {
         )
         let thermalLimit = max(85.0, Double(tempThreshold))
 
-        if let temp = snapshot.cpuTemperature, temp >= thermalLimit,
-           let usage = snapshot.cpuUsage, usage >= 0.85 {
-            let now = Date()
-            if thermalThrottleSince == nil {
-                thermalThrottleSince = now
-            } else if let since = thermalThrottleSince, now.timeIntervalSince(since) >= 30 {
-                let ccdInfo = snapshot.ccd0Temperature.map {
-                    " (CCD0: \(Self.formattedTemperature(Double($0), defaults: defaults)))"
-                } ?? ""
-                send(.thermalThrottle,
-                     title: strings.thermalThrottleTitle,
-                     body: String(format: strings.thermalThrottleBodyFormat,
-                                  Self.formattedTemperature(temp, defaults: defaults)) + ccdInfo)
-                thermalThrottleSince = nil
-            }
-        } else {
-            thermalThrottleSince = nil
+        let throttling = (snapshot.cpuTemperature ?? 0) >= thermalLimit && (snapshot.cpuUsage ?? 0) >= 0.85
+        // Not one of the switches in Settings: its text says 30 s, so the
+        // "for at least" choice leaves it alone. The wait starts over after
+        // each notice, as it always has.
+        if thermalThrottle.update(isOver: throttling, now: now, wait: 30),
+           let temp = snapshot.cpuTemperature {
+            let ccdInfo = snapshot.ccd0Temperature.map {
+                " (CCD0: \(Self.formattedTemperature(Double($0), defaults: defaults)))"
+            } ?? ""
+            send(at: now, .thermalThrottle,
+                 title: strings.thermalThrottleTitle,
+                 body: String(format: strings.thermalThrottleBodyFormat,
+                              Self.formattedTemperature(temp, defaults: defaults)) + ccdInfo)
+            thermalThrottle.reset()
         }
     }
 
     private func evaluateCPU(_ usage: Double?,
                              defaults: UserDefaults,
-                             strings: MonitorAlertFeatureStrings) {
+                             strings: MonitorAlertFeatureStrings,
+                             now: Date,
+                             wait: TimeInterval) {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertCPUThreshold),
                                                   fallback: 90,
                                                   range: 50...100)
-        guard let usage, usage >= Double(threshold) / 100.0 else {
-            highCPUSince = nil
-            return
-        }
-
-        let now = Date()
-        if highCPUSince == nil {
-            highCPUSince = now
-            return
-        }
-        guard let since = highCPUSince, now.timeIntervalSince(since) >= 12 else { return }
-        send(.cpu,
+        let over = usage.map { $0 >= Double(threshold) / 100.0 } ?? false
+        guard highCPU.update(isOver: over, now: now, wait: wait) else { return }
+        send(at: now, .cpu,
              title: strings.cpuTitle,
              body: String(format: strings.cpuBodyFormat, threshold))
     }
@@ -257,55 +291,39 @@ final class MonitorAlertService {
     }
 
     private func highCPUTemperature(from snapshot: SystemSnapshot,
-                                    defaults: UserDefaults) -> Double? {
+                                    defaults: UserDefaults,
+                                    now: Date,
+                                    wait: TimeInterval) -> Double? {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertCPUTemperatureThreshold),
                                                   fallback: 90,
                                                   range: 70...105)
-        guard let temperature = snapshot.cpuTemperature,
-              temperature >= Double(threshold) else {
-            highCPUTempSince = nil
-            return nil
-        }
-        let now = Date()
-        if highCPUTempSince == nil {
-            highCPUTempSince = now
-            return nil
-        }
-        guard let since = highCPUTempSince, now.timeIntervalSince(since) >= 5 else { return nil }
+        let temperature = snapshot.cpuTemperature
+        let over = temperature.map { $0 >= Double(threshold) } ?? false
+        guard highCPUTemp.update(isOver: over, now: now, wait: wait) else { return nil }
         return temperature
     }
 
     private func highGPUTemperature(from snapshot: SystemSnapshot,
-                                     defaults: UserDefaults) -> Double? {
+                                     defaults: UserDefaults,
+                                     now: Date,
+                                     wait: TimeInterval) -> Double? {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertGPUTemperatureThreshold),
                                                   fallback: 85,
                                                   range: 50...120)
-        guard let temp = snapshot.gpuTemperature, temp >= Double(threshold) else {
-            highGPUTempSince = nil
-            return nil
-        }
-        let now = Date()
-        if highGPUTempSince == nil {
-            highGPUTempSince = now
-            return nil
-        }
-        guard let since = highGPUTempSince, now.timeIntervalSince(since) >= 12 else { return nil }
+        let temp = snapshot.gpuTemperature
+        let over = temp.map { $0 >= Double(threshold) } ?? false
+        guard highGPUTemp.update(isOver: over, now: now, wait: wait) else { return nil }
         return temp
     }
 
     private func highGPUPower(from snapshot: SystemSnapshot,
-                               defaults: UserDefaults) -> Double? {
+                               defaults: UserDefaults,
+                               now: Date,
+                               wait: TimeInterval) -> Double? {
         let threshold = max(1, Double(defaults.integer(forKey: DefaultsKey.monitorAlertGPUPowerThreshold)))
-        guard let power = snapshot.gpuPower, power >= threshold else {
-            highGPUPowerSince = nil
-            return nil
-        }
-        let now = Date()
-        if highGPUPowerSince == nil {
-            highGPUPowerSince = now
-            return nil
-        }
-        guard let since = highGPUPowerSince, now.timeIntervalSince(since) >= 12 else { return nil }
+        let power = snapshot.gpuPower
+        let over = power.map { $0 >= threshold } ?? false
+        guard highGPUPower.update(isOver: over, now: now, wait: wait) else { return nil }
         return power
     }
 
@@ -328,21 +346,26 @@ final class MonitorAlertService {
         return MetricFormat.temperature(celsius, unit: unit)
     }
 
-    private func send(_ kind: MonitorAlertKind, title: String, body: String) {
-        let now = Date()
+    /// A CPU package power reading over the limit. The kext reports 0 W
+    /// while it has no reading; the snapshot leaves that out as nil.
+    nonisolated static func cpuPowerIsOver(_ watts: Double?, thresholdWatts: Int) -> Bool {
+        guard let watts, watts > 0 else { return false }
+        return watts >= Double(thresholdWatts)
+    }
+
+    /// `now` is the time the sample was judged at, so the repeat interval
+    /// starts from the same clock as the waits.
+    private func send(at now: Date, _ kind: MonitorAlertKind, title: String, body: String) {
         let minutes = Defaults.sanitizedMonitorAlertCooldown(
             UserDefaults.standard.integer(forKey: DefaultsKey.monitorAlertCooldownMinutes)
         )
-        if let previous = lastSent[kind], now.timeIntervalSince(previous) < Double(minutes * 60) {
-            return
-        }
-        lastSent[kind] = now
+        guard cooldown.allows(kind, now: now, interval: Double(minutes * 60)) else { return }
         Notifier.post(title: title, body: body)
     }
 }
 
 private enum MonitorAlertKind: Hashable {
-    case cpu, cpuTemperature, gpuTemperature, gpuPower, memory, disk, battery, thermalThrottle
+    case cpu, cpuTemperature, cpuPower, gpuTemperature, gpuPower, memory, disk, battery, thermalThrottle
     // Each has its own wait between notices: an 85 °C hotspot alert, normal
     // under load on Navi 21, must not hold back a VRAM or held-back warning.
     case gpuMemoryTemperature, gpuThrottle
@@ -368,6 +391,7 @@ struct SustainedCondition {
     let allowedMisses: Int
     private(set) var since: Date?
     private var misses = 0
+    private var lastSample: Date?
 
     init(duration: TimeInterval, allowedMisses: Int) {
         self.duration = duration
@@ -376,7 +400,11 @@ struct SustainedCondition {
 
     /// True once the condition has held, give or take the allowed misses,
     /// for `duration`, and on every holding sample after that.
-    mutating func update(_ holds: Bool, now: Date) -> Bool {
+    /// `atLeast` makes the wait longer than `duration`, never shorter.
+    mutating func update(_ holds: Bool, now: Date, atLeast minimum: TimeInterval = 0) -> Bool {
+        // Nothing samples while the Mac sleeps: a wait never spans the gap.
+        if MonitorAlertSustain.isBreak(since: lastSample, now: now) { reset() }
+        lastSample = now
         guard holds else {
             if since != nil {
                 misses += 1
@@ -389,11 +417,78 @@ struct SustainedCondition {
             self.since = now
             return false
         }
-        return now.timeIntervalSince(since) >= duration
+        return now.timeIntervalSince(since) >= max(duration, minimum)
     }
 
     mutating func reset() {
         since = nil
         misses = 0
+        lastSample = nil
+    }
+}
+
+/// Since when a reading has been over its limit. A sample back under the
+/// limit starts the wait over. With no wait, the first sample over the limit
+/// counts; with one, the sample that starts it never does.
+struct OverLimitTimer {
+    private(set) var since: Date?
+    private var lastSample: Date?
+
+    /// True once the reading has been over the limit for `wait`, and on
+    /// every sample over it after that; the repeat interval in
+    /// `AlertCooldownGate` keeps those from notifying again.
+    mutating func update(isOver: Bool, now: Date, wait: TimeInterval) -> Bool {
+        // A long gap between samples (sleep, or a clock change) means the
+        // reading was not watched in between: the wait starts over.
+        if MonitorAlertSustain.isBreak(since: lastSample, now: now) { since = nil }
+        lastSample = now
+        guard isOver else {
+            since = nil
+            return false
+        }
+        guard let since else {
+            self.since = now
+            return wait <= 0
+        }
+        return now.timeIntervalSince(since) >= wait
+    }
+
+    mutating func reset() {
+        since = nil
+        lastSample = nil
+    }
+}
+
+/// The "for at least" choice applied to an alert's own wait. The longer one
+/// wins, so Immediately (0) leaves every alert as it was.
+enum MonitorAlertSustain {
+    /// The longest gap between two samples that still counts as watching.
+    /// Samples come every 1 to 5 s, and the slowest temperature stride is
+    /// about 15 s, so 45 s is three of those; sleep is far longer.
+    static let maxSampleGap: TimeInterval = 45
+
+    /// True when the time from the previous sample is too long, or runs
+    /// backwards, for the reading to have been watched in between.
+    static func isBreak(since previous: Date?, now: Date) -> Bool {
+        guard let previous else { return false }
+        let gap = now.timeIntervalSince(previous)
+        return gap < 0 || gap > maxSampleGap
+    }
+
+    static func wait(builtIn: TimeInterval, chosenSeconds: Int) -> TimeInterval {
+        max(builtIn, TimeInterval(Defaults.sanitizedMonitorAlertSustain(chosenSeconds)))
+    }
+}
+
+/// One notice per kind per repeat interval ("Repeat the same alert after").
+struct AlertCooldownGate<Kind: Hashable> {
+    private(set) var lastSent: [Kind: Date] = [:]
+
+    mutating func allows(_ kind: Kind, now: Date, interval: TimeInterval) -> Bool {
+        if let previous = lastSent[kind], now.timeIntervalSince(previous) < interval {
+            return false
+        }
+        lastSent[kind] = now
+        return true
     }
 }
