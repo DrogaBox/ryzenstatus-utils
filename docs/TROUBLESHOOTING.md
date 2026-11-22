@@ -63,6 +63,8 @@ Since macOS 15.4, Now Playing reads Music and Spotify by asking them directly, w
 - **You want to know whether the energy preference reaches the CPU.** Settings › AMD Ryzen › Hardware Validation shows the path it takes (CPPC MSRs or ACPI) and can read the values back from the firmware.
 - **Deep idle cannot be switched on.** The `amdcstate=1` or `-amdnoidle` boot arguments forbid it; remove them and restart.
 
+If another driver also attaches to the AMD host bridge at 00:00.0 to reach the SMU, the two drivers cannot share a lock, and their SMU writes could interleave. RyzenStatus checks for that at launch and after wake and pauses its own power-limit, Curve Optimizer and preset writes while the other driver is there; sensors and readings keep working. Hardware Validation shows the same warning, and it disappears after the other driver is removed and the Mac restarts.
+
 ## Resetting permissions
 
 To wipe RyzenStatus's granted permissions and let macOS ask again from scratch, pick one of these.

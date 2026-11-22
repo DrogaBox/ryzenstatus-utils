@@ -251,6 +251,20 @@ enum AMDKextSelector: UInt32, CaseIterable {
 extension AMDKextSelector {
     /// Convenience: raw value as the `UInt32` expected by `IOConnectCallMethod`.
     var id: UInt32 { rawValue }
+
+    /// Selectors whose kernel handler ends in an SMU mailbox write (message
+    /// id or argument register). These are the calls paused while another
+    /// driver shares the AMD host bridge's SMN index/data pair.
+    var isSMUMailboxWrite: Bool {
+        switch self {
+        case .pboLimitsWrite, .pboScalarWrite, .chtcLimitWrite, .ocModeWrite,
+             .ocFreqWrite, .ocVidWrite, .curveOptimizerAllWrite,
+             .boostLimitWrite, .curveOptimizerWrite:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 // MARK: — Extended selectors (used via kernelGetUInt64 / kernelGetFloats / kernelSetStruct)

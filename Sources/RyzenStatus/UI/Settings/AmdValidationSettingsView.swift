@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import SwiftUI
 
 /// The evidence surface for the pending on-hardware probes.
@@ -44,6 +45,11 @@ struct AmdValidationSettingsView: View {
         // Fan count is the one precondition a topology change (kext reload, a
         // different board) shows up in without any user action.
         .onChange(of: fans.fans.count) { _, _ in refreshSnapshot() }
+        // A driver attached to the host bridge can appear or go away across
+        // a sleep, so the coexistence row is read again on wake.
+        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            refreshSnapshot()
+        }
         .overlay(alignment: .bottom) {
             if showCopiedToast {
                 Text(l10n.amdPower.diagBundleCopied)
@@ -246,6 +252,7 @@ struct AmdValidationSettingsView: View {
         case .fanTopology: return s.gateFanTopology
         case .tachValidity: return s.gateTachValidity
         case .superIOFamily: return s.gateSuperIOFamily
+        case .smuSharing: return s.gateSmuSharing
         }
     }
 
@@ -257,6 +264,7 @@ struct AmdValidationSettingsView: View {
         case .fanTopology: return s.hintFanTopology
         case .tachValidity: return s.hintTachValidity
         case .superIOFamily: return s.hintSuperIOFamily
+        case .smuSharing: return s.hintSmuSharing
         }
     }
 
@@ -396,6 +404,7 @@ extension HardwareValidation {
 
         snapshot.smuLines = controls.smuStateLines()
         snapshot.pmTableLine = controls.pmTableSummaryLine()
+        snapshot.foreignSmuClients = AMDSmuCoexistence.foreignDriverNames()
         snapshot.capturedAt = Date()
         return snapshot
     }
