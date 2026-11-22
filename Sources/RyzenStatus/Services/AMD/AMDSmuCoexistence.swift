@@ -6,13 +6,15 @@ import IOKit
 
 /// Detects another driver that drives the same AMD SMU mailbox.
 ///
-/// The SMU is reached through the SMN index/data pair at PCI config
-/// 0xB8/0xBC of the AMD host bridge (00:00.0). Our kext serializes its own
-/// transactions with `smuCmdLock`, but a second kext attached to the same
-/// host bridge has a different lock, so two index/data pairs can interleave
-/// and a mailbox write can land on the wrong address. No lock can be shared
-/// with code we do not own, so the app yields instead: while a foreign client
-/// is attached, the SMU write selectors are refused and readings continue.
+/// Our kext reaches the SMU through the SMN index/data pair at PCI config
+/// 0x60/0x64 of the AMD host bridge (00:00.0) and serializes its commands
+/// with `smuCmdLock`, waiting for the mailbox to be idle first. Another kext
+/// on the host bridge can reach the same mailbox registers (message, response,
+/// arguments) through its own SMN pair and its own lock, and may not wait for
+/// the mailbox to be idle, so a command of ours can have its arguments or its
+/// response overwritten. No lock can be shared with code we do not own, so the
+/// app yields instead: while a foreign client is attached, the SMU write
+/// selectors are refused and readings continue.
 enum AMDSmuCoexistence {
 
     /// Bundle identifiers the project ships. Forks with another identifier

@@ -109,9 +109,9 @@ enum HardwareValidation {
         case tachValidity = "tach-validity"
         /// Which Super I/O answered.
         case superIOFamily = "superio-family"
-        /// Nobody else is attached to the AMD host bridge that owns the SMN
-        /// index/data pair. A second driver there has its own lock, so the
-        /// two can interleave a mailbox write; the app yields while it is
+        /// Nobody else is attached to the AMD host bridge that gives access to
+        /// the SMU. A second driver there has its own lock, so the two can
+        /// send mailbox commands over each other; the app yields while it is
         /// present and says so instead of writing.
         case smuSharing = "smu-sharing"
     }

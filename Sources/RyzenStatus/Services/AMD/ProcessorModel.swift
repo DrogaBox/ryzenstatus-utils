@@ -132,8 +132,8 @@ actor ProcessorModel {
         //     all called in concurrently, with shared out-params unprotected.
         //
         // SMU mailbox writes are refused while another driver owns a client
-        // of the AMD host bridge: its lock is not ours, so two index/data
-        // pairs can interleave. Reads, fan and Super I/O calls are untouched.
+        // of the AMD host bridge: its lock is not ours, so two mailbox
+        // commands can overlap. Reads, fan and Super I/O calls are untouched.
         if AMDSmuCoexistence.blocksWrites(for: selector) {
             return kIOReturnNotPermitted
         }

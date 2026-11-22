@@ -254,7 +254,7 @@ extension AMDKextSelector {
 
     /// Selectors whose kernel handler ends in an SMU mailbox write (message
     /// id or argument register). These are the calls paused while another
-    /// driver shares the AMD host bridge's SMN index/data pair.
+    /// driver is attached to the AMD host bridge and may use the SMU mailbox.
     var isSMUMailboxWrite: Bool {
         switch self {
         case .pboLimitsWrite, .pboScalarWrite, .chtcLimitWrite, .ocModeWrite,
