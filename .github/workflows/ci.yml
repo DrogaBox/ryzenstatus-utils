@@ -5,13 +5,60 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read
+
+# Only a newer pull request run cancels an older one. A push to main is the
+# tree a release may reuse, and a tag build must never be cancelled by CI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
-    name: Build & selftest
+  # A PR that only touches docs, GPU/ or kernel sources cannot change the app's
+  # SDK 15 build. A push to main has no reliable changed-file base here, so it
+  # always runs the SDK job.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.paths.outputs.code || steps.nonpr.outputs.code }}
+    steps:
+      - name: Check changed paths
+        id: paths
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const code = files.some(({filename}) =>
+              filename.startsWith('Sources/') ||
+              filename.startsWith('Tests/') ||
+              filename.startsWith('Resources/') ||
+              filename.startsWith('Config/') ||
+              filename === 'Package.swift' ||
+              filename === 'build.sh' ||
+              filename === 'Tools/MakeIcon.swift' ||
+              filename === '.github/workflows/ci.yml');
+            core.setOutput('code', code ? 'true' : 'false');
+
+      - name: Non-PR builds always run the SDK check
+        id: nonpr
+        if: github.event_name != 'pull_request'
+        run: echo "code=true" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Tests & concurrency gate
     runs-on: macos-26
-    # Tests, the concurrency gate and the release build each compile the
-    # whole app; together they no longer fit in 30 minutes on a hosted runner.
-    timeout-minutes: 60
+    # Unit tests and the gate take about half an hour together.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -25,6 +72,22 @@ jobs:
 
       - name: AMD concurrency gate
         run: ./Tools/concurrency-gate.sh
+
+  # Build and packaging are independent of the tests. Running them in parallel
+  # keeps the PR's wall clock near the longer half instead of their sum; a
+  # failed test job still fails the workflow and release.yml only reuses a run
+  # whose status is success.
+  package:
+    name: Build & package
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.x'
 
       - name: Build
         run: ./build.sh
@@ -54,6 +117,8 @@ jobs:
   # glassEffect, scrollEdgeEffectStyle) are proven to compile out on Sequoia.
   sdk15:
     name: SDK 15 fallback build (Xcode 16)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
