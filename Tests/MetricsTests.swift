@@ -4478,10 +4478,27 @@ struct MetricsTests {
                 && updateServiceSource.contains("fileSHA256Matches(at: tempURL")
                 && !updateServiceSource.contains("allowAdhoc: AppInfo.isDeveloperBuild"),
                "the updater checks the release asset's digest and only then allows an ad-hoc install")
+        expect(updateServiceSource.contains("expectedSHA256: expectedSHA256")
+                && updateServiceSource.contains("task.arguments = [\"-c\", script, \"ryzenstatus-installer\"")
+                && !updateServiceSource.contains("ryzenstatus-update-\\(pid)"),
+               "the user-level installer is inline and receives the expected SHA-256")
         expect(installerScript.contains("EXPECTED_VERSION=\"$6\"")
                 && installerScript.contains("CFBundleShortVersionString")
                 && installerScript.contains("note fail-version"),
                "the installer refuses a DMG whose app is not the offered version")
+        expect(installerScript.contains("EXPECTED_SHA256=\"$7\"")
+                && installerScript.contains("/bin/cp \"$SOURCE_DMG\" \"$DMG\"")
+                && installerScript.contains("shasum -a 256 \"$DMG\"")
+                && installerScript.contains("note fail-hash"),
+               "the installer copies the DMG and checks the copy against the expected SHA-256")
+        if let copy = installerScript.range(of: "/bin/cp \"$SOURCE_DMG\""),
+           let hash = installerScript.range(of: "shasum -a 256 \"$DMG\""),
+           let attach = installerScript.range(of: "hdiutil attach \"$DMG\"") {
+            expect(copy.lowerBound < hash.lowerBound && hash.lowerBound < attach.lowerBound,
+                   "the copy is hashed before it is mounted")
+        } else {
+            expect(false, "the installer has a copy, a hash and a mount")
+        }
         expect(UpdateInstallerSupport.elevatedInstallCommand(appPath: "/A.app", dmgPath: "/u.dmg", pid: 1,
                                                              resultPath: "/r", uid: 501,
                                                              expectedVersion: "1.42.0")
@@ -4507,6 +4524,15 @@ struct MetricsTests {
                "elevated installer detaches so the app can quit")
         expect(elevated.contains("'/Applications/RyzenStatus.app'"),
                "elevated installer passes the app path quoted for the shell")
+        let hashCommand = UpdateInstallerSupport.elevatedInstallCommand(
+            appPath: "/A.app", dmgPath: "/u.dmg", pid: 1, resultPath: "/r", uid: 501,
+            expectedSHA256: "a'b")
+        expect(hashCommand.contains("'a'\\''b'"),
+               "elevated installer quotes the expected SHA-256 safely")
+        expect(UpdateInstallerSupport.elevatedInstallCommand(
+                   appPath: "/A.app", dmgPath: "/u.dmg", pid: 1, resultPath: "/r", uid: 501,
+                   expectedSHA256: digestHex).contains("'\(digestHex)'"),
+               "elevated installer passes the expected SHA-256 to the script")
 
         // MARK: Launch at login reconciliation
 
