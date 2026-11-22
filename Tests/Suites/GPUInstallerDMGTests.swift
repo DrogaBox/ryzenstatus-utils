@@ -219,9 +219,10 @@ enum GPUInstallerDMGTests {
                          && encode.contains("mkdir -p -m 755 /usr/local/libexec")
                          && encode.contains("chown root:wheel /usr/local/libexec"),
                      "the encoding fix creates or checks a root-owned /usr/local/libexec")
-        suite.expect(encode.contains("stage_package \"$PKG\"")
-                         && encode.contains("$STAGE_PKG/install.sh")
-                         && encode.contains("$STAGE_PKG/uninstall.sh"),
+        let encoder = text(root, "GPU/install/encoder.sh")
+        suite.expect(encoder.contains("stage_package \"$PKG\"")
+                         && encoder.contains("$STAGE_PKG/install.sh")
+                         && encoder.contains("$STAGE_PKG/uninstall.sh"),
                      "the encoding fix runs its package from a verified root-owned copy")
         let common = text(root, "GPU/install/common.zsh")
         let sensors = text(root, "GPU/install/sensors.sh")
