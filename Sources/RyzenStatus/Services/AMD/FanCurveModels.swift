@@ -323,6 +323,15 @@ enum FanCurveGPUTemperature {
     static func pollReadsAccelerator(kextGPUCount: Int) -> Bool {
         kextGPUCount <= 0
     }
+
+    /// What the IOAccelerator path sends to selector 103 this poll, or nil
+    /// to send nothing. A usable reading is sent as is. When it disappears
+    /// after one was sent, 0 is sent once: the kext reads 0 as "no GPU
+    /// reading" and the curve falls back to the CPU temperature.
+    static func acceleratorBridgeValue(fresh: Double?, lastSent: Double) -> Double? {
+        if isUsable(fresh) { return fresh }
+        return lastSent > 0 ? 0 : nil
+    }
 }
 
 // MARK: - Fan Write Plan

@@ -10507,6 +10507,14 @@ struct MetricsTests {
         expect(FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 0)
                 && !FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 2),
                "the fan poll reads IOAccelerator only when the kext lists no GPU")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 52, lastSent: 0) == 52
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 52, lastSent: 50) == 52,
+               "a usable IOAccelerator reading is sent as is")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 52) == 0
+                && FanCurveGPUTemperature.acceleratorBridgeValue(fresh: 255, lastSent: 52) == 0,
+               "losing the IOAccelerator reading sends 0 once, so the curve falls back to the CPU")
+        expect(FanCurveGPUTemperature.acceleratorBridgeValue(fresh: nil, lastSent: 0) == nil,
+               "with 0 already sent, nothing more is written while the reading stays gone")
 
         // MARK: Auto EPP targets and settling
 

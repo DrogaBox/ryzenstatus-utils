@@ -68,6 +68,9 @@ final class FanCurveController: ObservableObject {
     /// One-shot latch so the GPU-bridge diagnostic is logged once
     /// per failure episode instead of on every poll tick.
     private var gpuBridgeWarned = false
+    /// Last value queued for selector 103 on the IOAccelerator path
+    /// (0 = none, or the CPU fallback was sent).
+    private var lastAcceleratorGPUTempSent: Double = 0
     private var wakeObserver: Any?
     private var reconnectObserver: Any?
     private var unloadObserver: Any?
@@ -549,27 +552,45 @@ final class FanCurveController: ObservableObject {
     /// `freshTemp` is the GPU reading taken by this poll (the kext's, or
     /// IOAccelerator's when the kext lists no GPU); the cached ones are
     /// only refreshed while the system monitor samples.
-    func pushGPUTempIfNeeded(freshTemp: Double? = nil) {
+    /// `fromAccelerator` says `freshTemp` came from IOAccelerator (the kext
+    /// lists no GPU): then only that reading counts, since the cached copies
+    /// can be frozen, and losing it sends 0 once so the curve uses the CPU.
+    func pushGPUTempIfNeeded(freshTemp: Double? = nil, fromAccelerator: Bool = false) {
         guard hasActiveGPUCurve else { return }
 
-        let kextGPUTemp = freshTemp ?? ProcessorModel.shared.lastKextGPUTemperature
-        let monitorGPUTemp = SystemMonitor.shared.snapshot.gpuTemperature ?? 0.0
-        // SMU7 GPUs report 255 for an invalid sample; fall back to the monitor
-        // then instead of dropping the update.
-        let kextUsable = FanCurveGPUTemperature.isUsable(kextGPUTemp)
-        let tempToSend = kextUsable ? kextGPUTemp : monitorGPUTemp
-
-        guard FanCurveGPUTemperature.isUsable(tempToSend) else {
-            // No trustworthy GPU reading. Say so once instead of
-            // failing silently — the kext keeps its previous gpuTempC, and a
-            // GPU-sourced curve would otherwise evaluate against a frozen value
-            // with no user-visible explanation.
-            if !gpuBridgeWarned {
-                gpuBridgeWarned = true
-                os_log("GPU-sourced fan curve active but no valid GPU temperature available (kext=%{public}.1f monitor=%{public}.1f)",
-                       log: logger, type: .error, kextGPUTemp, monitorGPUTemp)
+        let tempToSend: Double
+        if fromAccelerator {
+            guard let value = FanCurveGPUTemperature.acceleratorBridgeValue(
+                fresh: freshTemp, lastSent: lastAcceleratorGPUTempSent) else {
+                if !gpuBridgeWarned {
+                    gpuBridgeWarned = true
+                    os_log("GPU-sourced fan curve active but IOAccelerator reports no valid GPU temperature; the curve uses the CPU temperature",
+                           log: logger, type: .error)
+                }
+                return
             }
-            return
+            lastAcceleratorGPUTempSent = value
+            tempToSend = value
+        } else {
+            let kextGPUTemp = freshTemp ?? ProcessorModel.shared.lastKextGPUTemperature
+            let monitorGPUTemp = SystemMonitor.shared.snapshot.gpuTemperature ?? 0.0
+            // SMU7 GPUs report 255 for an invalid sample; fall back to the monitor
+            // then instead of dropping the update.
+            let kextUsable = FanCurveGPUTemperature.isUsable(kextGPUTemp)
+            tempToSend = kextUsable ? kextGPUTemp : monitorGPUTemp
+
+            guard FanCurveGPUTemperature.isUsable(tempToSend) else {
+                // No trustworthy GPU reading. Say so once instead of
+                // failing silently — the kext keeps its previous gpuTempC, and a
+                // GPU-sourced curve would otherwise evaluate against a frozen value
+                // with no user-visible explanation.
+                if !gpuBridgeWarned {
+                    gpuBridgeWarned = true
+                    os_log("GPU-sourced fan curve active but no valid GPU temperature available (kext=%{public}.1f monitor=%{public}.1f)",
+                           log: logger, type: .error, kextGPUTemp, monitorGPUTemp)
+                }
+                return
+            }
         }
 
         // Selector 103 is privilege-gated (root or -amdpnopchk).
@@ -932,20 +953,20 @@ final class FanCurveController: ObservableObject {
         let wantsCPUTemp = fans.contains { $0.controlMode == .manual } || viewPollingClients > 0
         pollTask = Task { [weak self] in
             // Every kext read of the tick happens here, off the main actor.
-            let (snapshots, freshGPUTemp, packageTemp) = await Task.detached(priority: .utility) {
-                () -> ([FanSnapshot], Double?, Double?) in
+            let (snapshots, freshGPUTemp, gpuFromAccelerator, packageTemp) = await Task.detached(priority: .utility) {
+                () -> ([FanSnapshot], Double?, Bool, Double?) in
                 let fans = ProcessorModel.shared.getFans(includeNames: false)
                 let packageTemp = wantsCPUTemp
                     ? ProcessorModel.shared.getTelemetry().map { Double($0.packageTempC) }
                     : nil
-                guard wantsGPUTemp else { return (fans, nil, packageTemp) }
+                guard wantsGPUTemp else { return (fans, nil, false, packageTemp) }
                 // With no GPU in the kext's list, the temperature the system
                 // reports through IOAccelerator is read here: the system
                 // monitor's copy freezes once nothing keeps it sampling.
                 if FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: ProcessorModel.shared.getKextGPUCount()) {
-                    return (fans, await IOAcceleratorCache.shared.temperature(), packageTemp)
+                    return (fans, await IOAcceleratorCache.shared.temperature(), true, packageTemp)
                 }
-                return (fans, ProcessorModel.shared.getKextGPUTemperatures().first.map(Double.init), packageTemp)
+                return (fans, ProcessorModel.shared.getKextGPUTemperatures().first.map(Double.init), false, packageTemp)
             }.value
             guard let self else { return }
             if self.pollGeneration == generation { self.pollTask = nil }
@@ -977,7 +998,7 @@ final class FanCurveController: ObservableObject {
             }
             self.fans = updated
             SessionPeaksTracker.shared.record(fans: updated)
-            self.pushGPUTempIfNeeded(freshTemp: freshGPUTemp)
+            self.pushGPUTempIfNeeded(freshTemp: freshGPUTemp, fromAccelerator: gpuFromAccelerator)
             self.enforceManualThermalGuard(packageTemp: packageTemp)
         }
     }

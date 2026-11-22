@@ -119,7 +119,9 @@ actor IOAcceleratorCache {
                 return
             }
         }
-        // No accelerator found — keep old snapshot, update timestamp so we back off.
+        // No accelerator found — drop the old snapshot so readers see no value
+        // instead of the last numbers frozen forever; update timestamp so we back off.
+        stats = .empty
         lastRefresh = now
     }
 
