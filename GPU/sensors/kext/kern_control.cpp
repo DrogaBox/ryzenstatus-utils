@@ -1438,24 +1438,39 @@ uint64_t workerPass() {
 }
 
 // Teardown: the GPU went away, or the Mac is powering off or restarting.
-// Nothing is sent from now on; returns once no driver call is running.
-void teardown() {
+// Nothing is sent from now on. Power off and restart return at once; GPU
+// termination waits at most kTeardownWaitMs for one call already running.
+void teardown(bool waitForCall) {
+  bool late = false;
   IOLockLock(gStateLock);
   gTornDown = true;
   turnOffLocked(gpuctl::WriteOff::Teardown);
-  while (gInFlight) IOLockSleep(gStateLock, &gInFlight, THREAD_UNINT);
+  if (waitForCall && gInFlight) {
+    uint64_t deadline = 0;
+    clock_interval_to_deadline(static_cast<uint32_t>(gpuctl::kTeardownWaitMs),
+                               kMillisecondScale, &deadline);
+    while (gInFlight)
+      if (IOLockSleepDeadline(gStateLock, &gInFlight, deadline,
+                              THREAD_UNINT) == THREAD_TIMED_OUT) {
+        late = gInFlight;
+        break;
+      }
+  }
   IOLockUnlock(gStateLock);
+  if (late)
+    SYSLOG("gpuctl", "teardown: a ppCWDDE call still runs after %u ms; going on",
+           static_cast<unsigned>(gpuctl::kTeardownWaitMs));
 }
 IOReturn onSystemPower(void*, void*, UInt32 message, IOService*, void*,
                        vm_size_t) {
   if (message == kIOMessageSystemWillPowerOff ||
       message == kIOMessageSystemWillRestart)
-    teardown();
+    teardown(false);
   return kIOReturnSuccess;
 }
 IOReturn onGpuMessage(void*, void*, UInt32 message, IOService*, void*,
                       vm_size_t) {
-  if (message == kIOMessageServiceIsTerminated) teardown();
+  if (message == kIOMessageServiceIsTerminated) teardown(true);
   return kIOReturnSuccess;
 }
 
