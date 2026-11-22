@@ -298,6 +298,33 @@ enum FanPollingPolicy {
     }
 }
 
+// MARK: - GPU Curve Temperature Source
+
+/// Where a GPU-sourced fan curve gets its temperature: the kext's own GPU
+/// list, or, when the kext sees no GPU, the temperature the system reports
+/// through IOAccelerator (`Temperature(C)`), if there is one. The fan poll reads either one itself, so the curve keeps
+/// a live value with every window closed.
+enum FanCurveGPUTemperature {
+    /// Highest reading the kext bridge (selector 103) is sent.
+    static let maximumCelsius = 120.0
+
+    static func isUsable(_ celsius: Double?) -> Bool {
+        guard let celsius else { return false }
+        return celsius.isFinite && celsius > 0 && celsius <= maximumCelsius
+    }
+
+    /// Whether the curve editor offers the GPU sensor: only when the fan
+    /// poll has a GPU reading of its own to feed the curve.
+    static func offersGPUSensor(kextGPUCount: Int, acceleratorCelsius: Double?) -> Bool {
+        kextGPUCount > 0 || isUsable(acceleratorCelsius)
+    }
+
+    /// Whether the fan poll reads IOAccelerator instead of the kext.
+    static func pollReadsAccelerator(kextGPUCount: Int) -> Bool {
+        kextGPUCount <= 0
+    }
+}
+
 // MARK: - Fan Write Plan
 
 /// One fan write the controller sends to the kext.

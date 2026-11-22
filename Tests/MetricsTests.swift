@@ -10488,6 +10488,26 @@ struct MetricsTests {
         expect(!FanPollingPolicy.needsStartAtLaunch(curvesEnabled: false, mappings: [0: 0]),
                "curves switched off do not start the fan controller")
 
+        // MARK: GPU curve temperature source (issue 129)
+
+        expect(FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 1, acceleratorCelsius: nil),
+               "an AMD GPU in the kext's list offers the GPU sensor")
+        expect(FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 48),
+               "with no kext GPU, the sensor is offered when IOAccelerator reports a temperature")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: nil),
+               "no kext GPU and no IOAccelerator temperature: CPU sensor only")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 0),
+               "an IOAccelerator 0 °C is no reading")
+        expect(!FanCurveGPUTemperature.offersGPUSensor(kextGPUCount: 0, acceleratorCelsius: 255),
+               "an out-of-range IOAccelerator value is no reading")
+        expect(!FanCurveGPUTemperature.isUsable(.nan) && !FanCurveGPUTemperature.isUsable(-5)
+                && FanCurveGPUTemperature.isUsable(FanCurveGPUTemperature.maximumCelsius)
+                && !FanCurveGPUTemperature.isUsable(FanCurveGPUTemperature.maximumCelsius + 0.5),
+               "the usable window is (0, 120] °C, finite")
+        expect(FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 0)
+                && !FanCurveGPUTemperature.pollReadsAccelerator(kextGPUCount: 2),
+               "the fan poll reads IOAccelerator only when the kext lists no GPU")
+
         // MARK: Auto EPP targets and settling
 
         do {
