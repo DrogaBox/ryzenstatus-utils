@@ -2,9 +2,13 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
-## Decoders 0.3.3 (not released)
+## Decoders 0.3.3 (RyzenStatus 1.86.0)
 
-Not run on a GPU yet. Everything below is checked on the CPU only, against a made-up driver.
+Run on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21: YouTube 4K60 in Safari, AV1 and VP9,
+decode about 6.5-7 ms per frame and no firmware errors; ffmpeg 9.1 through VideoToolbox on
+1080p clips with 139 (AV1) and 22 (VP9) hidden frames, every frame the same as software
+decoding, one session per clip. The items below were first checked on the CPU, against a
+made-up driver.
 
 - Each session now releases its accelerator with `AVD_DestroyAVDAccelerator`, which the
   driver exports and the decoders never called. Read in the 25G342 driver (IDA):
@@ -209,9 +213,12 @@ Not run on a GPU yet. Everything below is checked on the CPU only, against a mad
 - Options that do nothing with a command are refused: `--efi` with `check`, `--force`
   outside install and repair. Replacing an EFI entry leaves one backup, not two.
 
-## GPU sensors 0.8.0 (not released; not booted)
+## GPU sensors 0.8.0 (RyzenStatus 1.86.0)
 
-Checked on the CPU only (`controltest`) and by building; nothing was loaded or sent to a GPU.
+Booted on an RX 6800 XT with Tahoe 26.7.3 on 2026-11-21 and driven from the GPU control page:
+the card's own power range (225 to 240 W), a refused 220 W, back to the start-up limit, the
+GFX maximum at 2300 MHz, the fan curve with zero RPM off, and closing changes without a
+password. `controltest` checks the rest on the CPU.
 
 - `Write` says what a program holds. It said "a program holds a lower limit" for a fan or
   clock change too, because one program holds one thing at a time and both count as a

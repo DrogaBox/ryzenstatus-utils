@@ -32,12 +32,12 @@ Inc.
 
 | Component | Version | Run on a GPU |
 |---|---|---|
-| AV1 decoder (`decode/av1/`) | 0.3.3 | 0.3.2 on RX 6800 XT (Tahoe 26.7.3); 0.1 on RX 6900 XT (Sequoia 15.8.2); 0.3.3 not yet |
-| VP9 decoder (`decode/vp9/`) | 0.3.3 | 0.3.2 on RX 6800 XT (Tahoe 26.7.3); 0.2 on RX 6900 XT (Sequoia 15.8.2); 0.3.3 not yet |
+| AV1 decoder (`decode/av1/`) | 0.3.3 | 0.3.3 on RX 6800 XT (Tahoe 26.7.3); 0.1 on RX 6900 XT (Sequoia 15.8.2) |
+| VP9 decoder (`decode/vp9/`) | 0.3.3 | 0.3.3 on RX 6800 XT (Tahoe 26.7.3); 0.2 on RX 6900 XT (Sequoia 15.8.2) |
 | Loader kext (`decode/loader/`) | 1.1.0 | RX 6800 XT (Tahoe 26.7.3) with AMFIPass off; not run on Sequoia |
 | Encoding fix kext (`encode/kext/`) | 1.2.4 | RX 6800 XT (Tahoe 26.7.3); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3); Navi 23 static only |
 | Encoding fix service (`encode/tool/`) | 1.2.4 | RX 6800 XT (Tahoe 26.7.3); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3) |
-| GPU sensors kext (`sensors/`) | 0.2.0 | RX 6800 XT (Tahoe 26.7.3) |
+| GPU sensors kext (`sensors/`) | 0.8.0 | RX 6800 XT (Tahoe 26.7.3) |
 
 Full test results, dates and what has never been tried are in [docs/status.md](docs/status.md).
 
