@@ -6,6 +6,8 @@
 
 **Six new things for AMD Ryzen Macs: an idle clock limit for Auto EPP, a battery choice for Auto EPP, the session's lowest and highest CPU readings, a CPU power alert, CPU power and clock in the 30-day history, and a CSV log. Only the idle clock limit needs kext 3.41.0; everything else works with 3.40.3.**
 
+To use the idle clock limit, replace both kexts in your EFI with the pair from the disk image's Kexts folder and restart; [Updating the AMD kexts](https://github.com/DrogaBox/ryzenstatus-utils/blob/main/docs/KEXTS.md) has the steps and a way back. Until then, Hardware Validation reports the older driver version.
+
 ### Added
 
 - **Idle clock limit, for Ryzen CPUs with CPPC (needs kext 3.41.0)**: Settings › AMD Ryzen Power has a new switch under Auto EPP that keeps the cores at or below a chosen clock while Auto EPP sees the CPU idle. The slider goes from the CPU's lowest clock up to its base clock and shows where the efficient minimum is. Any load above the idle threshold lifts the limit within 1.5 s, and turning Auto EPP off lifts it at once. If RyzenStatus crashes or is force quit with the limit on, the kext lifts it by itself. It does nothing until you set a limit, and setting one changes nothing outside Auto EPP.
@@ -14,6 +16,11 @@
 - **CPU power alert, and a wait for every alert**: Settings › Monitor › Alerts can notify when the CPU package power from the AMD kext stays over a limit you pick, from 10 to 300 W in 5 W steps (120 W to start). The row is there only while the kext answers. A new "For at least" menu (Immediately, 10, 30 or 60 seconds) makes any alert wait until its reading has stayed over the limit that long, and a drop under the limit, or the Mac going to sleep, starts the wait over. Immediately is the default, so the existing alerts behave exactly as before, each with its own short wait.
 - **CPU package power and clock in the 30-day history**: the Monitor's History section can now chart the processor's package power and its average core clock, for up to 30 days like the other readings. The CPU details in the menu bar panel show both under the load graph. They come from the AMD kext; without it these two charts stay empty. History saved by earlier versions loads as before, with nothing lost.
 - **CSV log and history export**: Settings › Monitor has a new Logging card. "Log to CSV…" asks where to save the file and then writes one row every second. Each row has the CPU load, temperature, package power, average clock and EPP (when it is known), the GPU temperature and power, and the speed of each fan, named as in Settings › Fans. While it runs, the card shows the file name, how many rows it has written and a Stop button. The log stops when RyzenStatus quits and never starts again on its own; if the file cannot be written, or is deleted or replaced while the log runs, it stops within a minute and says so once in a notification. "Export history…" saves the long history for the range you pick as a CSV with one column per reading: up to an hour in 5-second steps, longer ranges in 1-minute steps. Right after a launch, the part of a short range the app has not seen yet comes from the saved 1-minute history, so the file covers the whole range. Both files use commas, a dot for decimals in every language, ISO 8601 local times, and an empty field where a reading is missing, so any spreadsheet opens them the same way.
+
+### Tested
+
+- The idle clock limit ran on a Ryzen 9 5900XT desktop with kext 3.41.0: all 16 cores held 1.8 GHz, a second app talking to the kext did not lift it, it came back after sleep and wake, and killing RyzenStatus lifted it.
+- Nothing ran on a laptop. The battery choice is covered by tests only.
 
 ## [1.86.0] — 2026-11-21 — kexts 3.40.3 (No kext changes)
 
