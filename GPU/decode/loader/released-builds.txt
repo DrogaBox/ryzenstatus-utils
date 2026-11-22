@@ -5,4 +5,5 @@
 # Take a line out when that build should no longer load, for example after a security fix.
 # Labels may hold letters, digits, spaces, dots, dashes and underscores.
 #
-# No release has been published from this repository yet.
+ffffe68c454cd2c2f55e263f0f6a06a6033480d0 AV1VCNDecoder 0.3.3 RyzenStatus 1.86.0 and 1.87.0
+1ee3bcc0dc42e507c9565716d12e300fd76c3a57 VP9VCNDecoder 0.3.3 RyzenStatus 1.86.0 and 1.87.0

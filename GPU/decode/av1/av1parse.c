@@ -791,6 +791,10 @@ static int decode_subexp(BR* b, int numSyms) {
   int i = 0, mk = 0, k = 3;
   while (1) {
     int b2 = i ? k + i - 1 : k;
+    if (b2 >= 31) {  // 1 << b2 would overflow an int
+      b->overrun = true;
+      return 0;
+    }
     int a = 1 << b2;
     if (numSyms <= mk + 3 * a) return (int)ns(b, numSyms - mk) + mk;
     if (f(b, 1)) {
@@ -890,6 +894,12 @@ static void film_grain_params(BR* b, AV1Parser* p) {
     return;
   }
   g->num_y_points = f(b, 4);
+  // The spec allows at most 14 luma and 10 chroma points per plane (the VCN
+  // film grain block has that many slots); more is not a valid stream.
+  if (g->num_y_points > 14) {
+    b->overrun = true;
+    return;
+  }
   for (int i = 0; i < g->num_y_points; i++) {
     g->point_y_value[i] = f(b, 8);
     g->point_y_scaling[i] = f(b, 8);
@@ -901,11 +911,19 @@ static void film_grain_params(BR* b, AV1Parser* p) {
     g->num_cb_points = g->num_cr_points = 0;
   } else {
     g->num_cb_points = f(b, 4);
+    if (g->num_cb_points > 10) {
+      b->overrun = true;
+      return;
+    }
     for (int i = 0; i < g->num_cb_points; i++) {
       g->point_cb_value[i] = f(b, 8);
       g->point_cb_scaling[i] = f(b, 8);
     }
     g->num_cr_points = f(b, 4);
+    if (g->num_cr_points > 10) {
+      b->overrun = true;
+      return;
+    }
     for (int i = 0; i < g->num_cr_points; i++) {
       g->point_cr_value[i] = f(b, 8);
       g->point_cr_scaling[i] = f(b, 8);

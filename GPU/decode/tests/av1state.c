@@ -8,6 +8,9 @@
 //      later tile group may not complete it with the refused sample's state.
 //   3. A refused header must leave the reference state exactly as it was.
 //   4. A tile group with no tile bytes is refused.
+//   5. A still picture header with more than 14 luma or 10 chroma film grain
+//      points is refused and leaves the references as they were; the same
+//      header with 14 and 10 points parses.
 //
 // usage: av1state file.ivf   (a single-tile AV1 stream; exit status 0 = pass)
 #include <stdbool.h>
@@ -74,6 +77,77 @@ static size_t put_obu(uint8_t* out, int type, const uint8_t* payload,
   } while (v);
   memcpy(out + n, payload, size);
   return n + size;
+}
+
+// A hand-made bit string, most significant bit first.
+typedef struct {
+  uint8_t d[256];
+  size_t pos;
+} BW;
+static void put(BW* w, uint32_t v, int n) {
+  for (int i = n - 1; i >= 0; i--, w->pos++)
+    if (v >> i & 1) w->d[w->pos >> 3] |= (uint8_t)(0x80 >> (w->pos & 7));
+}
+
+// A reduced still picture sequence header (profile 0, 16x16, 4:2:0, film grain
+// present) and its frame header with the given film grain point counts, as a
+// sequence header OBU + frame header OBU. Returns the size in bytes.
+static size_t grain_still(uint8_t* out, int y_points, int cb_points,
+                          int cr_points) {
+  BW s = {{0}, 0};
+  put(&s, 0, 3);   // seq_profile
+  put(&s, 1, 1);   // still_picture
+  put(&s, 1, 1);   // reduced_still_picture_header
+  put(&s, 0, 5);   // seq_level_idx
+  put(&s, 3, 4);   // frame_width_bits_minus_1
+  put(&s, 3, 4);   // frame_height_bits_minus_1
+  put(&s, 15, 4);  // max_frame_width_minus_1
+  put(&s, 15, 4);  // max_frame_height_minus_1
+  put(&s, 0, 3);   // 64x64 superblocks, no filter intra, no intra edge
+  put(&s, 0, 3);   // no superres, cdef, restoration
+  put(&s, 0, 1);   // high_bitdepth
+  put(&s, 0, 1);   // mono_chrome
+  put(&s, 0, 1);   // color_description_present_flag
+  put(&s, 0, 1);   // color_range
+  put(&s, 0, 2);   // chroma_sample_position
+  put(&s, 0, 1);   // separate_uv_delta_q
+  put(&s, 1, 1);   // film_grain_params_present
+  BW h = {{0}, 0};
+  put(&h, 0, 1);      // disable_cdf_update
+  put(&h, 0, 1);      // allow_screen_content_tools
+  put(&h, 0, 1);      // no render size
+  put(&h, 1, 1);      // uniform_tile_spacing_flag (one tile)
+  put(&h, 100, 8);    // base_q_idx
+  put(&h, 0, 3);      // no DeltaQYDc, DeltaQUDc, DeltaQUAc
+  put(&h, 0, 1);      // using_qmatrix
+  put(&h, 0, 1);      // segmentation_enabled
+  put(&h, 0, 1);      // delta_q_present
+  put(&h, 0, 12);     // loop_filter_level[0], [1]
+  put(&h, 0, 3);      // loop_filter_sharpness
+  put(&h, 0, 1);      // loop_filter_delta_enabled
+  put(&h, 0, 1);      // tx_mode_select
+  put(&h, 0, 1);      // reduced_tx_set
+  put(&h, 1, 1);      // apply_grain
+  put(&h, 1234, 16);  // grain_seed
+  put(&h, y_points, 4);
+  for (int i = 0; i < y_points; i++) {
+    put(&h, 16 * i, 8);  // point_y_value
+    put(&h, 64, 8);      // point_y_scaling
+  }
+  put(&h, 0, 1);  // chroma_scaling_from_luma
+  put(&h, cb_points, 4);
+  for (int i = 0; i < cb_points; i++) {
+    put(&h, 20 * i, 8);
+    put(&h, 32, 8);
+  }
+  put(&h, cr_points, 4);
+  for (int i = 0; i < cr_points; i++) {
+    put(&h, 20 * i, 8);
+    put(&h, 32, 8);
+  }
+  // The rest of the film grain fields read as zeros from the padding.
+  size_t n = put_obu(out, kObuSequenceHeader, s.d, (s.pos + 7) >> 3);
+  return n + put_obu(out + n, kObuFrameHeader, h.d, ((h.pos + 7) >> 3) + 16);
 }
 
 // Finds the OBUs of one temporal unit (each with a size field).
@@ -206,6 +280,35 @@ int main(int argc, char** argv) {
   r = av1_parse_temporal_unit(p, buf, nb, on_frame, &got);
   expect("a tile group with no tile bytes is refused", r != 0 && !got.ready);
   av1_parser_free(p);
+
+  // 5. film grain point counts past the format's limits
+  av1_parser_init(p);
+  nb = grain_still(buf, 14, 10, 10);
+  r = av1_parse_temporal_unit(p, buf, nb, on_frame, &got);
+  const AV1FilmGrain* g = &p->fh.film_grain;
+  expect("a still picture with 14 luma and 10 chroma grain points parses",
+         !r && g->apply_grain && g->num_y_points == 14 &&
+             g->num_cb_points == 10 && g->num_cr_points == 10 &&
+             g->point_cr_value[9] == 180);
+  av1_parser_free(p);
+  static const int too_many[3][3] = {{15, 10, 10}, {14, 11, 10}, {14, 10, 11}};
+  static const char* what[3] = {"15 luma grain points are refused",
+                                "11 Cb grain points are refused",
+                                "11 Cr grain points are refused"};
+  bool kept_refs = true;
+  for (int i = 0; i < 3; i++) {
+    av1_parser_init(p);
+    got = (Seen){0};
+    av1_parse_temporal_unit(p, seq_obu, seq_n, on_frame, &got);
+    av1_parse_temporal_unit(p, tu, tu_size, on_frame, &got);
+    memcpy(before, p->ref, sizeof(before));
+    nb = grain_still(buf, too_many[i][0], too_many[i][1], too_many[i][2]);
+    expect(what[i], av1_parse_temporal_unit(p, buf, nb, on_frame, &got) != 0);
+    if (memcmp(before, p->ref, sizeof(before))) kept_refs = false;
+    av1_parser_free(p);
+  }
+  expect("the refused grain headers leave the references as they were",
+         kept_refs);
 
   free(p);
   return failures ? 1 : 0;
