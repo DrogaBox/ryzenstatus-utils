@@ -82,6 +82,8 @@ final class AutoEppService: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.resetApplied()
+                // A refusal before the sleep may have been passing: try again.
+                self?.clearIdleLimitFailures()
             }
         }
         // The watchdog reopens the kext connection after a kext reload or a
@@ -114,6 +116,16 @@ final class AutoEppService: ObservableObject {
         idleLimitWrites = AMDIdleClockLimitWrites()
         if idleClockLimitFailed { idleClockLimitFailed = false }
     }
+
+    /// Every value is sent again, and the row stops showing the limit as
+    /// unavailable until the kext refuses it again.
+    private func clearIdleLimitFailures() {
+        idleLimitWrites.clearFailures()
+        if idleClockLimitFailed { idleClockLimitFailed = false }
+    }
+
+    /// Seconds of system uptime, the clock of `AMDIdleClockLimitWrites`.
+    private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// The next poll applies its target in full even if it did not change.
     private func resetApplied() {
@@ -158,9 +170,9 @@ final class AutoEppService: ObservableObject {
     /// Puts the full CPPC range back when this service may have narrowed it:
     /// Auto EPP off, paused for Gaming Mode, or the app quitting. A refused
     /// lift is tried again every poll interval while the loop stays stopped,
-    /// until it succeeds or the kext has refused it
-    /// `AMDIdleClockLimitWrites.maxFailures` times in a row. If the app dies
-    /// first, the kext lifts the limit itself when the connection closes.
+    /// until it succeeds; after `AMDIdleClockLimitWrites.maxFailures`
+    /// refusals only once every `retryAfter`. If the app dies first, the
+    /// kext lifts the limit itself when the connection closes.
     private func liftIdleClockLimit() {
         guard idleLimitWrites.mayBeCapped, canRun else { return }
         if !writeIdleClockLimit(0) { scheduleLiftRetry() }
@@ -172,9 +184,10 @@ final class AutoEppService: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
-                guard self.pollTask == nil, self.canRun, self.idleLimitWrites.mayBeCapped,
-                      !self.idleLimitWrites.hasGivenUp(on: 0)
-                else { break }
+                guard self.pollTask == nil, self.canRun, self.idleLimitWrites.mayBeCapped else { break }
+                // Given up for now: keep waiting for the retry instead of
+                // leaving a cap that may be in force for the whole session.
+                if self.idleLimitWrites.hasGivenUp(on: 0, now: Self.uptime) { continue }
                 if self.writeIdleClockLimit(0) { break }
             }
             // start() and stop() cancel and clear it themselves.
@@ -191,13 +204,15 @@ final class AutoEppService: ObservableObject {
         idleLimitWrites.willWrite(maxPerf)
         let ok = ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: maxPerf) == KERN_SUCCESS
         appliedIdleMaxPerf = ok ? maxPerf : nil
-        let gaveUp = idleLimitWrites.record(maxPerf, succeeded: ok)
-        if gaveUp {
-            NSLog("AutoEppService: the kext refused CPPC max perf %u %ld times in a row; not sending it again",
-                  UInt32(maxPerf), AMDIdleClockLimitWrites.maxFailures)
+        let now = Self.uptime
+        if idleLimitWrites.record(maxPerf, succeeded: ok, now: now) {
+            NSLog("AutoEppService: the kext refused CPPC max perf %u %ld times; trying it again every %.0f s",
+                  UInt32(maxPerf), AMDIdleClockLimitWrites.maxFailures, AMDIdleClockLimitWrites.retryAfter)
         }
-        // Shown until a write succeeds, Auto EPP is switched or the kext reloads.
-        if (ok || gaveUp) && idleClockLimitFailed != gaveUp { idleClockLimitFailed = gaveUp }
+        // Shown until a write succeeds, a wake, Auto EPP is switched or the
+        // kext reloads.
+        let failed = idleLimitWrites.anyGivenUp(now: now)
+        if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
         return ok
     }
 
@@ -362,12 +377,13 @@ extension AutoEppService {
     /// Writes the CPPC max perf for this preset (the idle clock limit while
     /// Eco holds, none otherwise) when it differs from the last one written.
     /// A refused write records nothing, so the next poll retries, up to
-    /// `AMDIdleClockLimitWrites.maxFailures` refusals of the same value.
+    /// `AMDIdleClockLimitWrites.maxFailures` refusals of the same value and
+    /// then once every `retryAfter`.
     fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset) {
         guard let range = currentCppcRange() else { return }
         let limit = AmdSettingsStore.shared.autoEppIdleClockLimitMHz
         let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
-        guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf) else { return }
+        guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf, now: Self.uptime) else { return }
         writeIdleClockLimit(maxPerf)
     }
 }

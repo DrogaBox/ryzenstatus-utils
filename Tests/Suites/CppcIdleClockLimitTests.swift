@@ -76,43 +76,64 @@ enum CppcIdleClockLimitTests {
     }
 
     /// Write bookkeeping: a refused lift stays owed, a refused value is
-    /// sent at most `maxFailures` times in a row.
+    /// sent at most `maxFailures` times and then once every `retryAfter`,
+    /// counted per value so an alternating preset cannot reset it.
     private static func writes(_ suite: TestSuite) {
+        let t0: TimeInterval = 1_000
         var w = AMDIdleClockLimitWrites()
-        suite.expect(!w.mayBeCapped && !w.hasGivenUp(on: 0), "nothing written: no cap, nothing given up")
+        suite.expect(!w.mayBeCapped && !w.hasGivenUp(on: 0, now: t0), "nothing written: no cap, nothing given up")
 
         w.willWrite(25)
-        w.record(25, succeeded: false)
+        w.record(25, succeeded: false, now: t0)
         suite.expect(w.mayBeCapped, "a refused cap may still have reached some cores")
 
         w.willWrite(0)
-        w.record(0, succeeded: false)
+        w.record(0, succeeded: false, now: t0)
         suite.expect(w.mayBeCapped, "a refused lift leaves the cap owed, so it is tried again")
         w.willWrite(0)
-        w.record(0, succeeded: true)
-        suite.expect(!w.mayBeCapped && w.failures == 0, "a lift the kext took clears the cap and the refusals")
+        w.record(0, succeeded: true, now: t0)
+        suite.expect(!w.mayBeCapped && w.failures.isEmpty, "a lift the kext took clears the cap and the refusals")
 
         w.willWrite(25)
-        w.record(25, succeeded: true)
+        w.record(25, succeeded: true, now: t0)
         w.willWrite(30)
-        w.record(30, succeeded: true)
+        w.record(30, succeeded: true, now: t0)
         suite.expect(w.mayBeCapped, "a cap the kext took is in force until a lift succeeds")
 
         var gaveUpAt: [Int] = []
         for attempt in 1...(AMDIdleClockLimitWrites.maxFailures + 2) {
             w.willWrite(25)
-            if w.record(25, succeeded: false) { gaveUpAt.append(attempt) }
+            if w.record(25, succeeded: false, now: t0) { gaveUpAt.append(attempt) }
         }
         suite.expect(gaveUpAt == [AMDIdleClockLimitWrites.maxFailures],
                      "gives up once, on refusal \(AMDIdleClockLimitWrites.maxFailures) (got \(gaveUpAt))")
-        suite.expect(w.hasGivenUp(on: 25) && !w.hasGivenUp(on: 0), "only the refused value is given up on")
+        suite.expect(w.hasGivenUp(on: 25, now: t0) && !w.hasGivenUp(on: 0, now: t0),
+                     "only the refused value is given up on")
+        suite.expect(w.anyGivenUp(now: t0), "the row shows the limit as unavailable")
 
-        w.record(0, succeeded: false)
-        suite.expect(!w.hasGivenUp(on: 25) && w.failures == 1, "another value starts its own count")
-        w.record(0, succeeded: false)
+        // A preset going idle -> load -> idle alternates 25 and 0. A refused
+        // lift must not re-arm 25 (the old per-value-in-a-row count did, so
+        // every load change sent 25 three more times).
+        for _ in 1...AMDIdleClockLimitWrites.maxFailures { w.record(0, succeeded: false, now: t0) }
+        suite.expect(w.hasGivenUp(on: 25, now: t0) && w.hasGivenUp(on: 0, now: t0),
+                     "each value keeps its own count: alternating re-arms nothing")
+
+        // A passing refusal does not lock the limit out for the session.
+        let later = t0 + AMDIdleClockLimitWrites.retryAfter
+        suite.expect(w.hasGivenUp(on: 25, now: later - 1), "still given up just before the retry")
+        suite.expect(!w.hasGivenUp(on: 25, now: later) && !w.anyGivenUp(now: later),
+                     "tried again after retryAfter")
+        suite.expect(!w.record(25, succeeded: false, now: later) && w.hasGivenUp(on: 25, now: later),
+                     "a refused retry gives up again quietly, for another retryAfter")
+        w.willWrite(25)
+        w.record(25, succeeded: true, now: later)
+        suite.expect(w.failures.isEmpty && !w.anyGivenUp(now: later),
+                     "a write the kext took clears every value's refusals")
+
+        w.record(0, succeeded: false, now: later)
         w.clearFailures()
-        suite.expect(!w.hasGivenUp(on: 0) && w.failures == 0 && w.mayBeCapped,
-                     "switching Auto EPP forgets the refusals but not the cap")
+        suite.expect(!w.hasGivenUp(on: 0, now: later) && w.failures.isEmpty && w.mayBeCapped,
+                     "a wake or switching Auto EPP forgets the refusals but not the cap")
     }
 
     private static func appSource(_ suite: TestSuite) {
