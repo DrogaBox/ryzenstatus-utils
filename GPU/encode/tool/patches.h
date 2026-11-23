@@ -1,4 +1,4 @@
-// patches.h - the two user-space patches applied by vcnencodefix inside
+// patches.h - the three user-space patches applied by vcnencodefix inside
 // VTEncoderXPCService.
 #pragma once
 #include <stddef.h>
@@ -51,3 +51,26 @@ const WideBuild* wide_build(
 void build_wide(const WideBuild* b, uint8_t outCall[kWideCallLen],
                 uint8_t outCave[kWideCaveLen], uint64_t callVm,
                 uint64_t caveVm);
+
+// ---- hevc10: AMDRadeonVADriver2 (dyld shared cache, same image as preset)
+// ----
+enum {
+  kHevc10FmtFindLen = 96
+};  // Vcn3Encoder::setInputAndOutputFormatParams site, unique in __text
+enum { kHevc10FmtLen = 96 };  // bytes written at the format site
+enum {
+  kHevc10DbkFindLen = 52
+};  // AVDVcn3HevcEncDataProcessor::setupDeblocking site (+7 tail bytes to make
+    // it unique from Vcn2)
+enum { kHevc10DbkLen = 45 };  // bytes written at the deblocking site
+// One validated build of the driver (LC_UUID), read in IDA.
+typedef struct {
+  const char* macos;
+  const char* uuid;
+  uint8_t fmtFind[kHevc10FmtFindLen];
+  uint8_t fmtRepl[kHevc10FmtLen];
+  uint8_t dbkFind[kHevc10DbkFindLen];
+  uint8_t dbkRepl[kHevc10DbkLen];
+} Hevc10Build;
+const Hevc10Build* hevc10_build(
+    const char* uuid);  // NULL if the build was not validated

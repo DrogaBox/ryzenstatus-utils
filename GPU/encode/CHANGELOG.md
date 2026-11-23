@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.6 (not released)
+
+- Service (`hevc10`, on by default; `--no-hevc10` turns it off): fixes two bugs in
+  `AMDRadeonVADriver2` that broke 10-bit HEVC (Main10) hardware encodes on VCN 3:
+  - `Vcn3Encoder::setInputAndOutputFormatParams` sent 8-bit NV12 in the VCN input format
+    packet even for a 10-bit HEVC session (producing a green striped picture, ~7 dB PSNR),
+    because the encoder context receives NV12 and its `x420` branch leaves the packing
+    format at 0. It now sets 10-bit and P010 from the session's 10-bit SPS flag (8-bit
+    HEVC, H.264 and RGB are unchanged).
+  - `AVDVcn3HevcEncDataProcessor::setupDeblocking` copied only `pps_cb/cr_qp_offset` (0, 0)
+    into the VCN deblocking packet and ignored `slice_cr_qp_offset = -3` (which
+    `AppleGVAHEVCEncoder` sets for 10-bit and the driver writes into the bitstream), scaling
+    Cr by ~0.73x (V PSNR 20.4 dB). It now adds the slice's cb/cr QP offsets to the
+    picture's before sending the packet, as Mesa does (0 + 0 for 8-bit).
+- Validated only on macOS 26.7.3 (`25G342`, `AMDRadeonVADriver2` UUID
+  `1181E2CA-31B3-3DF0-90E2-3AE70552D753`). Tested live on an RX 6800 XT (1080p60 `p010le`
+  `testsrc2`, `hevc_videotoolbox -profile:v main10 -allow_sw 0`): PSNR Y 47.0, U 43.7,
+  V 46.1 dB, no GPU errors.
+
 ## 1.2.5 (not released)
 
 - Kext: added an experimental, opt-in boot argument `-vcnhevc10` (off by default, not run
