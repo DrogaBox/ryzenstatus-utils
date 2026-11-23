@@ -754,6 +754,35 @@ static void setup(bool preset, uint32_t op, bool wide, bool hevc10) {
   locate_hevc10();
 }
 
+static const char* kHevc10GateSysctl = "hw.vcnhevc10";
+static bool gGateOidLoggedMissing;
+static bool gGateOidLoggedPerm;
+
+static void set_hevc10_gate(int val) {
+  if (sysctlbyname(kHevc10GateSysctl, NULL, NULL, &val, sizeof(val)) == 0) {
+    logf_("hevc10 gate (%s): set to %d", kHevc10GateSysctl, val);
+    return;
+  }
+  if (errno == ENOENT) {
+    if (!gGateOidLoggedMissing) {
+      gGateOidLoggedMissing = true;
+      logf_("hevc10 gate (%s): not present (VCNEncodeFloor.kext not loaded, "
+            "older than 1.2.6, or -vcnhevc10 not set); continuing without "
+            "kernel gate",
+            kHevc10GateSysctl);
+    }
+  } else if (errno == EPERM || errno == EACCES) {
+    if (!gGateOidLoggedPerm) {
+      gGateOidLoggedPerm = true;
+      logf_("hevc10 gate (%s): write(%d) refused (%s)", kHevc10GateSysctl, val,
+            strerror(errno));
+    }
+  } else {
+    logf_("hevc10 gate (%s): write(%d) failed (%s)", kHevc10GateSysctl, val,
+          strerror(errno));
+  }
+}
+
 // ---- commands ----
 
 static int cmd_status(void) {
@@ -780,6 +809,21 @@ static int cmd_status(void) {
         gHevc10.dbkSite);
   else
     printf("  hevc10  unavailable  %s\n", gHevc10.reason);
+  int gate = 0;
+  size_t gateLen = sizeof(gate);
+  if (sysctlbyname(kHevc10GateSysctl, &gate, &gateLen, NULL, 0) == 0 &&
+      gateLen == sizeof(gate))
+    printf("  gate    %-11s  %s=%d (%s)\n", gate ? "open" : "closed",
+           kHevc10GateSysctl, gate,
+           gate ? "Main10 advertised by kext"
+                : "Main10 withheld by kext until service is active");
+  else if (errno == ENOENT)
+    printf("  gate    unavailable  %s not present (VCNEncodeFloor.kext not "
+           "loaded, older than 1.2.6, or -vcnhevc10 not set)\n",
+           kHevc10GateSysctl);
+  else
+    printf("  gate    unavailable  %s: %s\n", kHevc10GateSysctl,
+           strerror(errno));
   if (sip_blocks_access())
     printf("  access  REFUSED      %s\n", kSipHint);
   else
@@ -982,11 +1026,13 @@ static int cmd_watch(unsigned intervalMs) {
   else
     logf_(hevc10 ? "hevc10: active%s" : "hevc10: unavailable, %s",
           hevc10 ? "" : gHevc10.reason);
+  bool accessOk = !sip_blocks_access();
+  set_hevc10_gate(hevc10 && accessOk ? 1 : 0);
   if (!preset && !wide && !hevc10) {
     logf_("nothing to do on this system; exiting");
     return 0;
   }  // 0: launchd does not restart it
-  if (sip_blocks_access())
+  if (!accessOk)
     logf_("warning: %s",
           kSipHint);  // keeps running: SIP can change at the next boot only
   // Every tick (10 ms) the pid list is compared with the previous one and only
@@ -1100,6 +1146,7 @@ static int cmd_watch(unsigned intervalMs) {
   }
   free(prev);
   free(cur);
+  if (hevc10 && accessOk) set_hevc10_gate(0);
   logf_("stopped (services already patched keep the patch until they exit)");
   return 0;
 }

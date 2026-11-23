@@ -40,13 +40,17 @@
 //
 //  Boot args: -vcnflooroff disables the plugin; vcnfloor=N sets the floor
 //  (default 132297); -vcnfloorall also changes requests with minMclk 0
-//  (decode); -vcnhevc10 (experimental, off by default) advertises HEVC Main10
-//  on supported AMD accelerators (state in "VCNHEVC10" on IOResources);
+//  (decode); -vcnhevc10 (experimental, off by default) prepares HEVC Main10
+//  on supported AMD accelerators and publishes it only while the root service
+//  (vcnencodefix) sets hw.vcnhevc10=1 (state in "VCNHEVC10" on IOResources);
 //  -vcnfloordbg / -vcnfloorbeta are Lilu's usual debug / beta switches.
 //
+#include <IOKit/IOLocks.h>
 #include <IOKit/IOService.h>
 #include <libkern/libkern.h>
 #include <mach-o/loader.h>
+#include <sys/errno.h>
+#include <sys/sysctl.h>
 
 // Lilu's own headers shadow names in two places (kern_util.hpp, kern_cpu.hpp);
 // the warning is theirs, not this file's.
@@ -61,6 +65,7 @@
 #pragma clang diagnostic pop
 
 #include "floor_logic.hpp"
+#include "hevc10_gate.hpp"
 
 // 132297 in 10 kHz units: VCLK soft minimum 1322 MHz, which the firmware rounds
 // up to its 1400 MHz level; the DCLK request of PEM_CWDDEPM_PMRequest is 0, so
@@ -132,7 +137,9 @@ static bool gAllClients = false;
 static bool gFloorGiven = false;  // vcnfloor=N on the boot arguments
 static bool gHevc10 = false;
 static IONotifier* gHevc10Notifier = nullptr;
-static bool gHevc10Set = false;
+static IOLock* gHevc10Lock = nullptr;
+static bool gHevc10OidRegistered = false;
+static vcnfloor::Hevc10Gate gHevc10Gate{};
 static int gLogs = 0;
 
 // What the GPU check found. Unknown until Lilu's device list is read (and if it
@@ -217,11 +224,130 @@ static bool parseDecimalInt(const char* s, int& out) {
   return true;
 }
 
-static void publishHevc10NotSet(const char* reason) {
-  if (__atomic_load_n(&gHevc10Set, __ATOMIC_ACQUIRE)) return;
+struct KeptHevc10Accel {
+  IOService* svc;
+  OSString* origEnc;
+  OSString* newEnc;
+  OSDictionary* origCaps;
+  OSDictionary* newCaps;
+};
+static KeptHevc10Accel gHevc10Accels[vcnfloor::kMaxHevc10Accels]{};
+
+static void applyHevc10Accel(const KeptHevc10Accel& a) {
+  if (a.svc == nullptr) return;
+  if (a.newEnc != nullptr) a.svc->setProperty("IOGVAHEVCEncode", a.newEnc);
+  if (a.newCaps != nullptr)
+    a.svc->setProperty("IOGVAHEVCEncodeCapabilities", a.newCaps);
+}
+
+static void restoreHevc10Accel(const KeptHevc10Accel& a) {
+  if (a.svc == nullptr) return;
+  if (a.newEnc != nullptr && a.origEnc != nullptr)
+    a.svc->setProperty("IOGVAHEVCEncode", a.origEnc);
+  if (a.newCaps != nullptr && a.origCaps != nullptr)
+    a.svc->setProperty("IOGVAHEVCEncodeCapabilities", a.origCaps);
+}
+
+static void releaseHevc10Accel(KeptHevc10Accel& a) {
+  OSSafeReleaseNULL(a.origEnc);
+  OSSafeReleaseNULL(a.newEnc);
+  OSSafeReleaseNULL(a.origCaps);
+  OSSafeReleaseNULL(a.newCaps);
+  OSSafeReleaseNULL(a.svc);
+}
+
+static void publishHevc10GateStateLocked() {
   char msg[160];
-  snprintf(msg, sizeof(msg), "not set: %s", reason);
+  gHevc10Gate.formatState(msg, sizeof(msg));
   publishHevc10(msg);
+}
+
+static void publishHevc10NotSet(const char* reason) {
+  if (gHevc10Lock == nullptr) {
+    char msg[160];
+    snprintf(msg, sizeof(msg), "not set: %s", reason);
+    publishHevc10(msg);
+    return;
+  }
+  IOLockLock(gHevc10Lock);
+  gHevc10Gate.onSkip(reason);
+  publishHevc10GateStateLocked();
+  IOLockUnlock(gHevc10Lock);
+}
+
+static int hevc10SysctlHandler SYSCTL_HANDLER_ARGS {
+  (void)arg1;
+  (void)arg2;
+  if (gHevc10Lock == nullptr) return ENXIO;
+  IOLockLock(gHevc10Lock);
+  int val = gHevc10Gate.value();
+  IOLockUnlock(gHevc10Lock);
+  int err = sysctl_handle_int(oidp, &val, 0, req);
+  if (err != 0 || req->newptr == USER_ADDR_NULL) return err;
+  IOLockLock(gHevc10Lock);
+  int werr = 0;
+  auto tr = gHevc10Gate.onWrite(val, &werr);
+  if (werr == 0) {
+    if (tr.changed) {
+      for (size_t i = 0; i < gHevc10Gate.count; i++) {
+        if (tr.apply)
+          applyHevc10Accel(gHevc10Accels[i]);
+        else
+          restoreHevc10Accel(gHevc10Accels[i]);
+      }
+    }
+    publishHevc10GateStateLocked();
+  }
+  IOLockUnlock(gHevc10Lock);
+  if (werr == 0 && tr.changed)
+    SYSLOG("vcnfloor", "vcnhevc10: hw.vcnhevc10=%d (%s)", val,
+           tr.apply ? "applied Main10" : "restored originals");
+  return werr;
+}
+
+// MacKernelSDK declares SYSCTL_DECL(_hw), but XNU's BSDKernel.exports exports
+// _sysctl__children and _sysctl__kern_children without _sysctl__hw_children.
+// Resolving the CTL_HW node from sysctl__children before sysctl_register_oid
+// registers hw.vcnhevc10 using only exported com.apple.kpi.bsd symbols on
+// macOS 14 to 26.
+SYSCTL_PROC(_kern, OID_AUTO, vcnhevc10, CTLTYPE_INT | CTLFLAG_RW, nullptr, 0,
+            hevc10SysctlHandler, "I",
+            "Advertise HEVC Main10 on VCN 3 while vcnencodefix is active");
+
+static sysctl_oid_list* findHwChildren() {
+  constexpr int kCtlHw = 6;  // CTL_HW
+  sysctl_oid* oid = nullptr;
+  SLIST_FOREACH(oid, &sysctl__children, oid_link) {
+    if ((oid->oid_number == kCtlHw ||
+         (oid->oid_name != nullptr && strcmp(oid->oid_name, "hw") == 0)) &&
+        oid->oid_arg1 != nullptr)
+      return static_cast<sysctl_oid_list*>(oid->oid_arg1);
+  }
+  return nullptr;
+}
+
+extern "C" void VCNEncodeFloor_hevc10_stop() {
+  if (gHevc10OidRegistered) {
+    sysctl_unregister_oid(&sysctl__kern_vcnhevc10);
+    gHevc10OidRegistered = false;
+  }
+  if (gHevc10Notifier != nullptr) {
+    gHevc10Notifier->remove();
+    gHevc10Notifier = nullptr;
+  }
+  if (gHevc10Lock != nullptr) {
+    IOLockLock(gHevc10Lock);
+    bool toRestore[vcnfloor::kMaxHevc10Accels]{};
+    size_t n = gHevc10Gate.onStop(toRestore);
+    for (size_t i = 0; i < n; i++) {
+      if (toRestore[i]) restoreHevc10Accel(gHevc10Accels[i]);
+      releaseHevc10Accel(gHevc10Accels[i]);
+    }
+    publishHevc10GateStateLocked();
+    IOLockUnlock(gHevc10Lock);
+    IOLockFree(gHevc10Lock);
+    gHevc10Lock = nullptr;
+  }
 }
 
 static bool onHevc10Accelerator(void*, void*, IOService* svc, IONotifier*) {
@@ -375,24 +501,58 @@ static bool onHevc10Accelerator(void*, void*, IOService* svc, IONotifier*) {
     return true;
   }
 
-  if (needEnc) {
-    svc->setProperty("IOGVAHEVCEncode", newEnc);
+  if (gHevc10Lock == nullptr) {
     OSSafeReleaseNULL(newEnc);
+    OSSafeReleaseNULL(newCaps);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    return true;
+  }
+
+  IOLockLock(gHevc10Lock);
+  for (size_t i = 0; i < gHevc10Gate.count; i++) {
+    if (gHevc10Accels[i].svc == svc) {
+      IOLockUnlock(gHevc10Lock);
+      OSSafeReleaseNULL(newEnc);
+      OSSafeReleaseNULL(newCaps);
+      OSSafeReleaseNULL(capsObj);
+      OSSafeReleaseNULL(encObj);
+      return true;
+    }
+  }
+  size_t slot = 0;
+  bool applyNow = false;
+  if (!gHevc10Gate.onMatch(cls, &slot, &applyNow)) {
+    IOLockUnlock(gHevc10Lock);
+    OSSafeReleaseNULL(newEnc);
+    OSSafeReleaseNULL(newCaps);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    return true;
+  }
+  svc->retain();
+  gHevc10Accels[slot].svc = svc;
+  if (needEnc) {
+    gHevc10Accels[slot].origEnc = encStr;  // retains encObj from copyProperty
+    gHevc10Accels[slot].newEnc = newEnc;
+  } else {
+    OSSafeReleaseNULL(encObj);
   }
   if (needCaps) {
-    svc->setProperty("IOGVAHEVCEncodeCapabilities", newCaps);
-    OSSafeReleaseNULL(newCaps);
+    gHevc10Accels[slot].origCaps =
+        capsDict;  // retains capsObj from copyProperty
+    gHevc10Accels[slot].newCaps = newCaps;
+  } else {
+    OSSafeReleaseNULL(capsObj);
   }
-  OSSafeReleaseNULL(capsObj);
-  OSSafeReleaseNULL(encObj);
+  if (applyNow) applyHevc10Accel(gHevc10Accels[slot]);
+  publishHevc10GateStateLocked();
+  IOLockUnlock(gHevc10Lock);
 
-  __atomic_store_n(&gHevc10Set, true, __ATOMIC_RELEASE);
   SYSLOG("vcnfloor",
-         "vcnhevc10: set on %s (device 0x%04x, IOGVAHEVCEncode %d -> %d)", cls,
-         device, encLevel, needEnc ? 2 : encLevel);
-  char msg[160];
-  snprintf(msg, sizeof(msg), "set on %s", cls);
-  publishHevc10(msg);
+         "vcnhevc10: matched %s (device 0x%04x, IOGVAHEVCEncode %d; %s)", cls,
+         device, encLevel,
+         applyNow ? "applied Main10" : "waiting for vcnencodefix service");
   return true;
 }
 
@@ -612,24 +772,38 @@ PluginConfiguration ADDPR(config){
       }
       gAllClients = checkKernelArgument("-vcnfloorall");
       gHevc10 = checkKernelArgument("-vcnhevc10");
+      gHevc10Gate.init(gHevc10);
       publishState("waiting for AMDRadeonX6000HWLibs or AMDRadeonX6800HWLibs");
       if (gHevc10) {
-        publishHevc10("waiting for AMDRadeonX6000_AMDGraphicsAccelerator");
-        OSDictionary* matching =
-            IOService::serviceMatching("AMDRadeonX6000_AMDGraphicsAccelerator");
-        if (matching == nullptr) {
-          SYSLOG("vcnfloor",
-                 "vcnhevc10: serviceMatching failed (out of memory)");
+        gHevc10Lock = IOLockAlloc();
+        if (gHevc10Lock == nullptr) {
+          SYSLOG("vcnfloor", "vcnhevc10: IOLockAlloc failed (out of memory)");
           publishHevc10("not set: out of memory");
         } else {
-          gHevc10Notifier = IOService::addMatchingNotification(
-              gIOFirstPublishNotification, matching, onHevc10Accelerator,
-              nullptr, nullptr, 0);
-          // addMatchingNotification retains matching itself.
-          matching->release();
-          if (gHevc10Notifier == nullptr) {
-            SYSLOG("vcnfloor", "vcnhevc10: addMatchingNotification failed");
-            publishHevc10("not set: matching notification failed");
+          publishHevc10GateStateLocked();
+          if (sysctl_oid_list* hw = findHwChildren()) {
+            sysctl__kern_vcnhevc10.oid_parent = hw;
+            sysctl_register_oid(&sysctl__kern_vcnhevc10);
+            gHevc10OidRegistered = true;
+          } else {
+            SYSLOG("vcnfloor", "vcnhevc10: hw sysctl node not found");
+          }
+          OSDictionary* matching = IOService::serviceMatching(
+              "AMDRadeonX6000_AMDGraphicsAccelerator");
+          if (matching == nullptr) {
+            SYSLOG("vcnfloor",
+                   "vcnhevc10: serviceMatching failed (out of memory)");
+            publishHevc10NotSet("out of memory");
+          } else {
+            gHevc10Notifier = IOService::addMatchingNotification(
+                gIOFirstPublishNotification, matching, onHevc10Accelerator,
+                nullptr, nullptr, 0);
+            // addMatchingNotification retains matching itself.
+            matching->release();
+            if (gHevc10Notifier == nullptr) {
+              SYSLOG("vcnfloor", "vcnhevc10: addMatchingNotification failed");
+              publishHevc10NotSet("matching notification failed");
+            }
           }
         }
       } else {

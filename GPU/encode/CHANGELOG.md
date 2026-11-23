@@ -18,6 +18,16 @@
   `1181E2CA-31B3-3DF0-90E2-3AE70552D753`). Tested live on an RX 6800 XT (1080p60 `p010le`
   `testsrc2`, `hevc_videotoolbox -profile:v main10 -allow_sw 0`): PSNR Y 47.0, U 43.7,
   V 46.1 dB, no GPU errors.
+- Kext + service Main10 gate (`hw.vcnhevc10`, root-only sysctl): with `-vcnhevc10` in
+  `boot-args`, the 1.2.6 kext validates the accelerator at match time and holds Main10
+  back (`VCNHEVC10` = `waiting for vcnencodefix service`) until `vcnencodefix watch`
+  confirms the `hevc10` driver patch is active and SIP allows access, then writes `1` to
+  `hw.vcnhevc10` to publish `IOGVAHEVCEncode` = `"2"` and profile 2. If the macOS build
+  is not validated, `--no-hevc10` is passed, or the service stops, the service writes `0`
+  and the kext restores the original properties (`off: service says the driver patch is
+  not active`) so VideoToolbox never routes 10-bit HEVC to an unpatched driver. Needs the
+  1.2.6 kext on the EFI and a reboot; without the new kext (or on a Mac without the kext),
+  `vcnencodefix` logs once that `hw.vcnhevc10` is not present and nothing changes.
 
 ## 1.2.5 (not released)
 

@@ -113,9 +113,9 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
 - `sudo ./install.sh --no-wide`, `--no-preset` or `--no-hevc10`: install with one of the three service fixes off.
 - Boot arguments for the kext: `-vcnflooroff` turns it off; `-vcnfloorall` also applies the floor to hardware
   *decoding* (not tested); `vcnfloor=N` replaces the floor value the kext requests (default 132297; 0 is ignored;
-  only the default was measured); `-vcnhevc10` (off by default; with the 1.2.6 service it gives a correct 10-bit picture on 26.7.3, see `hevc10` below) sets
-  `IOGVAHEVCEncode` to `"2"` and adds profile 2 (HEVC Main10) to `IOGVAHEVCEncodeCapabilities` on supported AMD
-  accelerators, and publishes its state in `VCNHEVC10` on `IOResources`; `-vcnfloordbg` and `-vcnfloorbeta` are
+  only the default was measured); `-vcnhevc10` (off by default; with the 1.2.6 service it gives a correct 10-bit picture on 26.7.3, see `hevc10` below) prepares
+  `IOGVAHEVCEncode` = `"2"` and profile 2 (HEVC Main10) in `IOGVAHEVCEncodeCapabilities` on supported AMD
+  accelerators, and with the 1.2.6 kext publishes Main10 only while the running `vcnencodefix` service reports the `hevc10` driver patch active through `hw.vcnhevc10` (waiting at `waiting for vcnencodefix service` or restoring the originals at `off: service says the driver patch is not active` if the macOS build is not validated, `--no-hevc10` is set, or the service stops; needs the 1.2.6 kext on the EFI and a reboot, and without the new kext nothing changes). Its state is in `VCNHEVC10` on `IOResources`; `-vcnfloordbg` and `-vcnfloorbeta` are
   Lilu's usual debug and newer-macOS switches.
 
 ## How it works
