@@ -195,6 +195,25 @@ enum HardwareLayerTests {
         suite.expect(!AutoEppPolicy.shouldRun(enabled: false, suspended: false, kextLoaded: true)
                      && !AutoEppPolicy.shouldRun(enabled: true, suspended: true, kextLoaded: true),
                      "Auto EPP stays off while disabled or suspended by Gaming Mode")
+        suite.expect(AutoEppPolicy.shouldRun(enabled: false, suspended: false, kextLoaded: true,
+                                             profileIdleLimit: true)
+                     && !AutoEppPolicy.shouldRun(enabled: false, suspended: true, kextLoaded: true,
+                                                 profileIdleLimit: true)
+                     && !AutoEppPolicy.shouldRun(enabled: false, suspended: false, kextLoaded: false,
+                                                 profileIdleLimit: true),
+                     "a custom profile's idle clock limit runs the loop with Auto EPP off, never while suspended or without a kext")
+        do {
+            var profile = AMDPowerProfile(name: "Quiet", boostLimitMHz: 3000)
+            profile.idleClockLimitMHz = 1000
+            let data = try JSONEncoder().encode(profile)
+            let back = try JSONDecoder().decode(AMDPowerProfile.self, from: data)
+            let old = try JSONDecoder().decode(AMDPowerProfile.self, from: Data(#"{"name":"Old","cpb":true}"#.utf8))
+            suite.expect(back.idleClockLimitMHz == 1000 && old.idleClockLimitMHz == nil
+                         && profile.levers == [.boostLimit],
+                         "a profile keeps its idle clock limit through JSON, and profiles saved before it decode without one; applying it writes no extra lever")
+        } catch {
+            suite.expect(false, "profile JSON round trip threw \(error)")
+        }
         suite.expect(!AMDPowerPreset.eco.cpbEnabled && AMDPowerPreset.balance.cpbEnabled
                      && AMDPowerPreset.performance.cpbEnabled,
                      "the Eco preset Auto EPP applies at idle turns boost off")

@@ -26,6 +26,11 @@ struct AMDPowerProfile: Codable, Equatable, Identifiable, Sendable {
     var boostLimitMHz: Int?
     /// Energy performance preference, 0 (performance) … 255 (power saving).
     var epp: UInt8?
+    /// Clock cap in MHz while the CPU is idle (CPPC max perf, selector 69),
+    /// the idle clock limit of Auto EPP for this profile. Not written when
+    /// the profile is applied: `AutoEppService` watches the load while the
+    /// profile is in force and caps only at idle.
+    var idleClockLimitMHz: Int?
 
     var id: String { name }
 
@@ -67,6 +72,9 @@ extension AMDPowerProfile {
             case 170: parts.append("EPP \(s.perfBalMinus)")
             default: parts.append("EPP \(s.perfEco)")
             }
+        }
+        if let idle = idleClockLimitMHz, idle > 0, caps.contains(.cppcLimits) {
+            parts.append(String(format: s.customProfileIdleClockFormat, idle))
         }
         return parts.joined(separator: " · ")
     }

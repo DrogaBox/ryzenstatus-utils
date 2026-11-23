@@ -189,11 +189,14 @@ final class AmdPresetController: ObservableObject {
     private func storeCustom(_ list: [AMDPowerProfile]) {
         customProfiles = list
         AmdSettingsStore.shared.customProfiles = list
+        // An edit may have changed the idle clock limit of the profile in force.
+        AutoEppService.shared.customProfileChanged()
     }
 
     private func setSelectedCustom(_ name: String?) {
         selectedCustomName = name
         AmdSettingsStore.shared.customProfileName = name
+        AutoEppService.shared.customProfileChanged()
     }
 
     /// Applies a preset transactionally: the persisted `amdPowerPreset` key is

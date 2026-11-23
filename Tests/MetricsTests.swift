@@ -10716,6 +10716,8 @@ struct MetricsTests {
             for (key, value) in chtcKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
             }
+            expect(formatSpecifiers(in: a.customProfileIdleClockFormat) == ["d"],
+                   "Language \(lang.rawValue) customProfileIdleClockFormat must keep exactly 1 %d specifier: \(a.customProfileIdleClockFormat)")
             expect(formatSpecifiers(in: a.chtcActiveFormat) == ["d"],
                    "Language \(lang.rawValue) chtcActiveFormat must keep exactly 1 %d specifier: \(a.chtcActiveFormat)")
             expect(!a.chtcFooter.contains("%"),
