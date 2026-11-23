@@ -60,8 +60,9 @@ Safari and Chrome load the plug-ins in `VTDecoderXPCService`; Safari can also lo
 
 Each plug-in logs to the unified log, subsystem `com.droga.vtav1vcn` or
 `com.droga.vtvp9vcn`: one line per session start, an error line for each refused session
-or sample, and a `stats` line every 120 frames (decode and queue times, the deepest queue,
-and the count of firmware errors).
+or sample, and a `stats` line every 120 frames (decode and queue times, how many frames
+took longer to decode than the stream's frame time, the deepest queue, and the count of
+firmware errors).
 
 ### The driver's function table
 

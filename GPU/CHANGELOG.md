@@ -2,6 +2,22 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Decoders 0.3.5 (not released)
+
+- The `stats` line's slow-frame count now uses the stream's own frame time. It used to count
+  every frame whose queue wait plus decode passed a fixed 16.7 ms, so a 30 fps video showed
+  60 to 80 "slow" frames out of 120 while it played with time to spare (a user's 4K30 log
+  on r/hackintosh), and queue waits, which are normal with up to four frames in flight,
+  made 60 fps look worse than it was. Now a frame counts only when its decode alone takes
+  longer than the frame time, read from the sample's duration or, when the caller gives
+  none, from the step between presentation times (steps over 100 ms are seeks and are
+  skipped; 60 fps is assumed until a time is known). The line shows the average frame time
+  it used over those 120 frames: `decode over frame time (avg 33.4 ms) 0`. Samples that
+  carry only a hidden frame (FFmpeg sends those one by one) do not change the frame time,
+  and a new session learns it again. Decoding itself is unchanged.
+- The frame time is the stream's, not the wall clock's: at 2x playback each frame really
+  has half of it, so a frame can count as fine and still arrive late.
+
 ## GPU sensors 0.8.1 (RyzenStatus 1.88.0; host tests only, not booted)
 
 - Readings older than 5 s are no longer published. Before, a failed read, a sleeping card or a
