@@ -155,6 +155,14 @@ private struct AmdProfileEditor: View {
     let onSave: (AMDPowerProfile) -> Void
     let onCancel: () -> Void
     @ObservedObject private var l10n = L10n.shared
+    /// The idle clock limit's slider range on this CPU; nil hides the row
+    /// (no CPPC limits in the kext, or the range is not known yet).
+    @State private var idleRange: ClosedRange<Int>? = AmdProfileEditor.currentIdleRange()
+
+    private static func currentIdleRange() -> ClosedRange<Int>? {
+        guard AmdPowerControlsModel.shared.powerCapabilities.contains(.cppcLimits) else { return nil }
+        return AutoEppService.shared.currentCppcRange()?.idleLimitRangeMHz
+    }
 
     var body: some View {
         let s = l10n.amdPower
@@ -177,6 +185,11 @@ private struct AmdProfileEditor: View {
                 optionalNumber(s.boostLimitLabel, value: $profile.boostLimitMHz, range: 400...8000, step: 25,
                                unit: "MHz", defaultValue: 4500)
                 optionalEPP(value: $profile.epp)
+                if let idleRange {
+                    optionalNumber(s.idleClockToggle, value: $profile.idleClockLimitMHz, range: idleRange,
+                                   step: 25, unit: "MHz",
+                                   defaultValue: min(max(1000, idleRange.lowerBound), idleRange.upperBound))
+                }
                 optionalToggle(s.lpmToggle, value: $profile.lpm, defaultValue: false)
             }
             .formStyle(.grouped)

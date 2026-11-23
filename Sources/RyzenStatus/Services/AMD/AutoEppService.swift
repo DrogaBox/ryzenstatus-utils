@@ -146,7 +146,8 @@ final class AutoEppService: ObservableObject {
     func start() {
         guard pollTask == nil,
               AutoEppPolicy.shouldRun(enabled: AmdSettingsStore.shared.autoEppEnabled,
-                                      suspended: isSuspended, kextLoaded: canRun)
+                                      suspended: isSuspended, kextLoaded: canRun,
+                                      profileIdleLimit: profileIdleLimitMHz != nil)
         else { return }
         // The loop writes the limit it wants from its first poll.
         liftRetryTask?.cancel()
@@ -160,6 +161,32 @@ final class AutoEppService: ObservableObject {
                 guard !Task.isCancelled, let strong = self else { break }
                 await strong.poll()
             }
+        }
+    }
+
+    /// The idle clock limit of the custom profile in force, while Auto EPP
+    /// is off; nil when there is none. The loop then only watches the load
+    /// and writes this limit at idle, leaving the profile's other levers as
+    /// they were applied.
+    private var profileIdleLimitMHz: Int? {
+        guard !AmdSettingsStore.shared.autoEppEnabled, !cppcUnsupported,
+              let name = AmdPresetController.shared.selectedCustomName,
+              let profile = AmdPresetController.shared.customProfiles.first(where: { $0.name == name }),
+              let limit = profile.idleClockLimitMHz, limit > 0
+        else { return nil }
+        return limit
+    }
+
+    /// Called when the custom profile in force or its idle clock limit
+    /// changes. While Auto EPP is off it starts the loop for the profile's
+    /// limit, or stops it and lifts the limit when there is none.
+    func customProfileChanged() {
+        guard !AmdSettingsStore.shared.autoEppEnabled, !isSuspended else { return }
+        resetApplied()
+        if profileIdleLimitMHz != nil {
+            start()
+        } else {
+            stopLoop()
         }
     }
 
@@ -261,8 +288,12 @@ final class AutoEppService: ObservableObject {
         else { return }
         if AmdSettingsStore.shared.autoEppEnabled {
             start()
-        } else if writesTakeEffect {
-            Task { await AmdPowerControlsModel.shared.restoreManualEPP() }
+        } else {
+            // A custom profile's idle clock limit watches the load too.
+            start()
+            if writesTakeEffect {
+                Task { await AmdPowerControlsModel.shared.restoreManualEPP() }
+            }
         }
     }
 
@@ -321,7 +352,8 @@ final class AutoEppService: ObservableObject {
     // MARK: - Polling
 
     func poll() async {
-        guard !isSuspended, AmdSettingsStore.shared.autoEppEnabled else {
+        var profileLimit = isSuspended ? nil : profileIdleLimitMHz
+        guard !isSuspended, AmdSettingsStore.shared.autoEppEnabled || profileLimit != nil else {
             if isActive != AmdSettingsStore.shared.autoEppEnabled { isActive = AmdSettingsStore.shared.autoEppEnabled }
             return
         }
@@ -331,6 +363,10 @@ final class AutoEppService: ObservableObject {
         let gpuLoad = Float((SystemMonitor.shared.snapshot.gpuUsage ?? 0) * 100)
         let cpuFallback = Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100)
         let loads = await ProcessorModel.shared.getLoadIndex()
+        // The loop may have been stopped while the load was read (a profile
+        // change lifts the cap): do not write a limit read before that.
+        guard pollTask != nil, !Task.isCancelled else { return }
+        profileLimit = isSuspended ? nil : profileIdleLimitMHz
         let cpuLoad = loads.isEmpty ? cpuFallback : loads.reduce(0, +) * 100 / Float(loads.count)
 
         let candidate = AutoEppPolicy.target(cpuLoad: cpuLoad, gpuLoad: gpuLoad,
@@ -339,6 +375,14 @@ final class AutoEppService: ObservableObject {
                                            pendingStepDownPolls: stepDownPolls)
         appliedTarget = settled.target
         stepDownPolls = settled.pendingStepDownPolls
+
+        // A custom profile with an idle clock limit: the load decides only
+        // the limit. No preset is applied and nothing is published, since
+        // Auto EPP itself is off.
+        if let profileLimit {
+            applyIdleClockLimit(for: settled.target.preset, limitMHz: profileLimit)
+            return
+        }
         // On battery the On battery mode may lower the load's target; the
         // hysteresis above stays on the load alone, so plugging in or
         // unplugging changes the preset at this poll.
@@ -355,7 +399,8 @@ final class AutoEppService: ObservableObject {
         }
         if lastAppliedPreset == preset {
             applyIdleClockLimit(for: AMDBatteryPowerPolicy.idleLimitPreset(loadTarget: settled.target,
-                                                                           appliedTarget: target))
+                                                                           appliedTarget: target),
+                                limitMHz: AmdSettingsStore.shared.autoEppIdleClockLimitMHz)
         }
 
         // A loop stopped while this poll ran must not publish its target.
@@ -388,14 +433,15 @@ extension AutoEppService {
         return range
     }
 
-    /// Writes the CPPC max perf for this preset (the idle clock limit while
-    /// Eco holds, none otherwise) when it differs from the last one written.
+    /// Writes the CPPC max perf for this preset (`limit` while Eco holds,
+    /// none otherwise) when it differs from the last one written. `limit` is
+    /// Auto EPP's idle clock limit, or the custom profile's while Auto EPP
+    /// is off.
     /// A refused write records nothing, so the next poll retries, up to
     /// `AMDIdleClockLimitWrites.maxFailures` refusals of the same value and
     /// then once every `retryAfter`.
-    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset) {
+    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset, limitMHz limit: Int) {
         guard let range = currentCppcRange() else { return }
-        let limit = AmdSettingsStore.shared.autoEppIdleClockLimitMHz
         let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
         let now = Self.uptime
         // A retry window that ran out shows the row as available again.
@@ -444,9 +490,12 @@ enum AutoEppPolicy {
     static let stepDownPolls = 3
 
     /// Whether the poll loop runs at all: without a kext it would wake the
-    /// app every 1.5 s to change nothing.
-    static func shouldRun(enabled: Bool, suspended: Bool, kextLoaded: Bool) -> Bool {
-        enabled && !suspended && kextLoaded
+    /// app every 1.5 s to change nothing. `profileIdleLimit`: Auto EPP is off
+    /// and the custom profile in force has an idle clock limit, so the loop
+    /// runs to watch the load for it.
+    static func shouldRun(enabled: Bool, suspended: Bool, kextLoaded: Bool,
+                          profileIdleLimit: Bool = false) -> Bool {
+        (enabled || profileIdleLimit) && !suspended && kextLoaded
     }
 
     /// The EPP picker value the views show (0/85/170/255), or nil to leave it
