@@ -531,7 +531,26 @@ static bool no_thread_inside(task_t task, const Region* r, int n) {
   return clear;
 }
 
+// Writes `len` bytes at `addr` through a copy-on-write page of the target.
+static kern_return_t poke(task_t task, mach_vm_address_t addr,
+                          const uint8_t* bytes, size_t len) {
+  mach_vm_address_t page = addr & ~((mach_vm_address_t)vm_page_size - 1);
+  mach_vm_size_t span =
+      ((addr + len + vm_page_size - 1) & ~((mach_vm_address_t)vm_page_size - 1)) -
+      page;
+  kern_return_t kr = mach_vm_protect(task, page, span, FALSE,
+                                     VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+  if (kr == KERN_SUCCESS)
+    kr = mach_vm_write(task, addr, (vm_offset_t)bytes,
+                       (mach_msg_type_number_t)len);
+  kern_return_t kr2 = mach_vm_protect(task, page, span, FALSE,
+                                      VM_PROT_READ | VM_PROT_EXECUTE);
+  return kr == KERN_SUCCESS ? kr2 : kr;
+}
+
 // Writes the regions in order with the task suspended. Returns 0 on success.
+// If a later region fails, the regions already written are put back, so a
+// patch made of several sites is never left half applied.
 static int write_regions(task_t task, const Region* r, int n, char* err,
                          size_t errLen) {
   for (int attempt = 0; attempt < 50; attempt++) {
@@ -545,21 +564,20 @@ static int write_regions(task_t task, const Region* r, int n, char* err,
       continue;
     }
     kern_return_t kr = KERN_SUCCESS;
+    uint8_t before[8][256];
+    bool haveBefore = n <= 8;
+    for (int k = 0; k < n && haveBefore; k++)
+      if (r[k].len > sizeof(before[0]) ||
+          !rd(task, r[k].addr, before[k], r[k].len))
+        haveBefore = false;
+    int done = 0;
     for (int k = 0; k < n && kr == KERN_SUCCESS; k++) {
-      mach_vm_address_t page =
-          r[k].addr & ~((mach_vm_address_t)vm_page_size - 1);
-      mach_vm_size_t span = ((r[k].addr + r[k].len + vm_page_size - 1) &
-                             ~((mach_vm_address_t)vm_page_size - 1)) -
-                            page;
-      kr = mach_vm_protect(task, page, span, FALSE,
-                           VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
-      if (kr == KERN_SUCCESS)
-        kr = mach_vm_write(task, r[k].addr, (vm_offset_t)r[k].bytes,
-                           (mach_msg_type_number_t)r[k].len);
-      kern_return_t kr2 = mach_vm_protect(task, page, span, FALSE,
-                                          VM_PROT_READ | VM_PROT_EXECUTE);
-      if (kr == KERN_SUCCESS) kr = kr2;
+      kr = poke(task, r[k].addr, r[k].bytes, r[k].len);
+      if (kr == KERN_SUCCESS) done++;
     }
+    if (kr != KERN_SUCCESS && haveBefore)
+      for (int k = done - 1; k >= 0; k--)
+        poke(task, r[k].addr, before[k], r[k].len);
     task_resume(task);
     if (kr != KERN_SUCCESS) {
       snprintf(err, errLen, "write failed (%s)", mach_error_string(kr));
@@ -743,22 +761,23 @@ static int cmd_status(void) {
   os_line(os, sizeof(os));
   printf("vcnencodefix %s on %s\n", VERSION, os);
   if (gPreset.available)
-    printf("  preset  available    VCN speed preset (driver site 0x%llx)\n",
-           gPreset.site);
+    printf("  preset  %s    VCN speed preset (driver site 0x%llx)\n",
+           gPreset.enabled ? "available" : "off      ", gPreset.site);
   else
     printf("  preset  unavailable  %s\n", gPreset.reason);
   if (gWide.available)
     printf(
-        "  wide    available    HEVC wider than 4096 (plug-in offsets 0x%llx, "
+        "  wide    %s    HEVC wider than 4096 (plug-in offsets 0x%llx, "
         "0x%llx)\n",
-        gWide.callVm, gWide.caveVm);
+        gWide.enabled ? "available" : "off      ", gWide.callVm, gWide.caveVm);
   else
     printf("  wide    unavailable  %s\n", gWide.reason);
   if (gHevc10.available)
     printf(
-        "  hevc10  available    HEVC 10-bit input and Cr QP (driver sites "
+        "  hevc10  %s    HEVC 10-bit input and Cr QP (driver sites "
         "0x%llx, 0x%llx)\n",
-        gHevc10.fmtSite, gHevc10.dbkSite);
+        gHevc10.enabled ? "available" : "off      ", gHevc10.fmtSite,
+        gHevc10.dbkSite);
   else
     printf("  hevc10  unavailable  %s\n", gHevc10.reason);
   if (sip_blocks_access())
@@ -799,7 +818,11 @@ static int cmd_status(void) {
   }
   if (!n) printf("  no encoder service running\n");
   free(pids);
-  return (gPreset.available || gWide.available || gHevc10.available) ? 0 : 3;
+  return ((gPreset.enabled && gPreset.available) ||
+          (gWide.enabled && gWide.available) ||
+          (gHevc10.enabled && gHevc10.available))
+             ? 0
+             : 3;
 }
 
 static int cmd_one(pid_t pid, bool remove) {

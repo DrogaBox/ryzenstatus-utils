@@ -137,9 +137,10 @@ preflight() {
   if [[ -x $TOOL ]]; then
     local st
     st=$("$TOOL" status 2>/dev/null)
-    local pre=0 wide=0
+    local pre=0 wide=0 h10=0
     print -r -- "$st" | grep -q 'preset  available' && pre=1
     print -r -- "$st" | grep -q 'wide    available' && wide=1
+    print -r -- "$st" | grep -q 'hevc10  available' && h10=1
     if (( pre && wide )); then
       add_check enc-files "Encoder files match" ok "speed preset and >4096-wide fix both apply"
     elif (( pre || wide )); then
