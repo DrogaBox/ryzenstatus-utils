@@ -169,7 +169,7 @@ final class AutoEppService: ObservableObject {
     /// and writes this limit at idle, leaving the profile's other levers as
     /// they were applied.
     private var profileIdleLimitMHz: Int? {
-        guard !AmdSettingsStore.shared.autoEppEnabled,
+        guard !AmdSettingsStore.shared.autoEppEnabled, !cppcUnsupported,
               let name = AmdPresetController.shared.selectedCustomName,
               let profile = AmdPresetController.shared.customProfiles.first(where: { $0.name == name }),
               let limit = profile.idleClockLimitMHz, limit > 0
@@ -352,7 +352,7 @@ final class AutoEppService: ObservableObject {
     // MARK: - Polling
 
     func poll() async {
-        let profileLimit = isSuspended ? nil : profileIdleLimitMHz
+        var profileLimit = isSuspended ? nil : profileIdleLimitMHz
         guard !isSuspended, AmdSettingsStore.shared.autoEppEnabled || profileLimit != nil else {
             if isActive != AmdSettingsStore.shared.autoEppEnabled { isActive = AmdSettingsStore.shared.autoEppEnabled }
             return
@@ -363,6 +363,10 @@ final class AutoEppService: ObservableObject {
         let gpuLoad = Float((SystemMonitor.shared.snapshot.gpuUsage ?? 0) * 100)
         let cpuFallback = Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100)
         let loads = await ProcessorModel.shared.getLoadIndex()
+        // The loop may have been stopped while the load was read (a profile
+        // change lifts the cap): do not write a limit read before that.
+        guard pollTask != nil, !Task.isCancelled else { return }
+        profileLimit = isSuspended ? nil : profileIdleLimitMHz
         let cpuLoad = loads.isEmpty ? cpuFallback : loads.reduce(0, +) * 100 / Float(loads.count)
 
         let candidate = AutoEppPolicy.target(cpuLoad: cpuLoad, gpuLoad: gpuLoad,
