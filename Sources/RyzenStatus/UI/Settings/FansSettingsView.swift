@@ -12,7 +12,7 @@ struct FansSettingsView: View {
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
     @State private var showingMaxSpeedConfirmation = false
-    /// IOAccelerator's GPU temperature, read when the curve editor shows:
+    /// IOAccelerator's GPU temperature, refreshed while the curve editor shows:
     /// with no GPU in the kext's list, a GPU curve follows this one.
     @State private var acceleratorGPUTemperature: Double?
 
@@ -192,7 +192,14 @@ struct FansSettingsView: View {
                                         acceleratorCelsius: acceleratorGPUTemperature)
                                 )
                                 .task {
-                                    acceleratorGPUTemperature = await IOAcceleratorCache.shared.temperature()
+                                    while !Task.isCancelled {
+                                        let reading = await IOAcceleratorCache.shared.temperature()
+                                        if Task.isCancelled { break }
+                                        if reading != acceleratorGPUTemperature {
+                                            acceleratorGPUTemperature = reading
+                                        }
+                                        try? await Task.sleep(for: .seconds(FanPollingPolicy.viewInterval))
+                                    }
                                 }
                             }
                         }
