@@ -38,11 +38,14 @@
 //  VCLK 690/1429, DCLK 572/1250). Navi 23 has not run on a card. A vcnfloor=N
 //  boot argument is taken as the user's own value and applies to any chip.
 //
-//  Boot args: -vcnflooroff disables it; vcnfloor=N sets the floor (default
-//  132297); -vcnfloorall also changes requests with minMclk 0 (decode);
+//  Boot args: -vcnflooroff disables the plugin; vcnfloor=N sets the floor
+//  (default 132297); -vcnfloorall also changes requests with minMclk 0
+//  (decode); -vcnhevc10 (experimental, off by default) advertises HEVC Main10
+//  on supported AMD accelerators (state in "VCNHEVC10" on IOResources);
 //  -vcnfloordbg / -vcnfloorbeta are Lilu's usual debug / beta switches.
 //
 #include <IOKit/IOService.h>
+#include <libkern/libkern.h>
 #include <mach-o/loader.h>
 
 // Lilu's own headers shadow names in two places (kern_util.hpp, kern_cpu.hpp);
@@ -127,6 +130,9 @@ static const HWLibsBuild kX6800Builds[]{
 static uint32_t gFloor = kDefaultFloor;
 static bool gAllClients = false;
 static bool gFloorGiven = false;  // vcnfloor=N on the boot arguments
+static bool gHevc10 = false;
+static IONotifier* gHevc10Notifier = nullptr;
+static bool gHevc10Set = false;
 static int gLogs = 0;
 
 // What the GPU check found. Unknown until Lilu's device list is read (and if it
@@ -178,6 +184,216 @@ static_assert(arrsize(kKinds) == arrsize(kHWLibs), "one kind per library");
 static void publishState(const char* state) {
   IOService* res = IOService::getResourceService();
   if (res) res->setProperty("VCNEncodeFloor", state);
+}
+
+static void publishHevc10(const char* state) {
+  IOService* res = IOService::getResourceService();
+  if (res) res->setProperty("VCNHEVC10", state);
+}
+
+static bool parseDecimalInt(const char* s, int& out) {
+  if (s == nullptr) return false;
+  while (*s == ' ' || *s == '\t') s++;
+  bool neg = false;
+  if (*s == '-') {
+    neg = true;
+    s++;
+  } else if (*s == '+') {
+    s++;
+  }
+  if (*s < '0' || *s > '9') return false;
+  constexpr int kMax = 0x7fffffff;
+  int val = 0;
+  while (*s >= '0' && *s <= '9') {
+    int digit = *s - '0';
+    if (val > (kMax - digit) / 10) {
+      val = kMax;
+      break;
+    }
+    val = val * 10 + digit;
+    s++;
+  }
+  out = neg ? -val : val;
+  return true;
+}
+
+static void publishHevc10NotSet(const char* reason) {
+  if (__atomic_load_n(&gHevc10Set, __ATOMIC_ACQUIRE)) return;
+  char msg[160];
+  snprintf(msg, sizeof(msg), "not set: %s", reason);
+  publishHevc10(msg);
+}
+
+static bool onHevc10Accelerator(void*, void*, IOService* svc, IONotifier*) {
+  if (svc == nullptr) return true;
+  const char* cls = svc->getMetaClass()->getClassName();
+  if (cls == nullptr) cls = "unknown";
+
+  // The accelerator hangs under AMD's controller, not directly under the PCI
+  // device (GFX0 -> AmdRadeonControllerNavi21 -> ...GraphicsAccelerator), so
+  // walk up to the first provider that has the PCI IDs.
+  uint32_t vendor = 0, device = 0;
+  bool found = false;
+  IOService* pci = svc->getProvider();
+  for (int depth = 0; pci != nullptr && depth < 4 && !found; depth++) {
+    found = WIOKit::getOSDataValue(pci, "vendor-id", vendor) &&
+            WIOKit::getOSDataValue(pci, "device-id", device);
+    if (!found) pci = pci->getProvider();
+  }
+  if (!found) {
+    SYSLOG("vcnfloor", "vcnhevc10: skipping %s (GPU device-id not found)", cls);
+    publishHevc10NotSet("GPU device-id not found");
+    return true;
+  }
+  if (vendor != WIOKit::VendorID::ATIAMD || chipFloor(device) == 0) {
+    SYSLOG("vcnfloor",
+           "vcnhevc10: skipping %s (vendor 0x%04x device 0x%04x, unsupported "
+           "GPU)",
+           cls, vendor, device);
+    publishHevc10NotSet("unsupported GPU");
+    return true;
+  }
+
+  OSObject* encObj = svc->copyProperty("IOGVAHEVCEncode");
+  OSString* encStr = OSDynamicCast(OSString, encObj);
+  int encLevel = 0;
+  if (encStr == nullptr ||
+      !parseDecimalInt(encStr->getCStringNoCopy(), encLevel)) {
+    SYSLOG("vcnfloor",
+           "vcnhevc10: skipping %s (IOGVAHEVCEncode missing or not a number)",
+           cls);
+    OSSafeReleaseNULL(encObj);
+    publishHevc10NotSet("IOGVAHEVCEncode missing or not a number");
+    return true;
+  }
+
+  OSObject* capsObj = svc->copyProperty("IOGVAHEVCEncodeCapabilities");
+  OSDictionary* capsDict = OSDynamicCast(OSDictionary, capsObj);
+  if (capsDict == nullptr) {
+    SYSLOG("vcnfloor",
+           "vcnhevc10: skipping %s (IOGVAHEVCEncodeCapabilities missing)", cls);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    publishHevc10NotSet("IOGVAHEVCEncodeCapabilities missing");
+    return true;
+  }
+
+  OSArray* profArr =
+      OSDynamicCast(OSArray, capsDict->getObject("VTSupportedProfileArray"));
+  OSDictionary* detailsDict =
+      OSDynamicCast(OSDictionary, capsDict->getObject("VTPerProfileDetails"));
+  OSDictionary* prof1Dict =
+      detailsDict ? OSDynamicCast(OSDictionary, detailsDict->getObject("1"))
+                  : nullptr;
+  if (profArr == nullptr || profArr->getCount() == 0 ||
+      detailsDict == nullptr || prof1Dict == nullptr) {
+    SYSLOG("vcnfloor",
+           "vcnhevc10: skipping %s (unexpected IOGVAHEVCEncodeCapabilities "
+           "shape)",
+           cls);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    publishHevc10NotSet("unexpected IOGVAHEVCEncodeCapabilities shape");
+    return true;
+  }
+
+  bool hasProf2 = false;
+  unsigned int numBits = 0;
+  for (unsigned int i = 0; i < profArr->getCount(); i++) {
+    OSNumber* n = OSDynamicCast(OSNumber, profArr->getObject(i));
+    if (n == nullptr) {
+      SYSLOG("vcnfloor",
+             "vcnhevc10: skipping %s (VTSupportedProfileArray entry not a "
+             "number)",
+             cls);
+      OSSafeReleaseNULL(capsObj);
+      OSSafeReleaseNULL(encObj);
+      publishHevc10NotSet("VTSupportedProfileArray entry not a number");
+      return true;
+    }
+    if (numBits == 0) numBits = n->numberOfBits();
+    if (n->unsigned64BitValue() == 2) hasProf2 = true;
+  }
+  if (numBits == 0) numBits = 32;
+
+  bool hasDetail2 = detailsDict->getObject("2") != nullptr;
+  bool needEnc = encLevel < 2;
+  bool needCaps = !hasProf2 || !hasDetail2;
+  if (!needEnc && !needCaps) {
+    SYSLOG("vcnfloor",
+           "vcnhevc10: %s already advertises profile 2 (IOGVAHEVCEncode %d)",
+           cls, encLevel);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    publishHevc10NotSet("already advertises profile 2");
+    return true;
+  }
+
+  OSDictionary* newCaps = nullptr;
+  if (needCaps) {
+    newCaps = OSDictionary::withDictionary(capsDict);
+    OSArray* newArr =
+        OSArray::withArray(profArr, profArr->getCount() + (hasProf2 ? 0 : 1));
+    OSDictionary* newDetails = OSDictionary::withDictionary(
+        detailsDict, detailsDict->getCount() + (hasDetail2 ? 0 : 1));
+    OSNumber* num2 = hasProf2 ? nullptr : OSNumber::withNumber(2ULL, numBits);
+    OSDictionary* newProf2 =
+        hasDetail2 ? nullptr : OSDictionary::withDictionary(prof1Dict);
+
+    bool ok = newCaps != nullptr && newArr != nullptr &&
+              newDetails != nullptr && (hasProf2 || num2 != nullptr) &&
+              (hasDetail2 || newProf2 != nullptr);
+    if (ok && !hasProf2) ok = newArr->setObject(num2);
+    if (ok && !hasDetail2) ok = newDetails->setObject("2", newProf2);
+    if (ok) ok = newCaps->setObject("VTSupportedProfileArray", newArr);
+    if (ok) ok = newCaps->setObject("VTPerProfileDetails", newDetails);
+
+    OSSafeReleaseNULL(num2);
+    OSSafeReleaseNULL(newProf2);
+    OSSafeReleaseNULL(newArr);
+    OSSafeReleaseNULL(newDetails);
+    if (!ok) {
+      SYSLOG("vcnfloor",
+             "vcnhevc10: skipping %s (failed to copy "
+             "IOGVAHEVCEncodeCapabilities)",
+             cls);
+      OSSafeReleaseNULL(newCaps);
+      OSSafeReleaseNULL(capsObj);
+      OSSafeReleaseNULL(encObj);
+      publishHevc10NotSet("out of memory");
+      return true;
+    }
+  }
+
+  OSString* newEnc = needEnc ? OSString::withCString("2") : nullptr;
+  if (needEnc && newEnc == nullptr) {
+    SYSLOG("vcnfloor", "vcnhevc10: skipping %s (out of memory)", cls);
+    OSSafeReleaseNULL(newCaps);
+    OSSafeReleaseNULL(capsObj);
+    OSSafeReleaseNULL(encObj);
+    publishHevc10NotSet("out of memory");
+    return true;
+  }
+
+  if (needEnc) {
+    svc->setProperty("IOGVAHEVCEncode", newEnc);
+    OSSafeReleaseNULL(newEnc);
+  }
+  if (needCaps) {
+    svc->setProperty("IOGVAHEVCEncodeCapabilities", newCaps);
+    OSSafeReleaseNULL(newCaps);
+  }
+  OSSafeReleaseNULL(capsObj);
+  OSSafeReleaseNULL(encObj);
+
+  __atomic_store_n(&gHevc10Set, true, __ATOMIC_RELEASE);
+  SYSLOG("vcnfloor",
+         "vcnhevc10: set on %s (device 0x%04x, IOGVAHEVCEncode %d -> %d)", cls,
+         device, encLevel, needEnc ? 2 : encLevel);
+  char msg[160];
+  snprintf(msg, sizeof(msg), "set on %s", cls);
+  publishHevc10(msg);
+  return true;
 }
 
 static inline uint32_t rd32(const uint8_t* p) {
@@ -395,7 +611,30 @@ PluginConfiguration ADDPR(config){
           SYSLOG("vcnfloor", "ignoring vcnfloor=0, using %u", gFloor);
       }
       gAllClients = checkKernelArgument("-vcnfloorall");
+      gHevc10 = checkKernelArgument("-vcnhevc10");
       publishState("waiting for AMDRadeonX6000HWLibs or AMDRadeonX6800HWLibs");
+      if (gHevc10) {
+        publishHevc10("waiting for AMDRadeonX6000_AMDGraphicsAccelerator");
+        OSDictionary* matching =
+            IOService::serviceMatching("AMDRadeonX6000_AMDGraphicsAccelerator");
+        if (matching == nullptr) {
+          SYSLOG("vcnfloor",
+                 "vcnhevc10: serviceMatching failed (out of memory)");
+          publishHevc10("not set: out of memory");
+        } else {
+          gHevc10Notifier = IOService::addMatchingNotification(
+              gIOFirstPublishNotification, matching, onHevc10Accelerator,
+              nullptr, nullptr, 0);
+          // addMatchingNotification retains matching itself.
+          matching->release();
+          if (gHevc10Notifier == nullptr) {
+            SYSLOG("vcnfloor", "vcnhevc10: addMatchingNotification failed");
+            publishHevc10("not set: matching notification failed");
+          }
+        }
+      } else {
+        publishHevc10("off");
+      }
       lilu.onPatcherLoadForce(checkGpus, nullptr);
       lilu.onKextLoadForce(kHWLibs, arrsize(kHWLibs), onHWLibsLoad, nullptr);
     }};

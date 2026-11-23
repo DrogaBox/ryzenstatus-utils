@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.5 (not released)
+
+- Kext: added an experimental, opt-in boot argument `-vcnhevc10` (off by default, not run
+  on a GPU yet). When set, the kext watches for `AMDRadeonX6000_AMDGraphicsAccelerator`
+  instances on supported AMD GPUs and sets `IOGVAHEVCEncode` to `"2"` (if below 2) and adds
+  profile 2 (HEVC Main10) to a copied `IOGVAHEVCEncodeCapabilities` dictionary. Its state
+  is published in the `VCNHEVC10` property on `IOResources` (`off`, `set on <class>`, or
+  `not set: <reason>`). Without `-vcnhevc10`, behavior is unchanged.
+
 ## 1.2.4 (not released)
 
 - The kext sets the clock floor only on chips whose video clock levels were read, so the

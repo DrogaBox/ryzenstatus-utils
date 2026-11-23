@@ -83,7 +83,7 @@ Download and unpack `VCNEncodeFix-<version>.zip`, open Terminal and `cd` into th
 
 The service and the kext never talk to each other, so any 1.2.x service works with any 1.2.x kext: updating the
 service alone is fine (the service 1.1.0 was installed and tested on the GPU here while the kext was still 1.0.1). A new
-kext only takes effect after a reboot, and every change to its code (1.2.4 is one) has to be booted once before it
+kext only takes effect after a reboot, and every change to its code (1.2.4 and 1.2.5 are) has to be booted once before it
 counts as tested.
 
 ## Check that it works
@@ -113,8 +113,10 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
 - `sudo ./install.sh --no-wide` or `--no-preset`: install with one of the two service fixes off.
 - Boot arguments for the kext: `-vcnflooroff` turns it off; `-vcnfloorall` also applies the floor to hardware
   *decoding* (not tested); `vcnfloor=N` replaces the floor value the kext requests (default 132297; 0 is ignored;
-  only the default was measured); `-vcnfloordbg` and `-vcnfloorbeta` are Lilu's usual debug and newer-macOS
-  switches.
+  only the default was measured); `-vcnhevc10` (experimental, off by default, not run on a GPU yet) sets
+  `IOGVAHEVCEncode` to `"2"` and adds profile 2 (HEVC Main10) to `IOGVAHEVCEncodeCapabilities` on supported AMD
+  accelerators, and publishes its state in `VCNHEVC10` on `IOResources`; `-vcnfloordbg` and `-vcnfloorbeta` are
+  Lilu's usual debug and newer-macOS switches.
 
 ## How it works
 
