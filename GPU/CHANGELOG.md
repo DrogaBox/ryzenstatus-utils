@@ -2,7 +2,7 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
-## Decoders 0.3.5 (not released)
+## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count
   every frame whose queue wait plus decode passed a fixed 16.7 ms, so a 30 fps video showed

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.6 (not released)
+## 1.2.6 (RyzenStatus 1.89.0)
 
 - Service (`hevc10`, on by default; `--no-hevc10` turns it off): fixes two bugs in
   `AMDRadeonVADriver2` that broke 10-bit HEVC (Main10) hardware encodes on VCN 3:
