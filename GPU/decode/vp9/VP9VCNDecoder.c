@@ -113,7 +113,7 @@ typedef struct {
   int st_n, st_over, st_depth_max, depth;
   double st_dec_sum, st_dec_max, st_q_sum, st_q_max, st_t0;
   // frame time of the stream (ms, 0 until known) and the last sample's time
-  double st_frame_ms;
+  double st_frame_ms, st_frame_sum;
   CMTime st_last_pts;
   int refs;  // see above; changed with atomics only
 } State;
@@ -403,6 +403,8 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   }
   end_session(s, "replaced by a new start");  // a start that ran alongside
   s->vcn = vcn;
+  s->st_frame_ms = 0;  // a new stream: learn its frame time again
+  s->st_last_pts = kCMTimeInvalid;
   s->width = width;
   s->height = height;
   s->tenBit = tenBit;
@@ -448,6 +450,7 @@ static double now_ms(void) {
 // known. It is the stream's time, so at 2x playback each frame really has half
 // of it.
 static double frame_ms(State* s, CMSampleBufferRef sbuf) {
+  if (!sbuf) return s->st_frame_ms > 0 ? s->st_frame_ms : 1000.0 / 60;
   CMTime d = CMSampleBufferGetDuration(sbuf);
   CMTime pts = CMSampleBufferGetPresentationTimeStamp(sbuf);
   double ms = 0;
@@ -473,19 +476,21 @@ static void stats_add(State* s, double queued, double decode, double frame) {
   if (decode > s->st_dec_max) s->st_dec_max = decode;
   s->st_q_sum += queued;
   if (queued > s->st_q_max) s->st_q_max = queued;
+  s->st_frame_sum += frame;
   if (decode > frame) s->st_over++;
   if (s->st_n >= STATS_EVERY) {
     os_log(logger(),
            "stats %dx%d: %d frames in %.0f ms, decode avg %.2f max %.2f ms, "
            "queue avg %.2f max %.2f ms, "
-           "decode over frame time (%.1f ms) %d, max depth %d, "
+           "decode over frame time (avg %.1f ms) %d, max depth %d, "
            "firmware errors %u",
            s->width, s->height, s->st_n, now_ms() - s->st_t0,
            s->st_dec_sum / s->st_n, s->st_dec_max, s->st_q_sum / s->st_n,
-           s->st_q_max, frame, s->st_over, s->st_depth_max,
+           s->st_q_max, s->st_frame_sum / s->st_n, s->st_over, s->st_depth_max,
            vcnvp9_firmware_errors(s->vcn));
     s->st_n = s->st_over = s->st_depth_max = 0;
     s->st_dec_sum = s->st_dec_max = s->st_q_sum = s->st_q_max = 0;
+    s->st_frame_sum = 0;
   }
 }
 
@@ -560,12 +565,15 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
   // session whenever a decode returns no picture, and the new session has
   // lost the references. A temporal unit or superframe always shows one frame,
   // so Safari and Chrome never get here.
+  bool shown = out != NULL;
   if (!status && !out && s->vcn) {
     CVPixelBufferRef hidden = vcnvp9_hidden_picture(s->vcn);
     if (hidden) out = CVPixelBufferRetain(hidden);
   }
   double decode = now_ms() - started;
-  stats_add(s, started - enqueued, decode, frame_ms(s, sbuf));
+  // A sample with only a hidden frame carries another frame's time: it is
+  // measured against the known frame time and does not change it.
+  stats_add(s, started - enqueued, decode, frame_ms(s, shown ? sbuf : NULL));
   pthread_mutex_unlock(&s->lock);
   free(copy);
   // A sample that failed hands back no picture, even one it showed before.
