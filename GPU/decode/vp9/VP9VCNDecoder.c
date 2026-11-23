@@ -112,6 +112,9 @@ typedef struct {
   // = enqueue -> start
   int st_n, st_over, st_depth_max, depth;
   double st_dec_sum, st_dec_max, st_q_sum, st_q_max, st_t0;
+  // frame time of the stream (ms, 0 until known) and the last sample's time
+  double st_frame_ms;
+  CMTime st_last_pts;
   int refs;  // see above; changed with atomics only
 } State;
 
@@ -439,22 +442,47 @@ static double now_ms(void) {
   return (double)mach_absolute_time() * tb.numer / tb.denom / 1e6;
 }
 
-static void stats_add(State* s, double queued, double decode) {
+// The stream's frame time: the sample's duration, or the step from the
+// previous sample's presentation time when the caller gives none. The last good
+// value is kept for samples with no timing; 60 fps is assumed until one is
+// known. It is the stream's time, so at 2x playback each frame really has half
+// of it.
+static double frame_ms(State* s, CMSampleBufferRef sbuf) {
+  CMTime d = CMSampleBufferGetDuration(sbuf);
+  CMTime pts = CMSampleBufferGetPresentationTimeStamp(sbuf);
+  double ms = 0;
+  if (CMTIME_IS_NUMERIC(d) && d.value > 0) {
+    ms = CMTimeGetSeconds(d) * 1000;
+  } else if (CMTIME_IS_NUMERIC(pts) && CMTIME_IS_NUMERIC(s->st_last_pts)) {
+    // A step longer than 100 ms is a seek, not a frame.
+    ms = CMTimeGetSeconds(CMTimeSubtract(pts, s->st_last_pts)) * 1000;
+    if (ms > 100) ms = 0;
+  }
+  if (CMTIME_IS_NUMERIC(pts)) s->st_last_pts = pts;
+  if (ms >= 1 && ms <= 1000) s->st_frame_ms = ms;
+  return s->st_frame_ms > 0 ? s->st_frame_ms : 1000.0 / 60;
+}
+
+// A frame counts as slow when its decode alone took longer than the stream's
+// frame time. Time in the queue is not counted: frames wait there by design,
+// up to the queue depth, while the one ahead decodes.
+static void stats_add(State* s, double queued, double decode, double frame) {
   if (!s->st_n) s->st_t0 = now_ms();
   s->st_n++;
   s->st_dec_sum += decode;
   if (decode > s->st_dec_max) s->st_dec_max = decode;
   s->st_q_sum += queued;
   if (queued > s->st_q_max) s->st_q_max = queued;
-  if (queued + decode > 16.7) s->st_over++;
+  if (decode > frame) s->st_over++;
   if (s->st_n >= STATS_EVERY) {
     os_log(logger(),
            "stats %dx%d: %d frames in %.0f ms, decode avg %.2f max %.2f ms, "
            "queue avg %.2f max %.2f ms, "
-           "over 16.7 ms %d, max depth %d, firmware errors %u",
+           "decode over frame time (%.1f ms) %d, max depth %d, "
+           "firmware errors %u",
            s->width, s->height, s->st_n, now_ms() - s->st_t0,
            s->st_dec_sum / s->st_n, s->st_dec_max, s->st_q_sum / s->st_n,
-           s->st_q_max, s->st_over, s->st_depth_max,
+           s->st_q_max, frame, s->st_over, s->st_depth_max,
            vcnvp9_firmware_errors(s->vcn));
     s->st_n = s->st_over = s->st_depth_max = 0;
     s->st_dec_sum = s->st_dec_max = s->st_q_sum = s->st_q_max = 0;
@@ -536,7 +564,8 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
     CVPixelBufferRef hidden = vcnvp9_hidden_picture(s->vcn);
     if (hidden) out = CVPixelBufferRetain(hidden);
   }
-  stats_add(s, started - enqueued, now_ms() - started);
+  double decode = now_ms() - started;
+  stats_add(s, started - enqueued, decode, frame_ms(s, sbuf));
   pthread_mutex_unlock(&s->lock);
   free(copy);
   // A sample that failed hands back no picture, even one it showed before.
