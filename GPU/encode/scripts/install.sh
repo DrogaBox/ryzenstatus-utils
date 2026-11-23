@@ -4,7 +4,7 @@
 #   sudo ./install.sh                         install or update the background service (user-space half)
 #   sudo ./install.sh --efi /Volumes/EFI      also add VCNEncodeFloor.kext to that mounted OpenCore EFI
 #                                             (kernel half; takes effect after a reboot)
-# Options: --preset speed|balance|quality (default speed), --no-preset, --no-wide, --force (skip the GPU check).
+# Options: --preset speed|balance|quality (default speed), --no-preset, --no-wide, --no-hevc10, --force (skip the GPU check).
 # Remove everything with ./uninstall.sh. Nothing here touches the macOS system volume.
 #
 # Everything that can refuse (the GPU, the patches, the EFI: OpenCore, Lilu and its version, the config entry,
@@ -33,7 +33,7 @@ while (( $# )); do
            efi=${2:A}; shift 2 ;;
     --preset) (( $# >= 2 )) || die "--preset needs speed, balance or quality"
               [[ $2 == (speed|balance|quality) ]] || die "unknown preset $2"; args+=(--preset $2); shift 2 ;;
-    --no-preset|--no-wide) args+=($1); shift ;;
+    --no-preset|--no-wide|--no-hevc10) args+=($1); shift ;;
     --force) force=1; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' $0; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;

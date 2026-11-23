@@ -57,7 +57,7 @@ The zip instructions below are for the standalone release; in this repository us
 
 Download and unpack `VCNEncodeFix-<version>.zip`, open Terminal and `cd` into the folder.
 
-1. **Service** (preset and wide-size fixes; active immediately, no reboot):
+1. **Service** (preset, wide-size and 10-bit HEVC fixes; active immediately, no reboot):
 
    ```
    sudo ./install.sh
@@ -83,7 +83,7 @@ Download and unpack `VCNEncodeFix-<version>.zip`, open Terminal and `cd` into th
 
 The service and the kext never talk to each other, so any 1.2.x service works with any 1.2.x kext: updating the
 service alone is fine (the service 1.1.0 was installed and tested on the GPU here while the kext was still 1.0.1). A new
-kext only takes effect after a reboot, and every change to its code (1.2.4 is one) has to be booted once before it
+kext only takes effect after a reboot, and every change to its code (1.2.4 and 1.2.5 are) has to be booted once before it
 counts as tested.
 
 ## Check that it works
@@ -95,7 +95,7 @@ counts as tested.
 ```
 
 A healthy doctor output shows `VCNEncodeFloor: loaded <version>, active: encode`, the service `running`, and both
-`preset` and `wide` as `available`.
+`preset`, `wide` and `hevc10` as `available`.
 
 ## Uninstall
 
@@ -110,11 +110,13 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
 
 - `sudo ./install.sh --preset balance` (or `quality`): a slower preset with better quality per bit than `speed`.
   The default `speed` is the one measured above; the others were not measured.
-- `sudo ./install.sh --no-wide` or `--no-preset`: install with one of the two service fixes off.
+- `sudo ./install.sh --no-wide`, `--no-preset` or `--no-hevc10`: install with one of the three service fixes off.
 - Boot arguments for the kext: `-vcnflooroff` turns it off; `-vcnfloorall` also applies the floor to hardware
   *decoding* (not tested); `vcnfloor=N` replaces the floor value the kext requests (default 132297; 0 is ignored;
-  only the default was measured); `-vcnfloordbg` and `-vcnfloorbeta` are Lilu's usual debug and newer-macOS
-  switches.
+  only the default was measured); `-vcnhevc10` (off by default; with the 1.2.6 service it gives a correct 10-bit picture on 26.7.3, see `hevc10` below) prepares
+  `IOGVAHEVCEncode` = `"2"` and profile 2 (HEVC Main10) in `IOGVAHEVCEncodeCapabilities` on supported AMD
+  accelerators, and with the 1.2.6 kext publishes Main10 only while the running `vcnencodefix` service reports the `hevc10` driver patch active through `hw.vcnhevc10` (waiting at `waiting for vcnencodefix service` or restoring the originals at `off: service says the driver patch is not active` if the macOS build is not validated, `--no-hevc10` is set, or the service stops; needs the 1.2.6 kext on the EFI and a reboot, and without the new kext nothing changes). Its state is in `VCNHEVC10` on `IOResources`; `-vcnfloordbg` and `-vcnfloorbeta` are
+  Lilu's usual debug and newer-macOS switches.
 
 ## How it works
 
@@ -126,6 +128,7 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
   process (where macOS runs hardware encoders) it changes a few instructions in that process's memory, the way a
   debugger sets a breakpoint. Files on disk, the system volume and other processes are never touched.
   - *preset*: the driver reads the preset from a field nobody sets; the read becomes the constant "speed".
+  - *hevc10* (26.7.3 only): the AMD library told the video engine the input was 8-bit NV12 for a 10-bit session and never passed the chroma quantizer offset the stream header declares for 10 bits (Cr -3). The service changes those two places in the driver, together or not at all. 8-bit and H.264 sessions are unaffected.
   - *wide*: just before the statistics job is sent to the GPU, the work is split into more, smaller thread groups
     (for example 2 x 160 threads instead of 1 x 320 for 5120 wide). The total work is the same, and below 4097 pixels
     wide nothing changes at all.
@@ -148,7 +151,7 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
   first frame about 260 ms after the start (measured with 1.0.1 in OBS: patched 148 ms after the start). If a frame wider than 4096 is sent before the patch, that frame stalls
   the GPU for a few seconds (version 1.0.0 looked for new processes only every 250 ms and lost that race in OBS at
   5120x2160).
-- HEVC Main only (as macOS itself on these cards). Sizes accepted by macOS are unchanged.
+- HEVC Main only unless `-vcnhevc10` is set and the `hevc10` service fix applies (26.7.3 only; measured PSNR Y 47.0, U 43.7, V 46.1 dB). Sizes accepted by macOS are unchanged.
 - The wide fix was checked by running its exact code on the CPU for every width up to 16384 (arguments identical
   to the original up to 4096 wide, the same total work above), and on the GPU at 5120x2160 only. Other widths above
   4096 were not encoded, and whether rate control behaves exactly as below 4096 was not checked.

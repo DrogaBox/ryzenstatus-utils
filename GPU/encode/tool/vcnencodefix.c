@@ -1,10 +1,13 @@
 // vcnencodefix - user-space half of VCNEncodeFix.
 //
-// Applies two patches inside every VTEncoderXPCService (the process where macOS
-// runs hardware video encoders):
+// Applies three patches inside every VTEncoderXPCService (the process where
+// macOS runs hardware video encoders):
 //   preset  AMDRadeonVADriver2: the VCN encoder gets a speed (or
-//   balance/quality) preset on every frame wide    AppleGVAHEVCEncoder: HEVC
-//   encodes wider than 4096 no longer hang the GPU's compute channel
+//   balance/quality) preset on every frame
+//   wide    AppleGVAHEVCEncoder: HEVC encodes wider than 4096 no longer hang
+//   the GPU's compute channel
+//   hevc10  AMDRadeonVADriver2: VCN 3 10-bit HEVC gets 10-bit P010 input
+//   format packets and the slice's Cr QP offset
 // See patches.c for what each patch changes. The bytes are written into the
 // target the way a debugger writes a breakpoint: the page is made copy-on-write
 // in that process only and the process is suspended for the write. Nothing on
@@ -98,6 +101,14 @@ static struct {
   uint64_t callVm, caveVm;  // image addresses before the slide
   uint8_t call[kWideCallLen], cave[kWideCaveLen];
 } gWide;
+
+static struct {
+  bool enabled, available;
+  char reason[200];
+  const Hevc10Build*
+      build;  // the validated build of the driver in the shared cache
+  uint64_t fmtSite, dbkSite;  // same addresses in every process
+} gHevc10;
 
 // The service's log, when standard output is a regular file (launchd's
 // StandardOutPath). newsyslog rotates it by renaming it; launchd keeps writing
@@ -220,15 +231,16 @@ static size_t count_matches(const uint8_t* hay, size_t n, const uint8_t* needle,
   return m;
 }
 
-static void locate_preset(void) {
-  gPreset.available = false;
+static bool locate_driver_text(uint64_t* textAddr, size_t* textSize,
+                               char uuidStr[40], char* reason,
+                               size_t reasonLen) {
   size_t len = 0;
   const uint8_t* base = _dyld_get_shared_cache_range(&len);
   uuid_t cache;
   if (!base || memcmp(base, "dyld_v1", 7) != 0 ||
       !_dyld_get_shared_cache_uuid(cache)) {
-    snprintf(gPreset.reason, sizeof(gPreset.reason), "no dyld shared cache");
-    return;
+    snprintf(reason, reasonLen, "no dyld shared cache");
+    return false;
   }
   uint32_t mappingOffset;
   memcpy(&mappingOffset, base + 16, 4);
@@ -236,7 +248,7 @@ static void locate_preset(void) {
   memcpy(&unslidBase, base + mappingOffset, 8);
   uint64_t slide = (uint64_t)base - unslidBase;
   __block uint64_t unslid = 0;
-  char uuidStr[40] = "";
+  uuidStr[0] = 0;
   char* uuidOut = uuidStr;
   dyld_shared_cache_iterate_text(
       cache, ^(const struct dyld_shared_cache_dylib_text_info* info) {
@@ -247,34 +259,85 @@ static void locate_preset(void) {
       });
   if (!unslid) {
     snprintf(
-        gPreset.reason, sizeof(gPreset.reason),
+        reason, reasonLen,
         "AMDRadeonVADriver2 is not in the shared cache (no AMD GPU driver?)");
-    return;
+    return false;
   }
+  const struct mach_header_64* mh = (const void*)(unslid + slide);
+  const struct section_64* text = macho_text(mh, 65536, NULL);
+  if (!text) {
+    snprintf(reason, reasonLen, "AMDRadeonVADriver2: no __text");
+    return false;
+  }
+  *textAddr = text->addr + slide;
+  *textSize = text->size;
+  return true;
+}
+
+static void locate_preset(void) {
+  gPreset.available = false;
+  uint64_t textAddr = 0;
+  size_t textSize = 0;
+  char uuidStr[40] = "";
+  if (!locate_driver_text(&textAddr, &textSize, uuidStr, gPreset.reason,
+                          sizeof(gPreset.reason)))
+    return;
   gPreset.build = preset_build(uuidStr);
   if (!gPreset.build) {
     snprintf(gPreset.reason, sizeof(gPreset.reason),
              "AMDRadeonVADriver2 build %s is not a validated build", uuidStr);
     return;
   }
-  const struct mach_header_64* mh = (const void*)(unslid + slide);
-  const struct section_64* text = macho_text(mh, 65536, NULL);
-  if (!text) {
-    snprintf(gPreset.reason, sizeof(gPreset.reason),
-             "AMDRadeonVADriver2: no __text");
-    return;
-  }
-  size_t at = 0,
-         m = count_matches((const void*)(text->addr + slide), text->size,
-                           gPreset.build->find, kPresetFindLen, &at);
+  size_t at = 0, m = count_matches((const void*)textAddr, textSize,
+                                   gPreset.build->find, kPresetFindLen, &at);
   if (m != 1) {
     snprintf(gPreset.reason, sizeof(gPreset.reason),
              "AMDRadeonVADriver2: site found %zu times, expected once", m);
     return;
   }
-  gPreset.site = text->addr + slide + at;
+  gPreset.site = textAddr + at;
   build_preset(gPreset.repl, gPreset.op);
   gPreset.available = true;
+}
+
+static void locate_hevc10(void) {
+  gHevc10.available = false;
+  uint64_t textAddr = 0;
+  size_t textSize = 0;
+  char uuidStr[40] = "";
+  if (!locate_driver_text(&textAddr, &textSize, uuidStr, gHevc10.reason,
+                          sizeof(gHevc10.reason)))
+    return;
+  gHevc10.build = hevc10_build(uuidStr);
+  if (!gHevc10.build) {
+    snprintf(gHevc10.reason, sizeof(gHevc10.reason),
+             "AMDRadeonVADriver2 build %s is not a validated build", uuidStr);
+    return;
+  }
+  size_t atFmt = 0,
+         mFmt = count_matches((const void*)textAddr, textSize,
+                              gHevc10.build->fmtFind, kHevc10FmtFindLen,
+                              &atFmt);
+  if (mFmt != 1) {
+    snprintf(gHevc10.reason, sizeof(gHevc10.reason),
+             "AMDRadeonVADriver2: format site found %zu times, expected once",
+             mFmt);
+    return;
+  }
+  size_t atDbk = 0,
+         mDbk = count_matches((const void*)textAddr, textSize,
+                              gHevc10.build->dbkFind, kHevc10DbkFindLen,
+                              &atDbk);
+  if (mDbk != 1) {
+    snprintf(
+        gHevc10.reason, sizeof(gHevc10.reason),
+        "AMDRadeonVADriver2: deblocking site found %zu times, expected once",
+        mDbk);
+    return;
+  }
+  gHevc10.fmtSite = textAddr + atFmt;
+  gHevc10.dbkSite = textAddr + atDbk;
+  gHevc10.available = true;
 }
 
 static void locate_wide(void) {
@@ -367,6 +430,23 @@ static State preset_state(task_t task, uint32_t* op) {
   return kPatched;
 }
 
+static State hevc10_state(task_t task) {
+  const Hevc10Build* b = gHevc10.build;
+  uint8_t fmt[kHevc10FmtFindLen], dbk[kHevc10DbkFindLen];
+  if (!rd(task, gHevc10.fmtSite, fmt, sizeof(fmt)) ||
+      !rd(task, gHevc10.dbkSite, dbk, sizeof(dbk)))
+    return kUnreadable;
+  bool dbkTail = !memcmp(dbk + kHevc10DbkLen, b->dbkFind + kHevc10DbkLen,
+                         sizeof(dbk) - kHevc10DbkLen);
+  if (dbkTail && !memcmp(fmt, b->fmtFind, sizeof(fmt)) &&
+      !memcmp(dbk, b->dbkFind, kHevc10DbkLen))
+    return kOriginal;
+  if (dbkTail && !memcmp(fmt, b->fmtRepl, kHevc10FmtLen) &&
+      !memcmp(dbk, b->dbkRepl, kHevc10DbkLen))
+    return kPatched;
+  return kOther;
+}
+
 // Address of the HEVC plug-in in the target, 0 if not loaded. *count = the
 // target's dyld image count.
 static uint64_t wide_base(task_t task, uint32_t* count) {
@@ -451,7 +531,26 @@ static bool no_thread_inside(task_t task, const Region* r, int n) {
   return clear;
 }
 
+// Writes `len` bytes at `addr` through a copy-on-write page of the target.
+static kern_return_t poke(task_t task, mach_vm_address_t addr,
+                          const uint8_t* bytes, size_t len) {
+  mach_vm_address_t page = addr & ~((mach_vm_address_t)vm_page_size - 1);
+  mach_vm_size_t span =
+      ((addr + len + vm_page_size - 1) & ~((mach_vm_address_t)vm_page_size - 1)) -
+      page;
+  kern_return_t kr = mach_vm_protect(task, page, span, FALSE,
+                                     VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+  if (kr == KERN_SUCCESS)
+    kr = mach_vm_write(task, addr, (vm_offset_t)bytes,
+                       (mach_msg_type_number_t)len);
+  kern_return_t kr2 = mach_vm_protect(task, page, span, FALSE,
+                                      VM_PROT_READ | VM_PROT_EXECUTE);
+  return kr == KERN_SUCCESS ? kr2 : kr;
+}
+
 // Writes the regions in order with the task suspended. Returns 0 on success.
+// If a later region fails, the regions already written are put back, so a
+// patch made of several sites is never left half applied.
 static int write_regions(task_t task, const Region* r, int n, char* err,
                          size_t errLen) {
   for (int attempt = 0; attempt < 50; attempt++) {
@@ -465,21 +564,20 @@ static int write_regions(task_t task, const Region* r, int n, char* err,
       continue;
     }
     kern_return_t kr = KERN_SUCCESS;
+    uint8_t before[8][256];
+    bool haveBefore = n <= 8;
+    for (int k = 0; k < n && haveBefore; k++)
+      if (r[k].len > sizeof(before[0]) ||
+          !rd(task, r[k].addr, before[k], r[k].len))
+        haveBefore = false;
+    int done = 0;
     for (int k = 0; k < n && kr == KERN_SUCCESS; k++) {
-      mach_vm_address_t page =
-          r[k].addr & ~((mach_vm_address_t)vm_page_size - 1);
-      mach_vm_size_t span = ((r[k].addr + r[k].len + vm_page_size - 1) &
-                             ~((mach_vm_address_t)vm_page_size - 1)) -
-                            page;
-      kr = mach_vm_protect(task, page, span, FALSE,
-                           VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
-      if (kr == KERN_SUCCESS)
-        kr = mach_vm_write(task, r[k].addr, (vm_offset_t)r[k].bytes,
-                           (mach_msg_type_number_t)r[k].len);
-      kern_return_t kr2 = mach_vm_protect(task, page, span, FALSE,
-                                          VM_PROT_READ | VM_PROT_EXECUTE);
-      if (kr == KERN_SUCCESS) kr = kr2;
+      kr = poke(task, r[k].addr, r[k].bytes, r[k].len);
+      if (kr == KERN_SUCCESS) done++;
     }
+    if (kr != KERN_SUCCESS && haveBefore)
+      for (int k = done - 1; k >= 0; k--)
+        poke(task, r[k].addr, before[k], r[k].len);
     task_resume(task);
     if (kr != KERN_SUCCESS) {
       snprintf(err, errLen, "write failed (%s)", mach_error_string(kr));
@@ -528,6 +626,34 @@ static int do_preset(task_t task, bool remove, char* msg, size_t len) {
   }
   snprintf(msg, len, remove ? "preset: restored" : "preset %s: patched",
            preset_name(gPreset.op));
+  return 0;
+}
+
+static int do_hevc10(task_t task, bool remove, char* msg, size_t len) {
+  State st = hevc10_state(task);
+  if (st == kUnreadable) {
+    snprintf(msg, len, "hevc10: not readable yet");
+    return 1;
+  }
+  if (st == kOther) {
+    snprintf(msg, len, "hevc10: %s, left alone", state_str(st));
+    return -1;
+  }
+  if ((remove && st == kOriginal) || (!remove && st == kPatched)) {
+    snprintf(msg, len, "hevc10: already %s", remove ? "original" : "patched");
+    return 0;
+  }
+  const Hevc10Build* b = gHevc10.build;
+  Region r[2] = {
+      {gHevc10.fmtSite, kHevc10FmtLen, remove ? b->fmtFind : b->fmtRepl},
+      {gHevc10.dbkSite, kHevc10DbkLen, remove ? b->dbkFind : b->dbkRepl},
+  };
+  char err[160];
+  if (write_regions(task, r, 2, err, sizeof(err)) != 0) {
+    snprintf(msg, len, "hevc10: %s", err);
+    return -1;
+  }
+  snprintf(msg, len, "hevc10: %s", remove ? "restored" : "patched");
   return 0;
 }
 
@@ -618,12 +744,43 @@ static pid_t* list_services(int* count) {
   return pids;
 }
 
-static void setup(bool preset, uint32_t op, bool wide) {
+static void setup(bool preset, uint32_t op, bool wide, bool hevc10) {
   gPreset.enabled = preset;
   gPreset.op = op;
   gWide.enabled = wide;
+  gHevc10.enabled = hevc10;
   locate_preset();
   locate_wide();
+  locate_hevc10();
+}
+
+static const char* kHevc10GateSysctl = "hw.vcnhevc10";
+static bool gGateOidLoggedMissing;
+static bool gGateOidLoggedPerm;
+
+static void set_hevc10_gate(int val) {
+  if (sysctlbyname(kHevc10GateSysctl, NULL, NULL, &val, sizeof(val)) == 0) {
+    logf_("hevc10 gate (%s): set to %d", kHevc10GateSysctl, val);
+    return;
+  }
+  if (errno == ENOENT) {
+    if (!gGateOidLoggedMissing) {
+      gGateOidLoggedMissing = true;
+      logf_("hevc10 gate (%s): not present (VCNEncodeFloor.kext not loaded, "
+            "older than 1.2.6, or -vcnhevc10 not set); continuing without "
+            "kernel gate",
+            kHevc10GateSysctl);
+    }
+  } else if (errno == EPERM || errno == EACCES) {
+    if (!gGateOidLoggedPerm) {
+      gGateOidLoggedPerm = true;
+      logf_("hevc10 gate (%s): write(%d) refused (%s)", kHevc10GateSysctl, val,
+            strerror(errno));
+    }
+  } else {
+    logf_("hevc10 gate (%s): write(%d) failed (%s)", kHevc10GateSysctl, val,
+          strerror(errno));
+  }
 }
 
 // ---- commands ----
@@ -633,17 +790,40 @@ static int cmd_status(void) {
   os_line(os, sizeof(os));
   printf("vcnencodefix %s on %s\n", VERSION, os);
   if (gPreset.available)
-    printf("  preset  available    VCN speed preset (driver site 0x%llx)\n",
-           gPreset.site);
+    printf("  preset  %s    VCN speed preset (driver site 0x%llx)\n",
+           gPreset.enabled ? "available" : "off      ", gPreset.site);
   else
     printf("  preset  unavailable  %s\n", gPreset.reason);
   if (gWide.available)
     printf(
-        "  wide    available    HEVC wider than 4096 (plug-in offsets 0x%llx, "
+        "  wide    %s    HEVC wider than 4096 (plug-in offsets 0x%llx, "
         "0x%llx)\n",
-        gWide.callVm, gWide.caveVm);
+        gWide.enabled ? "available" : "off      ", gWide.callVm, gWide.caveVm);
   else
     printf("  wide    unavailable  %s\n", gWide.reason);
+  if (gHevc10.available)
+    printf(
+        "  hevc10  %s    HEVC 10-bit input and Cr QP (driver sites "
+        "0x%llx, 0x%llx)\n",
+        gHevc10.enabled ? "available" : "off      ", gHevc10.fmtSite,
+        gHevc10.dbkSite);
+  else
+    printf("  hevc10  unavailable  %s\n", gHevc10.reason);
+  int gate = 0;
+  size_t gateLen = sizeof(gate);
+  if (sysctlbyname(kHevc10GateSysctl, &gate, &gateLen, NULL, 0) == 0 &&
+      gateLen == sizeof(gate))
+    printf("  gate    %-11s  %s=%d (%s)\n", gate ? "open" : "closed",
+           kHevc10GateSysctl, gate,
+           gate ? "Main10 advertised by kext"
+                : "Main10 withheld by kext until service is active");
+  else if (errno == ENOENT)
+    printf("  gate    unavailable  %s not present (VCNEncodeFloor.kext not "
+           "loaded, older than 1.2.6, or -vcnhevc10 not set)\n",
+           kHevc10GateSysctl);
+  else
+    printf("  gate    unavailable  %s: %s\n", kHevc10GateSysctl,
+           strerror(errno));
   if (sip_blocks_access())
     printf("  access  REFUSED      %s\n", kSipHint);
   else
@@ -661,22 +841,32 @@ static int cmd_status(void) {
       continue;
     }
     printf("  encoder service pid %d:", pids[i]);
+    const char* sep = "";
     if (gPreset.available) {
       uint32_t op = 0;
       State st = preset_state(task, &op);
       if (st == kPatched)
-        printf(" preset %s;", preset_name(op));
+        printf("%s preset %s", sep, preset_name(op));
       else
-        printf(" preset %s;", state_str(st));
+        printf("%s preset %s", sep, state_str(st));
+      sep = ";";
     }
-    if (gWide.available)
-      printf(" wide %s", state_str(wide_state(task, wide_base(task, NULL))));
+    if (gWide.available) {
+      printf("%s wide %s", sep, state_str(wide_state(task, wide_base(task, NULL))));
+      sep = ";";
+    }
+    if (gHevc10.available)
+      printf("%s hevc10 %s", sep, state_str(hevc10_state(task)));
     printf("\n");
     mach_port_deallocate(mach_task_self(), task);
   }
   if (!n) printf("  no encoder service running\n");
   free(pids);
-  return (gPreset.available || gWide.available) ? 0 : 3;
+  return ((gPreset.enabled && gPreset.available) ||
+          (gWide.enabled && gWide.available) ||
+          (gHevc10.enabled && gHevc10.available))
+             ? 0
+             : 3;
 }
 
 static int cmd_one(pid_t pid, bool remove) {
@@ -705,6 +895,10 @@ static int cmd_one(pid_t pid, bool remove) {
                                 0);  // "not loaded yet" is not a failure here
     logf_("pid %d: %s", pid, msg);
   }
+  if (gHevc10.enabled && gHevc10.available) {
+    fails += do_hevc10(task, remove, msg, sizeof(msg)) != 0;
+    logf_("pid %d: %s", pid, msg);
+  }
   mach_port_deallocate(mach_task_self(), task);
   return fails ? 1 : 0;
 }
@@ -718,10 +912,10 @@ static void on_signal(int s) {
 typedef struct {
   pid_t pid;
   uint64_t start;
-  bool widePending, presetPending;
+  bool widePending, presetPending, hevc10Pending;
   uint32_t lastCount;
   unsigned
-      presetUntil;  // tick after which an unreadable preset site is given up
+      presetUntil;  // tick after which an unreadable driver site is given up
 } Svc;
 static unsigned gTick;
 
@@ -734,7 +928,7 @@ static Svc gSvc[kMaxSvc];
 // Patches a service the first time it is seen (pid and start time). The HEVC
 // plug-in is usually not loaded yet; such a service is then watched every tick
 // until it is.
-static void consider(pid_t pid, bool preset, bool wide) {
+static void consider(pid_t pid, bool preset, bool wide, bool hevc10) {
   uint64_t st = start_time(pid);
   int k, freeSlot = -1;
   for (k = 0; k < kMaxSvc; k++) {
@@ -749,11 +943,11 @@ static void consider(pid_t pid, bool preset, bool wide) {
           sip_blocks_access() ? ": SIP Debugging Restrictions are on" : "");
     // Remembered like a patched service, so it is not asked again (and logged
     // again) on every scan while it runs: the refusal holds until a reboot.
-    gSvc[freeSlot] = (Svc){pid, st, false, false, 0, 0};
+    gSvc[freeSlot] = (Svc){pid, st, false, false, false, 0, 0};
     return;
   }
-  char line[700] = "", msg[300];
-  int wr = 0, pr = 0;
+  char line[1024] = "", msg[300];
+  int wr = 0, pr = 0, hr = 0;
   if (wide) {  // first: the plug-in may already be loaded and about to send a
                // frame
     wr = do_wide(task, false, msg, sizeof(msg));
@@ -764,9 +958,14 @@ static void consider(pid_t pid, bool preset, bool wide) {
     strlcat(line, line[0] ? "; " : "", sizeof(line));
     strlcat(line, msg, sizeof(line));
   }
+  if (hevc10) {
+    hr = do_hevc10(task, false, msg, sizeof(msg));
+    strlcat(line, line[0] ? "; " : "", sizeof(line));
+    strlcat(line, msg, sizeof(line));
+  }
   mach_port_deallocate(mach_task_self(), task);
   logf_("pid %d: %s", pid, line);
-  gSvc[freeSlot] = (Svc){pid, st, wr == 1, pr == 1, 0, gTick + 500};
+  gSvc[freeSlot] = (Svc){pid, st, wr == 1, pr == 1, hr == 1, 0, gTick + 500};
 }
 // launchd starts an XPC service in a fork of itself (path /sbin/launchd for
 // about 1 ms), which execs xpcproxy, which execs the service binary about 11 ms
@@ -792,11 +991,11 @@ static void remember_new(pid_t pid, unsigned tick) {
       return;
     }
 }
-static void check_new(unsigned tick, bool preset, bool wide) {
+static void check_new(unsigned tick, bool preset, bool wide, bool hevc10) {
   for (int k = 0; k < kMaxNew; k++) {
     if (!gNew[k].pid) continue;
     if (is_service(gNew[k].pid)) {
-      consider(gNew[k].pid, preset, wide);
+      consider(gNew[k].pid, preset, wide, hevc10);
       gNew[k].pid = 0;
     } else if (tick > gNew[k].until || !is_spawning(gNew[k].pid))
       gNew[k].pid = 0;
@@ -810,7 +1009,8 @@ static int cmd_watch(unsigned intervalMs) {
   os_line(os, sizeof(os));
   logf_("vcnencodefix %s started on %s", VERSION, os);
   bool preset = gPreset.enabled && gPreset.available,
-       wide = gWide.enabled && gWide.available;
+       wide = gWide.enabled && gWide.available,
+       hevc10 = gHevc10.enabled && gHevc10.available;
   if (!gPreset.enabled)
     logf_("preset: off");
   else
@@ -821,11 +1021,18 @@ static int cmd_watch(unsigned intervalMs) {
   else
     logf_(wide ? "wide: active%s" : "wide: unavailable, %s",
           wide ? "" : gWide.reason);
-  if (!preset && !wide) {
+  if (!gHevc10.enabled)
+    logf_("hevc10: off");
+  else
+    logf_(hevc10 ? "hevc10: active%s" : "hevc10: unavailable, %s",
+          hevc10 ? "" : gHevc10.reason);
+  bool accessOk = !sip_blocks_access();
+  set_hevc10_gate(hevc10 && accessOk ? 1 : 0);
+  if (!preset && !wide && !hevc10) {
     logf_("nothing to do on this system; exiting");
     return 0;
   }  // 0: launchd does not restart it
-  if (sip_blocks_access())
+  if (!accessOk)
     logf_("warning: %s",
           kSipHint);  // keeps running: SIP can change at the next boot only
   // Every tick (10 ms) the pid list is compared with the previous one and only
@@ -859,7 +1066,7 @@ static int cmd_watch(unsigned intervalMs) {
         while (j < prevN && prev[j] < cur[i]) j++;
         if (tick > 0 && (j >= prevN || prev[j] != cur[i])) {
           if (is_service(cur[i]))
-            consider(cur[i], preset, wide);
+            consider(cur[i], preset, wide, hevc10);
           else if (is_spawning(cur[i]))
             remember_new(cur[i], tick);
         }
@@ -869,7 +1076,7 @@ static int cmd_watch(unsigned intervalMs) {
       cur = t;
       prevN = n;
     }
-    check_new(tick, preset, wide);
+    check_new(tick, preset, wide, hevc10);
     if (tick % ticksPerScan == 0) {
       for (int k = 0; k < kMaxSvc; k++)  // forget services that exited
         if (gSvc[k].pid && (kill(gSvc[k].pid, 0) != 0 ||
@@ -877,17 +1084,20 @@ static int cmd_watch(unsigned intervalMs) {
           gSvc[k].pid = 0;
       int sn;
       pid_t* pids = list_services(&sn);
-      for (int i = 0; i < sn; i++) consider(pids[i], preset, wide);
+      for (int i = 0; i < sn; i++) consider(pids[i], preset, wide, hevc10);
       free(pids);
     }
     for (int k = 0; k < kMaxSvc;
          k++) {  // services found before their memory was ready, or waiting for
                  // the plug-in
-      if (!gSvc[k].pid || (!gSvc[k].widePending && !gSvc[k].presetPending))
+      if (!gSvc[k].pid ||
+          (!gSvc[k].widePending && !gSvc[k].presetPending &&
+           !gSvc[k].hevc10Pending))
         continue;
       task_t task;
       if (task_for_pid(mach_task_self(), gSvc[k].pid, &task) != KERN_SUCCESS) {
-        gSvc[k].widePending = gSvc[k].presetPending = false;
+        gSvc[k].widePending = gSvc[k].presetPending = gSvc[k].hevc10Pending =
+            false;
         continue;
       }
       if (gSvc[k].presetPending) {
@@ -897,6 +1107,15 @@ static int cmd_watch(unsigned intervalMs) {
           logf_("pid %d: %s%s", gSvc[k].pid, msg,
                 pr == 1 ? ", gave up after 5 s" : "");
           gSvc[k].presetPending = false;
+        }
+      }
+      if (gSvc[k].hevc10Pending) {
+        char msg[300];
+        int hr = do_hevc10(task, false, msg, sizeof(msg));
+        if (hr != 1 || tick > gSvc[k].presetUntil) {
+          logf_("pid %d: %s%s", gSvc[k].pid, msg,
+                hr == 1 ? ", gave up after 5 s" : "");
+          gSvc[k].hevc10Pending = false;
         }
       }
       if (!gSvc[k].widePending) {
@@ -927,6 +1146,7 @@ static int cmd_watch(unsigned intervalMs) {
   }
   free(prev);
   free(cur);
+  if (hevc10 && accessOk) set_hevc10_gate(0);
   logf_("stopped (services already patched keep the patch until they exit)");
   return 0;
 }
@@ -951,7 +1171,7 @@ static void usage(void) {
           "entry is there (read-only)\n"
           "  vcnencodefix version\n"
           "options: --preset speed|balance|quality (default speed), "
-          "--no-preset, --no-wide\n",
+          "--no-preset, --no-wide, --no-hevc10\n",
           VERSION);
 }
 
@@ -974,7 +1194,7 @@ int main(int argc, char** argv) {
     }
     return efi_command(cmd + 4, argv[2]);
   }
-  bool preset = true, wide = true;
+  bool preset = true, wide = true, hevc10 = true;
   uint32_t op = kPresetSpeed;
   unsigned interval = 250;
   pid_t pid = 0;
@@ -1005,6 +1225,8 @@ int main(int argc, char** argv) {
       preset = false;
     else if (!strcmp(argv[i], "--no-wide"))
       wide = false;
+    else if (!strcmp(argv[i], "--no-hevc10"))
+      hevc10 = false;
     else if (!strcmp(argv[i], "--interval") && i + 1 < argc) {
       long v;
       if (!parse_long(argv[++i], &v)) {
@@ -1017,7 +1239,7 @@ int main(int argc, char** argv) {
       return 2;
     }
   }
-  setup(preset, op, wide);
+  setup(preset, op, wide, hevc10);
   if (!strcmp(cmd, "status")) return cmd_status();
   if (!strcmp(cmd, "watch")) {
     logFollow();

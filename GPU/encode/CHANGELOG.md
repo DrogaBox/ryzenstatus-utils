@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.2.6 (not released)
+
+- Service (`hevc10`, on by default; `--no-hevc10` turns it off): fixes two bugs in
+  `AMDRadeonVADriver2` that broke 10-bit HEVC (Main10) hardware encodes on VCN 3:
+  - `Vcn3Encoder::setInputAndOutputFormatParams` sent 8-bit NV12 in the VCN input format
+    packet even for a 10-bit HEVC session (producing a green striped picture, ~7 dB PSNR),
+    because the encoder context receives NV12 and its `x420` branch leaves the packing
+    format at 0. It now sets 10-bit and P010 from the session's 10-bit SPS flag (8-bit
+    HEVC, H.264 and RGB are unchanged).
+  - `AVDVcn3HevcEncDataProcessor::setupDeblocking` copied only `pps_cb/cr_qp_offset` (0, 0)
+    into the VCN deblocking packet and ignored `slice_cr_qp_offset = -3` (which
+    `AppleGVAHEVCEncoder` sets for 10-bit and the driver writes into the bitstream), scaling
+    Cr by ~0.73x (V PSNR 20.4 dB). It now adds the slice's cb/cr QP offsets to the
+    picture's before sending the packet, as Mesa does (0 + 0 for 8-bit).
+- Validated only on macOS 26.7.3 (`25G342`, `AMDRadeonVADriver2` UUID
+  `1181E2CA-31B3-3DF0-90E2-3AE70552D753`). Tested live on an RX 6800 XT (1080p60 `p010le`
+  `testsrc2`, `hevc_videotoolbox -profile:v main10 -allow_sw 0`): PSNR Y 47.0, U 43.7,
+  V 46.1 dB, no GPU errors.
+- Kext + service Main10 gate (`hw.vcnhevc10`, root-only sysctl): with `-vcnhevc10` in
+  `boot-args`, the 1.2.6 kext validates the accelerator at match time and holds Main10
+  back (`VCNHEVC10` = `waiting for vcnencodefix service`) until `vcnencodefix watch`
+  confirms the `hevc10` driver patch is active and SIP allows access, then writes `1` to
+  `hw.vcnhevc10` to publish `IOGVAHEVCEncode` = `"2"` and profile 2. If the macOS build
+  is not validated, `--no-hevc10` is passed, or the service stops, the service writes `0`
+  and the kext restores the original properties (`off: service says the driver patch is
+  not active`) so VideoToolbox never routes 10-bit HEVC to an unpatched driver. Needs the
+  1.2.6 kext on the EFI and a reboot; without the new kext (or on a Mac without the kext),
+  `vcnencodefix` logs once that `hw.vcnhevc10` is not present and nothing changes.
+
+## 1.2.5 (not released)
+
+- Kext: added an experimental, opt-in boot argument `-vcnhevc10` (off by default, not run
+  on a GPU yet). When set, the kext watches for `AMDRadeonX6000_AMDGraphicsAccelerator`
+  instances on supported AMD GPUs and sets `IOGVAHEVCEncode` to `"2"` (if below 2) and adds
+  profile 2 (HEVC Main10) to a copied `IOGVAHEVCEncodeCapabilities` dictionary. Its state
+  is published in the `VCNHEVC10` property on `IOResources` (`off`, `set on <class>`, or
+  `not set: <reason>`). Without `-vcnhevc10`, behavior is unchanged.
+
 ## 1.2.4 (not released)
 
 - The kext sets the clock floor only on chips whose video clock levels were read, so the
