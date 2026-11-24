@@ -55,8 +55,14 @@ extern int vcnlegacy_debug;
 // vcnlegacy_clear_dpb 1: the DPB buffer is filled with zeros before the
 // session's first picture, as Mesa's si_vid_clear_buffer does, when the driver
 // maps it into this task (the debug log says whether it could).
+// vcnlegacy_field_layout 1: the target and the DPB are described to the
+// firmware as two fields (dt_field_mode and db_field_mode 1, twice the pitch,
+// the bottom field one line below the top one), as Mesa's UVD path does for
+// interlaced surfaces. For MPEG-2 field pictures, which Mesa's VCN path (field
+// mode 0) does not decode either; not run on the GPU yet.
 extern int vcnlegacy_db_height_mode;
 extern int vcnlegacy_clear_dpb;
+extern int vcnlegacy_field_layout;
 // The plug-ins set this. Command line tools arm themselves with
 // VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang instead.
 extern int vcnlegacy_gpu_armed;
@@ -85,6 +91,7 @@ typedef struct {
   uint32_t dpbSize, bitstreamSize;
   uint32_t streamHandle, feedbackNumber;
   bool dbHeightZero;  // db_aligned_height 0 (vcnlegacy_db_height_mode 1)
+  bool fieldLayout;   // vcnlegacy_field_layout 1
   const void* block;
   uint32_t blockSize;
 } VcnLegacyMessage;

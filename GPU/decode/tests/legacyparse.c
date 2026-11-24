@@ -332,6 +332,19 @@ static void test_mpeg2(void) {
          vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
              D32(76) == 0 && D32(72) == 768);
   lm.dbHeightZero = false;
+  expect("message: frame layout by default (field modes 0, one pitch)",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(92) == 0 && D32(120) == 0 && D32(100) == 768 &&
+             D32(104) == 384);
+  lm.fieldLayout = true;
+  expect(
+      "message: field layout when asked: field modes 1, twice the pitch, "
+      "the bottom field one line further",
+      vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 && D32(92) == 1 &&
+          D32(120) == 1 && D32(100) == 1536 && D32(104) == 768 &&
+          D32(136) == 0 && D32(140) == 768 && D32(148) == D32(144) + 768 &&
+          D32(72) == 768);
+  lm.fieldLayout = false;
   lm.blockSize = 0;
   expect("message: an empty block is refused",
          vcnlegacy_build_message(msg, sizeof(msg), &lm) == 0);

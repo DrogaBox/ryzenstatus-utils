@@ -19,6 +19,7 @@ int vcnlegacy_debug = 0;
 int vcnlegacy_gpu_armed = 0;
 int vcnlegacy_db_height_mode = 0;
 int vcnlegacy_clear_dpb = 0;
+int vcnlegacy_field_layout = 0;
 #define DBG(...)                                                      \
   do {                                                                \
     if (vcnlegacy_debug) fprintf(stderr, "[vcnlegacy] " __VA_ARGS__); \
@@ -220,6 +221,16 @@ uint32_t vcnlegacy_build_message(uint8_t* msg, size_t cap,
   U32(d, 144) = (uint32_t)((uint64_t)pitch * al(texh, 16));
   U32(d, 148) = (uint32_t)((uint64_t)pitch * al(texh, 16) +
                            (((uint64_t)pitch * h) >> 1) - 1);
+  if (m->fieldLayout) {
+    // Each field as a plane of its own inside the interleaved frame: twice
+    // the pitch, the bottom field one line further.
+    U32(d, 92) = 1;   // db_field_mode
+    U32(d, 120) = 1;  // dt_field_mode
+    U32(d, 100) = 2 * pitch / bpe;
+    U32(d, 104) = pitch / bpe;
+    U32(d, 140) = pitch;                // dt_luma_bottom_offset
+    U32(d, 148) = U32(d, 144) + pitch;  // dt_chroma_bottom_offset
+  }
   U32(d, 160) = 1;  // mif_wrc_en
   U32(d, 164) = al(w / 2, a);
   memcpy(msg + codecOff, m->block, m->blockSize);
@@ -337,6 +348,7 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
                         .streamHandle = (uint32_t)(uintptr_t)data,
                         .feedbackNumber = PROC_FEEDBACK(proc),
                         .dbHeightZero = vcnlegacy_db_height_mode == 1,
+                        .fieldLayout = vcnlegacy_field_layout == 1,
                         .block = d->block,
                         .blockSize = d->blockSize};
   if (!vcnlegacy_build_message(DATA_MSG(data), MSG_MAX, &m)) return -1;

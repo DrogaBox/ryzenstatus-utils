@@ -363,6 +363,7 @@ int main(int argc, char** argv) {
   if ((v = getenv("VCNMPEG2_INDEX"))) vcnmpeg2_index_mode = atoi(v);
   if ((v = getenv("VCNMPEG2_MATRIX"))) vcnmpeg2_matrix_mode = atoi(v);
   if ((v = getenv("VCNMPEG2_FIELD"))) vcnmpeg2_field_mode = atoi(v);
+  if ((v = getenv("VCNLEGACY_FIELD_LAYOUT"))) vcnlegacy_field_layout = atoi(v);
   if ((v = getenv("VCNMPEG4_INDEX"))) vcnmpeg4_index_mode = atoi(v);
   if ((v = getenv("VCNMPEG4_BLOCK"))) vcnmpeg4_block_mode = atoi(v);
   if ((v = getenv("VCNLEGACY_DEBUG"))) vcnlegacy_debug = atoi(v);
