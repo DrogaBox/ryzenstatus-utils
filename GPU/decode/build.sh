@@ -98,6 +98,11 @@ if [[ ${1:-} == tests ]]; then
   # firmware and which picture comes back.
   xcrun clang $TFLAGS -Icommon -Impeg2 -Ivc1 tests/layertest.c mpeg2/mpeg2parse.c mpeg2/vcnmpeg2.c \
     vc1/vc1parse.c vc1/vcnvc1.c -framework CoreFoundation -framework CoreVideo -o $T/layertest
+  # Which decoder VideoToolbox gives an MPEG-4 stream, the MPEG-4 plug-in (on a stand-in
+  # session) next to Apple's AppleMP4V.
+  xcrun clang $TFLAGS -Icommon -Impeg4 tests/legacypick.c mpeg4/vcnmpeg4.c mpeg4/mpeg4parse.c \
+    -framework CoreFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox \
+    -o $T/legacypick 2>&1 | { grep -v -E "pointer not aligned in '_k(Base|Decoder)Class'|disabling chained fixups" || true; }
   xcrun clang $TFLAGS -Icommon tests/acceltest.c common/vcndriver.c -framework CoreFoundation -framework IOKit \
     -o $T/acceltest
   xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c -framework CoreFoundation -framework IOKit \

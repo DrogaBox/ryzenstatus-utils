@@ -15,6 +15,8 @@
 #      the MPEG-2, VC-1 and MPEG-4 parsers and the messages built from them (legacyparse);
 #      what the MPEG-2 and VC-1 codec layers send for a stream, on a stand-in session
 #      (layertest);
+#      which decoder VideoToolbox gives an MPEG-4 stream, ours (on a stand-in session)
+#      next to Apple's AppleMP4V (legacypick);
 #      the parsers survive damaged streams: libvpx's invalid files and thousands of copies
 #      damaged at random, under the address and undefined-behaviour sanitizers
 #   5. the rule that picks AMD's accelerator; the wait for a decode command gives up on a
@@ -127,6 +129,9 @@ check "the MPEG-2, VC-1 and MPEG-4 parsers and messages, with made-up and damage
 layers() { decode/build/tests/layertest > decode/build/tests/layertest.txt ||
   { cat decode/build/tests/layertest.txt; return 1; }; }
 check "the MPEG-2 and VC-1 codec layers send the firmware only what it decodes" layers
+pick() { decode/build/tests/legacypick > decode/build/tests/legacypick.txt ||
+  { cat decode/build/tests/legacypick.txt; return 1; }; }
+check "VideoToolbox gives our MPEG-4 plug-in the streams it takes, and Apple's the rest" pick
 damaged() {$PD --mutate $rounds tests/media/av1/*.ivf tests/media/vp9/*.ivf > decode/build/tests/damaged.txt; }
 check "$rounds damaged copies of each stream are survived" damaged
 

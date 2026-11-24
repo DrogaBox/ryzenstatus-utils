@@ -3,10 +3,23 @@
 // The MPEG-2, VC-1 and MPEG-4 plug-ins through VideoToolbox, on the GPU,
 // without installing them: the three plug-ins are linked into this program
 // and registered with VideoToolbox for this process only
-// (VTRegisterVideoDecoder). The stream is cut into one sample per picture and
-// goes through a VTDecompressionSession, as a player would send it. The frames
-// are written as NV12 in display order, like decode_legacy does, so the two
-// outputs and FFmpeg's can be compared.
+// (VTRegisterVideoDecoderWithInfo, with the VTRating 400 of their Info.plist).
+// The stream is cut into one sample per picture and goes through a
+// VTDecompressionSession, as a player would send it. The frames are written as
+// NV12 in display order, like decode_legacy does, so the two outputs and
+// FFmpeg's can be compared.
+//
+// VTLEGACY_DECODER says which decoder the session gets:
+//   ours    (the default) our plug-in, asked for by its DecoderID, hardware
+//           required: a session no other decoder can serve
+//   system  our plug-in registered as an installed one would be, nothing asked
+//           for: VideoToolbox picks, and goes on to the next decoder when ours
+//           refuses the stream (MPEG-4 with B-VOPs)
+//   apple   Apple's own decoder for the codec, hardware off, our plug-in not
+//           registered: CPU only, so it needs no arming switch. Only MPEG-4
+//           has one (AppleMP4V); the reference for the other two modes.
+// Without asking for a decoder, an in-process registration without a rating
+// ties with AppleMP4V and VideoToolbox may pick either (round 3, 2026-11-24).
 //
 // Streams: .m2v, .m4v, .vc1 (advanced profile with start codes), .rcv (VC-1
 // simple/main as FFmpeg's vc1test muxer writes it).
@@ -18,6 +31,7 @@
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
 #include <VideoToolbox/VideoToolbox.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,9 +45,6 @@
 #include "vcnmpeg4.h"
 
 typedef OSStatus (*Factory)(FourCharCode, CFAllocatorRef, void**);
-// VideoToolbox's registration for decoders that live in the caller (WebKit
-// registers its VP8 and VP9 decoders with it).
-extern void VTRegisterVideoDecoder(CMVideoCodecType codec, Factory factory);
 extern OSStatus MPEG2VCN_VTDecoder_CreateInstance(FourCharCode, CFAllocatorRef,
                                                   void**);
 extern OSStatus VC1VCN_VTDecoder_CreateInstance(FourCharCode, CFAllocatorRef,
@@ -148,17 +159,72 @@ typedef struct {
   int written, images, dropped, errors;
   OSStatus firstError;
   uint32_t width, height;
+  OSType format;  // of the first picture
+  int badFormat;  // pictures in a format this program cannot write
 } Sink;
 
+// NV12 out, from NV12 (ours), three-plane 4:2:0 ('y420') or packed 4:2:2
+// ('2vuy', what AppleMP4V hands back; the chroma of its even rows is kept).
+// Any other format is counted, not written: the file would no longer line up
+// with FFmpeg's frame by frame.
 static void write_frame(Sink* s, CVPixelBufferRef pb) {
+  OSType f = CVPixelBufferGetPixelFormatType(pb);
+  if (!s->format) s->format = f;
+  bool nv12 = f == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
+              f == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+  bool planar = f == kCVPixelFormatType_420YpCbCr8Planar ||
+                f == kCVPixelFormatType_420YpCbCr8PlanarFullRange;
+  bool packed = f == kCVPixelFormatType_422YpCbCr8;
+  if ((!nv12 && !planar && !packed) || CVPixelBufferGetWidth(pb) < s->width ||
+      CVPixelBufferGetHeight(pb) < s->height) {
+    s->badFormat++;
+    return;
+  }
   if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly)) return;
   uint32_t w = s->width, h = s->height;
-  for (int plane = 0; plane < 2; plane++) {
-    const uint8_t* base = CVPixelBufferGetBaseAddressOfPlane(pb, plane);
-    size_t pitch = CVPixelBufferGetBytesPerRowOfPlane(pb, plane);
-    size_t rows = plane ? (h + 1) / 2 : h, cols = plane ? (w + 1) / 2 * 2 : w;
-    for (size_t y = 0; base && y < rows; y++)
-      fwrite(base + y * pitch, 1, cols, s->out);
+  size_t cw = (w + 1) / 2, ch = (h + 1) / 2;
+  if (packed) {
+    const uint8_t* base = CVPixelBufferGetBaseAddress(pb);
+    size_t p = CVPixelBufferGetBytesPerRow(pb);
+    uint8_t* row = malloc(w > cw * 2 ? w : cw * 2);
+    for (size_t y = 0; row && base && y < h; y++) {
+      for (size_t x = 0; x < w; x++) row[x] = base[y * p + 2 * x + 1];
+      fwrite(row, 1, w, s->out);
+    }
+    for (size_t y = 0; row && base && y < ch; y++) {
+      const uint8_t* line = base + 2 * y * p;  // Cb Y Cr Y
+      for (size_t x = 0; x < cw; x++) {
+        row[2 * x] = line[4 * x];
+        row[2 * x + 1] = line[4 * x + 2];
+      }
+      fwrite(row, 1, cw * 2, s->out);
+    }
+    free(row);
+    CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+    s->written++;
+    return;
+  }
+  const uint8_t* y0 = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+  size_t yp = CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
+  for (size_t y = 0; y0 && y < h; y++) fwrite(y0 + y * yp, 1, w, s->out);
+  if (nv12) {
+    const uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+    size_t p = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+    for (size_t y = 0; uv && y < ch; y++) fwrite(uv + y * p, 1, cw * 2, s->out);
+  } else {
+    const uint8_t* u = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+    const uint8_t* v = CVPixelBufferGetBaseAddressOfPlane(pb, 2);
+    size_t up = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+    size_t vp = CVPixelBufferGetBytesPerRowOfPlane(pb, 2);
+    uint8_t* row = malloc(cw * 2);
+    for (size_t y = 0; row && u && v && y < ch; y++) {
+      for (size_t x = 0; x < cw; x++) {
+        row[2 * x] = u[y * up + x];
+        row[2 * x + 1] = v[y * vp + x];
+      }
+      fwrite(row, 1, cw * 2, s->out);
+    }
+    free(row);
   }
   CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
   s->written++;
@@ -230,6 +296,61 @@ static CFDictionaryRef mpeg4_esds(const uint8_t* headers, size_t n) {
   return ext;
 }
 
+// The DecoderID VideoToolbox lists for implID and codec ("<id>.<codec>" for a
+// registration in the process, the ID itself for an installed bundle), or
+// NULL. As in vtchurn.c.
+static CFStringRef copy_decoder_id(CFStringRef implID, CMVideoCodecType codec) {
+  OSStatus (*copyList)(CFDictionaryRef, CFArrayRef*) =
+      dlsym(RTLD_DEFAULT, "VTCopyVideoDecoderList");
+  CFArrayRef decs = NULL;
+  if (!copyList || copyList(NULL, &decs) || !decs) return NULL;
+  CFStringRef prefix =
+      CFStringCreateWithFormat(NULL, NULL, CFSTR("%@."), implID);
+  CFStringRef found = NULL;
+  for (CFIndex i = 0; prefix && !found && i < CFArrayGetCount(decs); i++) {
+    CFDictionaryRef d = CFArrayGetValueAtIndex(decs, i);
+    CFStringRef id = CFDictionaryGetValue(d, CFSTR("DecoderID"));
+    CFNumberRef type = CFDictionaryGetValue(d, CFSTR("CodecType"));
+    SInt64 t = 0;
+    if (id && CFGetTypeID(id) == CFStringGetTypeID() && type &&
+        CFGetTypeID(type) == CFNumberGetTypeID() &&
+        CFNumberGetValue(type, kCFNumberSInt64Type, &t) && t == codec &&
+        (CFEqual(id, implID) || CFStringHasPrefix(id, prefix)))
+      found = CFRetain(id);
+  }
+  if (prefix) CFRelease(prefix);
+  CFRelease(decs);
+  return found;
+}
+
+// Our plug-in, registered in this process with what its Info.plist gives an
+// installed copy: the codec, VTRating 400, hardware accelerated. The ID is
+// this program's own, so an installed plug-in can never answer for it.
+static OSStatus register_ours(CMVideoCodecType codec, CFStringRef implID,
+                              CFStringRef name, Factory factory) {
+  OSStatus (*reg)(FourCharCode, CFDictionaryRef, void*) =
+      dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
+  if (!reg) return kVTCouldNotFindVideoDecoderErr;
+  char cc[5] = {(char)(codec >> 24), (char)(codec >> 16), (char)(codec >> 8),
+                (char)codec, 0};
+  CFStringRef type =
+      CFStringCreateWithCString(NULL, cc, kCFStringEncodingMacRoman);
+  int rating = 400;
+  CFNumberRef r = CFNumberCreate(NULL, kCFNumberIntType, &rating);
+  const void* k[] = {CFSTR("CMClassImplementationID"), CFSTR("CodecName"),
+                     CFSTR("VTCodecType"), CFSTR("VTRating"),
+                     CFSTR("IsHardwareAccelerated")};
+  const void* v[] = {implID, name, type, r, kCFBooleanTrue};
+  CFDictionaryRef info =
+      CFDictionaryCreate(NULL, k, v, 5, &kCFTypeDictionaryKeyCallBacks,
+                         &kCFTypeDictionaryValueCallBacks);
+  OSStatus st = reg(codec, info, (void*)factory);
+  CFRelease(info);
+  CFRelease(r);
+  CFRelease(type);
+  return st;
+}
+
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   if (argc != 4) {
@@ -241,6 +362,7 @@ int main(int argc, char** argv) {
   const char* v;
   if ((v = getenv("VCNMPEG2_INDEX"))) vcnmpeg2_index_mode = atoi(v);
   if ((v = getenv("VCNMPEG2_MATRIX"))) vcnmpeg2_matrix_mode = atoi(v);
+  if ((v = getenv("VCNMPEG2_FIELD"))) vcnmpeg2_field_mode = atoi(v);
   if ((v = getenv("VCNMPEG4_INDEX"))) vcnmpeg4_index_mode = atoi(v);
   if ((v = getenv("VCNMPEG4_BLOCK"))) vcnmpeg4_block_mode = atoi(v);
   if ((v = getenv("VCNLEGACY_DEBUG"))) vcnlegacy_debug = atoi(v);
@@ -252,7 +374,15 @@ int main(int argc, char** argv) {
   }
   Cut cut = {.base = data};
   CMVideoCodecType codec = 0;
+  Factory factory = NULL;
   CFDictionaryRef ext = NULL;
+  const char* mode = getenv("VTLEGACY_DECODER");
+  if (!mode || !*mode) mode = "ours";
+  if (strcmp(mode, "ours") && strcmp(mode, "system") && strcmp(mode, "apple")) {
+    fprintf(stderr, "VTLEGACY_DECODER is ours, system or apple\n");
+    return 2;
+  }
+  bool apple = !strcmp(mode, "apple");
   const char* perr = "";
   int r = 0;
   if (!strcmp(argv[1], "mpeg2")) {
@@ -261,14 +391,14 @@ int main(int argc, char** argv) {
     r = mpeg2_parse_chunk(&p, data, size, cut_mpeg2, &cut);
     perr = r ? p.err : "";
     codec = kCMVideoCodecType_MPEG2Video;
-    VTRegisterVideoDecoder(codec, MPEG2VCN_VTDecoder_CreateInstance);
+    factory = MPEG2VCN_VTDecoder_CreateInstance;
   } else if (!strcmp(argv[1], "mpeg4")) {
     Mpeg4Parser p;
     mpeg4_parser_init(&p);
     r = mpeg4_parse_chunk(&p, data, size, cut_mpeg4, &cut);
     perr = r ? p.err : "";
     codec = kCMVideoCodecType_MPEG4Video;
-    VTRegisterVideoDecoder(codec, MPEG4VCN_VTDecoder_CreateInstance);
+    factory = MPEG4VCN_VTDecoder_CreateInstance;
   } else if (!strcmp(argv[1], "vc1")) {
     Vc1Parser p;
     vc1_parser_init(&p);
@@ -299,7 +429,7 @@ int main(int argc, char** argv) {
       perr = r ? p.err : "";
       codec = 'WVC1';
     }
-    VTRegisterVideoDecoder(codec, VC1VCN_VTDecoder_CreateInstance);
+    factory = VC1VCN_VTDecoder_CreateInstance;
   } else {
     fprintf(stderr, "unknown codec %s\n", argv[1]);
     return 2;
@@ -315,9 +445,15 @@ int main(int argc, char** argv) {
   for (int i = 0; i < cut.n; i++) bs += cut.s[i].b;
   printf("%s: %d samples (%d B pictures), %ux%u\n", argv[1], cut.n, bs,
          cut.width, cut.height);
-  // Without the switch the program stops here: the stream was only cut.
+  // Without the switch the program stops here: the stream was only cut. Apple's
+  // decoder with the hardware off runs on the CPU and needs no switch.
   const char* arm = getenv("VCNLEGACY_ALLOW_GPU");
-  if (!arm || strcmp(arm, "yes-i-know-it-can-hang")) {
+  if (apple && codec != kCMVideoCodecType_MPEG4Video) {
+    fprintf(stderr, "VTLEGACY_DECODER=apple: macOS has no %s decoder\n",
+            argv[1]);
+    return 1;
+  }
+  if (!apple && (!arm || strcmp(arm, "yes-i-know-it-can-hang"))) {
     fprintf(stderr, "GPU submission disabled (set VCNLEGACY_ALLOW_GPU)\n");
     return 1;
   }
@@ -334,12 +470,59 @@ int main(int argc, char** argv) {
     fprintf(stderr, "cannot write %s\n", argv[3]);
     return 1;
   }
+  CFMutableDictionaryRef spec =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  CFStringRef want = NULL;
+  if (apple) {
+    CFDictionarySetValue(
+        spec,
+        kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder,
+        kCFBooleanFalse);
+    want = copy_decoder_id(CFSTR("com.apple.videotoolbox.videodecoder.mp4v"),
+                           codec);
+    if (!want) {
+      fprintf(stderr, "VideoToolbox lists no AppleMP4V decoder\n");
+      return 1;
+    }
+  } else {
+    CFStringRef implID = CFStringCreateWithFormat(
+        NULL, NULL, CFSTR("com.droga.vtlegacytest.%s"), argv[1]);
+    CFStringRef name =
+        CFStringCreateWithFormat(NULL, NULL, CFSTR("vtlegacytest %s"), argv[1]);
+    OSStatus rs = register_ours(codec, implID, name, factory);
+    if (!rs && !strcmp(mode, "ours")) want = copy_decoder_id(implID, codec);
+    CFRelease(name);
+    CFRelease(implID);
+    if (rs || (!strcmp(mode, "ours") && !want)) {
+      fprintf(stderr,
+              "our plug-in could not be registered (%d) or is not listed\n",
+              (int)rs);
+      return 1;
+    }
+    if (want)
+      CFDictionarySetValue(
+          spec,
+          kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+          kCFBooleanTrue);
+  }
+  if (want) {
+    CFDictionarySetValue(spec, CFSTR("DecoderID"), want);
+    char idText[256] = "";
+    CFStringGetCString(want, idText, sizeof(idText), kCFStringEncodingUTF8);
+    printf("decoder: %s (asked for, VTLEGACY_DECODER=%s)\n", idText, mode);
+    CFRelease(want);
+  } else {
+    printf("decoder: VideoToolbox picks (VTLEGACY_DECODER=%s)\n", mode);
+  }
   VTDecompressionOutputCallbackRecord cb = {on_frame, &sink};
   VTDecompressionSessionRef session = NULL;
   OSStatus st =
-      VTDecompressionSessionCreate(NULL, fmt, NULL, NULL, &cb, &session);
+      VTDecompressionSessionCreate(NULL, fmt, spec, NULL, &cb, &session);
+  CFRelease(spec);
   if (st || !session) {
     fprintf(stderr, "VTDecompressionSessionCreate %d\n", (int)st);
+    printf("VTDecompressionSessionCreate %d\n", (int)st);
     return 1;
   }
   // Which decoder VideoToolbox picked: ours says it is hardware accelerated.
@@ -377,11 +560,15 @@ int main(int argc, char** argv) {
   }
   VTDecompressionSessionWaitForAsynchronousFrames(session);
   flush_held(&sink);
+  OSType f = sink.format;
   printf(
       "%s through VideoToolbox: %d samples, %d pictures, %d written, %d "
-      "dropped, %d errors (first %d), %d refused\n",
+      "dropped, %d errors (first %d), %d refused, output '%c%c%c%c', %d in a "
+      "format not written\n",
       argv[1], cut.n, sink.images, sink.written, sink.dropped, sink.errors,
-      (int)sink.firstError, refused);
+      (int)sink.firstError, refused, f ? (char)(f >> 24) : '-',
+      f ? (char)(f >> 16) : '-', f ? (char)(f >> 8) : '-', f ? (char)f : '-',
+      sink.badFormat);
   VTDecompressionSessionInvalidate(session);
   CFRelease(session);
   CFRelease(fmt);
@@ -389,5 +576,5 @@ int main(int argc, char** argv) {
   fclose(sink.out);
   if (!vcn_teardown_drain(5000))
     fprintf(stderr, "a stuck session is still closing; leaving it\n");
-  return sink.errors || refused || !sink.images ? 1 : 0;
+  return sink.errors || refused || !sink.images || sink.badFormat ? 1 : 0;
 }

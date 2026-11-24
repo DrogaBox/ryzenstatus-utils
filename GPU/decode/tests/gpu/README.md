@@ -44,6 +44,19 @@ order, which compares frame by frame with `ffmpeg -i <stream> -f rawvideo -pix_f
 and registers them with VideoToolbox for its own process, so the plug-ins are exercised
 through a real decompression session without being installed.
 
+`VTLEGACY_DECODER` picks the decoder `vtlegacytest`'s session gets. `ours` (the default) asks
+for our plug-in by its DecoderID, with hardware required. `system` registers it as an
+installed copy is (VTRating 400) and lets VideoToolbox choose, as an app's session would:
+an MPEG-4 stream our plug-in refuses goes on to the next decoder. `apple` uses Apple's
+AppleMP4V with the hardware off and our plug-in not registered: CPU only, no switch needed,
+a reference for the MPEG-4 runs. AppleMP4V decodes plain Simple profile only; it refuses
+Advanced Simple, interlaced and MPEG quantisation with codecBadDataErr (-8969). Without a
+DecoderID an in-process registration with no rating can lose to AppleMP4V (round 3).
+
+MPEG-2 field pictures are refused before the GPU unless `VCNMPEG2_ALLOW_FIELDS=1`; no
+numbering has decoded them right yet (`VCNMPEG2_INDEX`, `VCNMPEG2_FIELD`, see
+`decode/mpeg2/vcnmpeg2.h`).
+
 `vtlegacytest` puts the two field pictures of an MPEG-2 frame in one sample, as an MP4 or a
 transport stream does. No encoder on macOS writes field pictures (FFmpeg's `mpeg2video`
 always codes frame pictures), so `mkfield.py` makes a stream of them from raw yuv420p

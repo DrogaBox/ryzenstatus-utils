@@ -236,8 +236,10 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
 // headers, with their start codes (the decoder specific info of an esds
 // atom; anything in front of the first start code is skipped).
 // A configuration whose VOL does not rule B-VOPs out is refused here, before
-// the first sample: the session then goes to the system's decoder, instead of
-// stopping at the first B-VOP (on_picture refuses those).
+// the first sample, instead of stopping at the first B-VOP (on_picture refuses
+// those): VideoToolbox then tries the next decoder. On macOS that is AppleMP4V,
+// which takes plain Simple profile only, so such a stream gets no decoder and
+// the app uses its own (tests/legacypick.c).
 static void* create(const uint8_t* config, size_t configSize, uint32_t width,
                     uint32_t height, char* err, size_t errLen) {
   (void)width, (void)height;
