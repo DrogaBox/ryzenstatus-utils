@@ -19,7 +19,7 @@ int jpeg_parse(const uint8_t* data, size_t size, JpegPicture* out, char* err,
       i++;
       continue;
     }
-    if (m == 0xD9) break;  // EOI
+    if (m == 0xD9) break;                         // EOI
     if (m == 0x01 || (m >= 0xD0 && m <= 0xD7)) {  // RSTn / TEM: no payload
       i += 2;
       continue;

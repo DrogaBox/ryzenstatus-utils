@@ -90,13 +90,19 @@ int main(int argc, char** argv) {
   int gpu = gpuEnv && !strcmp(gpuEnv, "yes-i-know-it-can-hang");
   printf("%s mode\n", gpu ? "GPU" : "dry-run");
   if (gpu) {
-    printf("WARNING: the GPU path is enabled. A wrong message can hang the "
-           "video engine until reboot.\n");
-    // JPEG goes last: Mesa programs it through registers and a separate ring,
-    // so the message built here is a guess, and a rejected guess is the one
-    // most likely to leave the engine in a bad state.
-    if (!strcmp(codec, "jpeg"))
-      printf("note: JPEG last, as the batch asks\n");
+    printf(
+        "WARNING: the GPU path is enabled. A wrong message can hang the "
+        "video engine until reboot.\n");
+    // JPEG never goes to the GPU from here: stream type 8 on the decode queue
+    // (decode block only, no context command) never finished and hung the
+    // video engine until a forced reboot (2026-11-23). A dry run still prints
+    // its message.
+    if (!strcmp(codec, "jpeg")) {
+      fprintf(stderr,
+              "jpeg: refused on the GPU, it hangs the video engine; "
+              "dry run only\n");
+      return 1;
+    }
   }
 
   size_t size = 0;
@@ -122,11 +128,12 @@ int main(int argc, char** argv) {
       free(data);
       return 1;
     }
-    printf("MPEG-2 %ux%u ivop=%d structure=%u f_code=%ux%u intra_dc=%u "
-           "frame_pred_dct=%u q_scale=%u\n",
-           p.au.width, p.au.height, p.picture_coding_type, p.picture_structure,
-           p.f_code[0][0], p.f_code[0][1], p.intra_dc_precision,
-           p.frame_pred_frame_dct, p.q_scale_type);
+    printf(
+        "MPEG-2 %ux%u ivop=%d structure=%u f_code=%ux%u intra_dc=%u "
+        "frame_pred_dct=%u q_scale=%u\n",
+        p.au.width, p.au.height, p.picture_coding_type, p.picture_structure,
+        p.f_code[0][0], p.f_code[0][1], p.intra_dc_precision,
+        p.frame_pred_frame_dct, p.q_scale_type);
     vcn_mpeg2_fill(&m2, &p);
     // Variant 6: the one field-level difference from Mesa's get_mpeg2_msg
     // (radeon_vcn_dec.c:1690-1725): Mesa sends f_code+1, refs 0 (its
@@ -139,17 +146,29 @@ int main(int argc, char** argv) {
     // in zigzag order when the stream has none).
     if (var && (atoi(var) >= 10)) {
       vcn_mpeg2_mesa(&m2, &p);
-      printf("variant 10: MPEG-2 block as Mesa (refs 0, P&L 0, matrices "
-             "loaded%s)\n", p.has_intra_matrix || p.has_nonintra_matrix
-                                 ? ", from the stream" : ", defaults");
+      printf(
+          "variant 10: MPEG-2 block as Mesa (refs 0, P&L 0, matrices "
+          "loaded%s)\n",
+          p.has_intra_matrix || p.has_nonintra_matrix ? ", from the stream"
+                                                      : ", defaults");
     }
+    if (probe_bisect("refs7f"))
+      m2.forward_ref_pic_idx = m2.backward_ref_pic_idx = 0x7f;
+    if (probe_bisect("nomat")) {
+      m2.load_intra_quantiser_matrix = m2.load_nonintra_quantiser_matrix = 0;
+      memset(m2.intra_quantiser_matrix, 0, 64);
+      memset(m2.nonintra_quantiser_matrix, 0, 64);
+    }
+    if (probe_bisect("zzmat") && !p.has_intra_matrix)
+      memcpy(m2.intra_quantiser_matrix, kMpeg2DefaultIntraStream, 64);
     if (var && atoi(var) == 6) {
       m2.profile_and_level_indication = 0;
       m2.forward_ref_pic_idx = 0;
       m2.backward_ref_pic_idx = 0;
       for (int a = 0; a < 2; a++)
         for (int b = 0; b < 2; b++) m2.f_code[a][b]++;
-      printf("variant 6: MPEG-2 f_code+1, refs 0, P&L 0 (Mesa get_mpeg2_msg)\n");
+      printf(
+          "variant 6: MPEG-2 f_code+1, refs 0, P&L 0 (Mesa get_mpeg2_msg)\n");
     }
     job.codecId = VCN_CODEC_MPEG2;
     job.messageId = VCN_MESSAGE_MPEG2_VLD;
@@ -162,7 +181,13 @@ int main(int argc, char** argv) {
     job.bitstreamSize = picOnly ? p.picAu.auSize : p.au.auSize;
     const char* what = picOnly ? "picture header only (VCNPROBE_PIC_AU=1)"
                                : "sequence header to picture end";
-    if (var && (atoi(var) >= 10)) {
+    if (probe_bisect("pichdr")) {
+      job.bitstream = p.picAu.au;
+      job.bitstreamSize = p.picAu.auSize;
+      what = "from the picture header (bisect pichdr)";
+    } else if (probe_bisect("seqhdr")) {
+      what = "from the sequence header (bisect seqhdr)";
+    } else if (var && (atoi(var) >= 10)) {
       // Mesa hands the VCN only the slices: the buffer starts at the first
       // slice start code (00 00 01 01..AF) and has no sequence or picture
       // header (capture b33/msg-mpeg2.txt: head 00 00 01 01, 25894 bytes).
@@ -184,11 +209,12 @@ int main(int argc, char** argv) {
       free(data);
       return 1;
     }
-    printf("VC-1 %ux%u profile=%u level=%u structure=%u interlace=%u "
-           "postproc=%u pulldown=%u tfcntr=%u finterp=%u psf=%u\n",
-           p.au.width, p.au.height, p.profile, p.level, p.pic_structure,
-           p.interlace, p.postprocflag, p.pulldown, p.tfcntrflag,
-           p.finterpflag, p.psf);
+    printf(
+        "VC-1 %ux%u profile=%u level=%u structure=%u interlace=%u "
+        "postproc=%u pulldown=%u tfcntr=%u finterp=%u psf=%u\n",
+        p.au.width, p.au.height, p.profile, p.level, p.pic_structure,
+        p.interlace, p.postprocflag, p.pulldown, p.tfcntrflag, p.finterpflag,
+        p.psf);
     vcn_vc1_fill(&vc1, &p);
     const char* v1var = getenv("VCNPROBE_VARIANT");
     int vc1Mesa = v1var && (atoi(v1var) >= 10);
@@ -209,6 +235,14 @@ int main(int argc, char** argv) {
       vc1.pic_structure = 0;
       vc1.forward_ref_idx = 0;
       vc1.backward_ref_idx = 0;
+      if (probe_bisect("refs7f"))
+        vc1.forward_ref_idx = vc1.backward_ref_idx = 0x7f;
+      if (probe_bisect("nomaxb")) vc1.pps_info_flags &= ~(7u << 16);
+      if (probe_bisect("vc1stream")) {
+        vc1.profile = p.profile;
+        vc1.level = p.level;
+        vc1.pic_structure = p.pic_structure;
+      }
       printf("variant 10: VC-1 block as Mesa (profile %u level %u, refs 0)\n",
              vc1.profile, vc1.level);
     }
@@ -223,7 +257,7 @@ int main(int argc, char** argv) {
     int picOnly = pic_au_only();
     job.bitstream = picOnly ? p.picAu.au : p.au.au;
     job.bitstreamSize = picOnly ? p.picAu.auSize : p.au.auSize;
-    if (vc1Mesa) {
+    if (vc1Mesa && !probe_bisect("seqhdr")) {
       // Like ffmpeg's VC-1 parser on Linux (bsd_size 0x1100 there): the frame
       // ends at the next start code of any kind, so cut there.
       // and Mesa's buffer starts at the frame start code (00 00 01 0D), with no
@@ -239,8 +273,9 @@ int main(int argc, char** argv) {
         }
     }
     printf("bitstream: %s (%zu bytes)\n",
-           vc1Mesa   ? "frame only, as Mesa (variants 10/11)"
-           : picOnly ? "frame header only (VCNPROBE_PIC_AU=1)"
+           probe_bisect("seqhdr") ? "from the sequence header (bisect seqhdr)"
+           : vc1Mesa              ? "frame only, as Mesa (variants 10/11)"
+           : picOnly              ? "frame header only (VCNPROBE_PIC_AU=1)"
                      : "sequence header + entry point to picture end",
            job.bitstreamSize);
     job.vc1Simple = p.profile < 2;  // Mesa: sizes in 16-sample units
@@ -251,11 +286,12 @@ int main(int argc, char** argv) {
       free(data);
       return 1;
     }
-    printf("MPEG-4 %ux%u verid=%u shape=%u vop=%u quant=%u res=%u "
-           "quant_type=%u quarter_sample=%u\n",
-           p.au.width, p.au.height, p.verid, p.shape, p.vop_coding_type,
-           p.vop_quant, p.vop_time_increment_resolution, p.quant_type,
-           p.quarter_sample);
+    printf(
+        "MPEG-4 %ux%u verid=%u shape=%u vop=%u quant=%u res=%u "
+        "quant_type=%u quarter_sample=%u\n",
+        p.au.width, p.au.height, p.verid, p.shape, p.vop_coding_type,
+        p.vop_quant, p.vop_time_increment_resolution, p.quant_type,
+        p.quarter_sample);
     vcn_mpeg4_fill(&m4, &p);
     job.codecId = VCN_CODEC_MPEG4;
     job.messageId = VCN_MESSAGE_MPEG4_ASP_VLD;
@@ -318,11 +354,12 @@ int main(int argc, char** argv) {
       free(data);
       return 1;
     }
-    printf("VP9 %ux%u profile=%d depth=%d frame_type=%d intra_only=%d "
-           "show=%d tiles=%d+%d au=%zu bytes\n",
-           vp9.fh.width, vp9.fh.height, vp9.fh.profile, vp9.fh.bit_depth,
-           vp9.fh.frame_type, vp9.fh.intra_only, vp9.fh.show_frame,
-           vp9.fh.log2_tile_cols, vp9.fh.log2_tile_rows, cap.size);
+    printf(
+        "VP9 %ux%u profile=%d depth=%d frame_type=%d intra_only=%d "
+        "show=%d tiles=%d+%d au=%zu bytes\n",
+        vp9.fh.width, vp9.fh.height, vp9.fh.profile, vp9.fh.bit_depth,
+        vp9.fh.frame_type, vp9.fh.intra_only, vp9.fh.show_frame,
+        vp9.fh.log2_tile_cols, vp9.fh.log2_tile_rows, cap.size);
     vp9probe_fill_message(&vm, &vp9, 0);
     job.codecId = VCN_CODEC_VP9;
     job.messageId = VCN_MESSAGE_VP9;
@@ -341,10 +378,11 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  printf("access unit %zu bytes at %p, codec id 0x%x, message 0x%x, block %u "
-         "bytes\n",
-         job.bitstreamSize, (const void*)job.bitstream, job.codecId,
-         job.messageId, job.blockSize);
+  printf(
+      "access unit %zu bytes at %p, codec id 0x%x, message 0x%x, block %u "
+      "bytes\n",
+      job.bitstreamSize, (const void*)job.bitstream, job.codecId, job.messageId,
+      job.blockSize);
   int rc = vcnprobe_run(&job, argv[3], gpu, err, sizeof(err));
   free(data);
   if (rc) {

@@ -99,10 +99,9 @@ void vp9probe_fill_segments(void* it, const VP9Parser* p) {
   VcnVP9Seg* s = (VcnVP9Seg*)((uint8_t*)it + VCN_VP9_PROBS_DATA_SIZE);
   for (int i = 0; i < 8; i++) {
     const int16_t* f = p->seg_feature_data[i];
-    s->feature_data[i] = ((uint32_t)f[0] & 0xffff) |
-                         (((uint32_t)f[1] & 0xff) << 16) |
-                         (((uint32_t)f[2] & 0xf) << 24) |
-                         (((uint32_t)f[3] & 0xf) << 28);
+    s->feature_data[i] =
+        ((uint32_t)f[0] & 0xffff) | (((uint32_t)f[1] & 0xff) << 16) |
+        (((uint32_t)f[2] & 0xf) << 24) | (((uint32_t)f[3] & 0xf) << 28);
     s->feature_mask[i] = p->seg_feature_mask[i];
   }
   memcpy(s->tree_probs, p->seg_tree_probs, 7);

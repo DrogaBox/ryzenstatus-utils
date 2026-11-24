@@ -7,8 +7,9 @@
 #include "probe.h"
 
 typedef struct {
-  ProbeAu au;     // sequence header (0x0F) .. end of the picture (default)
-  ProbeAu picAu;  // frame header (0x0D) .. end of the picture (VCNPROBE_PIC_AU=1)
+  ProbeAu au;  // sequence header (0x0F) .. end of the picture (default)
+  ProbeAu
+      picAu;  // frame header (0x0D) .. end of the picture (VCNPROBE_PIC_AU=1)
   uint8_t profile;  // 3 = advanced
   uint8_t level;
   uint8_t chroma_format;  // 1 = 4:2:0

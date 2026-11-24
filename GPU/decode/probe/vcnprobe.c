@@ -3,6 +3,8 @@
 // build the message are replaced, on one object, for the length of one call.
 // What differs is the codec: the create message's codec id and the decode
 // message's codec block come from the caller.
+#include "vcnprobe.h"
+
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreVideo/CoreVideo.h>
 #include <IOSurface/IOSurfaceRef.h>
@@ -16,7 +18,7 @@
 #include <string.h>
 
 #include "avd.h"
-#include "vcnprobe.h"
+#include "probe.h"
 #include "vcndriver.h"
 #include "vp9fill.h"
 
@@ -127,7 +129,7 @@ static struct {
   uint32_t blockSize;
   uint32_t width, height;
   uint32_t profile, depth;
-  uint32_t vc1Simple;  // VC-1 simple/main: sizes are in 16-sample units
+  uint32_t vc1Simple;    // VC-1 simple/main: sizes are in 16-sample units
   const VP9Parser* vp9;  // only for VP9, which needs the frame for its message
   int dump;
   uint8_t* data;  // saved by the hook, for the feedback read after the wait
@@ -156,13 +158,16 @@ static void dump_bytes(const char* label, const void* p, size_t n) {
 typedef struct {
   uint32_t width, height, pitch, texh, bpe;
   uint32_t dpbSize, ctxSize;
-  uint32_t hwCtxt;      // variant 2: hw_ctxt_size stays 64 KiB in the header
-  uint32_t swCtxt;      // VCNPROBE_VARIANT 1/2/10: RDECODE_SESSION_CONTEXT_SIZE
-  uint32_t noHwCtxt;    // variant 10: hw_ctxt_size 0, as Mesa sends MPEG-2/VC-1
-  uint32_t mesaIndex;   // variant 11: Mesa's two index entries, no DRM/0x0f
-  uint32_t mesaGeom;    // variant 12: Mesa's db_pitch (32-aligned), bottom offsets 0
-  uint32_t noMif;       // variant 13: mif_wrc_en (+160) 0, as Apple's VCN AVC builder
-  uint32_t avcStyle;    // variant 14: the whole decode block as that builder leaves it
+  uint32_t hwCtxt;     // variant 2: hw_ctxt_size stays 64 KiB in the header
+  uint32_t swCtxt;     // VCNPROBE_VARIANT 1/2/10: RDECODE_SESSION_CONTEXT_SIZE
+  uint32_t noHwCtxt;   // variant 10: hw_ctxt_size 0, as Mesa sends MPEG-2/VC-1
+  uint32_t mesaIndex;  // variant 11: Mesa's two index entries, no DRM/0x0f
+  uint32_t
+      mesaGeom;  // variant 12: Mesa's db_pitch (32-aligned), bottom offsets 0
+  uint32_t
+      noMif;  // variant 13: mif_wrc_en (+160) 0, as Apple's VCN AVC builder
+  uint32_t
+      avcStyle;  // variant 14: the whole decode block as that builder leaves it
   uint32_t streamType;  // 0 = codecId; variant 5 takes it from the create msg
   uint32_t codecId, messageId, blockSize;
   const void* block;
@@ -182,7 +187,8 @@ static uint32_t fill_message(uint8_t* msg, const MsgGeom* m) {
   const uint32_t codecOff = decodeOff + DECODE_SIZE;
   const uint32_t drmOff = codecOff + al(m->blockSize, 4);
   const uint32_t zeroOff = drmOff + DRM_SIZE;
-  const uint32_t end = m->mesaIndex ? codecOff + m->blockSize : zeroOff + ZERO_SIZE;
+  const uint32_t end =
+      m->mesaIndex ? codecOff + m->blockSize : zeroOff + ZERO_SIZE;
   const uint32_t total = m->mesaIndex ? end : end + 16;
   if ((size_t)end + 16 > MSG_MAX) return 0;
   memset(msg, 0, (size_t)end + 16);
@@ -206,8 +212,7 @@ static uint32_t fill_message(uint8_t* msg, const MsgGeom* m) {
   const uint32_t w = m->width, h = m->height;
   const uint32_t sw = m->vc1Simple ? (w + 15) / 16 : w;
   const uint32_t sh = m->vc1Simple ? (h + 15) / 16 : h;
-  const uint32_t pitch = m->pitch,
-                 texh = m->texh, bpe = m->bpe ? m->bpe : 1;
+  const uint32_t pitch = m->pitch, texh = m->texh, bpe = m->bpe ? m->bpe : 1;
   const uint32_t a = w <= 32 ? 32 : 64;
   // Refuse geometries whose surface offsets do not fit the 32-bit fields rather
   // than silently wrapping them.
@@ -288,27 +293,48 @@ static uint8_t* g_fbPtr;
 
 static const char* variant_name(int v) {
   switch (v) {
-    case 1: return "sw_ctxt_size 128 KiB (Mesa RDECODE_SESSION_CONTEXT_SIZE)";
-    case 2: return "variant 1 + context buffer grown by 128 KiB";
-    case 3: return "retired (DATA_REALLOC was a no-op)";
-    case 4: return "bitstream without its leading 00 00 01 start code";
-    case 5: return "decode stream type taken from the create message";
-    case 6: return "MPEG-2 Mesa fields (f_code+1, refs 0, P&L 0)";
-    case 7: return "CreateContexts mode 3 (Vcn2DecCommand instead of Vcn3DecCommand)";
-    case 8: return "decode stream_type forced to 0x11 (VP9) with the codec block kept";
-    case 9: return "create-message id 0x13 (AV1) with decode stream_type unchanged";
-    case 10: return "as Linux/Mesa sends it (capture b31): hw_ctxt 0, sw_ctxt 128 KiB, "
-                    "MPEG-2 refs 0, P&L 0, default quantiser matrices loaded";
-    case 15: return "variant 11 + no context-buffer command (0x206) for MPEG-2/VC-1, "
-                    "as Mesa";
-    case 13: return "variant 11 + mif_wrc_en 0 (Apple's VCN AVC builder never sets it)";
-    case 14: return "variant 11 + decode block as Apple's VCN AVC builder: mif_wrc_en, "
-                    "db_pitch_uv, db_aligned_height, sw_ctxt_size 0; db_pitch 32-aligned";
-    case 12: return "variant 11 + Mesa's db_pitch (32-aligned) and dt bottom "
-                    "offsets 0 (MPEG-2/VC-1; VP9 unchanged)";
-    case 11: return "variant 10 with Mesa's message layout: two index entries "
-                    "(decode, codec block), no DRM block, no 0x0f block";
-    default: return "baseline";
+    case 1:
+      return "sw_ctxt_size 128 KiB (Mesa RDECODE_SESSION_CONTEXT_SIZE)";
+    case 2:
+      return "variant 1 + context buffer grown by 128 KiB";
+    case 3:
+      return "retired (DATA_REALLOC was a no-op)";
+    case 4:
+      return "bitstream without its leading 00 00 01 start code";
+    case 5:
+      return "decode stream type taken from the create message";
+    case 6:
+      return "MPEG-2 Mesa fields (f_code+1, refs 0, P&L 0)";
+    case 7:
+      return "CreateContexts mode 3 (Vcn2DecCommand instead of Vcn3DecCommand)";
+    case 8:
+      return "decode stream_type forced to 0x11 (VP9) with the codec block "
+             "kept";
+    case 9:
+      return "create-message id 0x13 (AV1) with decode stream_type unchanged";
+    case 10:
+      return "as Linux/Mesa sends it (capture b31): hw_ctxt 0, sw_ctxt 128 "
+             "KiB, "
+             "MPEG-2 refs 0, P&L 0, default quantiser matrices loaded";
+    case 15:
+      return "variant 11 + no context-buffer command (0x206) for MPEG-2/VC-1, "
+             "as Mesa";
+    case 13:
+      return "variant 11 + mif_wrc_en 0 (Apple's VCN AVC builder never sets "
+             "it)";
+    case 14:
+      return "variant 11 + decode block as Apple's VCN AVC builder: "
+             "mif_wrc_en, "
+             "db_pitch_uv, db_aligned_height, sw_ctxt_size 0; db_pitch "
+             "32-aligned";
+    case 12:
+      return "variant 11 + Mesa's db_pitch (32-aligned) and dt bottom "
+             "offsets 0 (MPEG-2/VC-1; VP9 unchanged)";
+    case 11:
+      return "variant 10 with Mesa's message layout: two index entries "
+             "(decode, codec block), no DRM block, no 0x0f block";
+    default:
+      return "baseline";
   }
 }
 
@@ -367,16 +393,18 @@ static int hook_set_message(uint8_t* proc, const ProbeParams* prm,
   uint32_t streamType = g.codecId;
   if (g_variant == 5 && g_createStreamType) {
     streamType = g_createStreamType;
-    printf("variant 5: driver's create-message stream type 0x%x, codec id 0x%x\n",
-           streamType, g.codecId);
+    printf(
+        "variant 5: driver's create-message stream type 0x%x, codec id 0x%x\n",
+        streamType, g.codecId);
   }
   // Variant 8: keep the codec block/message id, force the decode stream type
   // to VP9's 0x11. If feedback gets written the firmware ran the command and
   // the legacy codec id is the gate.
   if (g_variant == 8) {
     streamType = 0x11;
-    printf("variant 8: decode stream type 0x11 with codec id 0x%x, message 0x%x\n",
-           g.codecId, g.messageId);
+    printf(
+        "variant 8: decode stream type 0x11 with codec id 0x%x, message 0x%x\n",
+        g.codecId, g.messageId);
   }
   // The driver stores the bit depth it decodes at in the processor, and the
   // tuple it reallocates the DPB/context for is {profile, 0, w, h, depth, 0}
@@ -384,8 +412,8 @@ static int hook_set_message(uint8_t* proc, const ProbeParams* prm,
   // 0x7ffb10b42bb3). The probe must write both or the driver believes the
   // session is 8-bit profile 0 and never reallocates.
   PROC_DEPTH(proc) = g.depth ? g.depth : 8;
-  uint32_t tuple[6] = {g.profile, 0, DEC_WIDTH(dec), DEC_HEIGHT(dec),
-                       g.depth ? g.depth : 8, 0};
+  uint32_t tuple[6] = {
+      g.profile, 0, DEC_WIDTH(dec), DEC_HEIGHT(dec), g.depth ? g.depth : 8, 0};
   memcpy(DATA_TUPLE(data), tuple, sizeof(tuple));
   g.data = data;
   g.bi = bi;
@@ -393,33 +421,36 @@ static int hook_set_message(uint8_t* proc, const ProbeParams* prm,
   DATA_DPB_SIZE(data) = g_dpbSize;
   DATA_CTX_SIZE(data) = g_ctxSize;
 
-  MsgGeom m = {.width = DEC_WIDTH(dec),
-               .height = DEC_HEIGHT(dec),
-               .pitch = TEX_PITCH(target),
-               .texh = TEX_HEIGHT(target),
-               .bpe = TEX_BPE(target),
-               .dpbSize = g_dpbSize,
-               .ctxSize = g_ctxSize,
-               // Variant 1: Mesa always fills sw_ctxt_size with 128 KiB
-               // (RDECODE_SESSION_CONTEXT_SIZE, ac_vcn_dec.c:50,1938); the
-               // probe leaves 0, matching Apple's AV1 builder instead.
-               .swCtxt = (g_variant == 1 || g_variant == 2 || g_variant >= 10)
-                             ? 128 * 1024
-                             : 0,
-               .hwCtxt = g_variant == 2 ? 65536 : 0,
-               .noHwCtxt = g_variant >= 10 && g.codecId != VCN_CODEC_VP9,
-               .mesaIndex = g_variant >= 11,
-               .mesaGeom = g_variant == 12 && g.codecId != VCN_CODEC_VP9,
-               .noMif = g_variant == 13 && g.codecId != VCN_CODEC_VP9,
-               .avcStyle = g_variant == 14 && g.codecId != VCN_CODEC_VP9,
-               .streamType = streamType,
-               .codecId = g.codecId,
-               .messageId = g.messageId,
-               .blockSize = g.blockSize,
-               .block = g.block,
-               .data = data,
-               .feedback = PROC_FEEDBACK(proc),
-               .vc1Simple = g.vc1Simple};
+  MsgGeom m = {
+      .width = DEC_WIDTH(dec),
+      .height = DEC_HEIGHT(dec),
+      .pitch = TEX_PITCH(target),
+      .texh = TEX_HEIGHT(target),
+      .bpe = TEX_BPE(target),
+      .dpbSize = g_dpbSize,
+      .ctxSize = g_ctxSize,
+      // Variant 1: Mesa always fills sw_ctxt_size with 128 KiB
+      // (RDECODE_SESSION_CONTEXT_SIZE, ac_vcn_dec.c:50,1938); the
+      // probe leaves 0, matching Apple's AV1 builder instead.
+      .swCtxt = ((g_variant == 1 || g_variant == 2 || g_variant >= 10) &&
+                 !probe_bisect("swctx0"))
+                    ? 128 * 1024
+                    : 0,
+      .hwCtxt = g_variant == 2 ? 65536 : 0,
+      .noHwCtxt = g_variant >= 10 && g.codecId != VCN_CODEC_VP9,
+      .mesaIndex = g_variant >= 11 && !probe_bisect("appleidx"),
+      .mesaGeom = (g_variant == 12 || probe_bisect("geom0")) &&
+                  g.codecId != VCN_CODEC_VP9,
+      .noMif = g_variant == 13 && g.codecId != VCN_CODEC_VP9,
+      .avcStyle = g_variant == 14 && g.codecId != VCN_CODEC_VP9,
+      .streamType = streamType,
+      .codecId = g.codecId,
+      .messageId = g.messageId,
+      .blockSize = g.blockSize,
+      .block = g.block,
+      .data = data,
+      .feedback = PROC_FEEDBACK(proc),
+      .vc1Simple = g.vc1Simple};
   uint8_t* msg = DATA_MSG(data);
   uint32_t total = fill_message(msg, &m);
   if (!total) {
@@ -429,7 +460,7 @@ static int hook_set_message(uint8_t* proc, const ProbeParams* prm,
   U32(msg + decode_off(msg), 16) = DATA_BS_SIZE(data);
   // SetupVcnDRMCommand with no protected content, as vcnvp9.c does. Variant
   // 11 sends no DRM block.
-  if (g_variant < 11) {
+  if (!m.mesaIndex) {
     uint32_t drmOff = DECODE_OFF + DECODE_SIZE + al(g.blockSize, 4);
     if (U32(hw, 144) & 0x80000)
       U32(msg + drmOff, 56) = 0x1000000u;
@@ -523,9 +554,10 @@ static int hook_set_feedback(uint8_t* proc, uint8_t* bi) {
     g_fbPtr = fb;
     g_fbAttached = 1;
   }
-  printf("feedback buffer (driver's slot 15): result %d, cpu %p, bi+0x34 %u, "
-         "bi+0x38 %p\n", r, (void*)fb, U32(bi, BI_FEEDBACK_ON),
-         *(void**)(bi + BI_FEEDBACK));
+  printf(
+      "feedback buffer (driver's slot 15): result %d, cpu %p, bi+0x34 %u, "
+      "bi+0x38 %p\n",
+      r, (void*)fb, U32(bi, BI_FEEDBACK_ON), *(void**)(bi + BI_FEEDBACK));
   return r;
 }
 
@@ -544,8 +576,10 @@ static void init_vt(void) {
   if (sf && g_class_vt[VT_SET_FEEDBACK] == sf)
     vt[VT_SET_FEEDBACK] = (void*)hook_set_feedback;
   else
-    printf("slot 15 is not SetDecodeFeedbackFields (%p vs %p): feedback not "
-           "marked\n", g_class_vt[VT_SET_FEEDBACK], sf);
+    printf(
+        "slot 15 is not SetDecodeFeedbackFields (%p vs %p): feedback not "
+        "marked\n",
+        g_class_vt[VT_SET_FEEDBACK], sf);
 }
 
 static void* g_factoryVt[FACTORY_SLOTS + 2];
@@ -577,10 +611,12 @@ static void* hook_create_processor(void* factory, int type, void* decoder) {
 
 // ---------------------------------------------------------------------------
 static CFDictionaryRef pixel_buffer_attributes(uint32_t w, uint32_t h) {
-  CFMutableDictionaryRef a = CFDictionaryCreateMutable(
-      NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-  CFMutableDictionaryRef io = CFDictionaryCreateMutable(
-      NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  CFMutableDictionaryRef a =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  CFMutableDictionaryRef io =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
   if (!a || !io) {
     if (a) CFRelease(a);
     if (io) CFRelease(io);
@@ -588,17 +624,17 @@ static CFDictionaryRef pixel_buffer_attributes(uint32_t w, uint32_t h) {
   }
   CFNumberRef n;
   int32_t v;
-#define PUT(key, val)                                    \
-  do {                                                   \
-    v = (val);                                           \
-    n = CFNumberCreate(NULL, kCFNumberSInt32Type, &v);   \
-    if (!n) {                                            \
-      CFRelease(a);                                      \
-      CFRelease(io);                                     \
-      return NULL;                                       \
-    }                                                    \
-    CFDictionarySetValue(a, key, n);                     \
-    CFRelease(n);                                        \
+#define PUT(key, val)                                  \
+  do {                                                 \
+    v = (val);                                         \
+    n = CFNumberCreate(NULL, kCFNumberSInt32Type, &v); \
+    if (!n) {                                          \
+      CFRelease(a);                                    \
+      CFRelease(io);                                   \
+      return NULL;                                     \
+    }                                                  \
+    CFDictionarySetValue(a, key, n);                   \
+    CFRelease(n);                                      \
   } while (0)
   PUT(kCVPixelBufferPixelFormatTypeKey,
       kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
@@ -611,8 +647,7 @@ static CFDictionaryRef pixel_buffer_attributes(uint32_t w, uint32_t h) {
   CFDictionarySetValue(a, kCVPixelBufferIOSurfacePropertiesKey, io);
   // vcnvp9.c and vcnav1.c both set this on their decode targets; without it
   // the control would not be running the same surface creation as production.
-  CFDictionarySetValue(a, kCVPixelBufferMetalCompatibilityKey,
-                       kCFBooleanTrue);
+  CFDictionarySetValue(a, kCVPixelBufferMetalCompatibilityKey, kCFBooleanTrue);
   CFRelease(io);
   return a;
 }
@@ -654,7 +689,8 @@ static void scan_buffer(const char* name, const uint8_t* p, size_t n) {
     return;
   }
   if (!readable(p, n)) {
-    printf("scan %s: %p + %zu not mapped readable, skipped\n", name, (void*)p, n);
+    printf("scan %s: %p + %zu not mapped readable, skipped\n", name, (void*)p,
+           n);
     return;
   }
   size_t nz = 0, first = 0, last = 0;
@@ -747,7 +783,8 @@ static void print_feedback(void) {
     written = memcmp(cpu, g_fbBefore, sizeof(g_fbBefore)) != 0;
     printf("feedback before:");
     for (int i = 0; i < 32; i++) printf(" %02x", g_fbBefore[i]);
-    printf("\nfeedback %s since the prefill\n", written ? "CHANGED" : "unchanged");
+    printf("\nfeedback %s since the prefill\n",
+           written ? "CHANGED" : "unchanged");
   } else {
     for (int i = 0; i < 32; i++)
       if (cpu[i]) written = 1;
@@ -760,12 +797,12 @@ static void print_feedback(void) {
   int ok = written && U32(cpu, 16) == 0 && errBits == 0;
   printf("decode status: %s\n",
          !written ? "NOT EXECUTED (feedback never written)"
-                  : ok ? "OK (status 0, errorBits 0)"
-                       : "FAILED (firmware reported a decode error)");
-  printf("result: %s\n", !written ? "not executed"
-                         : !ok    ? "failed"
+         : ok     ? "OK (status 0, errorBits 0)"
+                  : "FAILED (firmware reported a decode error)");
+  printf("result: %s\n", !written            ? "not executed"
+                         : !ok               ? "failed"
                          : g_luma_blank == 1 ? "blank"
-                                              : "decoded");
+                                             : "decoded");
 }
 
 static int write_nv12(CVPixelBufferRef pb, const char* path) {
@@ -851,11 +888,14 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
   }
   if (g_variant < 0 || g_variant > 15) g_variant = 0;
   if (g_variant == 3) {
-    printf("variant 3 is retired: the hook replaces SetDecodeMessageFields, so "
-           "DATA_REALLOC never reached the driver; running baseline\n");
+    printf(
+        "variant 3 is retired: the hook replaces SetDecodeMessageFields, so "
+        "DATA_REALLOC never reached the driver; running baseline\n");
     g_variant = 0;
   }
   if (g_variant) printf("variant %d: %s\n", g_variant, variant_name(g_variant));
+  if (getenv("VCNPROBE_BISECT"))
+    printf("bisect: %s taken back\n", getenv("VCNPROBE_BISECT"));
   uint64_t protoDpb, protoCtx;
   if (job->codecId == VCN_CODEC_VP9) {
     // vcnvp9.c's numbers: 9 pictures of the session size, and Mesa's
@@ -871,9 +911,10 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
     // 0x288000; VC-1 352x288: 0xc8440 against 0xb4000, capture b31), and a
     // firmware that checks dpb_size would drop a smaller one without a word.
     // Six pictures plus 64 KiB covers both.
-    if (g_variant >= 10)
-      protoDpb = (uint64_t)al(job->width, 64) * al(job->height, 64) * 3 / 2 * 6 +
-                 65536;
+    if (g_variant >= 10 && !probe_bisect("dpb4"))
+      protoDpb =
+          (uint64_t)al(job->width, 64) * al(job->height, 64) * 3 / 2 * 6 +
+          65536;
     protoCtx = 65536;
   }
   // Variant 2: a context buffer with room for Mesa's 128 KiB software context
@@ -883,9 +924,11 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
   // hw_ctxt_size stays 64 KiB (fill_message's hwCtxt).
   if (g_variant == 2) protoCtx += 128 * 1024;
   if (protoDpb > VCN_MAX_DPB || protoCtx > VCN_MAX_CTX) {
-    snprintf(err, errLen, "%ux%u needs dpb %llu / ctx %llu bytes, over the "
-             "probe's buffer limits", job->width, job->height,
-             (unsigned long long)protoDpb, (unsigned long long)protoCtx);
+    snprintf(err, errLen,
+             "%ux%u needs dpb %llu / ctx %llu bytes, over the "
+             "probe's buffer limits",
+             job->width, job->height, (unsigned long long)protoDpb,
+             (unsigned long long)protoCtx);
     return -1;
   }
   g_dpbSize = (uint32_t)protoDpb;
@@ -912,29 +955,32 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
   if (!gpu) {
     // Dry run: build the same message the hook would, with the geometry the
     // target would have, without opening the accelerator or creating contexts.
-    MsgGeom m = {.width = job->width,
-                 .height = job->height,
-                 .pitch = al(job->width, 256),
-                 .texh = al(job->height, 64),
-                 .bpe = 1,
-                 .dpbSize = g_dpbSize,
-                 .ctxSize = g_ctxSize,
-                 .swCtxt = (g_variant == 1 || g_variant == 2 || g_variant >= 10)
-                               ? 128 * 1024
-                               : 0,
-                 .hwCtxt = g_variant == 2 ? 65536 : 0,
-                 .noHwCtxt = g_variant >= 10 && job->codecId != VCN_CODEC_VP9,
-                 .mesaIndex = g_variant >= 11,
-                 .mesaGeom = g_variant == 12 && job->codecId != VCN_CODEC_VP9,
-                 .noMif = g_variant == 13 && job->codecId != VCN_CODEC_VP9,
-                 .avcStyle = g_variant == 14 && job->codecId != VCN_CODEC_VP9,
-                 .codecId = job->codecId,
-                 .messageId = job->messageId,
-                 .blockSize = job->blockSize,
-                 .block = job->block,
-                 .data = NULL,
-                 .feedback = 0,
-                 .vc1Simple = g.vc1Simple};
+    MsgGeom m = {
+        .width = job->width,
+        .height = job->height,
+        .pitch = al(job->width, 256),
+        .texh = al(job->height, 64),
+        .bpe = 1,
+        .dpbSize = g_dpbSize,
+        .ctxSize = g_ctxSize,
+        .swCtxt = ((g_variant == 1 || g_variant == 2 || g_variant >= 10) &&
+                   !probe_bisect("swctx0"))
+                      ? 128 * 1024
+                      : 0,
+        .hwCtxt = g_variant == 2 ? 65536 : 0,
+        .noHwCtxt = g_variant >= 10 && job->codecId != VCN_CODEC_VP9,
+        .mesaIndex = g_variant >= 11 && !probe_bisect("appleidx"),
+        .mesaGeom = (g_variant == 12 || probe_bisect("geom0")) &&
+                    job->codecId != VCN_CODEC_VP9,
+        .noMif = g_variant == 13 && job->codecId != VCN_CODEC_VP9,
+        .avcStyle = g_variant == 14 && job->codecId != VCN_CODEC_VP9,
+        .codecId = job->codecId,
+        .messageId = job->messageId,
+        .blockSize = job->blockSize,
+        .block = job->block,
+        .data = NULL,
+        .feedback = 0,
+        .vc1Simple = g.vc1Simple};
     uint8_t msg[MSG_MAX];
     uint32_t total = fill_message(msg, &m);
     if (!total) {
@@ -977,11 +1023,11 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
   }
   if (gpu) {
     CFDictionaryRef attrs = pixel_buffer_attributes(job->width, job->height);
-    int pc = attrs ? (int)CVPixelBufferCreate(
-                         kCFAllocatorDefault, job->width, job->height,
-                         kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attrs,
-                         &pb)
-                   : -1;
+    int pc =
+        attrs ? (int)CVPixelBufferCreate(
+                    kCFAllocatorDefault, job->width, job->height,
+                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attrs, &pb)
+              : -1;
     if (attrs) CFRelease(attrs);
     if (pc || !pb) {
       snprintf(err, errLen, "no pixel buffer (%d)", pc);
@@ -1036,8 +1082,8 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
       .outFormat = 0x4e563132,
       .outFormatCount = 1};
   AVD_DriverContextInit ci = {.list = &list};
-  int r = ((AVD_CreateContexts_fn)s.accel->fn[AVD_FN_CreateContexts])(s.drv,
-                                                                     &ci);
+  int r =
+      ((AVD_CreateContexts_fn)s.accel->fn[AVD_FN_CreateContexts])(s.drv, &ci);
   g_creating = 0;
   *factory = orig;
   if (r || !ctxOut[0]) {
@@ -1075,9 +1121,10 @@ int vcnprobe_run(const ProbeJob* job, const char* outPath, int gpu, char* err,
     }
     if (!skip && bsSize > 4 && !bs[0] && !bs[1] && bs[2] == 1) skip = 4;
     if (skip) {
-      printf("variant 4: bitstream starts at offset %zu (start code %02x %02x "
-             "%02x %02x)\n", skip, bs[skip], bs[skip + 1], bs[skip + 2],
-             bs[skip + 3]);
+      printf(
+          "variant 4: bitstream starts at offset %zu (start code %02x %02x "
+          "%02x %02x)\n",
+          skip, bs[skip], bs[skip + 1], bs[skip + 2], bs[skip + 3]);
       bs += skip;
       bsSize -= skip;
     }

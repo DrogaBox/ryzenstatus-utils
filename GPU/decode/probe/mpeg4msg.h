@@ -32,54 +32,54 @@
 #define VCN_MPEG4_F_NEWPRED_SEGMENT_TYPE 15
 
 typedef struct {
-  uint32_t decoded_pic_idx;      // +0
-  uint32_t forward_ref_pic_idx;  // +4
-  uint32_t backward_ref_pic_idx; // +8
-  uint32_t variant_type;         // +12
-  uint8_t profile_and_level_indication;  // +16
-  uint8_t video_object_layer_verid;      // +17
-  uint8_t video_object_layer_shape;      // +18
-  uint8_t reserved_1;                    // +19
-  uint16_t video_object_layer_width;     // +20
-  uint16_t video_object_layer_height;    // +22
-  uint16_t vop_time_increment_resolution;// +24
-  uint16_t reserved_2;                   // +26
-  uint32_t feature_flags;                // +28 (VCN_MPEG4_F_*)
-  uint8_t quant_type;                    // +32
-  uint8_t reserved_3[3];                 // +33
-  uint8_t intra_quant_mat[64];           // +36
-  uint8_t nonintra_quant_mat[64];        // +100
+  uint32_t decoded_pic_idx;                // +0
+  uint32_t forward_ref_pic_idx;            // +4
+  uint32_t backward_ref_pic_idx;           // +8
+  uint32_t variant_type;                   // +12
+  uint8_t profile_and_level_indication;    // +16
+  uint8_t video_object_layer_verid;        // +17
+  uint8_t video_object_layer_shape;        // +18
+  uint8_t reserved_1;                      // +19
+  uint16_t video_object_layer_width;       // +20
+  uint16_t video_object_layer_height;      // +22
+  uint16_t vop_time_increment_resolution;  // +24
+  uint16_t reserved_2;                     // +26
+  uint32_t feature_flags;                  // +28 (VCN_MPEG4_F_*)
+  uint8_t quant_type;                      // +32
+  uint8_t reserved_3[3];                   // +33
+  uint8_t intra_quant_mat[64];             // +36
+  uint8_t nonintra_quant_mat[64];          // +100
   struct {
-    uint8_t sprite_enable;      // +164
-    uint8_t reserved_4[3];      // +165
-    uint16_t sprite_width;      // +168
-    uint16_t sprite_height;     // +170
-    int16_t sprite_left_coordinate;  // +172
-    int16_t sprite_top_coordinate;   // +174
+    uint8_t sprite_enable;                // +164
+    uint8_t reserved_4[3];                // +165
+    uint16_t sprite_width;                // +168
+    uint16_t sprite_height;               // +170
+    int16_t sprite_left_coordinate;       // +172
+    int16_t sprite_top_coordinate;        // +174
     uint8_t no_of_sprite_warping_points;  // +176
     uint8_t sprite_warping_accuracy;      // +177
     uint8_t sprite_brightness_change;     // +178
     uint8_t low_latency_sprite_enable;    // +179
   } sprite_config;
   struct {
-    uint32_t bits;        // +180
-    uint8_t vol_mode;     // +184
-    uint8_t reserved_5[3];// +185
+    uint32_t bits;          // +180
+    uint8_t vol_mode;       // +184
+    uint8_t reserved_5[3];  // +185
   } divx_311_config;
   struct {
-    uint8_t vop_data_present;             // +188
-    uint8_t vop_coding_type;              // +189
-    uint8_t vop_quant;                    // +190
-    uint8_t vop_coded;                    // +191
-    uint8_t vop_rounding_type;            // +192
-    uint8_t intra_dc_vlc_thr;             // +193
-    uint8_t top_field_first;              // +194
-    uint8_t alternate_vertical_scan_flag; // +195
-    uint8_t vop_fcode_forward;            // +196
-    uint8_t vop_fcode_backward;           // +197
-    uint32_t TRB[2];                      // +200 (2 bytes of alignment
-                                          //  padding after vop_fcode_backward)
-    uint32_t TRD[2];                      // +208
+    uint8_t vop_data_present;              // +188
+    uint8_t vop_coding_type;               // +189
+    uint8_t vop_quant;                     // +190
+    uint8_t vop_coded;                     // +191
+    uint8_t vop_rounding_type;             // +192
+    uint8_t intra_dc_vlc_thr;              // +193
+    uint8_t top_field_first;               // +194
+    uint8_t alternate_vertical_scan_flag;  // +195
+    uint8_t vop_fcode_forward;             // +196
+    uint8_t vop_fcode_backward;            // +197
+    uint32_t TRB[2];                       // +200 (2 bytes of alignment
+                                           //  padding after vop_fcode_backward)
+    uint32_t TRD[2];                       // +208
   } vop;
 } VcnMpeg4Msg;
 
@@ -101,8 +101,7 @@ static inline void vcn_mpeg4_fill(VcnMpeg4Msg* m, const Mpeg4Picture* p) {
     m->feature_flags |= 1u << VCN_MPEG4_F_SHORT_VIDEO_HEADER;
   if (p->obmc_disable) m->feature_flags |= 1u << VCN_MPEG4_F_OBMC_DISABLE;
   if (p->interlaced) m->feature_flags |= 1u << VCN_MPEG4_F_INTERLACED;
-  if (p->quarter_sample)
-    m->feature_flags |= 1u << VCN_MPEG4_F_QUARTER_SAMPLE;
+  if (p->quarter_sample) m->feature_flags |= 1u << VCN_MPEG4_F_QUARTER_SAMPLE;
   m->feature_flags |= 1u << VCN_MPEG4_F_COMPLEXITY_ESTIMATION_DISABLE;
   m->quant_type = p->quant_type;
   m->vop.vop_data_present = 1;

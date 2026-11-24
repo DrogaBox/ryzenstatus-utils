@@ -23,21 +23,21 @@ static int parse_sequence(const uint8_t* d, size_t n, size_t at,
   out->finterpflag = (uint8_t)br_get(&b, 1);
   br_get(&b, 1);  // reserved
   out->psf = (uint8_t)br_get(&b, 1);
-  if (br_get(&b, 1)) {  // display extension
-    br_get(&b, 14);     // display_horiz_size
-    br_get(&b, 14);     // display_vert_size
+  if (br_get(&b, 1)) {    // display extension
+    br_get(&b, 14);       // display_horiz_size
+    br_get(&b, 14);       // display_vert_size
     if (br_get(&b, 1)) {  // aspect_ratio_flag
       if (br_get(&b, 4) == 15) {
         br_get(&b, 8);  // aspect_horiz_size
         br_get(&b, 8);  // aspect_vert_size
       }
     }
-    if (br_get(&b, 1)) {       // framerate_flag
-      if (br_get(&b, 1)) {     // framerateind
-        br_get(&b, 16);        // frameratenr
+    if (br_get(&b, 1)) {    // framerate_flag
+      if (br_get(&b, 1)) {  // framerateind
+        br_get(&b, 16);     // frameratenr
       } else {
-        br_get(&b, 8);         // frameratenr
-        br_get(&b, 4);         // frameratedr
+        br_get(&b, 8);  // frameratenr
+        br_get(&b, 4);  // frameratedr
       }
     }
     if (br_get(&b, 1)) {  // color_format_flag
@@ -83,7 +83,7 @@ static void parse_entry(const uint8_t* d, size_t n, size_t at, Vc1Picture* o) {
   o->dquant = (uint8_t)br_get(&b, 2);
   o->vstransform = (uint8_t)br_get(&b, 1);
   o->overlap = (uint8_t)br_get(&b, 1);
-  br_get(&b, 2);  // quantizer_mode
+  br_get(&b, 2);        // quantizer_mode
   if (br_get(&b, 1)) {  // coded_size_flag
     uint32_t w = (br_get(&b, 12) + 1) * 2, h = (br_get(&b, 12) + 1) * 2;
     if (!b.err && w && h) {

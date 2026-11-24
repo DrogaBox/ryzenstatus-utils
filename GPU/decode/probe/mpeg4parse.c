@@ -14,8 +14,8 @@ static int parse_vol(const uint8_t* d, size_t n, size_t at, Mpeg4Picture* o,
                      char* err, size_t errLen) {
   BitReader b;
   br_init(&b, d + at + 4, n - at - 4);
-  br_get(&b, 1);   // random_accessible_vol
-  br_get(&b, 8);   // video_object_type_indication
+  br_get(&b, 1);  // random_accessible_vol
+  br_get(&b, 8);  // video_object_type_indication
   uint32_t verid = 1;
   if (br_get(&b, 1)) {  // is_object_layer_identifier
     verid = br_get(&b, 4);
@@ -26,32 +26,33 @@ static int parse_vol(const uint8_t* d, size_t n, size_t at, Mpeg4Picture* o,
     br_get(&b, 8);            // par_width
     br_get(&b, 8);            // par_height
   }
-  if (br_get(&b, 1)) {      // vol_control_parameters
-    br_get(&b, 2);          // chroma_format
-    br_get(&b, 1);          // low_delay
-    if (br_get(&b, 1)) {    // vbv_parameters
-      br_get(&b, 15);       // first_half_bitrate
-      br_get(&b, 1);        // marker
-      br_get(&b, 15);       // latter_half_bitrate
+  if (br_get(&b, 1)) {    // vol_control_parameters
+    br_get(&b, 2);        // chroma_format
+    br_get(&b, 1);        // low_delay
+    if (br_get(&b, 1)) {  // vbv_parameters
+      br_get(&b, 15);     // first_half_bitrate
+      br_get(&b, 1);      // marker
+      br_get(&b, 15);     // latter_half_bitrate
       br_get(&b, 1);
-      br_get(&b, 15);       // first_half_vbv_buffer_size
+      br_get(&b, 15);  // first_half_vbv_buffer_size
       br_get(&b, 1);
-      br_get(&b, 15);       // latter_half_vbv_buffer_size
+      br_get(&b, 15);  // latter_half_vbv_buffer_size
       br_get(&b, 1);
-      br_get(&b, 11);       // first_half_vbv_occupancy
+      br_get(&b, 11);  // first_half_vbv_occupancy
       br_get(&b, 1);
-      br_get(&b, 15);       // latter_half_vbv_occupancy
+      br_get(&b, 15);  // latter_half_vbv_occupancy
       br_get(&b, 1);
     }
   }
   o->shape = (uint8_t)br_get(&b, 2);
   if (o->shape > 1) {
-    copy_err(err, errLen, "MPEG-4 shape other than rectangular/binary is not supported");
+    copy_err(err, errLen,
+             "MPEG-4 shape other than rectangular/binary is not supported");
     return -1;
   }
   br_get(&b, 1);  // marker
   o->vop_time_increment_resolution = (uint16_t)br_get(&b, 16);
-  br_get(&b, 1);  // marker
+  br_get(&b, 1);      // marker
   if (br_get(&b, 1))  // fixed_vop_rate
     br_get(&b, log2ceil(o->vop_time_increment_resolution));
   if (o->shape == 0) {
@@ -84,8 +85,8 @@ static int parse_vol(const uint8_t* d, size_t n, size_t at, Mpeg4Picture* o,
     if (br_get(&b, 1)) br_skip(&b, 64 * 8);  // load_nonintra_quant_mat
   }
   if (o->verid != 1) o->quarter_sample = (uint8_t)br_get(&b, 1);
-  if (br_get(&b, 1)) {  // complexity_estimation_disable must be 1 to continue
-    br_get(&b, 1);      // resync_marker_disable
+  if (br_get(&b, 1)) {    // complexity_estimation_disable must be 1 to continue
+    br_get(&b, 1);        // resync_marker_disable
     if (br_get(&b, 1)) {  // data_partitioned
       br_get(&b, 1);      // reversible_vlc
       copy_err(err, errLen, "MPEG-4 data partitioning is not supported");
@@ -133,10 +134,11 @@ int mpeg4_parse(const uint8_t* data, size_t size, Mpeg4Picture* out, char* err,
   BitReader b;
   br_init(&b, data + vop + 4, size - vop - 4);
   out->vop_coding_type = (uint8_t)br_get(&b, 2);
-  while (br_get(&b, 1) == 1) { /* modulo_time_base: unary */ }
+  while (br_get(&b, 1) == 1) { /* modulo_time_base: unary */
+  }
   br_get(&b, 1);  // marker
   br_get(&b, log2ceil(out->vop_time_increment_resolution));
-  br_get(&b, 1);  // marker
+  br_get(&b, 1);         // marker
   if (!br_get(&b, 1)) {  // vop_coded
     copy_err(err, errLen, "the first MPEG-4 VOP is not coded");
     return -1;

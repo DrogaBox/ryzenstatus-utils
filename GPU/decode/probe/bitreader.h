@@ -46,4 +46,6 @@ static inline uint32_t br_ue(BitReader* b) {
   return (uint32_t)((1ull << zeros) - 1 + br_get(b, zeros));
 }
 
-static inline size_t br_bytes_used(const BitReader* b) { return (b->bit + 7) >> 3; }
+static inline size_t br_bytes_used(const BitReader* b) {
+  return (b->bit + 7) >> 3;
+}

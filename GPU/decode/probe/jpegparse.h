@@ -9,10 +9,10 @@
 
 typedef struct {
   ProbeAu au;
-  uint8_t components;      // 3
-  uint8_t sampling;        // 1 = 4:2:0, 2 = 4:2:2, 3 = 4:4:4
-  uint8_t precision;       // 8
-  uint16_t restartInterval; // 0 when none (see DRI; 16 bits per T.81)
+  uint8_t components;        // 3
+  uint8_t sampling;          // 1 = 4:2:0, 2 = 4:2:2, 3 = 4:4:4
+  uint8_t precision;         // 8
+  uint16_t restartInterval;  // 0 when none (see DRI; 16 bits per T.81)
 } JpegPicture;
 
 // 0 on success, -1 with err set.

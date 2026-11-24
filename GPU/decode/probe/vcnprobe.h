@@ -9,18 +9,18 @@
 #include <stdint.h>
 
 typedef struct {
-  uint32_t codecId;      // RDECODE_CODEC_* for create and decode blocks
-  uint32_t messageId;    // RDECODE_MESSAGE_* of the codec block
-  const void* block;     // codec block, blockSize bytes
+  uint32_t codecId;    // RDECODE_CODEC_* for create and decode blocks
+  uint32_t messageId;  // RDECODE_MESSAGE_* of the codec block
+  const void* block;   // codec block, blockSize bytes
   uint32_t blockSize;
   uint32_t width, height;
   const uint8_t* bitstream;
   size_t bitstreamSize;
   // Driver-facing session fields, from the stream's own header.
-  uint32_t profile;   // AV1/VP9 profile; 0 for the legacy codecs
-  uint32_t depth;     // 8 or 10; the driver stores it in the processor
-  int vc1Simple;      // VC-1 simple/main: decode size in 16-sample units
-  const void* vp9;    // const VP9Parser*, only for the VP9 control
+  uint32_t profile;  // AV1/VP9 profile; 0 for the legacy codecs
+  uint32_t depth;    // 8 or 10; the driver stores it in the processor
+  int vc1Simple;     // VC-1 simple/main: decode size in 16-sample units
+  const void* vp9;   // const VP9Parser*, only for the VP9 control
 } ProbeJob;
 
 // 0 on success (dry run: the messages were built and printed; gpu: the command

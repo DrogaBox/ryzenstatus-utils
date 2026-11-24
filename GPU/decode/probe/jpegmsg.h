@@ -1,13 +1,13 @@
 // JPEG codec block of a VCN decode message — there is none.
 //
-// Mesa's VCN JPEG decoder (radeon_vcn_dec_jpeg.c, fetched this batch to
-// ~/re_cache/work/hidden-hw/b24/mesa-radeon_vcn_dec_jpeg.c) does not build a
-// message at all: it emits register writes on the JPEG ring (mmUVD_JPEG_PITCH,
-// mmUVD_JPEG_UV_PITCH, mmUVD_JPEG_TILING_CTRL, mmUVD_LMI_JPEG_READ/WRITE_64BIT
-// _BAR_LOW/HIGH, mmUVD_JPEG_RB_BASE/SIZE/WPTR, mmUVD_JPEG_INDEX/DATA,
-// mmUVD_JPEG_OUTBUF_RPTR/WPTR, mmUVD_JPEG_CNTL, plus UVD_CTX_INDEX/DATA pairs),
-// and Linux gives JPEG its own JRBC ring (jpeg_v3_0.c). ac_vcn_dec.h defines
-// RDECODE_CODEC_JPEG 8 but no JPEG structure.
+// Mesa's VCN JPEG decoder (src/gallium/drivers/radeonsi/radeon_vcn_dec_jpeg.c)
+// does not build a message at all: it emits register writes on the JPEG ring
+// (mmUVD_JPEG_PITCH, mmUVD_JPEG_UV_PITCH, mmUVD_JPEG_TILING_CTRL,
+// mmUVD_LMI_JPEG_READ/WRITE_64BIT _BAR_LOW/HIGH, mmUVD_JPEG_RB_BASE/SIZE/WPTR,
+// mmUVD_JPEG_INDEX/DATA, mmUVD_JPEG_OUTBUF_RPTR/WPTR, mmUVD_JPEG_CNTL, plus
+// UVD_CTX_INDEX/DATA pairs), and Linux gives JPEG its own JRBC ring
+// (jpeg_v3_0.c). ac_vcn_dec.h defines RDECODE_CODEC_JPEG 8 but no JPEG
+// structure.
 //
 // What follows is therefore NOT a firmware message: it packs the picture
 // parameters Mesa programs, in the order it programs them, so that the probe
