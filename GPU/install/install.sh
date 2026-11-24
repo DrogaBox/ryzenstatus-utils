@@ -8,6 +8,11 @@
 #   sudo install/install.sh [--with-encoder] [--with-sensors] [--efi diskNsM]
 #   install/install.sh --help
 #
+#   --with-legacy-decoders  the MPEG-2, VC-1 and MPEG-4 plug-ins too, with AV1 and VP9 (the
+#                           same as VCNVT_LEGACY_DECODERS=1). Off by default: they have not
+#                           run through VideoToolbox on a GPU yet. Without it, the three
+#                           are taken off if an earlier run with it left them.
+#
 # What it decides:
 #   decoders   always (the AV1 and VP9 plug-ins); skipped when the ones installed are
 #              already these, or when these were put in the boot snapshot earlier in this
@@ -50,7 +55,7 @@ source $SELF_DIR/common.zsh
 
 usage_error() {
   print -r -u2 -- "install.sh: $1"
-  print -r -u2 -- "usage: install.sh [plan] [--with-encoder] [--with-sensors] [--efi diskNsM]"
+  print -r -u2 -- "usage: install.sh [plan] [--with-encoder] [--with-sensors] [--with-legacy-decoders] [--efi diskNsM]"
   exit 64
 }
 
@@ -63,6 +68,8 @@ while (( $# )); do
     plan) PLAN=1 ;;
     --with-encoder) WITH_ENCODER=1 ;;
     --with-sensors) WITH_SENSORS=1 ;;
+    # decoders.sh and loader.sh read it (common.zsh, legacy_on)
+    --with-legacy-decoders) export VCNVT_LEGACY_DECODERS=1 ;;
     --efi)
       (( $# >= 2 )) && [[ $2 =~ '^disk[0-9]+s[0-9]+$' ]] || usage_error "--efi needs a partition, for example disk0s1"
       EFI_ID=$2

@@ -20,6 +20,8 @@ Mac has to be reset. Before any run marked "can hang" below:
 |---------|---------------------|------------------|---------------------|
 | `decode_ivf` | yes | **yes** | `VCNAV1_ALLOW_GPU=yes-i-know-it-can-hang` |
 | `decode_vp9` | yes | **yes** | `VCNVP9_SESSION=vp9` and `VCNVP9_ALLOW_GPU=yes-i-know-it-can-hang` |
+| `decode_legacy` | yes | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` |
+| `vtlegacytest` | yes, through VideoToolbox | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` (without it, it only cuts the stream into samples) |
 | `vtav1test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtvp9test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtchurn` | yes, through VideoToolbox | **yes** | none: every session decodes |
@@ -27,10 +29,49 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `tools/driver/dryrun.py`, `dryrun_vp9.py` | yes, under lldb | the driver's own setup goes out; our commands do not | the scripts arm the program themselves |
 | `driveruuid` | loads the driver's code only | no | none |
 | `vp9dump` | no | no | none |
+| `vc1info` | no | no | none |
 | `tools/driver/dscdiff.py`, `vcnmsg.py`, `mk4k.py`, `mkvp9.py`, `rawpatch` | no | no | none |
+| `mkfield.py` | no | no | none |
 
 The switches must have exactly these values. Anything else leaves the program unarmed: it
 stops with "GPU submission disabled" before it sends anything.
+
+`decode_legacy` and `vtlegacytest` are for the MPEG-2, VC-1 and MPEG-4 decoders
+(`decode/mpeg2`, `decode/vc1`, `decode/mpeg4`, on `decode/common/vcnlegacy.c`). Both take a
+whole elementary stream (`.m2v`, `.m4v`, `.vc1` with start codes, or `.rcv` for VC-1
+simple/main as FFmpeg's `vc1test` muxer writes it) and write the frames as NV12 in display
+order, which compares frame by frame with `ffmpeg -i <stream> -f rawvideo -pix_fmt nv12`.
+`decode_legacy` drives the codec layers directly. `vtlegacytest` links the three plug-ins in
+and registers them with VideoToolbox for its own process, so the plug-ins are exercised
+through a real decompression session without being installed.
+
+`VTLEGACY_DECODER` picks the decoder `vtlegacytest`'s session gets. `ours` (the default) asks
+for our plug-in by its DecoderID, with hardware required. `system` registers it as an
+installed copy is (VTRating 400) and lets VideoToolbox choose, as an app's session would:
+an MPEG-4 stream our plug-in refuses goes on to the next decoder. `apple` uses Apple's
+AppleMP4V with the hardware off and our plug-in not registered: CPU only, no switch needed,
+a reference for the MPEG-4 runs. AppleMP4V decodes plain Simple profile only; it refuses
+Advanced Simple, interlaced and MPEG quantisation with codecBadDataErr (-8969). Without a
+DecoderID an in-process registration with no rating can lose to AppleMP4V (round 3).
+`installed` registers nothing and asks for nothing: VideoToolbox picks among the plug-ins
+installed in `/System/Library/Video/Plug-Ins`, as a player's session does. It prints whether
+ours is listed and, after the frames, whether the process loaded the installed bundle. Apple's
+MPEG-2 and MPEG-4 decoders on this Mac are software ones, so "hardware decoder: yes" is ours.
+
+MPEG-2 field pictures are refused before the GPU unless `VCNMPEG2_ALLOW_FIELDS=1`; no
+numbering has decoded them right yet (`VCNMPEG2_INDEX`, `VCNMPEG2_FIELD`, see
+`decode/mpeg2/vcnmpeg2.h`).
+
+`vtlegacytest` puts the two field pictures of an MPEG-2 frame in one sample, as an MP4 or a
+transport stream does. No encoder on macOS writes field pictures (FFmpeg's `mpeg2video`
+always codes frame pictures), so `mkfield.py` makes a stream of them from raw yuv420p
+frames: I and P fields, with intra macroblock rows and rows that copy a reference field
+(also the first field of the same frame):
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=720x576:rate=25 -frames:v 8 -pix_fmt yuv420p -f rawvideo src.yuv
+python3 -I decode/tests/gpu/mkfield.py src.yuv 720 576 8 mpeg2-720x576-fields.m2v
+```
 
 ## Building
 
@@ -193,6 +234,23 @@ decode/build/gpu/vp9dump v.ivf -v
 ```
 
 A pass: `tiles_bad=0` on the last line, and exit status 0.
+
+## vc1info
+
+Says what a VC-1 advanced profile stream holds, with the plug-in's own parser and no driver
+or GPU: the size, the interlace flag, and for each frame its coding mode and type (`p`
+progressive, `f` frame-interlaced, `F` field-interlaced, then `P`/`B`/`I`/`b` for BI/`S` for
+skipped, and for a field-interlaced frame the type of its second field).
+
+```sh
+decode/build/gpu/vc1info clip.vc1 16
+```
+
+Exit status 0 when the first 16 frames (all, without the number) include a field-interlaced
+one, 3 when they do not, 1 when the parser stops on an error. `vc1info clip.vc1 16 cut.vc1`
+also writes those 16 frames with their headers to `cut.vc1`, so FFmpeg and the GPU decode the
+same short clip. Anything before the first sequence header (a stream copied out of a transport
+stream in the middle) is skipped and left out of the cut.
 
 ## Dry runs: tools/driver/dryrun.py and dryrun_vp9.py
 

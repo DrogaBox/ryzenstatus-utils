@@ -10,10 +10,10 @@
 //   - second accelerator matching after write(1);
 //   - kext stop: restores only currently applied accelerators, releases all
 //     kept slots, and resets state to "off".
+#include "../kext/hevc10_gate.hpp"
+
 #include <stdio.h>
 #include <string.h>
-
-#include "../kext/hevc10_gate.hpp"
 
 using namespace vcnfloor;
 
@@ -104,12 +104,14 @@ int main() {
     // Kext stop while applied
     bool toRestore[kMaxHevc10Accels]{};
     size_t n = g.onStop(toRestore);
-    check(n == 2 && toRestore[0] && toRestore[1] && !toRestore[2] &&
-              g.value() == 0 && stateIs(g, "off"),
-          "onStop marks both applied accelerators for restore and resets to off");
+    check(
+        n == 2 && toRestore[0] && toRestore[1] && !toRestore[2] &&
+            g.value() == 0 && stateIs(g, "off"),
+        "onStop marks both applied accelerators for restore and resets to off");
   }
 
-  // 3. Write before any accelerator is matched (remember value and apply on match)
+  // 3. Write before any accelerator is matched (remember value and apply on
+  // match)
   {
     Hevc10Gate g;
     g.init(true);

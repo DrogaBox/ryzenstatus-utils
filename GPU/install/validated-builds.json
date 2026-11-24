@@ -1,5 +1,5 @@
 {
-  "_comment": "macOS builds whose AMDRadeonVADriver2 was validated. Installing on an UNLISTED build is blocked by default (GPU-hang risk) and needs the explicit override (install/decoders.sh install --force). Add a build only after checking its driver: the same driverUUID (the LC_UUID of AMDRadeonVADriver2) as a listed build means the same binary; a new UUID needs the decode path compared first, and must also be added to kValidatedDrivers in decode/av1/vcnav1.c and decode/vp9/vcnvp9.c (install/check_lists.sh fails when the lists differ). av1/vp9: true = decoded bit-exact on a GPU, \"untested-on-gpu\" = driver validated but not run yet, false = the plug-in refuses this driver and macOS falls back to software. encode: true = the optional encoding fix (VCNEncodeFix) was validated on this build (its AMDRadeonVADriver2, AppleGVAHEVCEncoder and AMDRadeonX6000HWLibs / AMDRadeonX6800HWLibs match the patched builds); false = it stays off.",
+  "_comment": "macOS builds whose AMDRadeonVADriver2 was validated. Installing on an UNLISTED build is blocked by default (GPU-hang risk) and needs the explicit override (install/decoders.sh install --force). Add a build only after checking its driver: the same driverUUID (the LC_UUID of AMDRadeonVADriver2) as a listed build means the same binary; a new UUID needs the decode path compared first, and must also be added to kValidatedDrivers in decode/av1/vcnav1.c and decode/vp9/vcnvp9.c (install/check_lists.sh fails when the lists differ). av1/vp9: true = decoded bit-exact on a GPU, \"untested-on-gpu\" = driver validated but not run yet, false = the plug-in refuses this driver and macOS falls back to software. legacy: the MPEG-2, VC-1 and MPEG-4 plug-ins, which share one list (kValidatedDrivers in decode/common/vcnlegacy.c) and are installed only with install/decoders.sh --legacy; same values as av1/vp9. encode: true = the optional encoding fix (VCNEncodeFix) was validated on this build (its AMDRadeonVADriver2, AppleGVAHEVCEncoder and AMDRadeonX6000HWLibs / AMDRadeonX6800HWLibs match the patched builds); false = it stays off.",
   "schema": 1,
   "validated": [
     {
@@ -9,6 +9,7 @@
       "driverUUID": "C637BF67BF5839FE937A827486BE9BFB",
       "av1": false,
       "vp9": false,
+      "legacy": false,
       "encode": true
     },
     {
@@ -18,6 +19,7 @@
       "driverUUID": "5D90FED3BCBF34759F4B8FC00026D3AB",
       "av1": true,
       "vp9": true,
+      "legacy": false,
       "encode": true
     },
     {
@@ -27,6 +29,7 @@
       "driverUUID": "5D90FED3BCBF34759F4B8FC00026D3AB",
       "av1": "untested-on-gpu",
       "vp9": "untested-on-gpu",
+      "legacy": false,
       "encode": true
     },
     {
@@ -36,6 +39,7 @@
       "driverUUID": "8D3BA61E7BC73BDFADB3A7866360B6DE",
       "av1": true,
       "vp9": true,
+      "legacy": false,
       "encode": false
     },
     {
@@ -45,6 +49,7 @@
       "driverUUID": "1181E2CA31B33DF090E23AE70552D753",
       "av1": "untested-on-gpu",
       "vp9": "untested-on-gpu",
+      "legacy": "untested-on-gpu",
       "encode": false
     },
     {
@@ -54,6 +59,7 @@
       "driverUUID": "1181E2CA31B33DF090E23AE70552D753",
       "av1": true,
       "vp9": true,
+      "legacy": "untested-on-gpu",
       "encode": true
     }
   ],

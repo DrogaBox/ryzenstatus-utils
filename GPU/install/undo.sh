@@ -69,7 +69,9 @@ encoder=no
 [[ -e /Library/LaunchDaemons/com.droga.vcnencodefix.plist || -n $(kext_version com.droga.VCNEncodeFloor) ]] ||
   efi_has VCNEncodeFloor && encoder=yes
 decoders=no
-[[ -d /System/Library/Video/Plug-Ins/AV1VCNDecoder.bundle || -d /System/Library/Video/Plug-Ins/VP9VCNDecoder.bundle ]] && decoders=yes
+for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES; do
+  [[ -d /System/Library/Video/Plug-Ins/$b ]] && decoders=yes
+done
 # gpucontrol and gpusensors in /usr/local/bin: only ours (signed with our identifiers) are
 # removed; another program under one of those names stays, and is named.
 gpu_tools_look

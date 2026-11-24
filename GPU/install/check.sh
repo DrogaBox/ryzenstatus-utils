@@ -93,10 +93,18 @@ for oc in /Volumes/*/EFI/OC(N); do
 done
 [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] &&
   left+=("com.droga.vcnpreset, the encoder service's test version ($(pick "'sudo install/encoder.sh install'" "installing the encoding fix in this window") replaces it)")
-for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle; do
+for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES; do
   [[ -d /Library/Video/Plug-Ins/$b ]] &&
     left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ($(pick "'sudo install/decoders.sh install'" "installing the decoder plug-ins in this window") removes it)")
 done
+# The MPEG-2, VC-1 and MPEG-4 plug-ins of an earlier install with --legacy, when this check
+# is without it (decoders.sh install without --legacy takes them off).
+if ! legacy_on; then
+  for b in $LEGACY_BUNDLES; do
+    [[ -e /System/Library/Video/Plug-Ins/$b ]] &&
+      left+=("/System/Library/Video/Plug-Ins/$b, from an earlier install with --legacy ($(pick "'sudo install/decoders.sh install' without --legacy" "installing the decoder plug-ins again in this window") removes it)")
+  done
+fi
 # The GPU sensors' commands, once the kext they go with is gone: not loaded and on no EFI
 # partition. Said only when every EFI partition is mounted, so all of them were looked into
 # (one that is not mounted may hold the kext, before its first boot).

@@ -71,7 +71,11 @@ KEXTS=($G/sensors/build/GPUSensors.kext $G/decode/build/VCNVTLoader.kext $ENC/Ke
 zsh $G/tools/kextlinks.sh $KEXTS || fail "a kext imports a symbol this Mac's kernel and Lilu do not export"
 
 print "▸ Signatures"
-for signed in $G/decode/build/AV1VCNDecoder.bundle $G/decode/build/VP9VCNDecoder.bundle \
+# The MPEG-2, VC-1 and MPEG-4 plug-ins ship only with VCNVT_LEGACY_DECODERS=1 (GPU/tools/package.sh).
+LEGACY=()
+[[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]] &&
+  LEGACY=($G/decode/build/MPEG2VCNDecoder.bundle $G/decode/build/VC1VCNDecoder.bundle $G/decode/build/MPEG4VCNDecoder.bundle)
+for signed in $G/decode/build/AV1VCNDecoder.bundle $G/decode/build/VP9VCNDecoder.bundle $LEGACY \
               $G/decode/build/lvprobe $G/decode/build/kextentry $KEXTS \
               $G/sensors/build/gpusensors $G/sensors/build/gpucontrol $ENC/bin/vcnencodefix $ENC/bin/vtenc; do
   why=$(codesign --verify --deep --strict "$signed" 2>&1) ||

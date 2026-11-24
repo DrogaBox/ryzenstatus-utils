@@ -96,7 +96,8 @@ int main(void) {
     printf("FAIL: struct array sizes do not match constants\n");
     fails++;
   }
-  // Site A rip-relative vmovsd loads (bytes 16..23 and 26..33) must stay identical.
+  // Site A rip-relative vmovsd loads (bytes 16..23 and 26..33) must stay
+  // identical.
   if (memcmp(b->fmtFind + 16, b->fmtRepl + 16, 8) != 0 ||
       memcmp(b->fmtFind + 26, b->fmtRepl + 26, 8) != 0) {
     printf("FAIL: site A rip-relative loads differ between find and repl\n");
