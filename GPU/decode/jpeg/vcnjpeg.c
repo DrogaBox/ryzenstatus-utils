@@ -15,7 +15,7 @@ static void* iokit_open(void) {
   if (c == IO_OBJECT_NULL) return NULL;
   io_connect_t* p = malloc(sizeof(*p));
   if (!p) {
-    IOServiceClose(c);
+    ja_iokit_close(c);
     return NULL;
   }
   *p = c;
@@ -23,7 +23,7 @@ static void* iokit_open(void) {
 }
 static void iokit_close(void* ctx) {
   if (!ctx) return;
-  IOServiceClose(*(io_connect_t*)ctx);
+  ja_iokit_close(*(io_connect_t*)ctx);  // the video context and its shared client
   free(ctx);
 }
 ja_transport vcnjpeg_transport = ja_iokit_call;

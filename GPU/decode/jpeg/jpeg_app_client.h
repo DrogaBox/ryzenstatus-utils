@@ -83,16 +83,74 @@ static inline int ja_info(ja_transport t, void* ctx, uint64_t* state, uint64_t* 
 
 #ifdef __APPLE__
 #include <IOKit/IOKitLib.h>
+#include <os/lock.h>
 
-/* Opens a video context (type 3) on the AMD accelerator: what any process that decodes video may do. */
-static inline io_connect_t ja_iokit_open(void) {
+/* A video context only answers once it is connected to a shared user client (type 6) of the same task:
+   IOConnectAddClient(video, shared) -> IOAccelContext2::connectClient -> contextStart, which sets the
+   method table. Before that every selector returns kIOReturnNotReady (IOAccelContext2::externalMethod
+   checks the started flag at +1688). Seen on hardware 2026-11-24: type 3 alone gave 0xE00002D8.
+   The shared client stays open as long as the video context: ja_iokit_close closes both. */
+#define JA_SHARED_TYPE 6u
+#define JA_MAX_PAIRS 16
+static struct { io_connect_t video, shared; } ja_pairs[JA_MAX_PAIRS];
+static os_unfair_lock ja_pairs_lock = OS_UNFAIR_LOCK_INIT;
+
+/* Opens shared (6) + video (3) on the AMD accelerator and connects them: what any process that decodes
+   video does. Returns the video context, or IO_OBJECT_NULL; *why (optional) gets the failing step's code. */
+static inline io_connect_t ja_iokit_open_why(kern_return_t* why, int* step) {
+  kern_return_t kr = kIOReturnNotFound;
+  int at = 0;
+  io_connect_t video = IO_OBJECT_NULL, shared = IO_OBJECT_NULL;
   io_service_t s = IOServiceGetMatchingService(kIOMainPortDefault,
                                                IOServiceMatching("AMDRadeonX6000_AMDGraphicsAccelerator"));
-  if (s == IO_OBJECT_NULL) return IO_OBJECT_NULL;
-  io_connect_t c = IO_OBJECT_NULL;
-  kern_return_t kr = IOServiceOpen(s, mach_task_self(), JA_VIDEO_CONTEXT_TYPE, &c);
-  IOObjectRelease(s);
-  return kr == KERN_SUCCESS ? c : IO_OBJECT_NULL;
+  if (s != IO_OBJECT_NULL) {
+    at = 1;
+    kr = IOServiceOpen(s, mach_task_self(), JA_SHARED_TYPE, &shared);
+    if (kr == KERN_SUCCESS) {
+      at = 2;
+      kr = IOServiceOpen(s, mach_task_self(), JA_VIDEO_CONTEXT_TYPE, &video);
+    }
+    if (kr == KERN_SUCCESS) {
+      at = 3;
+      kr = IOConnectAddClient(video, shared);
+    }
+    IOObjectRelease(s);
+  }
+  if (kr == KERN_SUCCESS) {
+    at = 4;
+    kr = kIOReturnNoResources;
+    os_unfair_lock_lock(&ja_pairs_lock);
+    for (int i = 0; i < JA_MAX_PAIRS; i++)
+      if (ja_pairs[i].video == IO_OBJECT_NULL) {
+        ja_pairs[i].video = video;
+        ja_pairs[i].shared = shared;
+        kr = KERN_SUCCESS;
+        break;
+      }
+    os_unfair_lock_unlock(&ja_pairs_lock);
+  }
+  if (why) *why = kr;
+  if (step) *step = at;
+  if (kr == KERN_SUCCESS) return video;
+  if (video != IO_OBJECT_NULL) IOServiceClose(video);
+  if (shared != IO_OBJECT_NULL) IOServiceClose(shared);
+  return IO_OBJECT_NULL;
+}
+static inline io_connect_t ja_iokit_open(void) { return ja_iokit_open_why(NULL, NULL); }
+
+/* Closes a video context from ja_iokit_open and its shared client. */
+static inline void ja_iokit_close(io_connect_t video) {
+  io_connect_t shared = IO_OBJECT_NULL;
+  os_unfair_lock_lock(&ja_pairs_lock);
+  for (int i = 0; i < JA_MAX_PAIRS; i++)
+    if (ja_pairs[i].video == video && video != IO_OBJECT_NULL) {
+      shared = ja_pairs[i].shared;
+      ja_pairs[i].video = ja_pairs[i].shared = IO_OBJECT_NULL;
+      break;
+    }
+  os_unfair_lock_unlock(&ja_pairs_lock);
+  if (video != IO_OBJECT_NULL) IOServiceClose(video);
+  if (shared != IO_OBJECT_NULL) IOServiceClose(shared);
 }
 
 static inline int ja_iokit_call(void* ctx, const void* in, size_t inSize, void* out, size_t* outSize) {
