@@ -6,8 +6,10 @@
 #
 # install/validated-builds.json is the list people read and edit: one entry per macOS build,
 # with the UUID of that build's video driver (AMDRadeonVADriver2). Each decoder also carries
-# its own list of driver UUIDs, kValidatedDrivers, in decode/av1/vcnav1.c and
-# decode/vp9/vcnvp9.c. A decoder refuses to work with a driver that is not in its list.
+# its own list of driver UUIDs, kValidatedDrivers, in decode/av1/vcnav1.c,
+# decode/vp9/vcnvp9.c and decode/common/vcnlegacy.c (one list for the MPEG-2, VC-1 and MPEG-4
+# plug-ins, "legacy" in the JSON). A decoder refuses to work with a driver that is not in its
+# list.
 #
 # For each codec the two must name the same drivers. This script fails when:
 #   - a build is marked usable in the JSON (true or "untested-on-gpu") and its driver is
@@ -22,7 +24,7 @@ emulate -L zsh
 setopt no_unset
 cd "${0:A:h:h}"
 JSON=install/validated-builds.json
-typeset -A C_FILE=(av1 decode/av1/vcnav1.c vp9 decode/vp9/vcnvp9.c)
+typeset -A C_FILE=(av1 decode/av1/vcnav1.c vp9 decode/vp9/vcnvp9.c legacy decode/common/vcnlegacy.c)
 
 problems=0
 problem() { print -r -- "  DIFFERENCE: $1"; problems=$((problems + 1)); }
@@ -64,7 +66,7 @@ for (( i = 0; i < count; i++ )); do
   (( ${builds[(Ie)$build]} )) && problem "$where: build $build is listed twice"
   [[ $uuid =~ '^[0-9A-F]{32}$' ]] || problem "$where: driverUUID '$uuid' is not 32 uppercase hexadecimal digits"
   [[ $encode == (true|false) ]] || problem "$where: \"encode\" is '$encode', expected true or false"
-  for codec in av1 vp9; do
+  for codec in av1 vp9 legacy; do
     v=$(plx validated.$i.$codec)
     [[ $v == (true|false|untested-on-gpu) ]] ||
       problem "$where: \"$codec\" is '$v', expected true, false or \"untested-on-gpu\""
@@ -72,11 +74,11 @@ for (( i = 0; i < count; i++ )); do
   done
   builds+=("$build")
   uuids+=("$uuid")
-  print -r -- "  $build  $uuid  av1=${value[$((i + 1)):av1]}  vp9=${value[$((i + 1)):vp9]}  encode=$encode"
+  print -r -- "  $build  $uuid  av1=${value[$((i + 1)):av1]}  vp9=${value[$((i + 1)):vp9]}  legacy=${value[$((i + 1)):legacy]}  encode=$encode"
 done
 
 # ---- compare, one codec at a time ------------------------------------------------------------
-for codec in av1 vp9; do
+for codec in av1 vp9 legacy; do
   file=${C_FILE[$codec]}
   print
   print "== $codec: $JSON against kValidatedDrivers in $file"

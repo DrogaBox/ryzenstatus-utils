@@ -1,12 +1,13 @@
 #!/bin/zsh
-# decoders.sh - installs, repairs or removes the two decoder plug-ins (AV1 and VP9) in the
-# system folder /System/Library/Video/Plug-Ins, and checks whether this Mac is ready for them.
+# decoders.sh - installs, repairs or removes the decoder plug-ins (AV1 and VP9; with --legacy
+# also MPEG-2, VC-1 and MPEG-4) in the system folder /System/Library/Video/Plug-Ins, and checks
+# whether this Mac is ready for them.
 #
 #   install/decoders.sh check [--json]           run the checks; changes nothing, no sudo needed
 #   sudo install/decoders.sh install [--force]   copy both plug-ins into the system volume
 #   sudo install/decoders.sh repair [--force]    put back every Apple plug-in missing from the
 #                                                system folder, then install both plug-ins
-#   sudo install/decoders.sh uninstall           remove both plug-ins
+#   sudo install/decoders.sh uninstall           remove every decoder plug-in of ours
 #   install/decoders.sh --help
 #
 # Options:
@@ -14,6 +15,10 @@
 #                   The video driver of that build was not checked, and a wrong message to
 #                   it can hang the GPU.
 #   --bundles DIR   take the plug-ins from DIR instead of decode/build
+#   --legacy        with check, install and repair: the MPEG-2, VC-1 and MPEG-4 plug-ins
+#                   too (the same as VCNVT_LEGACY_DECODERS=1). Off by default: they have
+#                   not run through VideoToolbox on a GPU yet. uninstall always removes
+#                   them with the other two.
 #   --json          with check: print the result as one JSON object (for a front end)
 #
 # install, repair and uninstall change a mounted copy of the system volume and then create a
@@ -57,7 +62,7 @@ LIBPLUG=/Library/Video/Plug-Ins
 show_help() { help_of "$SELF_DIR/decoders.sh"; }
 usage_error() {
   print -r -u2 -- "decoders.sh: $1"
-  print -r -u2 -- "usage: decoders.sh {check [--json] | install [--force] | repair [--force] | uninstall} [--bundles DIR]"
+  print -r -u2 -- "usage: decoders.sh {check [--json] | install [--force] | repair [--force] | uninstall} [--bundles DIR] [--legacy]"
   exit 64
 }
 
@@ -73,11 +78,17 @@ while (( $# )); do
       (( $# >= 2 )) && [[ -n $2 ]] || usage_error "--bundles needs a folder"
       BUNDLES=${2:A}
       shift ;;
+    --legacy) export VCNVT_LEGACY_DECODERS=1 ;;
     -h|--help) show_help; exit 0 ;;
     *) usage_error "unknown option '$1'" ;;
   esac
   shift
 done
+# The plug-ins this run installs and checks; uninstall takes off all of ALL.
+WANT=($AV1 $VP9)
+legacy_on && WANT+=($LEGACY_BUNDLES)
+ALL=($AV1 $VP9 $LEGACY_BUNDLES)
+all_built() { local b; for b in $WANT; do [[ -d $BUNDLES/$b ]] || return 1; done; }
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ $FORCE -eq 1 && $CMD != install && $CMD != repair ]] && usage_error "--force goes with install and repair only"
 # VCNVT_FAKE_RECORDS and VCNVT_FAKE_LIVE are for testing only (tests/loader_install.sh), and
@@ -120,7 +131,8 @@ sig_authority() { codesign -dvv "$1" 2>&1 | sed -n 's/^Authority=//p' | tail -1;
 loader_in() { # EFI/OC folder
   local oc=$1 cfg=$1/config.plist out i bp
   [[ -f $cfg && -d $oc/Kexts/VCNVTLoader.kext ]] || return 1
-  kext_lists "$oc/Kexts/VCNVTLoader.kext" "$BUNDLES/$AV1" && kext_lists "$oc/Kexts/VCNVTLoader.kext" "$BUNDLES/$VP9" || return 1
+  local b
+  for b in $WANT; do kext_lists "$oc/Kexts/VCNVTLoader.kext" "$BUNDLES/$b" || return 1; done
   if [[ -x $ROOT/decode/build/kextentry ]]; then
     out=$("$ROOT/decode/build/kextentry" VCNVTLoader check "$cfg" 2>/dev/null) || return 1
     [[ $out == *"Lilu.kext enabled;"* && ${out##*$'\n'} == *", enabled, after Lilu, settings as expected" ]]
@@ -159,7 +171,9 @@ pending_loader() {
 # Does macOS accept both plug-ins right now? Sets PROBE_WHY to the kernel's reason when it
 PROBE=$ROOT/decode/build/lvprobe
 probe_accepts() {
-  lv_accepts "$PROBE" "$BUNDLES/$AV1/Contents/MacOS/${AV1%.bundle}" "$BUNDLES/$VP9/Contents/MacOS/${VP9%.bundle}"
+  local -a exes=() b
+  for b in $WANT; do exes+=("$(plugin_exe $BUNDLES $b)"); done
+  lv_accepts "$PROBE" "${exes[@]}"
 }
 authroot_disabled() { csrutil authenticated-root status 2>/dev/null | grep -qi disabled; }
 
@@ -224,6 +238,18 @@ preflight() {
     add_check driver "GPU driver validated" fail "build $build is not in the validated list — installing may HANG the GPU. Validate it first, or override with --force at your own risk."
     SOFT_FAIL=1
   fi
+  # The MPEG-2, VC-1 and MPEG-4 plug-ins share one list of drivers ("legacy" in the JSON).
+  if legacy_on && [[ $hit -eq 1 ]]; then
+    local legv=$(plx validated.$i.legacy)
+    if [[ $legv == false || -z $legv ]]; then
+      add_check legacy "MPEG-2, VC-1 and MPEG-4 on this driver" fail "the MPEG-2, VC-1 and MPEG-4 plug-ins refuse the video driver of $name ($build); install without --legacy"
+      HARD_FAIL=1; HARD_OTHER=1
+    elif [[ $legv == untested-on-gpu ]]; then
+      add_check legacy "MPEG-2, VC-1 and MPEG-4 on this driver" warn "$name ($build): driver validated, but these plug-ins have not run through VideoToolbox on a GPU yet"
+    else
+      add_check legacy "MPEG-2, VC-1 and MPEG-4 on this driver" ok "$name ($build)"
+    fi
+  fi
 
   # 3. authenticated-root disabled (required to write the sealed system volume)
   if authroot_disabled; then
@@ -236,7 +262,7 @@ preflight() {
   # 4. macOS will accept the plug-ins in Safari's media processes. Looked at only when the
   #    bundles are there (check 7 reports them missing).
   local label="macOS accepts the plug-ins"
-  if [[ ! -d "$BUNDLES/$AV1" || ! -d "$BUNDLES/$VP9" ]]; then
+  if ! all_built; then
     :
   elif amfi_off; then
     add_check loading "$label" ok "AMFI is switched off (amfi_get_out_of_my_way), so any plug-in loads"
@@ -305,10 +331,10 @@ preflight() {
   fi
 
   # 7. bundles present
-  if [[ -d "$BUNDLES/$AV1" && -d "$BUNDLES/$VP9" ]]; then
-    add_check bundles "Decoder bundles present" ok "AV1 + VP9 bundles found $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
+  if all_built; then
+    add_check bundles "Decoder bundles present" ok "${${(j: + :)WANT}//VCNDecoder.bundle/} bundles found $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
   else
-    add_check bundles "Decoder bundles present" fail "missing $AV1 or $VP9 $(pick "in $BUNDLES; build them with decode/build.sh" "inside RyzenStatus GPU.app; $APP_DAMAGED")"
+    add_check bundles "Decoder bundles present" fail "missing one of ${(j:, :)WANT} $(pick "in $BUNDLES; build them with decode/build.sh" "inside RyzenStatus GPU.app; $APP_DAMAGED")"
     HARD_FAIL=1; HARD_OTHER=1
   fi
 
@@ -327,7 +353,7 @@ preflight() {
 # now, against the plug-ins to install (unknown: none built to compare with)
 installed_state() {
   local any=0 same=1 b live
-  for b in $AV1 $VP9; do
+  for b in $WANT; do
     if [[ -d "$LIVE/$b" ]]; then
       any=1
       live=$(cdhash_of "$LIVE/$b")
@@ -337,7 +363,7 @@ installed_state() {
     fi
   done
   if [[ $any -eq 0 ]]; then echo none
-  elif [[ ! -d "$BUNDLES/$AV1" || ! -d "$BUNDLES/$VP9" ]]; then echo unknown
+  elif ! all_built; then echo unknown
   elif [[ $same -eq 1 ]]; then echo current
   else echo outdated
   fi
@@ -352,17 +378,24 @@ installed_state() {
 #   /Library/Application Support/RyzenStatus GPU/installed-decoders.txt
 # owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
 # the change ran in), action (install or remove), av1 and vp9 (the cdhashes put in place;
-# empty for remove). A check takes it only from the same boot session, and an install only
-# when both cdhashes are the plug-ins to install now.
+# empty for remove), and legacy (the cdhashes of the MPEG-2, VC-1 and MPEG-4 plug-ins put in
+# place, comma-separated, empty without --legacy). A check takes it only from the same boot
+# session, and an install only when the cdhashes are the plug-ins to install now.
 DEC_RECORD=decoders
+legacy_hashes() { # folder
+  local -a h=() b
+  if legacy_on; then for b in $LEGACY_BUNDLES; do h+=("$(cdhash_of "$1/$b")"); done; fi
+  print -r -- "${(j:,:)h}"
+}
 dec_record_write() { # install | remove
-  local av1="" vp9=""
+  local av1="" vp9="" legacy=""
   if [[ $1 == install ]]; then
     av1=$(cdhash_of "$MNT/$PLUGDIR/$AV1")
     vp9=$(cdhash_of "$MNT/$PLUGDIR/$VP9")
+    legacy=$(legacy_hashes "$MNT/$PLUGDIR")
   fi
   # a record that cannot be written must not leave an older one saying something else
-  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" || record_drop $DEC_RECORD
+  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" "legacy=$legacy" || record_drop $DEC_RECORD
   return 0
 }
 
@@ -375,7 +408,7 @@ look_installed() {
   [[ -n $INSTALLED ]] && return 0
   INSTALLED=$(installed_state)
   PENDING=none
-  local file line boot="" action="" av1="" vp9=""
+  local file line boot="" action="" av1="" vp9="" legacy=""
   local now=$(boot_session)
   file=$(record_file $DEC_RECORD) || return 0
   while IFS= read -r line; do
@@ -384,13 +417,15 @@ look_installed() {
       action=*) action=${line#*=} ;;
       av1=*)    av1=${line#*=} ;;
       vp9=*)    vp9=${line#*=} ;;
+      legacy=*) legacy=${line#*=} ;;
     esac
   done < "$file"
   [[ -n $now && $boot == $now ]] || return 0
   case $action in
     install)
       [[ $INSTALLED != current && -n $av1 && -n $vp9 &&
-         $av1 == "$(cdhash_of "$BUNDLES/$AV1")" && $vp9 == "$(cdhash_of "$BUNDLES/$VP9")" ]] && PENDING=install ;;
+         $av1 == "$(cdhash_of "$BUNDLES/$AV1")" && $vp9 == "$(cdhash_of "$BUNDLES/$VP9")" &&
+         $legacy == "$(legacy_hashes "$BUNDLES")" ]] && PENDING=install ;;
     remove)
       [[ $INSTALLED != none ]] && PENDING=remove ;;
   esac
@@ -549,7 +584,7 @@ apple_snapshot() { # system-volume
   return 1
 }
 
-# Refuse to delete anything that is not exactly one of our two bundle paths. This is the guard
+# Refuse to delete anything that is not exactly one of our bundle paths. This is the guard
 # that would have caught the 2026-11-06 bug (an empty name turned `rm -rf $dest` into
 # `rm -rf .../Video/Plug-Ins`, wiping Apple's plug-ins).
 safe_rm_bundle() { # path
@@ -557,6 +592,10 @@ safe_rm_bundle() { # path
   case "$p" in
     */Video/Plug-Ins/AV1VCNDecoder.bundle|*/Video/Plug-Ins/VP9VCNDecoder.bundle) ;;
     */Video/Plug-Ins/AV1VCNDecoder.bundle.new|*/Video/Plug-Ins/VP9VCNDecoder.bundle.new) ;;
+    */Video/Plug-Ins/MPEG2VCNDecoder.bundle|*/Video/Plug-Ins/VC1VCNDecoder.bundle) ;;
+    */Video/Plug-Ins/MPEG4VCNDecoder.bundle) ;;
+    */Video/Plug-Ins/MPEG2VCNDecoder.bundle.new|*/Video/Plug-Ins/VC1VCNDecoder.bundle.new) ;;
+    */Video/Plug-Ins/MPEG4VCNDecoder.bundle.new) ;;
     *) echo "REFUSING to delete unexpected path: '$p'" >&2; return 1 ;;
   esac
   rm -rf -- "$p"
@@ -574,7 +613,7 @@ install_one() { # src-bundle-dir  name
   # assigning, so $b is still empty when c is built.
   local src=$1
   local name=$2
-  [[ "$name" == "$AV1" || "$name" == "$VP9" ]] || { echo "bad bundle name '$name'" >&2; return 1; }
+  (( ${ALL[(Ie)$name]} )) && [[ -n $name ]] || { echo "bad bundle name '$name'" >&2; return 1; }
   local dest="$MNT/$PLUGDIR/$name"
   [[ -d "$src" ]] || { echo "missing $src" >&2; return 1; }
   source_ok "$src" || return 1
@@ -620,8 +659,8 @@ do_repair() {
   [[ $SOFT_FAIL -eq 0 || $FORCE -eq 1 ]] && with_decoders=1
   if [[ $with_decoders -eq 1 ]]; then
     # before anything is changed
-    source_ok "$BUNDLES/$AV1" || exit 1
-    source_ok "$BUNDLES/$VP9" || exit 1
+    local b
+    for b in $WANT; do source_ok "$BUNDLES/$b" || exit 1; done
   fi
   local vol seal
   vol=$(system_volume) || exit 1
@@ -638,8 +677,7 @@ do_repair() {
   [[ $rc -eq 0 ]] || exit 6
   # install our decoders in the same snapshot (one reboot), unless the build is unvalidated
   if [[ $with_decoders -eq 1 ]]; then
-    install_one "$BUNDLES/$AV1" "$AV1" || exit 1
-    install_one "$BUNDLES/$VP9" "$VP9" || exit 1
+    for b in $WANT; do install_one "$BUNDLES/$b" "$b" || exit 1; done
   else
     echo "driver build not validated: decoders NOT installed (Apple plug-ins repaired only)"
   fi
@@ -661,15 +699,14 @@ do_install() {
     exit 3
   fi
   # before anything is changed
-  source_ok "$BUNDLES/$AV1" || exit 1
-  source_ok "$BUNDLES/$VP9" || exit 1
+  local b
+  for b in $WANT; do source_ok "$BUNDLES/$b" || exit 1; done
   mount_system || exit 1
   # sanity: the target must be the real system Plug-Ins folder, with Apple's plug-ins in it
   local -a mntbundles=( "$MNT/$PLUGDIR"/*.bundle(N) )
   [[ -d "$MNT/$PLUGDIR" && ! -e "$MNT/$PLUGDIR/Contents" && -d "$MNT/$PLUGDIR/AppleGVAHEVCDecoder.bundle" && ${#mntbundles} -ge 5 ]] \
     || { echo "system Plug-Ins folder looks damaged; not touching it ($(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") restores Apple's plug-ins)" >&2; exit 4; }
-  install_one "$BUNDLES/$AV1" "$AV1" || exit 1
-  install_one "$BUNDLES/$VP9" "$VP9" || exit 1
+  for b in $WANT; do install_one "$BUNDLES/$b" "$b" || exit 1; done
   bless_snapshot || exit 1
   dec_record_write install
   echo "OK: reboot to load the decoders"
@@ -679,13 +716,14 @@ do_uninstall() {
   need_root uninstall
   authroot_disabled || { echo "authenticated-root must be disabled" >&2; exit 1; }
   mount_system || exit 1
-  if [[ ! -e "$MNT/$PLUGDIR/$AV1" && ! -e "$MNT/$PLUGDIR/$VP9" ]]; then
-    echo "neither decoder plug-in is installed; nothing to remove"
+  local b any=0
+  for b in $ALL; do [[ -e "$MNT/$PLUGDIR/$b" ]] && any=1; done
+  if (( ! any )); then
+    echo "no decoder plug-in is installed; nothing to remove"
     exit 0
   fi
-  safe_rm_bundle "$MNT/$PLUGDIR/$AV1" || exit 1
-  safe_rm_bundle "$MNT/$PLUGDIR/$VP9" || exit 1
-  echo "removed both bundles"
+  for b in $ALL; do safe_rm_bundle "$MNT/$PLUGDIR/$b" || exit 1; done
+  echo "removed the decoder bundles"
   bless_snapshot || exit 1
   dec_record_write remove
   echo "OK: reboot to apply"

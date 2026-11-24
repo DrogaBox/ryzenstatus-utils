@@ -56,7 +56,11 @@ NAME=GPU-$day-${commit[1,9]}
 OUT=dist/$NAME
 [[ $MODE == payload ]] && OUT=$PAYLOAD
 ENC=encode/dist/VCNEncodeFix-$(<encode/VERSION)
-needed=(decode/build/AV1VCNDecoder.bundle decode/build/VP9VCNDecoder.bundle decode/build/lvprobe
+plugins=(AV1VCNDecoder.bundle VP9VCNDecoder.bundle)
+# The MPEG-2, VC-1 and MPEG-4 plug-ins go in the package only with VCNVT_LEGACY_DECODERS=1,
+# until they have run through VideoToolbox on a GPU (install/common.zsh, LEGACY_BUNDLES).
+[[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]] && plugins+=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
+needed=(decode/build/${^plugins} decode/build/lvprobe
         decode/build/kextentry decode/build/VCNVTLoader.kext sensors/build/GPUSensors.kext
         sensors/build/gpusensors sensors/build/gpucontrol $ENC)
 [[ $MODE == payload ]] || needed+=("installer/build/$APP_NAME")
@@ -70,7 +74,7 @@ else
 fi
 mkdir -p $OUT/decode/build $OUT/sensors/build $OUT/encode/dist $OUT/install $OUT/tools/driver $OUT/docs \
          $OUT/decode/loader
-for f in AV1VCNDecoder.bundle VP9VCNDecoder.bundle lvprobe kextentry VCNVTLoader.kext; do
+for f in $plugins lvprobe kextentry VCNVTLoader.kext; do
   ditto --norsrc --noextattr decode/build/$f $OUT/decode/build/$f
 done
 # gpucontrol: install/sensors.sh copies it to /usr/local/bin with gpusensors, for the app's

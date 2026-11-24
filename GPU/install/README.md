@@ -91,6 +91,13 @@ sudo install/decoders.sh uninstall        # then reboot
 sudo install/decoders.sh repair           # only if check tells you to
 ```
 
+The MPEG-2, VC-1 and MPEG-4 plug-ins are built and the loader kext lists them, but they are
+installed only with `--legacy` (or `VCNVT_LEGACY_DECODERS=1`; `install.sh
+--with-legacy-decoders` passes it on). They have not run through VideoToolbox on a GPU yet.
+With `--legacy`, `check` also looks at the `legacy` column of `validated-builds.json`, and
+`install` puts all five plug-ins in place. `uninstall` always removes all five. The DMG
+carries the three only when it is built with `VCNVT_LEGACY_DECODERS=1`.
+
 ### What `check` looks at
 
 The checks run in this order. `install` runs the same checks and stops if one fails.
@@ -377,10 +384,12 @@ With `--efi`, also the kext:
 | `build`, `product`, `name` | The macOS build, for example `25G342`, `26.7.3`, `Tahoe 26.7.3` |
 | `driverUUID` | The identifier of that build's AMD video driver (`AMDRadeonVADriver2`). Two builds with the same value have the same driver |
 | `av1`, `vp9` | `true`: decoded correctly on a real card. `"untested-on-gpu"`: the driver was checked but nobody ran it yet. `false`: the decoder refuses this driver |
+| `legacy` | The same, for the MPEG-2, VC-1 and MPEG-4 plug-ins, which share one list |
 | `encode` | `true`: the encoding fix was checked on this build |
 
 The decoders carry their own copy of the driver identifiers (`kValidatedDrivers` in
-`decode/av1/vcnav1.c` and `decode/vp9/vcnvp9.c`). When you add a build, change both places,
+`decode/av1/vcnav1.c`, `decode/vp9/vcnvp9.c` and `decode/common/vcnlegacy.c`). When you add a
+build, change every place,
 then run:
 
 ```bash

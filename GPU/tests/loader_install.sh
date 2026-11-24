@@ -53,7 +53,7 @@ grep -q "config entry ok; kext the one in build/VCNVTLoader.kext, lists the plug
 loader_in_fn=$(sed -n '/^loader_in() {/,/^}/p' $ROOT/install/decoders.sh)
 [[ -n $loader_in_fn ]] &&
   /bin/zsh -c 'emulate -L zsh; setopt no_unset; ROOT=$1; source $ROOT/install/common.zsh
-    BUNDLES=$ROOT/decode/build; AV1=AV1VCNDecoder.bundle; VP9=VP9VCNDecoder.bundle
+    BUNDLES=$ROOT/decode/build; AV1=AV1VCNDecoder.bundle; VP9=VP9VCNDecoder.bundle; WANT=($AV1 $VP9)
     eval "$2"; loader_in "$3"' loader_in "$ROOT" "$loader_in_fn" $T/a/EFI/OC &&
   ok "the decoders' check (loader_in) accepts the loader kext just installed" || bad "loader_in refused the new install"
 

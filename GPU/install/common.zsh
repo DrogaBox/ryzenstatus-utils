@@ -128,6 +128,14 @@ kext_version() { # bundle-id
 loader_prop() { # name
   /usr/sbin/ioreg -r -c VCNVTLoader -l 2>/dev/null | sed -n "s/.*\"$1\" = \"*\([^\"]*\)\"*\$/\1/p" | head -1
 }
+# The MPEG-2, VC-1 and MPEG-4 plug-ins. They are built, and the loader kext lists them, but
+# the installers leave them alone unless VCNVT_LEGACY_DECODERS=1 (decoders.sh --legacy,
+# install.sh --with-legacy-decoders): they have not run through VideoToolbox on a GPU yet.
+# Removing takes them off either way.
+LEGACY_BUNDLES=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
+legacy_on() { [[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]]; }
+# The executable of a plug-in bundle in a folder.
+plugin_exe() { print -r -- "$1/$2/Contents/MacOS/${2%.bundle}"; } # folder bundle
 # The code directory hash of a bundle or program: what identifies one exact build.
 cdhash_of() { codesign -dvvv "$1" 2>&1 | awk -F= '/^CDHash=/{print $2}'; }
 # True when the VCNVTLoader kext at a folder lists the code of a bundle.

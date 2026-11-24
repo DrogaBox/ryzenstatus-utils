@@ -93,7 +93,7 @@ for oc in /Volumes/*/EFI/OC(N); do
 done
 [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] &&
   left+=("com.droga.vcnpreset, the encoder service's test version ($(pick "'sudo install/encoder.sh install'" "installing the encoding fix in this window") replaces it)")
-for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle; do
+for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES; do
   [[ -d /Library/Video/Plug-Ins/$b ]] &&
     left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ($(pick "'sudo install/decoders.sh install'" "installing the decoder plug-ins in this window") removes it)")
 done
