@@ -1,6 +1,8 @@
 // plugintest: the VideoToolbox side of a decoder plug-in, with the decoder
 // session replaced by a stand-in (nothing opens the GPU or the driver). Built
-// once for each plug-in, with -DTEST_AV1 or -DTEST_VP9. It checks:
+// once for each plug-in, with -DTEST_AV1, -DTEST_VP9, -DTEST_MPEG2, -DTEST_VC1
+// or -DTEST_MPEG4 (the last three share common/vtlegacy.h and have no hidden
+// frames: their sample 6 is one more shown frame). It checks:
 //
 //   1. the factory refuses a NULL result pointer;
 //   2. a second session start replaces the decoder of the first;
@@ -70,8 +72,29 @@ typedef VcnAV1OutputFn OutputFn;
 #define CREATE VP9VCN_VTDecoder_CreateInstance
 typedef VcnVP9 Vcn;
 typedef VcnVP9OutputFn OutputFn;
+#elif defined(TEST_MPEG2) || defined(TEST_VC1) || defined(TEST_MPEG4)
+#define TEST_LEGACY 1
+#if defined(TEST_MPEG2)
+#include "../mpeg2/MPEG2VCNDecoder.c"
+#define CODEC kCMVideoCodecType_MPEG2Video
+#define CREATE MPEG2VCN_VTDecoder_CreateInstance
+#define FAKE_CODEC vcnmpeg2_codec
+#elif defined(TEST_VC1)
+#include "../vc1/VC1VCNDecoder.c"
+#define CODEC 'WVC1'
+#define CREATE VC1VCN_VTDecoder_CreateInstance
+#define FAKE_CODEC vcnvc1_codec
 #else
-#error "build with -DTEST_AV1 or -DTEST_VP9"
+#include "../mpeg4/MPEG4VCNDecoder.c"
+#define CODEC kCMVideoCodecType_MPEG4Video
+#define CREATE MPEG4VCN_VTDecoder_CreateInstance
+#define FAKE_CODEC vcnmpeg4_codec
+#endif
+typedef void Vcn;
+typedef VcnLegacyOutputFn OutputFn;
+#else
+#error \
+    "build with -DTEST_AV1, -DTEST_VP9, -DTEST_MPEG2, -DTEST_VC1 or -DTEST_MPEG4"
 #endif
 #undef dispatch_semaphore_wait
 #undef dispatch_sync
@@ -252,6 +275,54 @@ CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d) {
   (void)d;
   return hiddenOnly ? picture : NULL;
 }
+#elif defined(TEST_LEGACY)
+// The codec layer the plug-in drives, and the two functions of
+// common/vcnlegacy.c it calls itself.
+int vcnlegacy_gpu_armed;
+bool vcnlegacy_available(char* err, size_t n) {
+  (void)err, (void)n;
+  return !failCreate;
+}
+CFDictionaryRef vcnlegacy_copy_pixel_buffer_attributes(uint32_t w, uint32_t h) {
+  (void)w, (void)h;
+  return CFDictionaryCreate(NULL, NULL, NULL, 0, NULL, NULL);
+}
+static void* legacy_create(const uint8_t* config, size_t configSize, uint32_t w,
+                           uint32_t h, char* err, size_t n) {
+  (void)config, (void)configSize, (void)w, (void)h, (void)err, (void)n;
+  return fake_create();
+}
+static int legacy_decode(void* d, const uint8_t* chunk, size_t size,
+                         VcnLegacyOutputFn fn, void* ctx) {
+  (void)size;
+  fake_decode_begin(d);
+  if (chunk[0] == 5) slow_decode();
+  if (chunk[0] == 1 || chunk[0] == 2 || chunk[0] == 5 || chunk[0] == 6)
+    fn(ctx, picture, VCNLEGACY_PIC_REFERENCE, 16, 16);
+  hiddenOnly = false;
+  lastFailure = fake_failure(chunk[0]);
+  fake_decode_end();
+  return (chunk[0] >= 2 && chunk[0] <= 4) || chunk[0] == 7 ? -1 : 0;
+}
+static const char* legacy_last_error(void* d) {
+  (void)d;
+  return "stand-in";
+}
+static int legacy_failure(void* d) {
+  (void)d;
+  return lastFailure;
+}
+static unsigned legacy_firmware_errors(void* d) {
+  (void)d;
+  return 0;
+}
+const VcnLegacyCodec FAKE_CODEC = {.name = "stand-in",
+                                   .create = legacy_create,
+                                   .destroy = fake_destroy,
+                                   .decode = legacy_decode,
+                                   .last_error = legacy_last_error,
+                                   .failure = legacy_failure,
+                                   .firmware_errors = legacy_firmware_errors};
 #else
 int vcnvp9_gpu_armed;
 VcnVP9* vcnvp9_create(uint32_t w, uint32_t h, char* err, size_t n) {
@@ -300,6 +371,13 @@ static int fake_failure(uint8_t what) {
          : what == 4 ? VCNAV1_FAIL_MEMORY
          : what == 7 ? VCNAV1_FAIL_REFERENCE
                      : VCNAV1_FAIL_STREAM;
+}
+#elif defined(TEST_LEGACY)
+static int fake_failure(uint8_t what) {
+  return what == 3   ? VCNLEGACY_FAIL_DEVICE
+         : what == 4 ? VCNLEGACY_FAIL_MEMORY
+         : what == 7 ? VCNLEGACY_FAIL_REFERENCE
+                     : VCNLEGACY_FAIL_STREAM;
 }
 #else
 static int fake_failure(uint8_t what) {
@@ -468,9 +546,15 @@ int main(void) {
   CMSampleBufferRef hiddenAlone = sample(6), noRef = sample(7);
   int dropped = emitDropped;
   dec_decode_frame(dec, NULL, hiddenAlone, 0, NULL);
+#if defined(TEST_LEGACY)
+  expect("one more shown frame is emitted with its picture",
+         emits == e + 3 && !lastStatus && emitImages == 2 &&
+             emitDropped == dropped);
+#else
   expect("a sample of only a hidden frame hands back its picture, no error",
          emits == e + 3 && !lastStatus && emitImages == 2 &&
              emitDropped == dropped);
+#endif
   dec_decode_frame(dec, NULL, noRef, 0, NULL);
   expect("a missing reference is kVTVideoDecoderReferenceMissingErr",
          emits == e + 4 && lastStatus == kVTVideoDecoderReferenceMissingErr &&

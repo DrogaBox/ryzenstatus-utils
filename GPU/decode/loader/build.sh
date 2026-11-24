@@ -2,12 +2,13 @@
 # build.sh - builds decode/build/VCNVTLoader.kext, the kext that lets the decoder plug-ins
 # load on a Mac without AMFIPass. It installs nothing.
 #
-#   decode/loader/build.sh                 allow the two plug-ins in decode/build/
+#   decode/loader/build.sh                 allow the plug-ins in decode/build/
 #   decode/loader/build.sh <bundle> ...    allow these bundles too
 #
 # The kext only lets through the exact plug-in builds listed in it. The list is made here,
 # from three places:
-#   1. decode/build/AV1VCNDecoder.bundle and VP9VCNDecoder.bundle (built first if missing)
+#   1. the five plug-in bundles of decode/build/ (AV1, VP9, MPEG-2, VC-1, MPEG-4; built
+#      first if one is missing)
 #   2. released-builds.txt in this folder: the builds of published releases
 #   3. any bundle given on the command line
 # So a kext and the plug-ins built from the same tree always match. Rebuild the kext after
@@ -36,7 +37,11 @@ B=$DECODE/build
 OBJ=$B/loader
 FINAL=$B/$NAME.kext
 OUT=$OBJ/$NAME.kext  # assembled here; it replaces $FINAL only when everything worked
-[[ -d $B/AV1VCNDecoder.bundle && -d $B/VP9VCNDecoder.bundle ]] || $DECODE/build.sh
+# Every plug-in decode/build.sh makes; a kext that lists only some would refuse the others.
+PLUGINS=(AV1VCNDecoder VP9VCNDecoder MPEG2VCNDecoder VC1VCNDecoder MPEG4VCNDecoder)
+for p in $PLUGINS; do
+  [[ -d $B/$p.bundle ]] || { $DECODE/build.sh; break; }
+done
 rm -rf $OBJ && mkdir -p $OBJ $OUT/Contents/MacOS
 
 # The list. Each entry: 40 hex digits and a label.
@@ -54,7 +59,7 @@ add() {  # add <hash> <label>
   entries+=("$1 $(clean "$2")")
 }
 setopt extended_glob
-for bundle in $B/AV1VCNDecoder.bundle $B/VP9VCNDecoder.bundle "$@"; do
+for bundle in $B/${^PLUGINS}.bundle "$@"; do
   [[ -d $bundle ]] || { print "no such bundle: $bundle"; exit 1; }
   h=$(cdhash $bundle || true)
   [[ -n $h ]] || { print "$bundle is not signed (not even ad-hoc), so it has no hash to list"; exit 1; }
