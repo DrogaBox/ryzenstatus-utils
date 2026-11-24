@@ -8,6 +8,8 @@
 // cut.vc1 it also writes the stream up to the end of frame [frames], headers
 // included, so that FFmpeg and the GPU get the same short clip. A GPU round
 // uses it to pick and cut its clips before anything goes to the GPU.
+// Anything before the first sequence header (a stream cut out of a transport
+// stream in the middle) is skipped, and left out of the cut.
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -71,13 +73,21 @@ int main(int argc, char** argv) {
     fprintf(stderr, "cannot read %s\n", argv[1]);
     return 1;
   }
+  size_t start = 0;
+  while (start + 4 <= (size_t)size &&
+         !(data[start] == 0 && data[start + 1] == 0 && data[start + 2] == 1 &&
+           data[start + 3] == 0x0F))
+    start++;
+  if (start + 4 > (size_t)size) start = 0;  // none: let the parser say why
   Info in = {.max = argc >= 3 ? atoi(argv[2]) : 0,
              .firstField = -1,
-             .base = data,
-             .end = (size_t)size};
+             .base = data + start,
+             .end = (size_t)size - start};
   Vc1Parser p;
   vc1_parser_init(&p);
-  int r = vc1_parse_chunk(&p, data, (size_t)size, on_frame, &in);
+  int r = vc1_parse_chunk(&p, data + start, (size_t)size - start, on_frame,
+                          &in);
+  if (start) printf("vc1info: skipped %zu bytes before the first sequence header\n", start);
   if (r < 0) {
     fprintf(stderr, "vc1info: %s\n", p.err);
     free(data);
@@ -85,7 +95,7 @@ int main(int argc, char** argv) {
   }
   if (argc == 4) {
     FILE* out = fopen(argv[3], "wb");
-    if (!out || fwrite(data, 1, in.end, out) != in.end) {
+    if (!out || fwrite(data + start, 1, in.end, out) != in.end) {
       fprintf(stderr, "cannot write %s\n", argv[3]);
       if (out) fclose(out);
       free(data);
