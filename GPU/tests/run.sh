@@ -132,6 +132,12 @@ check "the MPEG-2 and VC-1 codec layers send the firmware only what it decodes" 
 pick() { decode/build/tests/legacypick > decode/build/tests/legacypick.txt ||
   { cat decode/build/tests/legacypick.txt; return 1; }; }
 check "VideoToolbox gives our MPEG-4 plug-in the streams it takes, and Apple's the rest" pick
+jpeg_plugin() {
+  decode/build/tests/plugintest-jpeg > decode/build/tests/plugintest-jpeg.txt ||
+    { cat decode/build/tests/plugintest-jpeg.txt; return 1; }
+  decode/build/tests/jpegtest > decode/build/tests/jpegtest.txt || { grep -v ^PASS decode/build/tests/jpegtest.txt; return 1; }
+}
+check "the JPEG plug-in (built only with VCN_JPEG=1): VideoToolbox side, preparer, session against a made-up kext" jpeg_plugin
 damaged() {$PD --mutate $rounds tests/media/av1/*.ivf tests/media/vp9/*.ivf > decode/build/tests/damaged.txt; }
 check "$rounds damaged copies of each stream are survived" damaged
 
