@@ -27,6 +27,7 @@ static const struct {
   const char* uuid;
   uint64_t callVm, caveVm;
 } kSites[] = {
+    {"01F6B94A-A77D-3549-B18B-CBA81F4630B3", 0x13601, 0xe78},  // 26.7.4
     {"D2B848E1-ACD9-396B-8948-0882C65F601F", 0x13601, 0xe78},  // 26.7.3
     {"FD24EB7C-0B0E-3438-A43B-133E93E94EFA", 0x13780, 0xe78},  // 15.8.2, 15.8.3
     {"0FD1FA9F-5DF9-3E5F-A316-21AF738EBBAD", 0x142ca, 0xec8},  // 14.8.9

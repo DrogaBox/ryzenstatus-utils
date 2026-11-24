@@ -2,6 +2,17 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Unreleased: macOS 26.7.4 (25G422)
+
+- Decoders: `AMDRadeonVADriver2` of 26.7.4 has a new UUID,
+  `F7D8F5849EC139DB857C769697294957`, added to `kValidatedDrivers` in `decode/av1/vcnav1.c`
+  and `decode/vp9/vcnvp9.c`, and 25G422 to `install/validated-builds.json` with `av1` and
+  `vp9` set to `"untested-on-gpu"`. Checked from the installer before updating (its cryptex
+  rebuilt with `rawpatch`): the driver's 2760 functions are identical to 26.7.3's and every
+  section is the same except one Apple build path in `__cstring`. Not decoded on a card on
+  26.7.4 yet. New plug-ins mean new code directory hashes, so the loader kext must ship with
+  them.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count
