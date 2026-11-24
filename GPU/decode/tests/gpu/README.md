@@ -20,6 +20,8 @@ Mac has to be reset. Before any run marked "can hang" below:
 |---------|---------------------|------------------|---------------------|
 | `decode_ivf` | yes | **yes** | `VCNAV1_ALLOW_GPU=yes-i-know-it-can-hang` |
 | `decode_vp9` | yes | **yes** | `VCNVP9_SESSION=vp9` and `VCNVP9_ALLOW_GPU=yes-i-know-it-can-hang` |
+| `decode_legacy` | yes | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` |
+| `vtlegacytest` | yes, through VideoToolbox | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` (without it, it only cuts the stream into samples) |
 | `vtav1test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtvp9test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtchurn` | yes, through VideoToolbox | **yes** | none: every session decodes |
@@ -31,6 +33,15 @@ Mac has to be reset. Before any run marked "can hang" below:
 
 The switches must have exactly these values. Anything else leaves the program unarmed: it
 stops with "GPU submission disabled" before it sends anything.
+
+`decode_legacy` and `vtlegacytest` are for the MPEG-2, VC-1 and MPEG-4 decoders
+(`decode/mpeg2`, `decode/vc1`, `decode/mpeg4`, on `decode/common/vcnlegacy.c`). Both take a
+whole elementary stream (`.m2v`, `.m4v`, `.vc1` with start codes, or `.rcv` for VC-1
+simple/main as FFmpeg's `vc1test` muxer writes it) and write the frames as NV12 in display
+order, which compares frame by frame with `ffmpeg -i <stream> -f rawvideo -pix_fmt nv12`.
+`decode_legacy` drives the codec layers directly. `vtlegacytest` links the three plug-ins in
+and registers them with VideoToolbox for its own process, so the plug-ins are exercised
+through a real decompression session without being installed.
 
 ## Building
 
