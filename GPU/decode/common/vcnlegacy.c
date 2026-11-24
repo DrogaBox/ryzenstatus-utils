@@ -20,6 +20,8 @@ int vcnlegacy_gpu_armed = 0;
 int vcnlegacy_db_height_mode = 0;
 int vcnlegacy_clear_dpb = 0;
 int vcnlegacy_field_layout = 0;
+int vcnlegacy_bottom_mode = 0;
+int vcnlegacy_fill_target = 0;
 #define DBG(...)                                                      \
   do {                                                                \
     if (vcnlegacy_debug) fprintf(stderr, "[vcnlegacy] " __VA_ARGS__); \
@@ -78,6 +80,8 @@ struct VcnLegacy {
   uint32_t status;
   uint8_t fb_copy[44];  // the feedback words of the last command
   uint8_t* dpbSeen;     // the DPB texture of the last message (debug log)
+  uint8_t* dpbCpu;      // and its CPU address and size (vcnlegacy_fill_target)
+  uint32_t dpbBytes;
 };
 
 #define FN(name) ((AVD_##name##_fn)d->s.accel->fn[AVD_FN_##name])
@@ -221,6 +225,13 @@ uint32_t vcnlegacy_build_message(uint8_t* msg, size_t cap,
   U32(d, 144) = (uint32_t)((uint64_t)pitch * al(texh, 16));
   U32(d, 148) = (uint32_t)((uint64_t)pitch * al(texh, 16) +
                            (((uint64_t)pitch * h) >> 1) - 1);
+  if (!m->fieldLayout && m->bottomMode == 1) {
+    U32(d, 140) = 0;
+    U32(d, 148) = 0;
+  } else if (!m->fieldLayout && m->bottomMode == 2) {
+    U32(d, 140) = U32(d, 136);
+    U32(d, 148) = U32(d, 144);
+  }
   if (m->fieldLayout) {
     // Each field as a plane of its own inside the interleaved frame: twice
     // the pitch, the bottom field one line further.
@@ -349,6 +360,7 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
                         .feedbackNumber = PROC_FEEDBACK(proc),
                         .dbHeightZero = vcnlegacy_db_height_mode == 1,
                         .fieldLayout = vcnlegacy_field_layout == 1,
+                        .bottomMode = (uint8_t)vcnlegacy_bottom_mode,
                         .block = d->block,
                         .blockSize = d->blockSize};
   if (!vcnlegacy_build_message(DATA_MSG(data), MSG_MAX, &m)) return -1;
@@ -391,7 +403,16 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
       session ? "sent" : "NOT sent", *((uint8_t*)hw + 149), (void*)dpbTex,
       d->dpbSeen && d->dpbSeen != dpbTex ? " (CHANGED)" : "", (void*)dpbCpu,
       m.dbHeightZero ? 0 : al(m.height, 64), cleared);
+  {
+    const uint8_t* db = DATA_MSG(data) + 24 + 16 * 2;
+    DBG("  target: dt_pitch %u dt_uv_pitch %u dt_field_mode %u db_field_mode "
+        "%u luma top %u bottom %u chroma top %u bottom %u\n",
+        U32(db, 100), U32(db, 104), U32(db, 120), U32(db, 92), U32(db, 136),
+        U32(db, 140), U32(db, 144), U32(db, 148));
+  }
   d->dpbSeen = dpbTex;
+  d->dpbCpu = dpbCpu;
+  d->dpbBytes = m.dpbSize;
   return 0;
 }
 
@@ -495,6 +516,109 @@ CFDictionaryRef vcnlegacy_copy_pixel_buffer_attributes(uint32_t w, uint32_t h) {
   return a;
 }
 
+// vcnlegacy_fill_target: the surface from its luma plane on, which is where
+// the firmware's offsets start (CoreVideo puts the luma plane 4096 bytes into
+// the IOSurface; dt_chroma_top_offset is the distance between the planes).
+typedef struct {
+  uint8_t* base;  // the luma plane
+  size_t alloc, chroma, pitch0, pitch1;  // bytes from base to the end, ...
+} SurfaceLayout;
+
+static bool surface_layout(CVPixelBufferRef pb, SurfaceLayout* l) {
+  IOSurfaceRef s = CVPixelBufferGetIOSurface(pb);
+  uint8_t* io = s ? IOSurfaceGetBaseAddress(s) : NULL;
+  uint8_t* y = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+  uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+  if (!io || !y || !uv || y < io || uv <= y) return false;
+  size_t size = IOSurfaceGetAllocSize(s);
+  if ((size_t)(y - io) >= size || (size_t)(uv - io) >= size) return false;
+  l->base = y;
+  l->alloc = size - (size_t)(y - io);
+  l->chroma = (size_t)(uv - y);
+  l->pitch0 = CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
+  l->pitch1 = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+  return true;
+}
+
+static void fill_target(CVPixelBufferRef pb) {
+  SurfaceLayout l;
+  if (CVPixelBufferLockBaseAddress(pb, 0)) return;
+  if (surface_layout(pb, &l)) {
+    memset(l.base, 0x11, l.chroma);
+    memset(l.base + l.chroma, 0x22, l.alloc - l.chroma);
+  }
+  CVPixelBufferUnlockBaseAddress(pb, 0);
+}
+
+// Bytes of [from, to) that are no longer the fill, and the first of them.
+typedef struct {
+  size_t changed, first;
+  uint8_t firstValue;
+} Changed;
+
+static Changed changed_bytes(const uint8_t* p, size_t from, size_t to,
+                             size_t pitch, size_t cols, size_t step,
+                             uint8_t fill) {
+  // A rectangle: rows of cols bytes every pitch * step bytes from `from`, up
+  // to `to`; pitch 0 for a plain range.
+  Changed c = {0, 0, 0};
+  if (!pitch) {
+    for (size_t i = from; i < to; i++)
+      if (p[i] != fill && !c.changed++) c.first = i, c.firstValue = p[i];
+    return c;
+  }
+  for (size_t row = from; row + cols <= to; row += pitch * step)
+    for (size_t i = row; i < row + cols; i++)
+      if (p[i] != fill && !c.changed++) c.first = i, c.firstValue = p[i];
+  return c;
+}
+
+static void report_writes(VcnLegacy* d, CVPixelBufferRef pb) {
+  SurfaceLayout l;
+  if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly)) return;
+  if (surface_layout(pb, &l)) {
+    const size_t w = d->cfg.width, h = d->cfg.height, ch = (h + 1) / 2;
+    const size_t cw = (w + 1) / 2 * 2;
+    const uint8_t* p = l.base;
+    Changed y = changed_bytes(p, 0, l.pitch0 * h, l.pitch0, w, 1, 0x11);
+    Changed y0 = changed_bytes(p, 0, 256, 0, 0, 0, 0x11);
+    Changed ypad = l.pitch0 > w ? changed_bytes(p + w, 0, l.pitch0 * h - w,
+                                                l.pitch0, l.pitch0 - w, 1, 0x11)
+                                : (Changed){0, 0, 0};
+    Changed ytail = changed_bytes(p, l.pitch0 * h, l.chroma, 0, 0, 0, 0x11);
+    const uint8_t* c = p + l.chroma;
+    Changed ce = changed_bytes(c, 0, l.pitch1 * ch, l.pitch1, cw, 2, 0x22);
+    Changed co = changed_bytes(c + l.pitch1, 0, l.pitch1 * (ch - 1), l.pitch1,
+                               cw, 2, 0x22);
+    Changed ctail = changed_bytes(p, l.chroma + l.pitch1 * ch, l.alloc, 0, 0,
+                                  0, 0x22);
+    DBG("  writes: %zu bytes from the luma plane, chroma at %zu, pitches %zu/%zu; luma %zu "
+        "of %zu, first 256 bytes %zu, right of the picture %zu, below it %zu "
+        "(first at %zu = 0x%02x); chroma even rows %zu odd rows %zu of %zu "
+        "each, after the plane %zu (first at %zu = 0x%02x)\n",
+        l.alloc, l.chroma, l.pitch0, l.pitch1, y.changed, w * h, y0.changed,
+        ypad.changed, ytail.changed, ytail.first, ytail.firstValue, ce.changed,
+        co.changed, cw * ((ch + 1) / 2), ctail.changed, ctail.first,
+        ctail.firstValue);
+  }
+  CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+  // The DPB buffer, read only: how many bytes of each 64 KiB are not zero
+  // ('.' none, '0'..'9' tenths, '#' all).
+  if (d->dpbCpu && d->dpbBytes && mapped(d->dpbCpu, d->dpbBytes, VM_PROT_READ)) {
+    char map[160];
+    size_t n = 0;
+    for (size_t at = 0; at < d->dpbBytes && n + 1 < sizeof(map); at += 65536) {
+      size_t end = at + 65536 < d->dpbBytes ? at + 65536 : d->dpbBytes, nz = 0;
+      for (size_t i = at; i < end; i++) nz += d->dpbCpu[i] != 0;
+      map[n++] = !nz ? '.' : nz == end - at ? '#' : (char)('0' + nz * 10 / (end - at));
+    }
+    map[n] = 0;
+    DBG("  dpb: %s\n", map);
+  } else {
+    DBG("  dpb: not mapped here\n");
+  }
+}
+
 CVPixelBufferRef vcnlegacy_new_target(VcnLegacy* d) {
   if (!d->pool) {
     CFDictionaryRef a =
@@ -509,6 +633,7 @@ CVPixelBufferRef vcnlegacy_new_target(VcnLegacy* d) {
   }
   CVPixelBufferRef pb = NULL;
   if (CVPixelBufferPoolCreatePixelBuffer(NULL, d->pool, &pb)) return NULL;
+  if (vcnlegacy_fill_target) fill_target(pb);
   return pb;
 }
 
@@ -821,6 +946,7 @@ int vcnlegacy_decode(VcnLegacy* d, const void* block, uint32_t blockSize,
     bad = !d->executed || d->status != 0;
   }
   d->fb = NULL;
+  if (vcnlegacy_fill_target && vcnlegacy_debug) report_writes(d, target);
   DBG("picture %u: %zu bytes, %llu ms, firmware result %u, %s, status %u\n",
       d->done, size, (unsigned long long)took, fw,
       !d->haveStatus ? "feedback not watched"

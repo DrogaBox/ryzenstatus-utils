@@ -60,9 +60,20 @@ extern int vcnlegacy_debug;
 // the bottom field one line below the top one), as Mesa's UVD path does for
 // interlaced surfaces. For MPEG-2 field pictures, which Mesa's VCN path (field
 // mode 0) does not decode either; not run on the GPU yet.
+// vcnlegacy_bottom_mode (frame layout only): what dt_luma_bottom_offset and
+// dt_chroma_bottom_offset say. 0 (the default): the last byte of each plane,
+// as Apple's AV1 builder writes them; 1: both 0, as Mesa sends them (also for
+// field pictures, Linux capture 2026-11-24); 2: each the same as its top
+// offset. Frame pictures came out the same with 0 and 1 (2026-11-23).
+// vcnlegacy_fill_target 1 (debug log only): every new target is filled with
+// 0x11 (luma plane) and 0x22 (chroma plane) before its first picture, and after
+// each picture the log says which parts of the surface the firmware wrote and
+// how full each 64 KiB of the DPB buffer is. Nothing sent to the GPU changes.
 extern int vcnlegacy_db_height_mode;
 extern int vcnlegacy_clear_dpb;
 extern int vcnlegacy_field_layout;
+extern int vcnlegacy_bottom_mode;
+extern int vcnlegacy_fill_target;
 // The plug-ins set this. Command line tools arm themselves with
 // VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang instead.
 extern int vcnlegacy_gpu_armed;
@@ -92,6 +103,7 @@ typedef struct {
   uint32_t streamHandle, feedbackNumber;
   bool dbHeightZero;  // db_aligned_height 0 (vcnlegacy_db_height_mode 1)
   bool fieldLayout;   // vcnlegacy_field_layout 1
+  uint8_t bottomMode;  // vcnlegacy_bottom_mode
   const void* block;
   uint32_t blockSize;
 } VcnLegacyMessage;

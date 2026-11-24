@@ -345,6 +345,26 @@ static void test_mpeg2(void) {
           D32(136) == 0 && D32(140) == 768 && D32(148) == D32(144) + 768 &&
           D32(72) == 768);
   lm.fieldLayout = false;
+  expect("message: bottom offsets are the plane ends by default",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(136) == 0 && D32(140) == 768 * 576 - 1 &&
+             D32(144) == 768 * 576 && D32(148) == 768 * 576 + 768 * 288 - 1);
+  lm.bottomMode = 1;
+  expect("message: bottom offsets 0 when asked, as Mesa sends them",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(136) == 0 && D32(140) == 0 && D32(144) == 768 * 576 &&
+             D32(148) == 0 && D32(120) == 0 && D32(100) == 768);
+  lm.bottomMode = 2;
+  expect("message: bottom offsets equal to the top ones when asked",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(140) == D32(136) && D32(148) == D32(144) &&
+             D32(144) == 768 * 576);
+  lm.fieldLayout = true;
+  expect("message: the field layout keeps its own bottom offsets",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(140) == 768 && D32(148) == D32(144) + 768);
+  lm.fieldLayout = false;
+  lm.bottomMode = 0;
   lm.blockSize = 0;
   expect("message: an empty block is refused",
          vcnlegacy_build_message(msg, sizeof(msg), &lm) == 0);

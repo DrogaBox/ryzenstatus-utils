@@ -23,6 +23,8 @@
 //   VCNLEGACY_DB_HEIGHT=0|1     vcnlegacy_db_height_mode (aligned / 0)
 //   VCNLEGACY_CLEAR_DPB=0|1     vcnlegacy_clear_dpb (zero the DPB first)
 //   VCNLEGACY_FIELD_LAYOUT=0|1  vcnlegacy_field_layout (two field planes)
+//   VCNLEGACY_BOTTOM=0|1|2      vcnlegacy_bottom_mode (plane ends / 0 / top)
+//   VCNLEGACY_FILL=0|1          vcnlegacy_fill_target (where the firmware wrote)
 #include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -141,6 +143,8 @@ int main(int argc, char** argv) {
   vcnlegacy_clear_dpb = env_int("VCNLEGACY_CLEAR_DPB", vcnlegacy_clear_dpb);
   vcnlegacy_field_layout =
       env_int("VCNLEGACY_FIELD_LAYOUT", vcnlegacy_field_layout);
+  vcnlegacy_bottom_mode = env_int("VCNLEGACY_BOTTOM", vcnlegacy_bottom_mode);
+  vcnlegacy_fill_target = env_int("VCNLEGACY_FILL", vcnlegacy_fill_target);
   size_t size = 0;
   uint8_t* data = read_file(argv[2], &size);
   if (!data) {
