@@ -247,7 +247,10 @@ decode/build/gpu/vc1info clip.vc1 16
 ```
 
 Exit status 0 when the first 16 frames (all, without the number) include a field-interlaced
-one, 3 when they do not, 1 when the parser stops on an error.
+one, 3 when they do not, 1 when the parser stops on an error. `vc1info clip.vc1 16 cut.vc1`
+also writes those 16 frames with their headers to `cut.vc1`, so FFmpeg and the GPU decode the
+same short clip. Anything before the first sequence header (a stream copied out of a transport
+stream in the middle) is skipped and left out of the cut.
 
 ## Dry runs: tools/driver/dryrun.py and dryrun_vp9.py
 
