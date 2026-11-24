@@ -2,7 +2,23 @@
 
 **GPU power limit, from the optional GPUSensors.kext**: when the kext is loaded and an administrator has allowed GPU changes, Settings › GPU control and the panel can lower the RX 6800 XT's power limit in 10 W steps down to the card's own minimum (225 W on a card that starts at 240 W). The kext checks every request and goes back to the start-up limit on its own when RyzenStatus quits, stops answering or the Mac sleeps; a switch on the page asks for the same limit again after launch and wake, only while changes are allowed and never with a password. With GPUSensors.kext 0.8.0, Close Changes closes them again without a password, and on an RX 6900 XT the page shows the readings only. GPUSensors.kext is not public yet; without it, nothing changes.
 
-**Idle clock limit in custom profiles**: a custom profile in Settings › AMD Ryzen Power can now carry its own "Limit clock speed at idle", so a boost ceiling and an idle cap work together without Auto EPP. While that profile is in force, RyzenStatus watches the load with the same idle and load thresholds as Auto EPP and caps the cores only while the CPU is idle; load lifts the cap within about 1.5 s. The profile's other settings stay as they were applied. Needs CPPC and kext 3.41.0 or later, like the Auto EPP limit. Tested with unit tests only.
+## [1.89.0] — 2026-11-23 — kexts 3.42.0 (No kext changes)
+
+**10-bit HEVC hardware encoding on Radeon RX 6000 cards, an idle clock limit for custom profiles, a fan curve editor fix, and an updated slow-frame count in the GPU decoders.** The AMD processor kexts stay at 3.42.0; if you already updated them with 1.88.0, your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the encoding fix to 1.2.6 and the decoders to 0.3.5.
+
+### AMD Ryzen Power
+
+- **Idle clock limit in custom profiles (#108)**: a custom profile in Settings › AMD Ryzen Power can now carry its own "Limit clock speed at idle", so a boost ceiling and an idle cap work together without Auto EPP. While that profile is in force, RyzenStatus watches the load with the same idle and load thresholds as Auto EPP and caps the cores only while the CPU is idle; load lifts the cap within about 1.5 s. The profile's other settings stay as they were applied. Needs CPPC and kext 3.41.0 or later, like the Auto EPP limit. Tested with unit tests only.
+
+### Fans
+
+- **GPU sensor option in the curve editor**: when the AMD kext lists no GPU, the curve editor in Settings › Fans now keeps checking for a macOS GPU temperature while it is open, so the GPU sensor choice appears even if that reading was not ready at the moment the editor opened (for example right after launch or wake).
+
+### GPU
+
+- **10-bit HEVC (Main10) hardware encoding on RX 6000 (encoding fix 1.2.6, macOS 26.7.3)**: Apple's AMD encoder driver on macOS 26.7.3 sent an 8-bit input format for a 10-bit HEVC session and left out the chroma quantizer offset the stream declares for 10-bit video, which produced a broken picture. The 1.2.6 encoding service fixes both places in each new encoder process (turned off with `--no-hevc10`), and restores the first place if the second write fails. To turn 10-bit HEVC hardware encoding on, install VCNEncodeFloor.kext 1.2.6 on your EFI, add `-vcnhevc10` to OpenCore's `boot-args`, restart, and run the 1.2.6 encoding service: the kext offers Main10 to macOS only while the running service confirms the 10-bit driver fix is active, and takes it back if the service stops, runs with `--no-hevc10`, or runs on another macOS build. Without `-vcnhevc10`, 8-bit HEVC and H.264 work as before. Checked on an RX 6800 XT with macOS 26.7.3: 1080p Main10 hardware encodes keep the picture, 8-bit is unchanged.
+- **Encoding service status (encoding fix 1.2.6)**: `vcnencodefix status` now reports a fix turned off with `--no-preset`, `--no-wide` or `--no-hevc10` as `off` instead of `available`.
+- **Slow-frame count follows the video's frame rate (decoders 0.3.5)**: the `stats` log line in the AV1 and VP9 decoders now compares each frame's decode time alone against the stream's own frame time (from the sample duration or presentation timestamps) instead of comparing queue wait plus decode against a fixed 16.7 ms, so 30 fps videos and normal multi-frame queues are no longer counted as slow while playing on time. Decoding itself is unchanged.
 
 ## [1.88.0] — 2026-11-22 — kexts 3.42.0
 
