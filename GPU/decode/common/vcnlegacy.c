@@ -592,14 +592,21 @@ static void report_writes(VcnLegacy* d, CVPixelBufferRef pb) {
                                cw, 2, 0x22);
     Changed ctail = changed_bytes(p, l.chroma + l.pitch1 * ch, l.alloc, 0, 0,
                                   0, 0x22);
-    DBG("  writes: %zu bytes from the luma plane, chroma at %zu, pitches %zu/%zu; luma %zu "
-        "of %zu, first 256 bytes %zu, right of the picture %zu, below it %zu "
-        "(first at %zu = 0x%02x); chroma even rows %zu odd rows %zu of %zu "
-        "each, after the plane %zu (first at %zu = 0x%02x)\n",
+    // "first at" only for a part the firmware wrote at all.
+    char below[64] = "", after[64] = "";
+    if (ytail.changed)
+      snprintf(below, sizeof(below), " (first at %zu = 0x%02x)", ytail.first,
+               ytail.firstValue);
+    if (ctail.changed)
+      snprintf(after, sizeof(after), " (first at %zu = 0x%02x)", ctail.first,
+               ctail.firstValue);
+    DBG("  writes: %zu bytes from the luma plane, chroma at %zu, pitches "
+        "%zu/%zu; luma %zu of %zu, first 256 bytes %zu, right of the picture "
+        "%zu, below it %zu%s; chroma even rows %zu odd rows %zu of %zu each, "
+        "after the plane %zu%s\n",
         l.alloc, l.chroma, l.pitch0, l.pitch1, y.changed, w * h, y0.changed,
-        ypad.changed, ytail.changed, ytail.first, ytail.firstValue, ce.changed,
-        co.changed, cw * ((ch + 1) / 2), ctail.changed, ctail.first,
-        ctail.firstValue);
+        ypad.changed, ytail.changed, below, ce.changed, co.changed,
+        cw * ((ch + 1) / 2), ctail.changed, after);
   }
   CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
   // The DPB buffer, read only: how many bytes of each 64 KiB are not zero
