@@ -7,6 +7,8 @@
 # export LILU_KEXT and MACKERNELSDK. The EFI tests run on copies of OpenCore's Docs/Sample.plist
 # (deps/OpenCore/Sample.plist, or OC_SAMPLE); they are skipped when it is missing. The last test only
 # reports whether this Mac has the Apple files the service patches.
+# CC_IMAGES (VideoProcessing copies taken out of a dyld shared cache, separated by spaces) adds those builds to
+# the cc test.
 #
 # VERSION_OVERRIDE=<x.y.z> builds with another version string (used to compare a build with a released one).
 #
@@ -78,6 +80,13 @@ print "== tests"
 xcrun clang -arch x86_64 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=undefined \
   tests/wide_test.c tests/run_block.s tool/patches.c -o $B/obj/wide_test
 $B/obj/wide_test | tail -1
+# CC_IMAGES: optional VideoProcessing copies (taken out of a dyld shared cache) whose sites are checked too
+xcrun clang -arch x86_64 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+  tests/cc_test.c tests/run_cc.s tool/patches.c -framework VideoToolbox -framework CoreFoundation -o $B/obj/cc_test
+$B/obj/cc_test ${=CC_IMAGES:-} | tail -1
+# ftenc_test encodes on the GPU and needs a Mac Pro / iMac Pro board-id: built here, run by hand
+xcrun clang -arch x86_64 -O1 -g -Wall -Wextra -Werror tests/ftenc_test.c tool/patches.c -framework VideoToolbox \
+  -framework CoreMedia -framework CoreVideo -framework CoreFoundation -o $B/obj/ftenc_test
 xcrun clang -arch x86_64 -O1 -g -Wall -Wextra -Werror -fblocks -fsanitize=address,undefined -fno-sanitize-recover=undefined \
   tests/hevc10_test.c tool/patches.c -o $B/obj/hevc10_test
 $B/obj/hevc10_test | tail -1

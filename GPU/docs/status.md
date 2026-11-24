@@ -77,8 +77,11 @@ ended); that this was the user's problem is not shown.
 | The same while Safari decodes a 4K AV1 video | 4K60 at 72.7 fps, 3840x4320 p50 26.5 ms: decoding and encoding share the video engine, so measure with nothing else playing | 1.2.3 | RX 6800 XT, Tahoe 26.7.3, 2026-11-18 |
 | Kext sets the floor only on chips whose clock levels were read: Navi 21 (0x73A0 to 0x73AF, 0x73BF) and Navi 23 (0x73E0 to 0x73EF, 0x73FF); others off | booted on Navi 21: "active: encode"; `floor_test` passes on 20 device-ids; Navi 23 levels from two published RX 6600 XT tables, not run on a card | 1.2.4 | RX 6800 XT, Tahoe 26.7.3, 2026-11-18 |
 | `install/encoder.sh install --efi auto` as root, then a reboot; the package's `test.sh` | kext 1.2.4 and service 1.2.4 (unchanged since 1.2.3 except its version) loaded; test 1 (preset, HEVC 4K, 300 frames) 102.1 fps; test 2 (floor, 3840x4320, 60 CPU-filled frames) p50 21.3 ms; no GPU messages from the kernel. The kext's own "GPUs:" log line was not found in the unified log | 1.2.4 | RX 6800 XT, Tahoe 26.7.3, 2026-11-18 |
+| cc, decoder part: Continuity Camera with a real iPhone camera (VCNEncodeFix 1.3.0 upstream, same sites) | "Created HW video decoder", HEVC 1920x1088 decoded in 5 to 9 ms a frame | 1.3.0 | RX 6900 XT, Sequoia 15.8.2, reported by a user, 2026-11-22 |
+| cc, encoder part: `encode/tests/ftenc_test.c` (FaceTime's encoder session, usage 42, hardware required, in a test process) | before: H.264 reported unsupported, session -18 ("No bridgeOS device available"); after: H.264 supported, "Created video encoder with usage 42 on macOS", 30 frames | 1.3.0 | RX 6800 XT, Tahoe 26.7.3, MacPro7,1 SMBIOS, 2026-11-24 |
+| cc sites on the CPU and in each validated VideoProcessing (15.8.2, 26.7.2/26.7.3) | pass | 1.3.0 | static, `encode/tests/cc_test.c` |
 
-Not tested: the uninstall scripts as root; Sonoma 14.8.9 and Sequoia 15.8.2 on a GPU; RX 6800 and RX
+Not tested: a FaceTime call with cc; the service writing cc into a running avconferenced; the uninstall scripts as root; Sonoma 14.8.9 and Sequoia 15.8.2 on a GPU; RX 6800 and RX
 6900 XT with Apple's X6000 library; the `balance` and `quality` presets; power use while
 encoding.
 
