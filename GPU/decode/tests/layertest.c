@@ -7,8 +7,11 @@
 //   1. a VC-1 simple/main skipped frame (a sample of one byte or none) sends
 //      nothing to the firmware and shows the reference frame before it again;
 //      one before any reference frame is refused, also without a command;
-//   2. the two field pictures of an MPEG-2 frame go into one picture, with two
-//      commands, and the frame is shown once, after its second field.
+//   2. MPEG-2 field pictures are refused before any command, unless
+//      VCNMPEG2_ALLOW_FIELDS=1; with it, the two field pictures of a frame go
+//      into one picture, with two commands, the frame is shown once, after its
+//      second field, and with numbered indices both fields carry the frame's
+//      number (field mode 1).
 #include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -225,11 +228,22 @@ static void test_mpeg2_fields(void) {
   mpeg2_field(&w, 2, 2);  //          bottom P
   size_t n = bytes(&w);
   char err[256] = "";
+  unsetenv("VCNMPEG2_ALLOW_FIELDS");
   void* d = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
   expect("mpeg2: a decoder without a configuration is made", d != NULL);
   if (!d) return;
   reset();
   int r = vcnmpeg2_codec.decode(d, w.d, n, on_frame, NULL);
+  expect("mpeg2: field pictures are refused, with no command and no session",
+         r != 0 && g_cmds == 0 && g_outs == 0 && g_created == 0 &&
+             strstr(vcnmpeg2_codec.last_error(d), "field pictures"));
+  vcnmpeg2_codec.destroy(d);
+  reset();
+
+  setenv("VCNMPEG2_ALLOW_FIELDS", "1", 1);
+  d = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
+  if (!d) return;
+  r = vcnmpeg2_codec.decode(d, w.d, n, on_frame, NULL);
   expect("mpeg2: two frames of two field pictures: four commands, two frames",
          r == 0 && g_cmds == 4 && g_outs == 2);
   expect("mpeg2: both fields of a frame go into one picture",
@@ -249,8 +263,47 @@ static void test_mpeg2_fields(void) {
           g_out[1].pb == g_cmd[3].target &&
           g_out[0].use == VCNLEGACY_PIC_REFERENCE &&
           g_out[1].use == VCNLEGACY_PIC_REFERENCE);
+  expect("mpeg2: with zero indices (the default) every index is 0",
+         g_cmds == 4 && !m[0].decoded_pic_idx && !m[1].decoded_pic_idx &&
+             !m[3].decoded_pic_idx && !m[3].forward_ref_pic_idx);
   vcnmpeg2_codec.destroy(d);
   reset();
+
+  // Numbered indices, field mode 1: one number per frame.
+  vcnmpeg2_index_mode = 0;
+  vcnmpeg2_field_mode = 1;
+  d = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
+  if (!d) return;
+  r = vcnmpeg2_codec.decode(d, w.d, n, on_frame, NULL);
+  for (int i = 0; i < 4 && i < g_cmds; i++)
+    memcpy(&m[i], g_cmd[i].block, sizeof(m[i]));
+  expect(
+      "mpeg2: field mode 1: both fields of a frame carry the frame's number; "
+      "the second field of the first frame predicts from its own number, a "
+      "later frame from the frame before",
+      r == 0 && g_cmds == 4 && m[0].decoded_pic_idx == 1 &&
+          m[1].decoded_pic_idx == 1 && m[1].forward_ref_pic_idx == 1 &&
+          m[2].decoded_pic_idx == 2 && m[3].decoded_pic_idx == 2 &&
+          m[2].forward_ref_pic_idx == 1 && m[3].forward_ref_pic_idx == 1);
+  vcnmpeg2_codec.destroy(d);
+  reset();
+
+  // Field mode 0: one number per field, as round 3 sent them.
+  vcnmpeg2_field_mode = 0;
+  d = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
+  if (!d) return;
+  r = vcnmpeg2_codec.decode(d, w.d, n, on_frame, NULL);
+  for (int i = 0; i < 4 && i < g_cmds; i++)
+    memcpy(&m[i], g_cmd[i].block, sizeof(m[i]));
+  expect("mpeg2: field mode 0: one number per field",
+         r == 0 && g_cmds == 4 && m[0].decoded_pic_idx == 1 &&
+             m[1].decoded_pic_idx == 2 && m[2].decoded_pic_idx == 3 &&
+             m[3].decoded_pic_idx == 4);
+  vcnmpeg2_codec.destroy(d);
+  reset();
+  vcnmpeg2_index_mode = 1;
+  vcnmpeg2_field_mode = 1;
+  unsetenv("VCNMPEG2_ALLOW_FIELDS");
 }
 
 int main(void) {

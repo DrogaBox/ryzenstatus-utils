@@ -6,6 +6,12 @@
 
 int vcnmpeg2_index_mode = 1;
 int vcnmpeg2_matrix_mode = 0;
+int vcnmpeg2_field_mode = 1;
+
+bool vcnmpeg2_fields_allowed(void) {
+  const char* allow = getenv("VCNMPEG2_ALLOW_FIELDS");
+  return allow && !strcmp(allow, "1");
+}
 
 typedef struct {
   Mpeg2Parser parser;
@@ -109,6 +115,13 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
              p->width, p->height, VCNLEGACY_MAX_WIDTH, VCNLEGACY_MAX_HEIGHT);
     return -1;
   }
+  // Field pictures never reach the GPU unless asked for (vcnmpeg2.h).
+  if (pic->picture_structure != MPEG2_FRAME && !vcnmpeg2_fields_allowed()) {
+    snprintf(d->err, sizeof(d->err),
+             "MPEG-2 field pictures are not decoded on this GPU yet");
+    drop_field(d);
+    return -1;
+  }
   // A new size is a new session: the firmware's reference pictures are of the
   // old one.
   if (d->vcn && (vcnlegacy_width(d->vcn) != p->width ||
@@ -155,7 +168,9 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
     d->failure = VCNLEGACY_FAIL_MEMORY;
     return -1;
   }
-  uint32_t n = ++d->frameNumber;
+  // Field mode 1: the second field keeps the number of its first field.
+  bool shared = second && vcnmpeg2_field_mode == 1;
+  uint32_t n = shared ? d->frameNumber : ++d->frameNumber;
   uint32_t fwd = 0, back = 0;
   if (pic->coding_type == MPEG2_P) {
     fwd = d->refs ? d->refNumber[1] : 0;
@@ -165,6 +180,11 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
   }
   VcnMpeg2Msg msg;
   vcnmpeg2_fill_block(&msg, p, pic, n, fwd, back);
+  // The second P field of the first frame predicts only from its first
+  // field: that is its own number, which ref_index would move back by one.
+  if (shared && vcnmpeg2_index_mode == 0 && pic->coding_type == MPEG2_P &&
+      !d->refs)
+    msg.forward_ref_pic_idx = n;
   VcnLegacyBytes part = {pic->slices, pic->slicesSize};
   if (vcnlegacy_decode(d->vcn, &msg, sizeof(msg), &part, 1, target)) {
     snprintf(d->err, sizeof(d->err), "%s", vcnlegacy_last_error(d->vcn));

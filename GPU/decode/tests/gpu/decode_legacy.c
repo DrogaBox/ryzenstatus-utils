@@ -14,6 +14,8 @@
 // VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang. Switches for experiments:
 //   VCNMPEG2_INDEX=0|1   vcnmpeg2_index_mode  (picture numbers / zero)
 //   VCNMPEG2_MATRIX=0|1  vcnmpeg2_matrix_mode (scan order / transposed)
+//   VCNMPEG2_FIELD=0|1   vcnmpeg2_field_mode (a number per field / per frame)
+//   VCNMPEG2_ALLOW_FIELDS=1 send field pictures (refused by default)
 //   VCNMPEG4_INDEX=0|1   vcnmpeg4_index_mode
 //   VCNMPEG4_BLOCK=0..3  vcnmpeg4_block_mode  (Mesa's block / VOP part filled)
 //   VCNMPEG4_MATRIX=0|1  vcnmpeg4_matrix_mode (stream order / transposed)
@@ -129,6 +131,7 @@ int main(int argc, char** argv) {
   // Unset: the codec layer's own default.
   vcnmpeg2_index_mode = env_int("VCNMPEG2_INDEX", vcnmpeg2_index_mode);
   vcnmpeg2_matrix_mode = env_int("VCNMPEG2_MATRIX", vcnmpeg2_matrix_mode);
+  vcnmpeg2_field_mode = env_int("VCNMPEG2_FIELD", vcnmpeg2_field_mode);
   vcnmpeg4_index_mode = env_int("VCNMPEG4_INDEX", vcnmpeg4_index_mode);
   vcnmpeg4_block_mode = env_int("VCNMPEG4_BLOCK", vcnmpeg4_block_mode);
   vcnmpeg4_matrix_mode = env_int("VCNMPEG4_MATRIX", vcnmpeg4_matrix_mode);
