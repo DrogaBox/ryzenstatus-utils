@@ -29,6 +29,7 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `tools/driver/dryrun.py`, `dryrun_vp9.py` | yes, under lldb | the driver's own setup goes out; our commands do not | the scripts arm the program themselves |
 | `driveruuid` | loads the driver's code only | no | none |
 | `vp9dump` | no | no | none |
+| `vc1info` | no | no | none |
 | `tools/driver/dscdiff.py`, `vcnmsg.py`, `mk4k.py`, `mkvp9.py`, `rawpatch` | no | no | none |
 | `mkfield.py` | no | no | none |
 
@@ -52,6 +53,10 @@ AppleMP4V with the hardware off and our plug-in not registered: CPU only, no swi
 a reference for the MPEG-4 runs. AppleMP4V decodes plain Simple profile only; it refuses
 Advanced Simple, interlaced and MPEG quantisation with codecBadDataErr (-8969). Without a
 DecoderID an in-process registration with no rating can lose to AppleMP4V (round 3).
+`installed` registers nothing and asks for nothing: VideoToolbox picks among the plug-ins
+installed in `/System/Library/Video/Plug-Ins`, as a player's session does. It prints whether
+ours is listed and, after the frames, whether the process loaded the installed bundle. Apple's
+MPEG-2 and MPEG-4 decoders on this Mac are software ones, so "hardware decoder: yes" is ours.
 
 MPEG-2 field pictures are refused before the GPU unless `VCNMPEG2_ALLOW_FIELDS=1`; no
 numbering has decoded them right yet (`VCNMPEG2_INDEX`, `VCNMPEG2_FIELD`, see
@@ -229,6 +234,20 @@ decode/build/gpu/vp9dump v.ivf -v
 ```
 
 A pass: `tiles_bad=0` on the last line, and exit status 0.
+
+## vc1info
+
+Says what a VC-1 advanced profile stream holds, with the plug-in's own parser and no driver
+or GPU: the size, the interlace flag, and for each frame its coding mode and type (`p`
+progressive, `f` frame-interlaced, `F` field-interlaced, then `P`/`B`/`I`/`b` for BI/`S` for
+skipped, and for a field-interlaced frame the type of its second field).
+
+```sh
+decode/build/gpu/vc1info clip.vc1 16
+```
+
+Exit status 0 when the first 16 frames (all, without the number) include a field-interlaced
+one, 3 when they do not, 1 when the parser stops on an error.
 
 ## Dry runs: tools/driver/dryrun.py and dryrun_vp9.py
 

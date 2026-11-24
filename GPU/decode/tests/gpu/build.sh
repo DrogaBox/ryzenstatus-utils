@@ -16,6 +16,7 @@
 #   probe_ctx     asks the driver for one decode context     (no switch: see README.md)
 #   driveruuid    prints the build identifier of the installed driver
 #   vp9dump       VP9 parser check, no driver and no GPU
+#   vc1info       what a VC-1 stream holds (field-interlaced frames or not), no driver and no GPU
 #   rawpatch      tools/driver/rawpatch.c, unpacks a macOS update image
 #
 # decode_ivf and decode_vp9 are built from the same sources as the two plug-ins, at the same
@@ -82,6 +83,7 @@ build vtchurn $T/vtchurn.c $CF $VT
 build probe_ctx $T/probe_ctx.c common/vcndriver.c $CF $IOKIT
 build driveruuid $T/driveruuid.c common/vcndriver.c $CF $IOKIT
 build vp9dump $T/vp9dump.c vp9/vp9parse.c
+build vc1info -Ivc1 $T/vc1info.c vc1/vc1parse.c
 build rawpatch ../tools/driver/rawpatch.c
 
 print "built the GPU test programs in decode/$B (nothing was run)"

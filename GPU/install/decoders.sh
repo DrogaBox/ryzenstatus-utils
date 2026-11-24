@@ -351,7 +351,12 @@ preflight() {
   # 8. MPEG-2, VC-1 and MPEG-4 plug-ins left by an earlier install with --legacy (not
   #    blocking: install takes them off)
   local -a stale=( ${(f)"$(stale_legacy $LIVE)"} )
-  if (( ${#stale} )); then
+  # An install of this boot without --legacy took them off the next boot's snapshot
+  # already; the running system keeps them until the reboot.
+  (( ${#stale} )) && look_installed
+  if (( ${#stale} )) && [[ $PENDING == install ]]; then
+    add_check legacy-left "MPEG-2, VC-1 and MPEG-4 left over" ok "${(j:, :)stale} still run now; the install of this boot took them off the next boot's snapshot, so they go at the reboot"
+  elif (( ${#stale} )); then
     add_check legacy-left "MPEG-2, VC-1 and MPEG-4 left over" warn "${(j:, :)stale} in $LIVE, from an earlier install with --legacy. $(pick "'sudo install/decoders.sh install' without --legacy takes them off (with --legacy it keeps them)" "Installing the decoder plug-ins again in this window takes them off")."
   fi
 

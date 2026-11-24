@@ -18,6 +18,12 @@
 //   apple   Apple's own decoder for the codec, hardware off, our plug-in not
 //           registered: CPU only, so it needs no arming switch. Only MPEG-4
 //           has one (AppleMP4V); the reference for the other two modes.
+//   installed  nothing registered and nothing asked for, as a player opens a
+//           session: VideoToolbox picks among the plug-ins installed in
+//           /System/Library/Video/Plug-Ins. The program says whether ours is
+//           listed and, after the frames, whether this process loaded the
+//           installed bundle. Apple's MPEG-2 and MPEG-4 decoders here are
+//           software ones, so "hardware decoder: yes" is ours.
 // Without asking for a decoder, an in-process registration without a rating
 // ties with AppleMP4V and VideoToolbox may pick either (round 3, 2026-11-24).
 //
@@ -32,6 +38,7 @@
 #include <CoreVideo/CoreVideo.h>
 #include <VideoToolbox/VideoToolbox.h>
 #include <dlfcn.h>
+#include <mach-o/dyld.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -351,6 +358,19 @@ static OSStatus register_ours(CMVideoCodecType codec, CFStringRef implID,
   return st;
 }
 
+// The path of the installed plug-in bundle this process loaded for the codec
+// ("MPEG2VCNDecoder"), or NULL.
+static const char* loaded_installed(const char* exe) {
+  char want[160];
+  snprintf(want, sizeof(want), "/Video/Plug-Ins/%s.bundle/Contents/MacOS/%s",
+           exe, exe);
+  for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+    const char* n = _dyld_get_image_name(i);
+    if (n && strstr(n, want)) return n;
+  }
+  return NULL;
+}
+
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   if (argc != 4) {
@@ -379,11 +399,13 @@ int main(int argc, char** argv) {
   CFDictionaryRef ext = NULL;
   const char* mode = getenv("VTLEGACY_DECODER");
   if (!mode || !*mode) mode = "ours";
-  if (strcmp(mode, "ours") && strcmp(mode, "system") && strcmp(mode, "apple")) {
-    fprintf(stderr, "VTLEGACY_DECODER is ours, system or apple\n");
+  if (strcmp(mode, "ours") && strcmp(mode, "system") && strcmp(mode, "apple") &&
+      strcmp(mode, "installed")) {
+    fprintf(stderr, "VTLEGACY_DECODER is ours, system, apple or installed\n");
     return 2;
   }
   bool apple = !strcmp(mode, "apple");
+  bool installed = !strcmp(mode, "installed");
   const char* perr = "";
   int r = 0;
   if (!strcmp(argv[1], "mpeg2")) {
@@ -486,6 +508,16 @@ int main(int argc, char** argv) {
       fprintf(stderr, "VideoToolbox lists no AppleMP4V decoder\n");
       return 1;
     }
+  } else if (installed) {
+    CFStringRef ourID = CFStringCreateWithFormat(
+        NULL, NULL, CFSTR("com.droga.videodecoder.%s.vcn"), argv[1]);
+    CFStringRef listed = copy_decoder_id(ourID, codec);
+    char idText[256] = "";
+    if (listed)
+      CFStringGetCString(listed, idText, sizeof(idText), kCFStringEncodingUTF8);
+    printf("installed decoder listed: %s\n", listed ? idText : "no");
+    if (listed) CFRelease(listed);
+    CFRelease(ourID);
   } else {
     CFStringRef implID = CFStringCreateWithFormat(
         NULL, NULL, CFSTR("com.droga.vtlegacytest.%s"), argv[1]);
@@ -561,6 +593,14 @@ int main(int argc, char** argv) {
   }
   VTDecompressionSessionWaitForAsynchronousFrames(session);
   flush_held(&sink);
+  if (installed) {
+    const char* exe = !strcmp(argv[1], "mpeg2")   ? "MPEG2VCNDecoder"
+                      : !strcmp(argv[1], "mpeg4") ? "MPEG4VCNDecoder"
+                                                  : "VC1VCNDecoder";
+    const char* path = loaded_installed(exe);
+    printf("installed plug-in loaded in this process: %s\n",
+           path ? path : "no");
+  }
   OSType f = sink.format;
   printf(
       "%s through VideoToolbox: %d samples, %d pictures, %d written, %d "

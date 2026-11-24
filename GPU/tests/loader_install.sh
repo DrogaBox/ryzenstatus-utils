@@ -376,6 +376,12 @@ dput > $T/lp2.out 2>&1 && [[ $(nleg $SYS) == 0 && $(nleg $LIBP) == 0 && ! -e $SY
 dlcheck $SYS --json | spy 'd["installed"] == "current" and not [c for c in d["checks"] if c["id"] == "legacy-left"]' &&
   ok "after it the check sees AV1 and VP9 only: current, nothing left over" || bad "check after drop: $(dlcheck $SYS --json)"
 dput > $T/lp3.out 2>&1 && ! grep -q removed $T/lp3.out && ok "a second install without --legacy has nothing to take off" || bad "second drop: $(cat $T/lp3.out)"
+# an install of this boot without --legacy (its record) took them off the next boot's
+# snapshot: the check says so instead of asking for another install
+mkdir -p $T/leg-running2; cp -R $B/AV1VCNDecoder.bundle $B/VP9VCNDecoder.bundle $B/MPEG2VCNDecoder.bundle $T/leg-running2/
+dec_write install > /dev/null 2>&1
+dspy $T/leg-running2 'd["pending"] == "install" and [c for c in d["checks"] if c["id"] == "legacy-left" and c["status"] == "ok" and "go at the reboot" in c["detail"]]' &&
+  ok "after an install without --legacy in this boot: the left-over legacy plug-in goes at the reboot, no warning" || bad "stale pending: $(dcheck $T/leg-running2 --json)"
 dput legacy > /dev/null 2>&1 && [[ $(nleg $SYS) == 3 ]] && dput legacy > $T/lp4.out 2>&1 && [[ $(nleg $SYS) == 3 ]] && ! grep -q removed $T/lp4.out &&
   ok "install --legacy keeps them" || bad "legacy kept: $(cat $T/lp4.out)"
 
