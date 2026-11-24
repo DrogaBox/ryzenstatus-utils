@@ -13,6 +13,8 @@
 #   4. a refused AV1 sample or VP9 header leaves the parser consistent (av1state, vp9state);
 #      the plug-ins' VideoToolbox side, with a stand-in decoder (plugintest);
 #      the MPEG-2, VC-1 and MPEG-4 parsers and the messages built from them (legacyparse);
+#      what the MPEG-2 and VC-1 codec layers send for a stream, on a stand-in session
+#      (layertest);
 #      the parsers survive damaged streams: libvpx's invalid files and thousands of copies
 #      damaged at random, under the address and undefined-behaviour sanitizers
 #   5. the rule that picks AMD's accelerator; the wait for a decode command gives up on a
@@ -122,6 +124,9 @@ check "the plug-ins' VideoToolbox side, with a stand-in decoder" plugins
 legacyparse() { decode/build/tests/legacyparse > decode/build/tests/legacyparse.txt ||
   { cat decode/build/tests/legacyparse.txt; return 1; }; }
 check "the MPEG-2, VC-1 and MPEG-4 parsers and messages, with made-up and damaged streams" legacyparse
+layers() { decode/build/tests/layertest > decode/build/tests/layertest.txt ||
+  { cat decode/build/tests/layertest.txt; return 1; }; }
+check "the MPEG-2 and VC-1 codec layers send the firmware only what it decodes" layers
 damaged() {$PD --mutate $rounds tests/media/av1/*.ivf tests/media/vp9/*.ivf > decode/build/tests/damaged.txt; }
 check "$rounds damaged copies of each stream are survived" damaged
 

@@ -8,6 +8,7 @@ typedef struct {
   Vc1Parser parser;
   VcnLegacy* vcn;
   int refs;  // reference frames this session has decoded, at most 2
+  CVPixelBufferRef lastRef;  // the later one's picture, for a skipped frame
   VcnLegacyOutputFn out;
   void* outCtx;
   char err[256];
@@ -62,6 +63,8 @@ void vcnvc1_fill_block(VcnVc1Msg* m, const Vc1Parser* p) {
 }
 
 static void end_session(VcnVc1* d) {
+  if (d->lastRef) CVPixelBufferRelease(d->lastRef);
+  d->lastRef = NULL;
   if (d->vcn) {
     d->fwErrors += vcnlegacy_firmware_errors(d->vcn);
     vcnlegacy_destroy(d->vcn);
@@ -110,6 +113,17 @@ static int on_picture(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {
     d->failure = VCNLEGACY_FAIL_REFERENCE;
     return -1;
   }
+  // A skipped frame of the simple and main profiles is a sample of one byte
+  // or none (vc1parse.c): it repeats the reference frame before it, and there
+  // is nothing for the firmware to decode. An advanced profile skipped frame
+  // has a frame header and goes to the GPU like a P frame.
+  if (pic->type == VC1_SKIPPED && p->profile != VC1_PROFILE_ADVANCED) {
+    int stop = d->out ? d->out(d->outCtx, d->lastRef, VCNLEGACY_PIC_REFERENCE,
+                               p->width, p->height)
+                      : 0;
+    if (stop) p->stop = true;
+    return 0;
+  }
   CVPixelBufferRef target = vcnlegacy_new_target(d->vcn);
   if (!target) {
     snprintf(d->err, sizeof(d->err), "no pixel buffer for %ux%u", p->width,
@@ -144,7 +158,11 @@ static int on_picture(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {
     CVPixelBufferRelease(target);
     return -1;
   }
-  if (!is_b(pic->type) && d->refs < 2) d->refs++;
+  if (!is_b(pic->type)) {
+    if (d->refs < 2) d->refs++;
+    if (d->lastRef) CVPixelBufferRelease(d->lastRef);
+    d->lastRef = CVPixelBufferRetain(target);
+  }
   int stop = d->out ? d->out(d->outCtx, target,
                              is_b(pic->type) ? VCNLEGACY_PIC_B
                                              : VCNLEGACY_PIC_REFERENCE,

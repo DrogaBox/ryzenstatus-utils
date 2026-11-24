@@ -94,6 +94,10 @@ if [[ ${1:-} == tests ]]; then
     vc1/vc1parse.c vc1/vcnvc1.c mpeg4/mpeg4parse.c mpeg4/vcnmpeg4.c common/vcnlegacy.c common/vcndriver.c \
     common/vcnsession.c -framework CoreFoundation -framework CoreVideo -framework IOKit -framework IOSurface \
     -o $T/legacyparse
+  # The MPEG-2 and VC-1 codec layers on a stand-in for the session: what each stream sends to the
+  # firmware and which picture comes back.
+  xcrun clang $TFLAGS -Icommon -Impeg2 -Ivc1 tests/layertest.c mpeg2/mpeg2parse.c mpeg2/vcnmpeg2.c \
+    vc1/vc1parse.c vc1/vcnvc1.c -framework CoreFoundation -framework CoreVideo -o $T/layertest
   xcrun clang $TFLAGS -Icommon tests/acceltest.c common/vcndriver.c -framework CoreFoundation -framework IOKit \
     -o $T/acceltest
   xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c -framework CoreFoundation -framework IOKit \
