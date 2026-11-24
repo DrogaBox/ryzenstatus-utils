@@ -146,8 +146,11 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
     return fail(why, whyLen, JPEG_UNSUPPORTED, "no size in the frame header");
   if (t.sof[5] != 3)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "not three components");
-  if (t.sof[7] != 0x22 || t.sof[10] != 0x11 || t.sof[13] != 0x11)
-    return fail(why, whyLen, JPEG_UNSUPPORTED, "not 4:2:0");
+  // sampling (Y, Cb, Cr) as Mesa's radeon_dec_jpeg_check_format: NV12 or YUYV
+  uint32_t sf = ((uint32_t)t.sof[7] << 16) | ((uint32_t)t.sof[10] << 8) | t.sof[13];
+  bool yuyv = sf == 0x211111 || sf == 0x221212 || sf == 0x222121;
+  if (sf != 0x221111 && !yuyv)
+    return fail(why, whyLen, JPEG_UNSUPPORTED, "not 4:2:0 or 4:2:2");
   for (int c = 0; c < 3; c++) {
     uint8_t tq = t.sof[8 + 3 * c];
     if (tq > 3 || !t.haveQ[tq])
@@ -219,5 +222,6 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
   info->height = height;
   info->restart = t.restart;
   info->stdTables = added;
+  info->yuyv = yuyv;
   return JPEG_OK;
 }

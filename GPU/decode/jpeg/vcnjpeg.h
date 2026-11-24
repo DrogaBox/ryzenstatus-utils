@@ -26,7 +26,9 @@ extern ja_transport vcnjpeg_transport;
 extern void* (*vcnjpeg_transport_open)(void);
 extern void (*vcnjpeg_transport_close)(void* ctx);
 
-// NV12 full range (a JPEG's samples are 0..255), IOSurface backed.
+// What the session may get, full range (a JPEG's samples are 0..255), IOSurface
+// backed: NV12 ('420f') for 4:2:0 pictures, '422f' (Y plane + CbCr plane at full
+// height) for 4:2:2 ones, which the block writes as YUYV and vcnjpeg splits.
 CFDictionaryRef vcnjpeg_copy_pixel_buffer_attributes(uint32_t w, uint32_t h, bool tenBit);
 
 VcnJpeg* vcnjpeg_create(uint32_t maxWidth, uint32_t maxHeight, char* err, size_t errLen);

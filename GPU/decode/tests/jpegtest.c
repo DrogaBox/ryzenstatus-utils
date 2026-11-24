@@ -6,7 +6,7 @@
 //      original and the rewritten file to the same pixels;
 //   2. a picture without Huffman tables (Motion JPEG) gets those of Annex K,
 //      and APPn/COM segments and fill bytes change nothing;
-//   3. what the block is not given (4:2:2) is refused as unsupported, and no
+//   3. 4:2:2 is taken (as YUYV), what the block is not given (4:4:4, grey) is refused, and no
 //      prefix or damaged copy of a sample is read outside its buffer (the
 //      address sanitizer stops the program if one is);
 //   4. jpeg/vcnjpeg.c against a made-up kext behind the transport: the
@@ -109,7 +109,9 @@ static struct {
   uint8_t jpeg[1 << 16];  // what LOAD_USER copied
   size_t jpegLen;
   uint32_t w, h, pitch, rows;
+  bool yuyv;              // the picture is 4:2:2: one YUYV plane
 } K;
+static size_t k_bytes(void) { return K.yuyv ? (size_t)K.pitch * K.rows : (size_t)K.pitch * K.rows * 3 / 2; }
 static uint8_t pattern(size_t i) { return (uint8_t)(i * 13 + 5); }
 static int fake_call(void* ctx, const void* in, size_t inSize, void* out, size_t* outSize) {
   (void)ctx;
@@ -150,7 +152,9 @@ static int fake_call(void* ctx, const void* in, size_t inSize, void* out, size_t
       free(again);
       K.w = info.width;
       K.h = info.height;
-      K.pitch = (uint32_t)(((K.w + 15) / 16 * 16 + 255) / 256 * 256);
+      K.yuyv = info.yuyv;
+      K.pitch = K.yuyv ? (uint32_t)(((K.w + 15) / 16 * 16 * 2 + 255) / 256 * 256)
+                       : (uint32_t)(((K.w + 15) / 16 * 16 + 255) / 256 * 256);
       K.rows = (K.h + 15) / 16 * 16;
       rp.v[0] = K.w;
       rp.v[1] = K.h;
@@ -159,14 +163,14 @@ static int fake_call(void* ctx, const void* in, size_t inSize, void* out, size_t
     case JA_OP_RUN: {
       rp.status = (uint32_t)K.runStatus;
       if (K.runStatus != JA_OK) break;
-      struct ja_picture pic = {K.w + (uint32_t)K.widthOff, K.h, K.pitch, K.rows, K.pitch * K.rows,
-                               K.pitch * K.rows * 3 / 2, 3, 0};
+      struct ja_picture pic = {K.w + (uint32_t)K.widthOff, K.h, K.pitch, K.rows, K.yuyv ? 0 : K.pitch * K.rows,
+                               (uint32_t)k_bytes(), 3, K.yuyv ? 1u : 0u};
       memcpy(data, &pic, sizeof(pic));
       rp.dataBytes = sizeof(pic);
       break;
     }
     case JA_OP_READ_USER: {
-      size_t bytes = (size_t)K.pitch * K.rows * 3 / 2;
+      size_t bytes = k_bytes();
       if (rq.arg1 < bytes) {
         rp.status = JA_BAD_REQUEST;
         break;
@@ -207,6 +211,21 @@ static void on_picture(void* ctx, CVPixelBufferRef pb, const void* unused, uint3
 }
 
 // The kext's pattern is where the plug-in put it: luma row r at r * pitch, chroma after the luma rows.
+// '422f' from the YUYV the made-up kext wrote: Y from the even bytes, Cb Cr from the odd ones.
+static bool planes_hold_pattern_422(CVPixelBufferRef pb, uint32_t w, uint32_t h) {
+  if (CVPixelBufferGetPixelFormatType(pb) != kCVPixelFormatType_422YpCbCr8BiPlanarFullRange) return false;
+  CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+  const uint8_t* y = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+  const uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+  size_t ys = CVPixelBufferGetBytesPerRowOfPlane(pb, 0), uvs = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+  bool ok = CVPixelBufferGetWidth(pb) == w && CVPixelBufferGetHeight(pb) == h && CVPixelBufferGetHeightOfPlane(pb, 1) == h;
+  for (uint32_t r = 0; ok && r < h; r++) {
+    for (uint32_t c = 0; ok && c < w; c++) ok = y[r * ys + c] == pattern((size_t)r * K.pitch + 2 * c);
+    for (uint32_t c = 0; ok && c < (w + 1) / 2 * 2; c++) ok = uv[r * uvs + c] == pattern((size_t)r * K.pitch + 2 * c + 1);
+  }
+  CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+  return ok;
+}
 static bool planes_hold_pattern(CVPixelBufferRef pb, uint32_t w, uint32_t h) {
   if (CVPixelBufferGetPixelFormatType(pb) != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) return false;
   CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
@@ -294,7 +313,31 @@ int main(void) {
   // ---- 3. refused, cut and damaged ----
   o = NULL;
   r = jpeg_prepare(kJpeg422, sizeof(kJpeg422), &o, &on, &info, why, sizeof(why));
-  expect("4:2:2 is refused as unsupported", r == JPEG_UNSUPPORTED && !o && strstr(why, "4:2:0"));
+  expect("4:2:2 (ffmpeg's 2x2/1x2/1x2) is taken, as YUYV", r == JPEG_OK && o && info.yuyv && info.width == 32);
+  free(o);
+  {
+    // the other sampling forms Mesa takes or refuses on this block
+    static const uint8_t forms[][4] = {{0x21, 0x11, 0x11, JPEG_OK}, {0x22, 0x21, 0x21, JPEG_OK},
+                                       {0x11, 0x11, 0x11, JPEG_UNSUPPORTED}, {0x12, 0x11, 0x11, JPEG_UNSUPPORTED}};
+    bool all = true;
+    for (size_t f = 0; f < sizeof(forms) / sizeof(forms[0]); f++) {
+      uint8_t* c = malloc(sizeof(kJpeg48x32));
+      memcpy(c, kJpeg48x32, sizeof(kJpeg48x32));
+      for (size_t i = 2; i + 20 < sizeof(kJpeg48x32); i++)
+        if (c[i] == 0xff && c[i + 1] == 0xc0) {
+          c[i + 11] = forms[f][0];
+          c[i + 14] = forms[f][1];
+          c[i + 17] = forms[f][2];
+          break;
+        }
+      o = NULL;
+      int rr = jpeg_prepare(c, sizeof(kJpeg48x32), &o, &on, &info, why, sizeof(why));
+      all = all && rr == forms[f][3] && (rr != JPEG_OK || info.yuyv) && (rr == JPEG_OK || !o);
+      free(o);
+      free(c);
+    }
+    expect("sampling 211111 and 222121 are YUYV too; 4:4:4 and 4:4:0 are refused", all);
+  }
   bool prefixes = true;
   for (size_t n = 0; n < sizeof(kJpeg48x32) - 1; n++) {
     uint8_t* copy = malloc(n ? n : 1);
@@ -365,9 +408,10 @@ int main(void) {
   expect("the picture says BT.601 (JFIF)", matrix && CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4));
   if (matrix) CFRelease(matrix);
   int calls = K.calls;
-  bool refused = d && vcnjpeg_decode(d, kJpeg422, sizeof(kJpeg422), 0, on_picture, NULL) &&
-                 vcnjpeg_failure(d) == VCNJPEG_FAIL_STREAM && K.calls == calls;
-  expect("a 4:2:2 picture fails as the stream's, before anything is sent", refused);
+  bool p422 = d && !vcnjpeg_decode(d, kJpeg422, sizeof(kJpeg422), 0, on_picture, NULL) && got && gotW == 32 &&
+              gotH == 16 && planes_hold_pattern_422(got, 32, 16) && K.calls == calls + 3;
+  if (!p422 && d) printf("     %s\n", vcnjpeg_last_error(d));
+  expect("a 4:2:2 picture comes back as '422f', the kext's YUYV split into its planes, in three calls", p422);
   if (d) {
     vcnjpeg_destroy(d);
     d = vcnjpeg_create(32, 32, err, sizeof(err));

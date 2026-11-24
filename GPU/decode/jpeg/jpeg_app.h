@@ -83,7 +83,7 @@ struct ja_picture {
   uint32_t chromaOffset;   /* from the start of the surface */
   uint32_t surfaceBytes;
   uint32_t elapsedMs;      /* submit to completion, in the kernel */
-  uint32_t reserved;
+  uint32_t format;         /* 0 NV12 (4:2:0: luma, then UV at chromaOffset), 1 YUYV (4:2:2, one plane) */
 };
 
 #define JA_LOAD_PIECE (JA_MAX_IO - (uint32_t)sizeof(struct ja_request))

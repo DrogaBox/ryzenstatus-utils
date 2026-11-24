@@ -355,8 +355,8 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
     return kVTVideoDecoderUnsupportedDataFormatErr;
 
   // A JPEG format description says nothing about sampling or precision:
-  // each picture carries its own, and vcnjpeg refuses one the block is not
-  // given (progressive, 4:2:2, 4:4:4, grey).
+  // each picture carries its own. 4:2:0 comes out as '420f', 4:2:2 as '422f';
+  // vcnjpeg refuses what the block is not given (progressive, 4:4:4, grey).
   FourCharCode codec = CMFormatDescriptionGetMediaSubType(fmt);
   if (codec != kCMVideoCodecType_JPEG && codec != kCMVideoCodecType_JPEG_OpenDML)
     return kVTVideoDecoderUnsupportedDataFormatErr;

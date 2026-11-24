@@ -7,8 +7,10 @@
 //
 // What the block is given here is what the kext checks again before it takes
 // the JPEG (VCNJpegProbe jc::parseStream): baseline, 8 bits, three components,
-// 4:2:0 (luma 2x2, chroma 1x1), one scan with all three. Anything else is
-// JPEG_UNSUPPORTED: progressive, 4:2:2 (many webcams), 4:4:4, grey.
+// one scan with all three, sampled as Mesa's radeon_dec_jpeg_check_format
+// takes them on this block: 0x221111 (4:2:0, written as NV12) or 0x211111,
+// 0x221212, 0x222121 (4:2:2, written as YUYV). Anything else is
+// JPEG_UNSUPPORTED: progressive, 4:4:4, 4:4:0, grey.
 //
 // Pure code: no system call, no allocation but the output buffer.
 #pragma once
@@ -27,6 +29,7 @@ typedef struct {
   uint32_t width, height;
   uint16_t restart;     // restart interval, 0 = none
   bool stdTables;       // the Huffman tables of Annex K were added
+  bool yuyv;            // 4:2:2: the block writes YUYV (else NV12)
 } JpegInfo;
 
 // The output is at most the input plus kJpegPrepExtra bytes.
