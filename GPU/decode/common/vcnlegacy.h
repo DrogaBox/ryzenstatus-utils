@@ -48,6 +48,15 @@ typedef struct {
 } VcnLegacyConfig;
 
 extern int vcnlegacy_debug;
+// Switches for experiments (decode_legacy reads them from the environment).
+// vcnlegacy_db_height_mode 1: db_aligned_height 0 in the decode block, as
+// Mesa 25's radeon_vcn_dec.c leaves it for every codec but VP9, AV1 and HEVC
+// Main 10; 0 (the default): the height aligned to 64.
+// vcnlegacy_clear_dpb 1: the DPB buffer is filled with zeros before the
+// session's first picture, as Mesa's si_vid_clear_buffer does, when the driver
+// maps it into this task (the debug log says whether it could).
+extern int vcnlegacy_db_height_mode;
+extern int vcnlegacy_clear_dpb;
 // The plug-ins set this. Command line tools arm themselves with
 // VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang instead.
 extern int vcnlegacy_gpu_armed;
@@ -75,6 +84,7 @@ typedef struct {
   uint32_t pitch, texHeight, bytesPerElement;  // of the target texture
   uint32_t dpbSize, bitstreamSize;
   uint32_t streamHandle, feedbackNumber;
+  bool dbHeightZero;  // db_aligned_height 0 (vcnlegacy_db_height_mode 1)
   const void* block;
   uint32_t blockSize;
 } VcnLegacyMessage;

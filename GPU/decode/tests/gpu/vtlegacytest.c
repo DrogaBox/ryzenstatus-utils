@@ -69,6 +69,9 @@ typedef struct {
   int n, cap;
   uint32_t width, height;
   size_t headers;  // MPEG-4: the bytes in front of the first VOP
+  // MPEG-2: the picture_structure of a first field the last sample ends with,
+  // 0 when it ends with a whole frame.
+  uint8_t firstField;
 } Cut;
 
 static void add(Cut* c, const uint8_t* data, size_t size, int b) {
@@ -88,7 +91,20 @@ static int cut_mpeg2(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
   Cut* c = ctx;
   c->width = p->width;
   c->height = p->height;
-  add_to(c, pic->slices + pic->slicesSize, pic->coding_type == MPEG2_B);
+  const uint8_t* end = pic->slices + pic->slicesSize;
+  // The two field pictures of a frame go in one sample, as in an MP4 or a
+  // transport stream: the other parity right after a first field.
+  if (pic->picture_structure != MPEG2_FRAME && c->firstField && c->n &&
+      c->firstField + pic->picture_structure == 3) {
+    Sample* last = &c->s[c->n - 1];
+    c->end = (size_t)(end - c->base);
+    last->size = (size_t)(end - last->data);
+    c->firstField = 0;
+    return 0;
+  }
+  add_to(c, end, pic->coding_type == MPEG2_B);
+  c->firstField =
+      pic->picture_structure != MPEG2_FRAME ? pic->picture_structure : 0;
   return 0;
 }
 static int cut_vc1(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {

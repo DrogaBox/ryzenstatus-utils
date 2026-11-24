@@ -30,6 +30,7 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `driveruuid` | loads the driver's code only | no | none |
 | `vp9dump` | no | no | none |
 | `tools/driver/dscdiff.py`, `vcnmsg.py`, `mk4k.py`, `mkvp9.py`, `rawpatch` | no | no | none |
+| `mkfield.py` | no | no | none |
 
 The switches must have exactly these values. Anything else leaves the program unarmed: it
 stops with "GPU submission disabled" before it sends anything.
@@ -42,6 +43,17 @@ order, which compares frame by frame with `ffmpeg -i <stream> -f rawvideo -pix_f
 `decode_legacy` drives the codec layers directly. `vtlegacytest` links the three plug-ins in
 and registers them with VideoToolbox for its own process, so the plug-ins are exercised
 through a real decompression session without being installed.
+
+`vtlegacytest` puts the two field pictures of an MPEG-2 frame in one sample, as an MP4 or a
+transport stream does. No encoder on macOS writes field pictures (FFmpeg's `mpeg2video`
+always codes frame pictures), so `mkfield.py` makes a stream of them from raw yuv420p
+frames: I and P fields, with intra macroblock rows and rows that copy a reference field
+(also the first field of the same frame):
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=720x576:rate=25 -frames:v 8 -pix_fmt yuv420p -f rawvideo src.yuv
+python3 -I decode/tests/gpu/mkfield.py src.yuv 720 576 8 mpeg2-720x576-fields.m2v
+```
 
 ## Building
 

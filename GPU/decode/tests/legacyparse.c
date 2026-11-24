@@ -325,6 +325,13 @@ static void test_mpeg2(void) {
              D32(160) == 1);
   expect("message: the codec block follows the decode block",
          !memcmp(msg + 244, kLinuxMpeg2Block, 160));
+  expect("message: db_aligned_height is the height aligned to 64",
+         D32(76) == 576);
+  lm.dbHeightZero = true;
+  expect("message: db_aligned_height 0 when asked (Mesa 25)",
+         vcnlegacy_build_message(msg, sizeof(msg), &lm) == 404 &&
+             D32(76) == 0 && D32(72) == 768);
+  lm.dbHeightZero = false;
   lm.blockSize = 0;
   expect("message: an empty block is refused",
          vcnlegacy_build_message(msg, sizeof(msg), &lm) == 0);

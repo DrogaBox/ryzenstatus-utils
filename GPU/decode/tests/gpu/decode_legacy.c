@@ -18,6 +18,9 @@
 //   VCNMPEG4_BLOCK=0..3  vcnmpeg4_block_mode  (Mesa's block / VOP part filled)
 //   VCNMPEG4_MATRIX=0|1  vcnmpeg4_matrix_mode (stream order / transposed)
 //   VCNMPEG4_ALLOW_B=1   send B-VOPs too (each can hang the video engine)
+//   VCNLEGACY_DB_HEIGHT=0|1 vcnlegacy_db_height_mode (64-aligned / 0 as Mesa
+//   25) VCNLEGACY_CLEAR_DPB=0|1 vcnlegacy_clear_dpb (zeros before the first
+//   picture)
 #include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +133,9 @@ int main(int argc, char** argv) {
   vcnmpeg4_block_mode = env_int("VCNMPEG4_BLOCK", vcnmpeg4_block_mode);
   vcnmpeg4_matrix_mode = env_int("VCNMPEG4_MATRIX", vcnmpeg4_matrix_mode);
   vcnlegacy_debug = env_int("VCNLEGACY_DEBUG", vcnlegacy_debug);
+  vcnlegacy_db_height_mode =
+      env_int("VCNLEGACY_DB_HEIGHT", vcnlegacy_db_height_mode);
+  vcnlegacy_clear_dpb = env_int("VCNLEGACY_CLEAR_DPB", vcnlegacy_clear_dpb);
   size_t size = 0;
   uint8_t* data = read_file(argv[2], &size);
   if (!data) {

@@ -17,6 +17,8 @@
 
 int vcnlegacy_debug = 0;
 int vcnlegacy_gpu_armed = 0;
+int vcnlegacy_db_height_mode = 0;
+int vcnlegacy_clear_dpb = 0;
 #define DBG(...)                                                      \
   do {                                                                \
     if (vcnlegacy_debug) fprintf(stderr, "[vcnlegacy] " __VA_ARGS__); \
@@ -74,9 +76,12 @@ struct VcnLegacy {
   bool haveStatus, executed;
   uint32_t status;
   uint8_t fb_copy[44];  // the feedback words of the last command
+  uint8_t* dpbSeen;     // the DPB texture of the last message (debug log)
 };
 
 #define FN(name) ((AVD_##name##_fn)d->s.accel->fn[AVD_FN_##name])
+
+static bool mapped(const void* p, size_t n, vm_prot_t prot);
 
 // The one driver build this path was read and run on. The feedback buffer
 // offsets and the ring command the context buffer turns into were read in this
@@ -207,8 +212,8 @@ uint32_t vcnlegacy_build_message(uint8_t* msg, size_t cap,
   U32(d, 24) = (uint32_t)(((uint64_t)3 * pitch * texh) >> 1);
   U32(d, 36) = 0;  // hw_ctxt_size: these codecs have no context buffer
   U32(d, 40) = SW_CTXT_SIZE;
-  U32(d, 72) = al(w, a);   // db_pitch
-  U32(d, 76) = al(h, 64);  // db_aligned_height
+  U32(d, 72) = al(w, a);                         // db_pitch
+  U32(d, 76) = m->dbHeightZero ? 0 : al(h, 64);  // db_aligned_height
   U32(d, 100) = pitch / bpe;
   U32(d, 104) = (pitch / bpe) >> 1;
   U32(d, 140) = (uint32_t)((uint64_t)pitch * h - 1);
@@ -331,6 +336,7 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
                         .bitstreamSize = DATA_BS_SIZE(data),
                         .streamHandle = (uint32_t)(uintptr_t)data,
                         .feedbackNumber = PROC_FEEDBACK(proc),
+                        .dbHeightZero = vcnlegacy_db_height_mode == 1,
                         .block = d->block,
                         .blockSize = d->blockSize};
   if (!vcnlegacy_build_message(DATA_MSG(data), MSG_MAX, &m)) return -1;
@@ -347,13 +353,33 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
   // firmware then skips the decode of these codecs without a word. Mesa sends
   // that command only when hw_ctx_size is not 0 (ac_vcn_dec.c).
   U32(bi, BI_CTX_ON) = 0;
-  if (*((int8_t*)hw + 149) < 0) {
+  bool session = *((int8_t*)hw + 149) < 0;
+  if (session) {
     U32(bi, BI_SESSION_ON) = 1;
     *(uint8_t**)(bi + BI_SESSION) = DATA_SESSION_TEX(data);
+  }
+  uint8_t* dpbTex = DATA_DPB_TEX(data);
+  uint8_t* dpbCpu = dpbTex ? TEX_CPU(dpbTex) : NULL;
+  // Before the first picture only: later ones need the references in it.
+  const char* cleared = "";
+  if (vcnlegacy_clear_dpb == 1 && !d->done && !d->dpbSeen) {
+    if (dpbCpu && m.dpbSize &&
+        mapped(dpbCpu, m.dpbSize, VM_PROT_READ | VM_PROT_WRITE)) {
+      memset(dpbCpu, 0, m.dpbSize);
+      cleared = ", DPB cleared";
+    } else {
+      cleared = ", DPB NOT cleared (not mapped here)";
+    }
   }
   DBG("message: %ux%u pitch %u texh %u dpb %u bs %u feedback #%u\n", m.width,
       m.height, m.pitch, m.texHeight, m.dpbSize, m.bitstreamSize,
       m.feedbackNumber);
+  DBG("  buffers: session context %s (hw byte 149 0x%02x), DPB texture %p%s, "
+      "cpu %p, db_aligned_height %u%s\n",
+      session ? "sent" : "NOT sent", *((uint8_t*)hw + 149), (void*)dpbTex,
+      d->dpbSeen && d->dpbSeen != dpbTex ? " (CHANGED)" : "", (void*)dpbCpu,
+      m.dbHeightZero ? 0 : al(m.height, 64), cleared);
+  d->dpbSeen = dpbTex;
   return 0;
 }
 
@@ -648,6 +674,11 @@ bool vcnlegacy_last_status(VcnLegacy* d, bool* executed, uint32_t* status) {
 // True when [p, p + n) is mapped readable in this task: the feedback buffer
 // belongs to the driver, which may have let go of it.
 static bool readable(const void* p, size_t n) {
+  return mapped(p, n, VM_PROT_READ);
+}
+
+// The same with any protection bits: one region, mapped with all of prot.
+static bool mapped(const void* p, size_t n, vm_prot_t prot) {
   mach_vm_address_t a = (mach_vm_address_t)(uintptr_t)p;
   mach_vm_size_t sz = 0;
   vm_region_basic_info_data_64_t info;
@@ -658,7 +689,7 @@ static bool readable(const void* p, size_t n) {
     return false;
   if (obj != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), obj);
   if (a > (mach_vm_address_t)(uintptr_t)p) return false;
-  if (!(info.protection & VM_PROT_READ)) return false;
+  if ((info.protection & prot) != prot) return false;
   return (uintptr_t)p + n <= a + sz;
 }
 
