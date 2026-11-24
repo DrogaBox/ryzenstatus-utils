@@ -24,7 +24,8 @@
 //   VCNLEGACY_CLEAR_DPB=0|1     vcnlegacy_clear_dpb (zero the DPB first)
 //   VCNLEGACY_FIELD_LAYOUT=0|1  vcnlegacy_field_layout (two field planes)
 //   VCNLEGACY_BOTTOM=0|1|2      vcnlegacy_bottom_mode (plane ends / 0 / top)
-//   VCNLEGACY_FILL=0|1          vcnlegacy_fill_target (where the firmware wrote)
+//   VCNLEGACY_FILL=0|1          vcnlegacy_fill_target (where the firmware
+//   wrote)
 #include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -520,7 +520,7 @@ CFDictionaryRef vcnlegacy_copy_pixel_buffer_attributes(uint32_t w, uint32_t h) {
 // the firmware's offsets start (CoreVideo puts the luma plane 4096 bytes into
 // the IOSurface; dt_chroma_top_offset is the distance between the planes).
 typedef struct {
-  uint8_t* base;  // the luma plane
+  uint8_t* base;                         // the luma plane
   size_t alloc, chroma, pitch0, pitch1;  // bytes from base to the end, ...
 } SurfaceLayout;
 
@@ -590,8 +590,8 @@ static void report_writes(VcnLegacy* d, CVPixelBufferRef pb) {
     Changed ce = changed_bytes(c, 0, l.pitch1 * ch, l.pitch1, cw, 2, 0x22);
     Changed co = changed_bytes(c + l.pitch1, 0, l.pitch1 * (ch - 1), l.pitch1,
                                cw, 2, 0x22);
-    Changed ctail = changed_bytes(p, l.chroma + l.pitch1 * ch, l.alloc, 0, 0,
-                                  0, 0x22);
+    Changed ctail =
+        changed_bytes(p, l.chroma + l.pitch1 * ch, l.alloc, 0, 0, 0, 0x22);
     // "first at" only for a part the firmware wrote at all.
     char below[64] = "", after[64] = "";
     if (ytail.changed)
@@ -611,13 +611,16 @@ static void report_writes(VcnLegacy* d, CVPixelBufferRef pb) {
   CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
   // The DPB buffer, read only: how many bytes of each 64 KiB are not zero
   // ('.' none, '0'..'9' tenths, '#' all).
-  if (d->dpbCpu && d->dpbBytes && mapped(d->dpbCpu, d->dpbBytes, VM_PROT_READ)) {
+  if (d->dpbCpu && d->dpbBytes &&
+      mapped(d->dpbCpu, d->dpbBytes, VM_PROT_READ)) {
     char map[160];
     size_t n = 0;
     for (size_t at = 0; at < d->dpbBytes && n + 1 < sizeof(map); at += 65536) {
       size_t end = at + 65536 < d->dpbBytes ? at + 65536 : d->dpbBytes, nz = 0;
       for (size_t i = at; i < end; i++) nz += d->dpbCpu[i] != 0;
-      map[n++] = !nz ? '.' : nz == end - at ? '#' : (char)('0' + nz * 10 / (end - at));
+      map[n++] = !nz              ? '.'
+                 : nz == end - at ? '#'
+                                  : (char)('0' + nz * 10 / (end - at));
     }
     map[n] = 0;
     DBG("  dpb: %s\n", map);

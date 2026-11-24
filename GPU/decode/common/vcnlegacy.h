@@ -101,8 +101,8 @@ typedef struct {
   uint32_t pitch, texHeight, bytesPerElement;  // of the target texture
   uint32_t dpbSize, bitstreamSize;
   uint32_t streamHandle, feedbackNumber;
-  bool dbHeightZero;  // db_aligned_height 0 (vcnlegacy_db_height_mode 1)
-  bool fieldLayout;   // vcnlegacy_field_layout 1
+  bool dbHeightZero;   // db_aligned_height 0 (vcnlegacy_db_height_mode 1)
+  bool fieldLayout;    // vcnlegacy_field_layout 1
   uint8_t bottomMode;  // vcnlegacy_bottom_mode
   const void* block;
   uint32_t blockSize;
