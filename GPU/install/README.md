@@ -95,7 +95,10 @@ The MPEG-2, VC-1 and MPEG-4 plug-ins are built and the loader kext lists them, b
 installed only with `--legacy` (or `VCNVT_LEGACY_DECODERS=1`; `install.sh
 --with-legacy-decoders` passes it on). They have not run through VideoToolbox on a GPU yet.
 With `--legacy`, `check` also looks at the `legacy` column of `validated-builds.json`, and
-`install` puts all five plug-ins in place. `uninstall` always removes all five. The DMG
+`install` puts all five plug-ins in place. Without `--legacy`, `install` and `repair` take off
+the three if an earlier install with `--legacy` left them, and `check` reports them (a warning,
+and `installed` is `outdated`, so `install.sh` does not skip the decoders). `uninstall` always
+removes all five. The DMG
 carries the three only when it is built with `VCNVT_LEGACY_DECODERS=1`.
 
 ### What `check` looks at

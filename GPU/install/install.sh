@@ -10,7 +10,8 @@
 #
 #   --with-legacy-decoders  the MPEG-2, VC-1 and MPEG-4 plug-ins too, with AV1 and VP9 (the
 #                           same as VCNVT_LEGACY_DECODERS=1). Off by default: they have not
-#                           run through VideoToolbox on a GPU yet.
+#                           run through VideoToolbox on a GPU yet. Without it, the three
+#                           are taken off if an earlier run with it left them.
 #
 # What it decides:
 #   decoders   always (the AV1 and VP9 plug-ins); skipped when the ones installed are
