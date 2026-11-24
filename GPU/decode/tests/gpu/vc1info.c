@@ -85,9 +85,11 @@ int main(int argc, char** argv) {
              .end = (size_t)size - start};
   Vc1Parser p;
   vc1_parser_init(&p);
-  int r = vc1_parse_chunk(&p, data + start, (size_t)size - start, on_frame,
-                          &in);
-  if (start) printf("vc1info: skipped %zu bytes before the first sequence header\n", start);
+  int r =
+      vc1_parse_chunk(&p, data + start, (size_t)size - start, on_frame, &in);
+  if (start)
+    printf("vc1info: skipped %zu bytes before the first sequence header\n",
+           start);
   if (r < 0) {
     fprintf(stderr, "vc1info: %s\n", p.err);
     free(data);
@@ -106,11 +108,12 @@ int main(int argc, char** argv) {
            argv[3]);
   }
   free(data);
-  printf("vc1info: profile %u level %u %ux%u interlace %u, %d frames: "
-         "progressive %d, frame-interlaced %d, field-interlaced %d "
-         "(first: frame %d)\n",
-         p.profile, p.level, p.width, p.height, p.interlace, in.n, in.fcm[0],
-         in.fcm[1], in.fcm[2], in.firstField);
+  printf(
+      "vc1info: profile %u level %u %ux%u interlace %u, %d frames: "
+      "progressive %d, frame-interlaced %d, field-interlaced %d "
+      "(first: frame %d)\n",
+      p.profile, p.level, p.width, p.height, p.interlace, in.n, in.fcm[0],
+      in.fcm[1], in.fcm[2], in.firstField);
   // p/f/F: progressive, frame-, field-interlaced; then the type (b = BI, S =
   // skipped), and for a field-interlaced frame its second field's type.
   printf("vc1info: frames %s\n", in.list);
