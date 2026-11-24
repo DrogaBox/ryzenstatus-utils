@@ -93,6 +93,8 @@ extension DefaultsKey {
     static let monitorNetTotals = "monitorNetTotals"
     static let monitorNetTest = "monitorNetTest"
     static let monitorNetLatency = "monitorNetLatency"
+    /// The AWDL / AirDrop line, shown only with a Wi-Fi driver that reports AWDL.
+    static let monitorNetAwdl = "monitorNetAwdl"
     /// Opt-in: the latency block pings a public resolver only once this is on.
     static let networkPingEnabled = "networkPingEnabled"
     /// Opt-in: the public address is asked of an outside service only once
@@ -122,6 +124,9 @@ extension DefaultsKey {
     static let monitorAlertGPUThrottle = "monitorAlertGPUThrottle"
     /// The alerts that read GPUSensors.kext and mean nothing without it.
     static let gpuSensorsAlertKeys: Set<String> = [monitorAlertGPUMemoryTemperature, monitorAlertGPUThrottle]
+    /// A notification when AWDL goes from no peers to some. An event, not a
+    /// threshold: it keeps its own reader and ignores the sustain and cooldown pickers.
+    static let monitorAlertAwdl = "monitorAlertAwdl"
     static let monitorAlertMemory = "monitorAlertMemory"
     static let monitorAlertDisk = "monitorAlertDisk"
     static let monitorAlertBattery = "monitorAlertBattery"

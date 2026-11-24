@@ -175,6 +175,7 @@ enum SensorDump {
         // the hardware the app targets.
         printAMDTelemetry()
         printGPUSensors()
+        printAwdl()
 
         // AppleSMC section. Non-fatal now: its absence must not suppress the AMD
         // dump above (the old `exit(1)` did precisely that).
@@ -222,6 +223,17 @@ enum SensorDump {
             let padded = name.padding(toLength: max(name.count, 26), withPad: " ", startingAt: 0)
             print(padded + String(format: " %8.0f ", value) + unit)
         }
+    }
+
+    /// The AWDL numbers a Wi-Fi driver that reports them publishes. Prints
+    /// nothing without them.
+    private static func printAwdl() {
+        guard let activity = AwdlActivityService.readOnce() else { return }
+        print("")
+        print("== AWDL (\(AwdlActivity.interfaceClass)) ==")
+        print("\(AwdlActivity.peersKey)    \(activity.peers)")
+        print("\(AwdlActivity.channelKey)  \(activity.channel)")
+        if let led = activity.led { print("\(AwdlActivity.ledKey)          \(led.rawValue)") }
     }
 
     /// Dumps the AMD kext's own telemetry — the authoritative sensor
