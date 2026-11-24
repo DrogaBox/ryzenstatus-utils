@@ -17,8 +17,10 @@
 #   --bundles DIR   take the plug-ins from DIR instead of decode/build
 #   --legacy        with check, install and repair: the MPEG-2, VC-1 and MPEG-4 plug-ins
 #                   too (the same as VCNVT_LEGACY_DECODERS=1). Off by default: they have
-#                   not run through VideoToolbox on a GPU yet. uninstall always removes
-#                   them with the other two.
+#                   not run through VideoToolbox on a GPU yet. Without it, install and
+#                   repair take off the three if an earlier install with --legacy left
+#                   them, and check reports them. uninstall always removes them with the
+#                   other two.
 #   --json          with check: print the result as one JSON object (for a front end)
 #
 # install, repair and uninstall change a mounted copy of the system volume and then create a
@@ -89,6 +91,14 @@ WANT=($AV1 $VP9)
 legacy_on && WANT+=($LEGACY_BUNDLES)
 ALL=($AV1 $VP9 $LEGACY_BUNDLES)
 all_built() { local b; for b in $WANT; do [[ -d $BUNDLES/$b ]] || return 1; done; }
+# The MPEG-2, VC-1 and MPEG-4 plug-ins in a plug-in folder when this run leaves them out (no
+# --legacy): an earlier install with --legacy put them there. One name per line.
+stale_legacy() { # folder
+  legacy_on && return 0
+  local b
+  for b in $LEGACY_BUNDLES; do [[ -e $1/$b || -L $1/$b ]] && print -r -- $b; done
+  return 0
+}
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
 [[ $FORCE -eq 1 && $CMD != install && $CMD != repair ]] && usage_error "--force goes with install and repair only"
 # VCNVT_FAKE_RECORDS and VCNVT_FAKE_LIVE are for testing only (tests/loader_install.sh), and
@@ -338,6 +348,13 @@ preflight() {
     HARD_FAIL=1; HARD_OTHER=1
   fi
 
+  # 8. MPEG-2, VC-1 and MPEG-4 plug-ins left by an earlier install with --legacy (not
+  #    blocking: install takes them off)
+  local -a stale=( ${(f)"$(stale_legacy $LIVE)"} )
+  if (( ${#stale} )); then
+    add_check legacy-left "MPEG-2, VC-1 and MPEG-4 left over" warn "${(j:, :)stale} in $LIVE, from an earlier install with --legacy. $(pick "'sudo install/decoders.sh install' without --legacy takes them off (with --legacy it keeps them)" "Installing the decoder plug-ins again in this window takes them off")."
+  fi
+
   BLOCK_OVERRIDABLE=0
   if [[ $HARD_FAIL -eq 1 ]]; then CAN_INSTALL=0
   elif [[ $SOFT_FAIL -eq 1 ]]; then CAN_INSTALL=0; BLOCK_OVERRIDABLE=1
@@ -362,6 +379,8 @@ installed_state() {
       same=0
     fi
   done
+  # left over from an install with --legacy, which this one would take off
+  [[ -n $(stale_legacy "$LIVE") ]] && { any=1; same=0; }
   if [[ $any -eq 0 ]]; then echo none
   elif ! all_built; then echo unknown
   elif [[ $same -eq 1 ]]; then echo current
@@ -463,6 +482,8 @@ emit_check_text() {
     outdated) now="one or both plug-ins, not the same code as the ones to install" ;;
     unknown)  now="decoder plug-ins in $LIVE; none built in $BUNDLES to compare them with" ;;
   esac
+  local -a stale=( ${(f)"$(stale_legacy "$LIVE")"} )
+  (( ${#stale} )) && now+=", and ${(j:, :)stale} from an earlier install with --legacy"
   case $PENDING in
     install) now+="; the new ones are in the next boot's snapshot and load at the next boot" ;;
     remove)  now+="; they are gone from the next boot's snapshot and stop at the next boot" ;;
@@ -642,6 +663,31 @@ install_one() { # src-bundle-dir  name
   echo "installed $dest"
 }
 
+# Without --legacy: takes off the MPEG-2, VC-1 and MPEG-4 plug-ins an earlier install with
+# --legacy left on the system volume (and a copy in /Library), so that only the plug-ins of
+# this install stay. With --legacy it does nothing.
+drop_stale_legacy() {
+  legacy_on && return 0
+  local b d
+  for b in $LEGACY_BUNDLES; do
+    for d in "$MNT/$PLUGDIR/$b" "$MNT/$PLUGDIR/$b.new"; do
+      [[ -e $d || -L $d ]] || continue
+      safe_rm_bundle "$d" || return 1
+      echo "removed $d (an earlier install with --legacy put it there)"
+    done
+    if [[ -e $LIBPLUG/$b || -L $LIBPLUG/$b ]]; then safe_rm_bundle "$LIBPLUG/$b" || return 1; fi
+  done
+  return 0
+}
+
+# The plug-ins of this run onto the mounted system volume, and the legacy ones it leaves out
+# off it.
+put_decoders() {
+  local b
+  for b in $WANT; do install_one "$BUNDLES/$b" "$b" || return 1; done
+  drop_stale_legacy
+}
+
 # Creates the boot snapshot that makes the changes take effect at the next boot.
 bless_snapshot() {
   echo "blessing new snapshot..."
@@ -677,7 +723,7 @@ do_repair() {
   [[ $rc -eq 0 ]] || exit 6
   # install our decoders in the same snapshot (one reboot), unless the build is unvalidated
   if [[ $with_decoders -eq 1 ]]; then
-    for b in $WANT; do install_one "$BUNDLES/$b" "$b" || exit 1; done
+    put_decoders || exit 1
   else
     echo "driver build not validated: decoders NOT installed (Apple plug-ins repaired only)"
   fi
@@ -706,7 +752,7 @@ do_install() {
   local -a mntbundles=( "$MNT/$PLUGDIR"/*.bundle(N) )
   [[ -d "$MNT/$PLUGDIR" && ! -e "$MNT/$PLUGDIR/Contents" && -d "$MNT/$PLUGDIR/AppleGVAHEVCDecoder.bundle" && ${#mntbundles} -ge 5 ]] \
     || { echo "system Plug-Ins folder looks damaged; not touching it ($(pick "'sudo install/decoders.sh repair'" "Decoder plug-ins > Repair in this window") restores Apple's plug-ins)" >&2; exit 4; }
-  for b in $WANT; do install_one "$BUNDLES/$b" "$b" || exit 1; done
+  put_decoders || exit 1
   bless_snapshot || exit 1
   dec_record_write install
   echo "OK: reboot to load the decoders"

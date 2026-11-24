@@ -4,7 +4,9 @@
 # install and uninstall on made-up EFI folders in a temporary directory (their --efi-folder
 # option), so no partition is mounted and no real EFI is touched. Also reads the decoders'
 # install record with 'install/decoders.sh check', from a made-up record folder and a
-# made-up running system (test variables honoured by check only); nothing is installed.
+# made-up running system (test variables honoured by check only), and runs the function
+# decoders.sh install uses to put the plug-ins on a made-up system volume, with and without
+# --legacy; nothing is installed.
 # Needs the build: decode/build.sh, decode/loader/build.sh and sensors/build.sh.
 # Exit status 0 = all passed.
 emulate -L zsh
@@ -305,8 +307,12 @@ grep -q "^Result: installed; they load at the next reboot." $T/dc.out && grep -q
   ! grep -q "ready to update" $T/dc.out && ok "the text check says installed, reboot (no update offered)" || bad "pending text: $(cat $T/dc.out)"
 dspy $T/nolive 'd["pending"] == "install" and d["installed"] == "none"' &&
   ok "a first install, none running yet: pending install" || bad "pending first install: $(dcheck $T/nolive --json)"
-dspy $B 'd["pending"] == "none" and d["installed"] == "current"' &&
-  ok "after the reboot these run: nothing pending" || bad "pending after reboot: $(dcheck $B --json)"
+# the running system after the reboot: AV1 and VP9 only (decode/build also holds the
+# MPEG-2, VC-1 and MPEG-4 plug-ins, which a check without --legacy reports as left over)
+mkdir -p $T/booted
+cp -R $B/AV1VCNDecoder.bundle $B/VP9VCNDecoder.bundle $T/booted/
+dspy $T/booted 'd["pending"] == "none" and d["installed"] == "current"' &&
+  ok "after the reboot these run: nothing pending" || bad "pending after reboot: $(dcheck $T/booted --json)"
 GPU_CHECK_CACHE=$T/check-cache VCNVT_FAKE_LIVE=$T/other $D check --json | spy 'd["pending"] == "none"' &&
   ok "no record folder given: nothing pending" || bad "no record folder"
 cp $drec $T/drec.keep
@@ -330,6 +336,48 @@ dspy $T/nolive 'd["pending"] == "none" and d["installed"] == "none"' &&
   ok "removed, and none run any more: nothing pending" || bad "remove done: $(dcheck $T/nolive --json)"
 sed -i '' 's/^boot=.*/boot=00000000-0000-0000-0000-000000000000/' $drec
 dspy $T/other 'd["pending"] == "none"' && ok "a removal from another boot session: ignored" || bad "remove other boot"
+
+# 16. MPEG-2, VC-1 and MPEG-4 left by an install with --legacy: an install without it takes
+#     them off, and a check without it reports them. The functions decoders.sh install calls
+#     (put_decoders and what it uses) run on a made-up system volume and /Library folder;
+#     chown is left out (not root), everything else is the script's own code.
+LEG=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
+put_fns=$(for f in safe_rm_bundle source_ok install_one drop_stale_legacy put_decoders; do sed -n "/^$f() {/,/^}/p" $D; done)
+SYS=$T/leg-sys/System/Library/Video/Plug-Ins
+LIBP=$T/leg-lib/Library/Video/Plug-Ins
+mkdir -p $SYS $LIBP
+dput() { # [legacy]: put_decoders as decoders.sh install runs it, with or without --legacy
+  VCNVT_LEGACY_DECODERS=$([[ ${1:-} == legacy ]] && print 1 || print 0) /bin/zsh -c 'emulate -L zsh; setopt no_unset; ROOT=$1; source $ROOT/install/common.zsh
+    BUNDLES=$ROOT/decode/build; MNT=$2; PLUGDIR=System/Library/Video/Plug-Ins; LIBPLUG=$3
+    AV1=AV1VCNDecoder.bundle; VP9=VP9VCNDecoder.bundle; WANT=($AV1 $VP9); legacy_on && WANT+=($LEGACY_BUNDLES)
+    ALL=($AV1 $VP9 $LEGACY_BUNDLES); chown() { :; }; eval "$4"; put_decoders' \
+    dput "$ROOT" $T/leg-sys $LIBP "$put_fns"
+}
+nleg() { local n=0 b; for b in $LEG; do [[ -e $1/$b ]] && n=$((n + 1)); done; print $n; }
+[[ -n $put_fns ]] && dput legacy > $T/lp1.out 2>&1 && [[ $(nleg $SYS) == 3 && -d $SYS/AV1VCNDecoder.bundle && -d $SYS/VP9VCNDecoder.bundle ]] &&
+  ok "install --legacy: all five plug-ins on the system volume" || bad "install --legacy: $(cat $T/lp1.out)"
+dlcheck() { # live [--legacy] [--json]: check with the made-up running system
+  local live=$1; shift
+  GPU_CHECK_CACHE=$T/check-cache VCNVT_FAKE_LIVE=$live VCNVT_LEGACY_DECODERS=0 $D check "$@" 2>&1
+}
+dlcheck $SYS --legacy --json | spy 'd["installed"] == "current" and not [c for c in d["checks"] if c["id"] == "legacy-left"]' &&
+  ok "check --legacy with all five in place: current, nothing left over" || bad "check --legacy five: $(dlcheck $SYS --legacy --json)"
+dlcheck $SYS --json | spy 'd["installed"] == "outdated" and [c for c in d["checks"] if c["id"] == "legacy-left" and c["status"] == "warn" and "MPEG2VCNDecoder.bundle, VC1VCNDecoder.bundle, MPEG4VCNDecoder.bundle" in c["detail"]]' &&
+  ok "check without --legacy sees the three left over: a warning, installed outdated (install.sh does not skip)" || bad "check stale: $(dlcheck $SYS --json)"
+dlcheck $SYS > $T/lc.out
+grep -q "^  warn  MPEG-2, VC-1 and MPEG-4 left over: " $T/lc.out && grep -q "^Installed now: .*from an earlier install with --legacy" $T/lc.out &&
+  ok "the text check names them too" || bad "check stale text: $(cat $T/lc.out)"
+# a copy in /Library and a half-made .new of an interrupted run go as well
+cp -R $B/MPEG2VCNDecoder.bundle $LIBP/
+cp -R $B/VC1VCNDecoder.bundle $SYS/VC1VCNDecoder.bundle.new
+dput > $T/lp2.out 2>&1 && [[ $(nleg $SYS) == 0 && $(nleg $LIBP) == 0 && ! -e $SYS/VC1VCNDecoder.bundle.new ]] &&
+  [[ -d $SYS/AV1VCNDecoder.bundle && -d $SYS/VP9VCNDecoder.bundle ]] && grep -q "removed .*MPEG4VCNDecoder.bundle (an earlier install with --legacy put it there)" $T/lp2.out &&
+  ok "install without --legacy takes the three off (system, /Library, .new), keeps AV1 and VP9" || bad "install drops legacy: $(cat $T/lp2.out; ls $SYS $LIBP)"
+dlcheck $SYS --json | spy 'd["installed"] == "current" and not [c for c in d["checks"] if c["id"] == "legacy-left"]' &&
+  ok "after it the check sees AV1 and VP9 only: current, nothing left over" || bad "check after drop: $(dlcheck $SYS --json)"
+dput > $T/lp3.out 2>&1 && ! grep -q removed $T/lp3.out && ok "a second install without --legacy has nothing to take off" || bad "second drop: $(cat $T/lp3.out)"
+dput legacy > /dev/null 2>&1 && [[ $(nleg $SYS) == 3 ]] && dput legacy > $T/lp4.out 2>&1 && [[ $(nleg $SYS) == 3 ]] && ! grep -q removed $T/lp4.out &&
+  ok "install --legacy keeps them" || bad "legacy kept: $(cat $T/lp4.out)"
 
 cd /; /bin/rm -rf -- "$T"
 print "loader install tests: $pass passed, $fail failed"
