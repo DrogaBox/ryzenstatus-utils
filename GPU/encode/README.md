@@ -27,6 +27,13 @@ Measured on an RX 6800 XT, macOS 26.7.3, OBS 33.0.1 (HEVC, 30 s recordings):
 In OBS, "skipped frames due to encoding lag" means OBS re-sent the previous picture because the encoder was busy:
 the file has every frame, but those are duplicates. That number is the one to watch.
 
+From 1.3.0 the service also fixes video calls (*cc*):
+
+| Problem | What you see | Fixed by |
+|---|---|---|
+| Continuity Camera (an iPhone used as the Mac's camera) and FaceTime calls ask for the "FaceTime" HEVC decoder, which the AMD driver refuses | the video works, but the HEVC stream is decoded by the CPU; the log shows `[HEVC] GVA ERROR: Couldn't set the stream resolution` | **vcnencodefix** service (*cc*) |
+| On a Mac Pro (MacPro7,1) or iMac Pro (iMacPro1,1) SMBIOS, FaceTime's encoder is sent to the T2 chip, which a hackintosh does not have | no outgoing video in FaceTime; the log shows `No bridgeOS device available` and `Failed to create remote video encoder with usage 42 on macOS, err = -18!` | **vcnencodefix** service (*cc*) |
+
 ## Requirements
 
 - A Navi 21 GPU (device ID 0x73A0-0x73AF or 0x73BF). Only an RX 6800 XT has been tested.
@@ -94,8 +101,20 @@ counts as tested.
 ./test.sh --wide     # adds one 5120x2160 HEVC encode (only runs if the fix is confirmed active)
 ```
 
-A healthy doctor output shows `VCNEncodeFloor: loaded <version>, active: encode`, the service `running`, and both
-`preset`, `wide` and `hevc10` as `available`.
+A healthy doctor output shows `VCNEncodeFloor: loaded <version>, active: encode`, the service `running`, and
+`preset`, `wide`, `cc` and `hevc10` as `available`.
+
+To check the cc fix: start the iPhone camera in any app, or a FaceTime video call, then
+
+```
+grep -E "ContinuityCaptureAgent|avconferenced" /var/log/vcnencodefix.log | tail -4   # "cc: patched (...)"
+/usr/bin/log show --last 3m --predicate 'eventMessage CONTAINS "VCPDec" OR eventMessage CONTAINS "VCPEnc" OR eventMessage CONTAINS "bridgeOS"' | grep -E "Created|unsuccesful|GVA ERROR|bridgeOS"
+```
+
+`Created HW video decoder` and `Created video encoder with usage 42 on macOS` are the fix working; `[HEVC] GVA
+ERROR: Couldn't set the stream resolution` or `No bridgeOS device available` mean it did not. `build/obj/ftenc_test`
+(built by `build.sh`, run by hand) shows the encoder part without a call: it asks VideoProcessing for FaceTime's
+encoder before and after writing the patch in its own process only.
 
 ## Uninstall
 
@@ -110,7 +129,8 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
 
 - `sudo ./install.sh --preset balance` (or `quality`): a slower preset with better quality per bit than `speed`.
   The default `speed` is the one measured above; the others were not measured.
-- `sudo ./install.sh --no-wide`, `--no-preset` or `--no-hevc10`: install with one of the three service fixes off.
+- `sudo ./install.sh --no-wide`, `--no-preset`, `--no-cc` or `--no-hevc10`: install with one of the four service fixes
+  off.
 - Boot arguments for the kext: `-vcnflooroff` turns it off; `-vcnfloorall` also applies the floor to hardware
   *decoding* (not tested); `vcnfloor=N` replaces the floor value the kext requests (default 132297; 0 is ignored;
   only the default was measured); `-vcnhevc10` (off by default; with the 1.2.6 service it gives a correct 10-bit picture on 26.7.3, see `hevc10` below) prepares
@@ -132,6 +152,17 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
   - *wide*: just before the statistics job is sent to the GPU, the work is split into more, smaller thread groups
     (for example 2 x 160 threads instead of 1 x 320 for 5120 wide). The total work is the same, and below 4097 pixels
     wide nothing changes at all.
+  - *cc*: for every `ContinuityCaptureAgent` (started when an app opens an iPhone camera) and `avconferenced`
+    (FaceTime's call daemon, always running), three changes in its copy of VideoProcessing. Both decode the other
+    side's video through AVConference and VideoProcessing's VCPDec, and both put `DecoderUsage = 1` in the decoder
+    specification, which sends AppleGVA down its FaceTime path that the AMD driver refuses. Apple's own code already
+    removes that key right before the hardware decoder (and puts it back for the software retry), but only for
+    other codecs on some board-ids; the patch makes that removal run for every codec. The same key sent later as a
+    session property is dropped too, by Apple's own check for it. The third change is for the encoder: on the Mac
+    Pro and iMac Pro board-ids VideoProcessing sends FaceTime's encoder (usage 42) to the T2 and tells FaceTime that
+    H.264 is unsupported; the patch jumps over the two board-id compares of that check, so H.264 is offered and the
+    encoder is a local VideoToolbox one (the GPU's when FaceTime asks for hardware). Apple's `BridgeEncode`
+    preference, which also needs a real bridge device, still works. Every other process keeps Apple's code.
 
   Before writing, it checks that the file is the validated build, that the bytes to change are exactly the expected
   ones, and that no thread is running them at that moment.
@@ -151,6 +182,13 @@ Apps that are open keep the fix until you quit them; the kext stays loaded until
   first frame about 260 ms after the start (measured with 1.0.1 in OBS: patched 148 ms after the start). If a frame wider than 4096 is sent before the patch, that frame stalls
   the GPU for a few seconds (version 1.0.0 looked for new processes only every 250 ms and lost that race in OBS at
   5120x2160).
+- cc knows the VideoProcessing of macOS 15.8.2 and 26.7.2/26.7.3 only; elsewhere it stays off and `status` says
+  why. The decoder part was run with a real iPhone camera on an RX 6900 XT (15.8.2): `Created HW video decoder`, HEVC
+  1920x1088 decoded in 5 to 9 ms a frame. The encoder part was run on its exact code in a test process on a
+  MacPro7,1 SMBIOS (26.7.3, RX 6800 XT, `tests/ftenc_test.c`): before, H.264 reported unsupported and the session
+  failed with -18; after, H.264 supported and the session, with hardware required, encoded 30 frames. No FaceTime
+  call was tested. A process already running when the service starts is patched then, and the fix applies to the
+  next decoder or encoder it creates (the next call, or stop and start the camera).
 - HEVC Main only unless `-vcnhevc10` is set and the `hevc10` service fix applies (26.7.3 only; measured PSNR Y 47.0, U 43.7, V 46.1 dB). Sizes accepted by macOS are unchanged.
 - The wide fix was checked by running its exact code on the CPU for every width up to 16384 (arguments identical
   to the original up to 4096 wide, the same total work above), and on the GPU at 5120x2160 only. Other widths above

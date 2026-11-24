@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.0 (not released)
+
+- New service fix, *cc* (on by default; `--no-cc` turns it off), in every `ContinuityCaptureAgent` and
+  `avconferenced`, the processes that handle Continuity Camera and FaceTime calls. Three changes in VideoProcessing:
+  - Decoding: both decode the other side's video through AVConference, which puts `DecoderUsage = 1` in the decoder
+    specification before VCPDec adds it again; with it AppleGVA takes its FaceTime path and the AMD driver refuses
+    (`[HEVC] GVA ERROR: Couldn't set the stream resolution`), so the HEVC stream was decoded by the CPU. VCPDec's own
+    removal of that key before the hardware decoder now runs for every codec, and
+    `VCPDecompressionSessionSetProperty` drops the same key as a property with Apple's own check for it.
+  - Encoding: on a MacPro7,1 or iMacPro1,1 board-id VideoProcessing sends FaceTime's encoder
+    (`VCPCompressionSessionCreate`, usage 42) to the T2's remote encoder (`No bridgeOS device available`, -18, no
+    outgoing video) and `VCPCodecCopyProperties` reports H.264 as unsupported, so FaceTime asks for HEVC, which the
+    local path refuses. A 2-byte jump over the check's two board-id compares (the string is still released, the
+    `BridgeEncode` preference still works) makes H.264 offered and the encoder local (`h264.gva` when hardware is
+    required).
+  - A process an earlier service patched only partly (the same sites) is completed; `status` shows `partly patched`.
+- Builds: VideoProcessing of 15.8.2 (24H232) and 26.7.2/26.7.3 (25G332/25G342, the same file). Elsewhere cc stays
+  off and `status` and the log say why.
+- `tests/cc_test.c` (run by `build.sh`): every site found once, refusals of altered layouts, original and patched
+  code run on the CPU with the calls recorded, and on this Mac every site, string and call checked in the running
+  VideoProcessing. `tests/ftenc_test.c` (built, run by hand on a Mac Pro or iMac Pro board-id) asks VideoProcessing
+  for FaceTime's encoder before and after writing the patch in its own process.
+- Run: decoder part with a real iPhone camera on an RX 6900 XT, 15.8.2 (`Created HW video decoder`, 5 to 9 ms a
+  frame); encoder part with `ftenc_test` on an RX 6800 XT, 26.7.3, MacPro7,1 SMBIOS (before `VCPCodec_AVC1` 0 and
+  -18, after `Created video encoder with usage 42 on macOS` and 30 H.264 frames). No FaceTime call tested.
+- Only the service changed; the kext's code is the same as 1.2.6 (no EFI update or reboot needed for cc).
+
 ## 1.2.6 (RyzenStatus 1.89.0)
 
 - Service (`hevc10`, on by default; `--no-hevc10` turns it off): fixes two bugs in
