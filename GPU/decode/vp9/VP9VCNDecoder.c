@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "vcnvp9.h"
+#include "vtcolor.h"
 
 // ---- private CoreMedia / VideoToolbox plugin SPI
 // -------------------------------------------
@@ -87,6 +88,9 @@ typedef struct {
   VcnVP9* vcn;
   int32_t width, height;
   bool tenBit;
+  // What the format description of the running session says about colour;
+  // under lock.
+  VcnColor fmtColor;
   // Set by invalidate once the queue is drained, and by finalize: nothing is
   // emitted any more.
   bool invalidated;
@@ -361,6 +365,13 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
     return kVTVideoDecoderUnsupportedDataFormatErr;
 
   CFDataRef vpcC = copy_vpcC(fmt);
+  // The container first: the bitstream has no transfer function, and the
+  // format description's extensions say more than vpcC.
+  VcnColor fmtColor, vpcCColor;
+  vt_color_from_format(fmt, &fmtColor);
+  vcn_color_from_vpcC(vpcC ? CFDataGetBytePtr(vpcC) : NULL,
+                      vpcC ? (size_t)CFDataGetLength(vpcC) : 0, &vpcCColor);
+  vt_color_merge(&fmtColor, &fmtColor, &vpcCColor);
   if (vpcC && CFDataGetLength(vpcC) >= 7) {
     // vpcC: version + flags (4), profile, level, bitDepth(4) |
     // chromaSubsampling(3) | fullRange(1)
@@ -408,6 +419,7 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   s->width = width;
   s->height = height;
   s->tenBit = tenBit;
+  s->fmtColor = fmtColor;
   long started = __atomic_add_fetch(&g_started, 1, __ATOMIC_RELAXED),
        live = __atomic_add_fetch(&g_live, 1, __ATOMIC_RELAXED),
        ended = __atomic_load_n(&g_ended, __ATOMIC_RELAXED);
@@ -569,6 +581,16 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
   if (!status && !out && s->vcn) {
     CVPixelBufferRef hidden = vcnvp9_hidden_picture(s->vcn);
     if (hidden) out = CVPixelBufferRetain(hidden);
+  }
+  // Colour tags on what is handed back, under lock: the session's parser is
+  // read here.
+  if (!status && out && s->vcn) {
+    VcnColor c;
+    vcnvp9_color(s->vcn, &c);
+    // The container first (start_session), then what color_space
+    // names.
+    vt_color_merge(&c, &s->fmtColor, &c);
+    vt_color_attach(out, &c);
   }
   double decode = now_ms() - started;
   // A sample with only a hidden frame carries another frame's time: it is

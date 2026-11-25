@@ -1367,6 +1367,80 @@ static int tile_group(AV1Parser* p, const uint8_t* data, size_t sz,
   return 0;
 }
 
+// 5.8 metadata_obu, for the two HDR types; every other type is skipped. The
+// payload is whatever the file holds: every read is checked against its size,
+// and a metadata OBU too short for its type changes nothing (it is not an
+// error: a damaged metadata OBU must not stop the pictures).
+enum { METADATA_TYPE_HDR_CLL = 1, METADATA_TYPE_HDR_MDCV = 2 };
+static uint32_t be(const uint8_t* d, int n) {
+  uint32_t v = 0;
+  for (int i = 0; i < n; i++) v = v << 8 | d[i];
+  return v;
+}
+static void metadata_obu(AV1Parser* p, const uint8_t* d, size_t n) {
+  uint64_t type;
+  int len = leb128(d, n, &type);
+  if (len < 0 || (size_t)len > n) return;
+  d += len;
+  n -= (size_t)len;
+  AV1HdrMetadata* m = &p->hdr;
+  if (type == METADATA_TYPE_HDR_CLL) {
+    if (n < 4) return;
+    m->max_cll = (uint16_t)be(d, 2);
+    m->max_fall = (uint16_t)be(d + 2, 2);
+    m->has_cll = true;
+  } else if (type == METADATA_TYPE_HDR_MDCV) {
+    if (n < 24) return;
+    for (int i = 0; i < 3; i++) {
+      m->primary_x[i] = (uint16_t)be(d + 4 * i, 2);
+      m->primary_y[i] = (uint16_t)be(d + 4 * i + 2, 2);
+    }
+    m->white_x = (uint16_t)be(d + 12, 2);
+    m->white_y = (uint16_t)be(d + 14, 2);
+    m->luminance_max = be(d + 16, 4);
+    m->luminance_min = be(d + 20, 4);
+    m->has_mdcv = true;
+  }
+}
+
+static void put_be(uint8_t* d, uint32_t v, int n) {
+  for (int i = n - 1; i >= 0; i--, v >>= 8) d[i] = (uint8_t)v;
+}
+// AV1 codes chromaticity in 0.16 fixed point, HEVC in units of 0.00002 (0 to
+// 50000); luminance in 24.8 and 18.14 fixed point cd/m2, HEVC in units of
+// 0.0001 cd/m2. Rounded to the nearest unit, as libavcodec converts them.
+static uint32_t chroma_units(uint16_t v) {
+  uint32_t u = (uint32_t)(((uint64_t)v * 50000 + 32768) >> 16);
+  return u > 50000 ? 50000 : u;
+}
+static uint32_t luma_units(uint32_t v, int frac_bits) {
+  uint64_t u =
+      ((uint64_t)v * 10000 + ((uint64_t)1 << (frac_bits - 1))) >> frac_bits;
+  return u > UINT32_MAX ? UINT32_MAX : (uint32_t)u;
+}
+bool av1_hdr_mdcv(const AV1HdrMetadata* m, uint8_t out[24]) {
+  if (!m || !m->has_mdcv) return false;
+  // HEVC lists green, blue, red (the order D.3.28 recommends, and the one
+  // Chromium writes for these CoreVideo keys, ui/gfx/hdr_metadata_mac.cc);
+  // AV1 red, green, blue.
+  static const int order[3] = {1, 2, 0};
+  for (int c = 0; c < 3; c++) {
+    put_be(out + 4 * c, chroma_units(m->primary_x[order[c]]), 2);
+    put_be(out + 4 * c + 2, chroma_units(m->primary_y[order[c]]), 2);
+  }
+  put_be(out + 12, chroma_units(m->white_x), 2);
+  put_be(out + 14, chroma_units(m->white_y), 2);
+  put_be(out + 16, luma_units(m->luminance_max, 8), 4);
+  put_be(out + 20, luma_units(m->luminance_min, 14), 4);
+  return true;
+}
+bool av1_hdr_cll(const AV1HdrMetadata* m, uint8_t out[4]) {
+  if (!m || !m->has_cll) return false;
+  put_be(out, m->max_cll, 2);
+  put_be(out + 2, m->max_fall, 2);
+  return true;
+}
+
 static int parse_obus(AV1Parser* p, const uint8_t* data, size_t size,
                       AV1FrameCallback cb, void* ctx) {
   size_t off = 0;
@@ -1467,6 +1541,9 @@ static int parse_obus(AV1Parser* p, const uint8_t* data, size_t size,
         }
         break;
       }
+      case OBU_METADATA:
+        metadata_obu(p, payload, (size_t)obu_size);
+        break;
       default:
         break;
     }

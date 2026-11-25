@@ -669,6 +669,9 @@ int vcnvp9_failure(VcnVP9* d) { return d ? d->failure : VCNVP9_FAIL_DEVICE; }
 CVPixelBufferRef vcnvp9_hidden_picture(VcnVP9* d) {
   return d && !d->shown ? d->hidden : NULL;
 }
+void vcnvp9_color(VcnVP9* d, VcnColor* c) {
+  vcn_color_from_vp9(d ? d->parser.color_space : -1, c);
+}
 
 static int alloc_dpb_slot(VcnVP9* d) {
   for (int i = 0; i < NUM_DPB; i++)

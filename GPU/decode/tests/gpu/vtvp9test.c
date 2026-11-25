@@ -4,7 +4,8 @@
 //   vtvp9test [-load bundle] list
 //       shows the vp09 decoders VideoToolbox knows about
 //   vtvp9test [-load bundle] file [reference] [-n] [-a] [-pace fps] [-loop N]
-//             [-frames N] [-id decoder] [-sw]
+//             [-frames N] [-id decoder] [-sw] [-attach]
+//             [-color primaries,transfer,matrix] [-hdr]
 //       decodes the file (IVF or WebM) and compares the MD5 of every frame as
 //       I420 with a reference in the format of FFmpeg's FATE suite
 //
@@ -13,6 +14,13 @@
 // rate and reports lateness, -loop feeds the file N times in one session (a
 // seek back to a keyframe), -frames stops after N container frames, -id picks
 // one decoder when several handle vp09, -sw doesn't ask for hardware.
+// -attach prints the colour attachments of the first picture, and again
+// whenever they change. The format description carries no colour unless
+// -color gives the H.273 code points a container would (vpcC and the
+// format description's colour extensions, as Safari passes a WebM Colour
+// element; 9,16,9 = BT.2020 PQ); -hdr adds a typical HDR10 mastering display
+// and light level to it. Without -color the plug-in has only the bitstream's
+// color_space, which names no transfer function.
 //
 // There is no switch to arm here: a decode run goes to the GPU as soon as a
 // VP9 hardware decoder is installed or loaded.
@@ -32,6 +40,7 @@
 
 #include "container.h"
 #include "vp9parse.h"
+#include "vtattach.h"
 
 static double now_ms(void) {
   static mach_timebase_info_data_t tb;
@@ -108,7 +117,8 @@ static int list(void) {
 
 typedef struct {
   FILE* ref;
-  int frames, mismatches, errors, dropped, nohash;
+  int frames, mismatches, errors, dropped, nohash, attach;
+  char lastAttach[1024];
   double *fed, *lat;
 } Ctx;
 
@@ -141,6 +151,7 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st,
     c->dropped++;
     return;
   }
+  if (c->attach) print_attachments(img, c->frames + 1, c->lastAttach);
   c->frames++;
   if (c->nohash) return;
   int w = (int)CVPixelBufferGetWidth(img), h = (int)CVPixelBufferGetHeight(img);
@@ -220,7 +231,8 @@ static int usage(void) {
   fprintf(stderr,
           "usage: vtvp9test [-load bundle] list\n"
           "       vtvp9test [-load bundle] file [reference] [-n] [-a] "
-          "[-pace fps] [-loop N] [-frames N] [-id decoder] [-sw]\n"
+          "[-pace fps] [-loop N] [-frames N] [-id decoder] [-sw] [-attach]\n"
+          "       [-color primaries,transfer,matrix] [-hdr]\n"
           "A decode run goes to the GPU: there is no switch to arm.\n");
   return 1;
 }
@@ -254,6 +266,10 @@ int main(int argc, char** argv) {
   if (argv[1][0] == '-') return usage();
   Ctx c = {0};
   int async = 0, loops = 1, limit = 0, require_hw = 1;
+  // -color: the colour a container would give (vpcC and the format
+  // description's extensions), as Safari passes a WebM Colour element. 2 =
+  // unspecified, what a stream with no container colour gets.
+  int color[3] = {2, 2, 2}, hdr = 0;
   double pace = 0;
   const char *decoderID = NULL, *refPath = NULL;
   for (int i = 2; i < argc; i++) {
@@ -263,6 +279,15 @@ int main(int argc, char** argv) {
       async = 1;
     } else if (!strcmp(argv[i], "-sw")) {
       require_hw = 0;
+    } else if (!strcmp(argv[i], "-attach")) {
+      c.attach = 1;
+    } else if (!strcmp(argv[i], "-color") && i + 1 < argc) {
+      if (sscanf(argv[++i], "%d,%d,%d", &color[0], &color[1], &color[2]) != 3)
+        return fail("invalid -color");
+      for (int k = 0; k < 3; k++)
+        if (color[k] < 0 || color[k] > 255) return fail("invalid -color");
+    } else if (!strcmp(argv[i], "-hdr")) {
+      hdr = 1;
     } else if (!strcmp(argv[i], "-pace") && i + 1 < argc) {
       const char* s = argv[++i];
       char* end = NULL;
@@ -324,9 +349,18 @@ int main(int argc, char** argv) {
   vp9_parse_chunk(&ps, chunks[0], sizes[0], first_frame, &ff);
   if (!ff.found) return fail("no frame header in the first chunk");
 
-  uint8_t vpcC[12] = {
-      1, 0, 0, 0, (uint8_t)ff.profile, 51, (uint8_t)(ff.depth << 4 | 1 << 1), 1,
-      1, 1, 0, 0};
+  uint8_t vpcC[12] = {1,
+                      0,
+                      0,
+                      0,
+                      (uint8_t)ff.profile,
+                      51,
+                      (uint8_t)(ff.depth << 4 | 1 << 1),
+                      (uint8_t)color[0],
+                      (uint8_t)color[1],
+                      (uint8_t)color[2],
+                      0,
+                      0};
   CFDataRef vc = CFDataCreate(NULL, vpcC, sizeof(vpcC));
   const void *ak[] = {CFSTR("vpcC")}, *av[] = {vc};
   CFDictionaryRef atoms =
@@ -335,9 +369,36 @@ int main(int argc, char** argv) {
   const void *ek[] =
       {kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms},
              *ev[] = {atoms};
-  CFDictionaryRef ext =
-      CFDictionaryCreate(NULL, ek, ev, 1, &kCFTypeDictionaryKeyCallBacks,
-                         &kCFTypeDictionaryValueCallBacks);
+  CFMutableDictionaryRef ext =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  CFDictionarySetValue(ext, ek[0], ev[0]);
+  CFStringRef cp = CVColorPrimariesGetStringForIntegerCodePoint(color[0]),
+              tf = CVTransferFunctionGetStringForIntegerCodePoint(color[1]),
+              mc = CVYCbCrMatrixGetStringForIntegerCodePoint(color[2]);
+  if (cp)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_ColorPrimaries, cp);
+  if (tf)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_TransferFunction,
+                         tf);
+  if (mc)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_YCbCrMatrix, mc);
+  if (hdr) {
+    // A typical HDR10 master: P3 primaries, D65, 1000 / 0.005 cd/m2; MaxCLL
+    // 1000, MaxFALL 400 (HEVC SEI layout, as an MP4 mdcv/clli box gives it).
+    static const uint8_t mdcv[24] = {
+        0x33, 0xc2, 0x86, 0xc4, 0x1d, 0x4c, 0x0b, 0xb8, 0x84, 0xd0, 0x3e, 0x80,
+        0x3d, 0x13, 0x40, 0x42, 0x00, 0x98, 0x96, 0x80, 0x00, 0x00, 0x00, 0x32};
+    static const uint8_t cll[4] = {0x03, 0xe8, 0x01, 0x90};
+    CFDataRef m = CFDataCreate(NULL, mdcv, sizeof(mdcv)),
+              l = CFDataCreate(NULL, cll, sizeof(cll));
+    CFDictionarySetValue(
+        ext, kCMFormatDescriptionExtension_MasteringDisplayColorVolume, m);
+    CFDictionarySetValue(
+        ext, kCMFormatDescriptionExtension_ContentLightLevelInfo, l);
+    CFRelease(m);
+    CFRelease(l);
+  }
   CMVideoFormatDescriptionRef fmt = NULL;
   OSStatus st = CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_VP9,
                                                ff.w, ff.h, ext, &fmt);

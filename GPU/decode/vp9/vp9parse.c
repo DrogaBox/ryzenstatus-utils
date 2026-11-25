@@ -48,6 +48,7 @@ void vp9_parser_init(VP9Parser* p) {
   for (int i = 0; i < 8; i++) p->ref[i].dpb_slot = -1;
   p->bit_depth = 8;
   p->subsampling_x = p->subsampling_y = 1;
+  p->color_space = p->color_range = -1;
   memset(p->seg_tree_probs, 255, sizeof(p->seg_tree_probs));
   memset(p->seg_pred_probs, 255, sizeof(p->seg_pred_probs));
 }
@@ -56,9 +57,9 @@ static int color_config(VP9Parser* p, BR* b, int profile) {
   int depth = 8;
   if (profile >= 2) depth = f(b, 1) ? 12 : 10;
   int cs = (int)f(b, 3);
-  int ssx, ssy;
+  int ssx, ssy, range = 1;  // RGB is full range
   if (cs != 7) {
-    f(b, 1);  // color_range
+    range = (int)f(b, 1);
     if (profile == 1 || profile == 3) {
       ssx = (int)f(b, 1);
       ssy = (int)f(b, 1);
@@ -75,6 +76,8 @@ static int color_config(VP9Parser* p, BR* b, int profile) {
   p->bit_depth = depth;
   p->subsampling_x = ssx;
   p->subsampling_y = ssy;
+  p->color_space = cs;
+  p->color_range = range;
   return 0;
 }
 

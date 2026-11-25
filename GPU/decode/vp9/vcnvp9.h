@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vcncolor.h"
 #include "vp9parse.h"
 
 typedef struct VcnVP9 VcnVP9;
@@ -50,5 +51,8 @@ int vcnvp9_failure(VcnVP9* d);
 // then comes alone. Valid until the next decode or destroy; retain it to keep
 // it.
 CVPixelBufferRef vcnvp9_hidden_picture(VcnVP9* d);
+// The colour the stream's last colour config names (color_space; the
+// bitstream has no transfer function), for the pictures this session outputs.
+void vcnvp9_color(VcnVP9* d, VcnColor* c);
 // Decodes the GPU firmware reported as failed (the picture was still output).
 unsigned vcnvp9_firmware_errors(VcnVP9* d);
