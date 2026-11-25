@@ -1,9 +1,9 @@
-// jpegprep.c - see jpegprep.h. The same rewrite as VCNJpegProbe's
-// tools/jpeg_normalize.hpp (the tool the first GPU tests use). On 2026-11-24
-// both gave the same bytes for six files (photos of 12 and 48 MP, a 640x480
-// MJPEG frame, the samples of tests/jpegsamples.h); tests/jpegtest.c checks
-// the shape and the picture. This one also takes fill bytes and adds Annex K's
-// tables where the kext's tool refuses.
+// jpegprep.c - see jpegprep.h. The same rewrite as
+// jpeg/tests/jpeg_normalize.hpp (from the tool the first GPU tests used). On
+// 2026-11-24 both gave the same bytes for six files (photos of 12 and 48 MP, a
+// 640x480 MJPEG frame, the samples of tests/jpegsamples.h); tests/jpegtest.c
+// checks the shape and the picture. This one also takes fill bytes and adds
+// Annex K's tables where the kext's tool refuses.
 #include "jpegprep.h"
 
 #include <stdbool.h>
@@ -87,7 +87,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
       while (p < body) {
         uint8_t pq = s[p] >> 4, tq = s[p] & 15;
         if (pq != 0)
-          return fail(why, whyLen, JPEG_UNSUPPORTED, "16-bit quantisation table");
+          return fail(why, whyLen, JPEG_UNSUPPORTED,
+                      "16-bit quantisation table");
         if (tq > 3 || body - p < 65)
           return fail(why, whyLen, JPEG_BAD, "bad quantisation table");
         t.haveQ[tq] = true;
@@ -117,7 +118,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
         return fail(why, whyLen, JPEG_BAD, "bad restart interval segment");
       t.restart = (uint16_t)((s[0] << 8) | s[1]);
     } else if (m == 0xc0) {
-      if (t.sof) return fail(why, whyLen, JPEG_BAD, "more than one frame header");
+      if (t.sof)
+        return fail(why, whyLen, JPEG_BAD, "more than one frame header");
       t.sof = s;
       t.sofLen = body;
     } else if (m == 0xda) {
@@ -126,53 +128,60 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
       gotScan = true;
     } else if ((m >= 0xe0 && m <= 0xef) || m == 0xfe) {
       // dropped, as Mesa does
-    } else if (m >= 0xc1 && m <= 0xcf && m != 0xc4 && m != 0xc8 &&
-               m != 0xcc) {
+    } else if (m >= 0xc1 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc) {
       return fail(why, whyLen, JPEG_UNSUPPORTED,
                   "not a baseline JPEG (progressive, lossless or arithmetic)");
     } else {
-      return fail(why, whyLen, JPEG_UNSUPPORTED, "a segment this decoder does not handle");
+      return fail(why, whyLen, JPEG_UNSUPPORTED,
+                  "a segment this decoder does not handle");
     }
     i += 2 + len;
   }
-  if (!t.sof) return fail(why, whyLen, JPEG_BAD, "scan before the frame header");
+  if (!t.sof)
+    return fail(why, whyLen, JPEG_BAD, "scan before the frame header");
   // frame header: P, Y, X, Nf, then Nf x (C, HV, Tq)
   if (t.sofLen < 6 || t.sofLen != 6 + 3u * t.sof[5])
     return fail(why, whyLen, JPEG_BAD, "bad frame header");
   uint32_t height = ((uint32_t)t.sof[1] << 8) | t.sof[2];
   uint32_t width = ((uint32_t)t.sof[3] << 8) | t.sof[4];
-  if (t.sof[0] != 8) return fail(why, whyLen, JPEG_UNSUPPORTED, "not 8 bits per sample");
+  if (t.sof[0] != 8)
+    return fail(why, whyLen, JPEG_UNSUPPORTED, "not 8 bits per sample");
   if (width == 0 || height == 0)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "no size in the frame header");
   if (t.sof[5] != 3)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "not three components");
   // sampling (Y, Cb, Cr) as Mesa's radeon_dec_jpeg_check_format: NV12 or YUYV
-  uint32_t sf = ((uint32_t)t.sof[7] << 16) | ((uint32_t)t.sof[10] << 8) | t.sof[13];
+  uint32_t sf =
+      ((uint32_t)t.sof[7] << 16) | ((uint32_t)t.sof[10] << 8) | t.sof[13];
   bool yuyv = sf == 0x211111 || sf == 0x221212 || sf == 0x222121;
   if (sf != 0x221111 && !yuyv)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "not 4:2:0 or 4:2:2");
   for (int c = 0; c < 3; c++) {
     uint8_t tq = t.sof[8 + 3 * c];
     if (tq > 3 || !t.haveQ[tq])
-      return fail(why, whyLen, JPEG_BAD, "a component's quantisation table is missing");
+      return fail(why, whyLen, JPEG_BAD,
+                  "a component's quantisation table is missing");
   }
   // scan header: Ns, Ns x (C, Td/Ta), Ss, Se, Ah/Al
   if (t.sosLen < 1 || t.sosLen != 4 + 2u * t.sos[0])
     return fail(why, whyLen, JPEG_BAD, "bad scan header");
   if (t.sos[0] != 3)
-    return fail(why, whyLen, JPEG_UNSUPPORTED, "a scan without all three components");
+    return fail(why, whyLen, JPEG_UNSUPPORTED,
+                "a scan without all three components");
   // The scan runs to the first marker that is neither a stuffed FF00 nor RSTn.
   size_t e = i;
   while (1) {
     if (e + 1 >= n) return fail(why, whyLen, JPEG_BAD, "no EOI after the scan");
-    if (d[e] == 0xff && d[e + 1] != 0x00 && !(d[e + 1] >= 0xd0 && d[e + 1] <= 0xd7))
+    if (d[e] == 0xff && d[e + 1] != 0x00 &&
+        !(d[e + 1] >= 0xd0 && d[e + 1] <= 0xd7))
       break;
     e++;
   }
   // fill bytes before EOI belong to no segment
   size_t f = e;
   while (f + 1 < n && d[f + 1] == 0xff) f++;
-  if (d[f + 1] != 0xd9) return fail(why, whyLen, JPEG_UNSUPPORTED, "more than one scan");
+  if (d[f + 1] != 0xd9)
+    return fail(why, whyLen, JPEG_UNSUPPORTED, "more than one scan");
   t.scan = d + i;
   t.scanLen = e - i;
   bool added = false;
@@ -180,7 +189,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
   for (int c = 0; c < 3; c++) {
     uint8_t td = t.sos[2 + 2 * c] >> 4, ta = t.sos[2 + 2 * c] & 15;
     if (td > 1 || ta > 1 || !t.haveH[0][td] || !t.haveH[1][ta])
-      return fail(why, whyLen, JPEG_BAD, "a component's Huffman table is missing");
+      return fail(why, whyLen, JPEG_BAD,
+                  "a component's Huffman table is missing");
   }
   uint8_t dqt[4 * 65], dht[4 * 179];
   size_t nq = 0, nh = 0;
@@ -198,7 +208,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
       nh += t.hLen[c][k];
     }
   }
-  size_t cap = 2 + (4 + nq) + (4 + nh) + 6 + (4 + t.sofLen) + (4 + t.sosLen) + t.scanLen + 2;
+  size_t cap = 2 + (4 + nq) + (4 + nh) + 6 + (4 + t.sofLen) + (4 + t.sosLen) +
+               t.scanLen + 2;
   uint8_t* o = malloc(cap);
   if (!o) return fail(why, whyLen, JPEG_NO_MEMORY, "out of memory");
   size_t p = 0;

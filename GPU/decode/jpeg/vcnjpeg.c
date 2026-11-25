@@ -23,7 +23,8 @@ static void* iokit_open(void) {
 }
 static void iokit_close(void* ctx) {
   if (!ctx) return;
-  ja_iokit_close(*(io_connect_t*)ctx);  // the video context and its shared client
+  ja_iokit_close(
+      *(io_connect_t*)ctx);  // the video context and its shared client
   free(ctx);
 }
 ja_transport vcnjpeg_transport = ja_iokit_call;
@@ -37,7 +38,9 @@ enum { kBusyWaitMs = 1000 };
 struct VcnJpeg {
   void* conn;
   uint32_t maxW, maxH;
-  uint8_t* surface;  // what the kext copies the picture into (its layout, see ja_picture)
+  uint64_t surfaceRoom;  // what the kext's picture buffer holds (INFO)
+  uint8_t* surface;  // what the kext copies the picture into (its layout, see
+                     // ja_picture)
   size_t surfaceCap;
   CVPixelBufferPoolRef pool;
   uint32_t poolW, poolH;
@@ -56,10 +59,12 @@ static bool put_num(CFMutableDictionaryRef d, CFStringRef k, int32_t v) {
 
 // formats: one OSType, or (format == 0) the session's two.
 static CFDictionaryRef attributes(uint32_t w, uint32_t h, OSType format) {
-  CFMutableDictionaryRef a = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
-                                                       &kCFTypeDictionaryValueCallBacks);
-  CFMutableDictionaryRef io = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
-                                                        &kCFTypeDictionaryValueCallBacks);
+  CFMutableDictionaryRef a =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  CFMutableDictionaryRef io =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
   if (!a || !io) {
     if (a) CFRelease(a);
     if (io) CFRelease(io);
@@ -69,11 +74,13 @@ static CFDictionaryRef attributes(uint32_t w, uint32_t h, OSType format) {
   if (format) {
     ok = put_num(a, kCVPixelBufferPixelFormatTypeKey, (int32_t)format);
   } else {
-    int32_t f[2] = {kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, kCVPixelFormatType_422YpCbCr8BiPlanarFullRange};
+    int32_t f[2] = {kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                    kCVPixelFormatType_422YpCbCr8BiPlanarFullRange};
     CFNumberRef n0 = CFNumberCreate(NULL, kCFNumberSInt32Type, &f[0]);
     CFNumberRef n1 = CFNumberCreate(NULL, kCFNumberSInt32Type, &f[1]);
     CFTypeRef v[2] = {n0, n1};
-    CFArrayRef arr = n0 && n1 ? CFArrayCreate(NULL, v, 2, &kCFTypeArrayCallBacks) : NULL;
+    CFArrayRef arr =
+        n0 && n1 ? CFArrayCreate(NULL, v, 2, &kCFTypeArrayCallBacks) : NULL;
     if (n0) CFRelease(n0);
     if (n1) CFRelease(n1);
     ok = arr != NULL;
@@ -94,9 +101,16 @@ static CFDictionaryRef attributes(uint32_t w, uint32_t h, OSType format) {
   return a;
 }
 
-CFDictionaryRef vcnjpeg_copy_pixel_buffer_attributes(uint32_t w, uint32_t h, bool ten) {
+CFDictionaryRef vcnjpeg_copy_pixel_buffer_attributes(uint32_t w, uint32_t h,
+                                                     bool ten) {
   (void)ten;
   return attributes(w, h, 0);
+}
+
+static size_t surface_bytes(uint32_t w, uint32_t h, bool yuyv);
+bool vcnjpeg_fits(VcnJpeg* d, uint32_t w, uint32_t h) {
+  size_t a = surface_bytes(w, h, false), b = surface_bytes(w, h, true);
+  return (a > b ? a : b) <= d->surfaceRoom;
 }
 
 static int failed(VcnJpeg* d, int failure, const char* what, int status) {
@@ -108,7 +122,8 @@ static int failed(VcnJpeg* d, int failure, const char* what, int status) {
   return -1;
 }
 
-VcnJpeg* vcnjpeg_create(uint32_t maxWidth, uint32_t maxHeight, char* err, size_t errLen) {
+VcnJpeg* vcnjpeg_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
+                        size_t errLen) {
   if (!__atomic_load_n(&vcnjpeg_gpu_armed, __ATOMIC_RELAXED)) {
     snprintf(err, errLen, "not armed");
     return NULL;
@@ -129,13 +144,29 @@ VcnJpeg* vcnjpeg_create(uint32_t maxWidth, uint32_t maxHeight, char* err, size_t
   uint64_t state = 0, jcap = 0, scap = 0;
   int s = ja_info(vcnjpeg_transport, d->conn, &state, &jcap, &scap);
   if (s != JA_OK) {
-    // -1: the request went on to PowerPlay, which refused it: no kext with the door
-    snprintf(err, errLen, s == -1 ? "no JPEG decoder: the apps build of VCNJpegProbe is not loaded"
-                                  : "the JPEG decoder is not ready (status %d)", s);
+    // -1: the request went on to PowerPlay, which refused it: no kext with the
+    // door
+    snprintf(err, errLen,
+             s == -1 ? "no JPEG decoder: the VCNJpeg kext is not loaded"
+                     : "the JPEG decoder is not ready (status %d)",
+             s);
     vcnjpeg_transport_close(d->conn);
     free(d);
     return NULL;
   }
+  if ((state & JA_STATE_STUCK) || !(state & JA_STATE_POOL) ||
+      !(state & JA_STATE_CREATED)) {
+    snprintf(err, errLen,
+             (state & JA_STATE_STUCK)
+                 ? "the JPEG decoder is stuck until the next restart"
+                 : "the JPEG decoder has no queue or no buffers (state 0x%llx)",
+             (unsigned long long)state);
+    vcnjpeg_transport_close(d->conn);
+    free(d);
+    return NULL;
+  }
+  d->surfaceRoom = scap;
+  (void)jcap;
   return d;
 }
 
@@ -143,7 +174,8 @@ void vcnjpeg_destroy(VcnJpeg* d) {
   if (!d) return;
   if (d->conn) {
     struct ja_reply rp;
-    ja_call(vcnjpeg_transport, d->conn, JA_OP_RELEASE, 0, 0, NULL, 0, &rp, NULL, 0);
+    ja_call(vcnjpeg_transport, d->conn, JA_OP_RELEASE, 0, 0, NULL, 0, &rp, NULL,
+            0);
     vcnjpeg_transport_close(d->conn);
   }
   if (d->pool) CVPixelBufferPoolRelease(d->pool);
@@ -151,7 +183,8 @@ void vcnjpeg_destroy(VcnJpeg* d) {
   free(d);
 }
 
-static CVPixelBufferRef new_target(VcnJpeg* d, uint32_t w, uint32_t h, OSType format) {
+static CVPixelBufferRef new_target(VcnJpeg* d, uint32_t w, uint32_t h,
+                                   OSType format) {
   if (d->pool && (d->poolW != w || d->poolH != h || d->poolFormat != format)) {
     CVPixelBufferPoolRelease(d->pool);
     d->pool = NULL;
@@ -174,9 +207,9 @@ static CVPixelBufferRef new_target(VcnJpeg* d, uint32_t w, uint32_t h, OSType fo
   return pb;
 }
 
-// The kext's surface layout for a picture (VCNJpegProbe jc::outputLayout):
-// NV12: rows of alignUp(alignUp(width, 16), 256) bytes, alignUp(height, 16) luma
-// rows, then the interleaved chroma. YUYV (4:2:2): one plane, rows of
+// The kext's surface layout for a picture (VCNJpeg jc::outputLayout):
+// NV12: rows of alignUp(alignUp(width, 16), 256) bytes, alignUp(height, 16)
+// luma rows, then the interleaved chroma. YUYV (4:2:2): one plane, rows of
 // alignUp(alignUp(width, 16) * 2, 256) bytes.
 static size_t surface_bytes(uint32_t w, uint32_t h, bool yuyv) {
   size_t rows = ((size_t)h + 15) / 16 * 16;
@@ -185,18 +218,24 @@ static size_t surface_bytes(uint32_t w, uint32_t h, bool yuyv) {
   return pitch * rows * 3 / 2;
 }
 
-// YUYV rows (Y0 Cb Y1 Cr) into '422f': the Ys to plane 0, each Cb Cr pair to plane 1.
-static bool copy_yuyv(const uint8_t* src, const struct ja_picture* pic, CVPixelBufferRef pb) {
+// YUYV rows (Y0 Cb Y1 Cr) into '422f': the Ys to plane 0, each Cb Cr pair to
+// plane 1.
+static bool copy_yuyv(const uint8_t* src, const struct ja_picture* pic,
+                      CVPixelBufferRef pb) {
   uint32_t w = pic->width, h = pic->height;
   size_t row = ((size_t)w + 1) / 2 * 4;
-  if (pic->pitch < row || (size_t)pic->pitch * h > pic->surfaceBytes) return false;
+  if (pic->pitch < row || (size_t)pic->pitch * h > pic->surfaceBytes)
+    return false;
   if (CVPixelBufferLockBaseAddress(pb, 0)) return false;
-  bool ok = CVPixelBufferGetPlaneCount(pb) == 2 && CVPixelBufferGetWidthOfPlane(pb, 0) == w &&
-            CVPixelBufferGetHeightOfPlane(pb, 0) == h && CVPixelBufferGetHeightOfPlane(pb, 1) == h;
+  bool ok = CVPixelBufferGetPlaneCount(pb) == 2 &&
+            CVPixelBufferGetWidthOfPlane(pb, 0) == w &&
+            CVPixelBufferGetHeightOfPlane(pb, 0) == h &&
+            CVPixelBufferGetHeightOfPlane(pb, 1) == h;
   if (ok) {
     uint8_t* y = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
     uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
-    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(pb, 0), uvs = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
+           uvs = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
     size_t pairs = ((size_t)w + 1) / 2;
     ok = y && uv && ys >= w && uvs >= pairs * 2;
     for (uint32_t r = 0; ok && r < h; r++) {
@@ -217,21 +256,28 @@ static bool copy_yuyv(const uint8_t* src, const struct ja_picture* pic, CVPixelB
 
 // Copies the kext's surface into the planes of pb; false if the layout the kext
 // reported does not fit the picture.
-static bool copy_planes(const uint8_t* src, const struct ja_picture* pic, CVPixelBufferRef pb) {
+static bool copy_planes(const uint8_t* src, const struct ja_picture* pic,
+                        CVPixelBufferRef pb) {
   uint32_t w = pic->width, h = pic->height;
   if (pic->pitch < w || (size_t)pic->pitch * h > pic->chromaOffset ||
-      pic->chromaOffset + (size_t)pic->pitch * ((h + 1) / 2) > pic->surfaceBytes)
+      pic->chromaOffset + (size_t)pic->pitch * ((h + 1) / 2) >
+          pic->surfaceBytes)
     return false;
   if (CVPixelBufferLockBaseAddress(pb, 0)) return false;
-  bool ok = CVPixelBufferGetPlaneCount(pb) == 2 && CVPixelBufferGetWidthOfPlane(pb, 0) == w &&
+  bool ok = CVPixelBufferGetPlaneCount(pb) == 2 &&
+            CVPixelBufferGetWidthOfPlane(pb, 0) == w &&
             CVPixelBufferGetHeightOfPlane(pb, 0) == h;
   if (ok) {
     uint8_t* y = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
     uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1);
-    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(pb, 0), uvs = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
-    size_t cw = ((size_t)w + 1) / 2 * 2, ch = CVPixelBufferGetHeightOfPlane(pb, 1);
-    ok = y && uv && ys >= w && uvs >= cw && ch == (h + 1) / 2 && cw <= pic->pitch;
-    for (uint32_t r = 0; ok && r < h; r++) memcpy(y + r * ys, src + (size_t)r * pic->pitch, w);
+    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
+           uvs = CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+    size_t cw = ((size_t)w + 1) / 2 * 2,
+           ch = CVPixelBufferGetHeightOfPlane(pb, 1);
+    ok = y && uv && ys >= w && uvs >= cw && ch == (h + 1) / 2 &&
+         cw <= pic->pitch;
+    for (uint32_t r = 0; ok && r < h; r++)
+      memcpy(y + r * ys, src + (size_t)r * pic->pitch, w);
     for (size_t r = 0; ok && r < ch; r++)
       memcpy(uv + r * uvs, src + pic->chromaOffset + r * pic->pitch, cw);
   }
@@ -239,8 +285,8 @@ static bool copy_planes(const uint8_t* src, const struct ja_picture* pic, CVPixe
   return ok;
 }
 
-int vcnjpeg_decode(VcnJpeg* d, const uint8_t* sample, size_t size, int64_t tag, VcnJpegOutputFn fn,
-                   void* ctx) {
+int vcnjpeg_decode(VcnJpeg* d, const uint8_t* sample, size_t size, int64_t tag,
+                   VcnJpegOutputFn fn, void* ctx) {
   d->failure = VCNJPEG_FAIL_STREAM;
   d->err[0] = 0;
   uint8_t* jpeg = NULL;
@@ -252,7 +298,8 @@ int vcnjpeg_decode(VcnJpeg* d, const uint8_t* sample, size_t size, int64_t tag, 
   if (p != JPEG_OK) return failed(d, VCNJPEG_FAIL_STREAM, why, 0);
   if (info.width > d->maxW || info.height > d->maxH) {
     free(jpeg);
-    return failed(d, VCNJPEG_FAIL_STREAM, "picture larger than the session allows", 0);
+    return failed(d, VCNJPEG_FAIL_STREAM,
+                  "picture larger than the session allows", 0);
   }
   size_t need = surface_bytes(info.width, info.height, info.yuyv);
   if (need > d->surfaceCap) {
@@ -266,25 +313,35 @@ int vcnjpeg_decode(VcnJpeg* d, const uint8_t* sample, size_t size, int64_t tag, 
   }
   struct ja_picture pic;
   struct ja_reply rp;
-  int s = ja_decode(vcnjpeg_transport, d->conn, jpeg, jpegLen, d->surface, d->surfaceCap, 0, kBusyWaitMs,
-                    &pic, &rp);
+  int s = ja_decode(vcnjpeg_transport, d->conn, jpeg, jpegLen, d->surface,
+                    d->surfaceCap, 0, kBusyWaitMs, &pic, &rp);
   free(jpeg);
-  if (s == JA_BAD_STREAM) return failed(d, VCNJPEG_FAIL_STREAM, "the kext refused the picture", (int)rp.detail);
-  if (s == JA_BAD_REQUEST) return failed(d, VCNJPEG_FAIL_STREAM, "the picture does not fit the kext's buffers", s);
-  if (s != JA_OK) return failed(d, VCNJPEG_FAIL_DEVICE, "the JPEG decoder failed", s);
-  if (pic.width != info.width || pic.height != info.height || pic.surfaceBytes > d->surfaceCap ||
-      pic.format != (info.yuyv ? 1u : 0u))
-    return failed(d, VCNJPEG_FAIL_DEVICE, "the kext's picture is not the one sent", 0);
-  CVPixelBufferRef pb = new_target(d, info.width, info.height,
-                                   info.yuyv ? kCVPixelFormatType_422YpCbCr8BiPlanarFullRange
-                                             : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+  if (s == JA_BAD_STREAM)
+    return failed(d, VCNJPEG_FAIL_STREAM, "the kext refused the picture",
+                  (int)rp.detail);
+  if (s == JA_BAD_REQUEST)
+    return failed(d, VCNJPEG_FAIL_STREAM,
+                  "the picture does not fit the kext's buffers", s);
+  if (s != JA_OK)
+    return failed(d, VCNJPEG_FAIL_DEVICE, "the JPEG decoder failed", s);
+  if (pic.width != info.width || pic.height != info.height ||
+      pic.surfaceBytes > d->surfaceCap || pic.format != (info.yuyv ? 1u : 0u))
+    return failed(d, VCNJPEG_FAIL_DEVICE,
+                  "the kext's picture is not the one sent", 0);
+  CVPixelBufferRef pb =
+      new_target(d, info.width, info.height,
+                 info.yuyv ? kCVPixelFormatType_422YpCbCr8BiPlanarFullRange
+                           : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
   if (!pb) return failed(d, VCNJPEG_FAIL_MEMORY, "no pixel buffer", 0);
-  if (!(info.yuyv ? copy_yuyv(d->surface, &pic, pb) : copy_planes(d->surface, &pic, pb))) {
+  if (!(info.yuyv ? copy_yuyv(d->surface, &pic, pb)
+                  : copy_planes(d->surface, &pic, pb))) {
     CVPixelBufferRelease(pb);
-    return failed(d, VCNJPEG_FAIL_DEVICE, "the kext's layout does not fit the picture", 0);
+    return failed(d, VCNJPEG_FAIL_DEVICE,
+                  "the kext's layout does not fit the picture", 0);
   }
   // JFIF: BT.601 matrix, full range (the pixel format says the range)
-  CVBufferSetAttachment(pb, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+  CVBufferSetAttachment(pb, kCVImageBufferYCbCrMatrixKey,
+                        kCVImageBufferYCbCrMatrix_ITU_R_601_4,
                         kCVAttachmentMode_ShouldPropagate);
   fn(ctx, pb, NULL, info.width, info.height, tag);
   CVPixelBufferRelease(pb);

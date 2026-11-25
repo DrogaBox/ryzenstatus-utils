@@ -12,7 +12,8 @@
 #                 test's own process, nothing installed       (armed by VCNLEGACY_ALLOW_GPU)
 #   vtav1test     AV1 through VideoToolbox, as Safari does   (no switch: see README.md)
 #   vtvp9test     VP9 through VideoToolbox, as Safari does   (no switch: see README.md)
-#   vtjpegtest    Motion JPEG through VideoToolbox, our decoder only, compared with FFmpeg (no switch)
+#   vtjpegtest    Motion JPEG through VideoToolbox, our decoder only (loaded in the process, or the
+#                 installed one with -system), compared with FFmpeg (no switch)
 #   mkmjpeg422    writes Motion JPEG sampled as webcams do (4:2:2, luma 2x1); CPU only
 #   vtchurn       many sessions in one process, counts ports and IOKit connections (no switch)
 #   probe_ctx     asks the driver for one decode context     (no switch: see README.md)

@@ -7,7 +7,7 @@
 #
 # The kext only lets through the exact plug-in builds listed in it. The list is made here,
 # from three places:
-#   1. the five plug-in bundles of decode/build/ (AV1, VP9, MPEG-2, VC-1, MPEG-4; built
+#   1. the six plug-in bundles of decode/build/ (AV1, VP9, MPEG-2, VC-1, MPEG-4, JPEG; built
 #      first if one is missing)
 #   2. released-builds.txt in this folder: the builds of published releases
 #   3. any bundle given on the command line
@@ -38,7 +38,7 @@ OBJ=$B/loader
 FINAL=$B/$NAME.kext
 OUT=$OBJ/$NAME.kext  # assembled here; it replaces $FINAL only when everything worked
 # Every plug-in decode/build.sh makes; a kext that lists only some would refuse the others.
-PLUGINS=(AV1VCNDecoder VP9VCNDecoder MPEG2VCNDecoder VC1VCNDecoder MPEG4VCNDecoder)
+PLUGINS=(AV1VCNDecoder VP9VCNDecoder MPEG2VCNDecoder VC1VCNDecoder MPEG4VCNDecoder JPEGVCNDecoder)
 for p in $PLUGINS; do
   [[ -d $B/$p.bundle ]] || { $DECODE/build.sh; break; }
 done

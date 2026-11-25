@@ -5,9 +5,8 @@
 // with -DTEST_JPEG); see vtav1/AV1VCNDecoder.c for where the private plugin
 // interface comes from.
 //
-// Not built by default: ./build.sh builds it only with VCN_JPEG=1, and no
-// installer puts it anywhere. It needs the apps build of the VCNJpegProbe kext,
-// which nothing installs either.
+// It needs the VCNJpeg kext (GPU/jpeg). Both are installed only on request
+// (install/decoders.sh --jpeg, install/jpeg.sh; install.sh --with-jpeg).
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
@@ -358,7 +357,8 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   // each picture carries its own. 4:2:0 comes out as '420f', 4:2:2 as '422f';
   // vcnjpeg refuses what the block is not given (progressive, 4:4:4, grey).
   FourCharCode codec = CMFormatDescriptionGetMediaSubType(fmt);
-  if (codec != kCMVideoCodecType_JPEG && codec != kCMVideoCodecType_JPEG_OpenDML)
+  if (codec != kCMVideoCodecType_JPEG &&
+      codec != kCMVideoCodecType_JPEG_OpenDML)
     return kVTVideoDecoderUnsupportedDataFormatErr;
 
   char err[256] = "";
@@ -367,6 +367,14 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   if (!vcn) {
     os_log_error(logger(), "vcnjpeg_create: %{public}s", err);
     return kVTVideoDecoderNotAvailableNowErr;
+  }
+  // A picture the kext's buffers cannot hold goes to Apple's software decoder.
+  if (!vcnjpeg_fits(vcn, (uint32_t)width, (uint32_t)height)) {
+    os_log_error(logger(),
+                 "%dx%d does not fit the kext's buffers (vcnjpegpool)", width,
+                 height);
+    vcnjpeg_destroy(vcn);
+    return kVTVideoDecoderUnsupportedDataFormatErr;
   }
   // The new session is set up before anything else can see it: until it is
   // published below, neither invalidate nor a decode can reach it.
@@ -709,11 +717,13 @@ static const VTVideoDecoderClass kDecoderClass = {
 
 static const VTVideoDecoderVTable kVTable = {NULL, &kBaseClass, &kDecoderClass};
 
-__attribute__((visibility("default"))) OSStatus JPEGVCN_VTDecoder_CreateInstance(
-    FourCharCode codec, CFAllocatorRef alloc, VTVideoDecoderRef* out) {
+__attribute__((visibility("default"))) OSStatus
+JPEGVCN_VTDecoder_CreateInstance(FourCharCode codec, CFAllocatorRef alloc,
+                                 VTVideoDecoderRef* out) {
   if (!out) return kVTParameterErr;
   *out = NULL;
-  if (codec != kCMVideoCodecType_JPEG && codec != kCMVideoCodecType_JPEG_OpenDML)
+  if (codec != kCMVideoCodecType_JPEG &&
+      codec != kCMVideoCodecType_JPEG_OpenDML)
     return kVTCouldNotFindVideoDecoderErr;
   CMBaseObjectRef obj = NULL;
   OSStatus r =

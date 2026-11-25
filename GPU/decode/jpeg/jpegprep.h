@@ -6,7 +6,7 @@
 // without Huffman tables (Motion JPEG) gets the standard ones of Annex K.
 //
 // What the block is given here is what the kext checks again before it takes
-// the JPEG (VCNJpegProbe jc::parseStream): baseline, 8 bits, three components,
+// the JPEG (VCNJpeg jc::parseStream): baseline, 8 bits, three components,
 // one scan with all three, sampled as Mesa's radeon_dec_jpeg_check_format
 // takes them on this block: 0x221111 (4:2:0, written as NV12) or 0x211111,
 // 0x221212, 0x222121 (4:2:2, written as YUYV). Anything else is
@@ -27,9 +27,9 @@ enum {
 
 typedef struct {
   uint32_t width, height;
-  uint16_t restart;     // restart interval, 0 = none
-  bool stdTables;       // the Huffman tables of Annex K were added
-  bool yuyv;            // 4:2:2: the block writes YUYV (else NV12)
+  uint16_t restart;  // restart interval, 0 = none
+  bool stdTables;    // the Huffman tables of Annex K were added
+  bool yuyv;         // 4:2:2: the block writes YUYV (else NV12)
 } JpegInfo;
 
 // The output is at most the input plus kJpegPrepExtra bytes.

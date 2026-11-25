@@ -3,6 +3,11 @@
 //
 //   vtjpegtest -load bundle clip.mjpeg reference.yuv width height 420|422
 //              [-dmb1] [-frames N]
+//   vtjpegtest -system clip.mjpeg reference.yuv width height 420|422
+//              [-dmb1] [-frames N]
+//       the decoder VideoToolbox picks for a hardware decoder, as an app gets
+//       it: the installed JPEGVCNDecoder.bundle when it is in place (fails when
+//       it is not, or when its kext is not ready)
 //   vtjpegtest -apple clip.mjpeg reference.yuv width height 420|422 [-dmb1]
 //       the same with Apple's own software decoder, asked for the same pixel
 //       format: runs on the CPU only, checks the clip, the reference and this
@@ -24,8 +29,8 @@
 // every sample is within 2 of FFmpeg's (the block's IDCT rounds differently,
 // a difference of 1 was seen on hardware).
 //
-// There is no switch to arm: a run goes to the GPU as soon as the apps build
-// of VCNJpegProbe is loaded and its JPEG queue is started.
+// There is no switch to arm: a run goes to the GPU as soon as the VCNJpeg
+// kext is loaded (it starts the block for the first picture).
 //
 // Exit status: 0 = every frame decoded and matched, 2 = a frame failed,
 // differs or is missing, 1 = anything else.
@@ -45,26 +50,34 @@ static double now_ms(void) {
   return (double)mach_absolute_time() * tb.numer / tb.denom / 1e6;
 }
 
-static void copy_kv(const void* k, const void* v, void* dict) { CFDictionarySetValue(dict, k, v); }
+static void copy_kv(const void* k, const void* v, void* dict) {
+  CFDictionarySetValue(dict, k, v);
+}
 
 // Registers the bundle's decoder for one codec in this process only, under our
 // own ID. Fails when nothing was registered.
-static int load_bundle(const char* path, FourCharCode codec, const char* fourcc) {
-  CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8*)path, (CFIndex)strlen(path), true);
+static int load_bundle(const char* path, FourCharCode codec,
+                       const char* fourcc) {
+  CFURLRef url = CFURLCreateFromFileSystemRepresentation(
+      NULL, (const UInt8*)path, (CFIndex)strlen(path), true);
   CFBundleRef b = url ? CFBundleCreate(NULL, url) : NULL;
   if (url) CFRelease(url);
   if (!b || !CFBundleLoadExecutable(b)) {
     fprintf(stderr, "cannot load %s\n", path);
     return -1;
   }
-  CFArrayRef impls = CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CMClassImplementations"));
-  OSStatus (*reg)(FourCharCode, CFDictionaryRef, void*) = dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
-  CFStringRef want = CFStringCreateWithCString(NULL, fourcc, kCFStringEncodingASCII);
+  CFArrayRef impls =
+      CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CMClassImplementations"));
+  OSStatus (*reg)(FourCharCode, CFDictionaryRef, void*) =
+      dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
+  CFStringRef want =
+      CFStringCreateWithCString(NULL, fourcc, kCFStringEncodingASCII);
   int registered = 0;
   for (CFIndex i = 0; impls && reg && want && i < CFArrayGetCount(impls); i++) {
     CFDictionaryRef impl = CFArrayGetValueAtIndex(impls, i);
     CFDictionaryRef match = CFDictionaryGetValue(impl, CFSTR("CMMatchingInfo"));
-    CFStringRef type = match ? CFDictionaryGetValue(match, CFSTR("VTCodecType")) : NULL;
+    CFStringRef type =
+        match ? CFDictionaryGetValue(match, CFSTR("VTCodecType")) : NULL;
     if (!type || !CFEqual(type, want)) continue;
     CFStringRef fn = CFDictionaryGetValue(impl, CFSTR("CMFactoryFunction"));
     void* factory = fn ? CFBundleGetFunctionPointerForName(b, fn) : NULL;
@@ -72,9 +85,11 @@ static int load_bundle(const char* path, FourCharCode codec, const char* fourcc)
     CFMutableDictionaryRef info = CFDictionaryCreateMutableCopy(NULL, 0, impl);
     // dynamic registration ignores CMMatchingInfo: lift its keys to the top
     CFDictionaryApplyFunction(match, copy_kv, info);
-    CFDictionarySetValue(info, CFSTR("CMClassImplementationID"), CFSTR("com.droga.vtjpegtest"));
+    CFDictionarySetValue(info, CFSTR("CMClassImplementationID"),
+                         CFSTR("com.droga.vtjpegtest"));
     CFDictionarySetValue(info, CFSTR("IsHardwareAccelerated"), kCFBooleanTrue);
-    CFStringRef name = CFDictionaryGetValue(impl, CFSTR("CMClassImplementationName"));
+    CFStringRef name =
+        CFDictionaryGetValue(impl, CFSTR("CMClassImplementationName"));
     if (name) CFDictionarySetValue(info, CFSTR("CodecName"), name);
     OSStatus st = reg(codec, info, factory);
     CFRelease(info);
@@ -107,7 +122,8 @@ static uint8_t* read_all(const char* path, size_t* n) {
 
 // The next JPEG picture of a raw Motion JPEG stream: SOI, segments up to the
 // scan, the scan (where FF is always stuffed or a restart marker), EOI.
-static bool next_picture(const uint8_t* d, size_t n, size_t* at, size_t* start, size_t* len) {
+static bool next_picture(const uint8_t* d, size_t n, size_t* at, size_t* start,
+                         size_t* len) {
   size_t i = *at;
   while (i + 1 < n && !(d[i] == 0xff && d[i + 1] == 0xd8)) i++;
   if (i + 1 >= n) return false;
@@ -126,7 +142,8 @@ static bool next_picture(const uint8_t* d, size_t n, size_t* at, size_t* start, 
     if (m == 0xda) break;
   }
   while (i + 1 < n) {
-    if (d[i] == 0xff && d[i + 1] != 0x00 && !(d[i + 1] >= 0xd0 && d[i + 1] <= 0xd7)) {
+    if (d[i] == 0xff && d[i + 1] != 0x00 &&
+        !(d[i + 1] >= 0xd0 && d[i + 1] <= 0xd7)) {
       if (d[i + 1] != 0xd9) return false;
       *start = s;
       *len = i + 2 - s;
@@ -149,8 +166,9 @@ typedef struct {
   double firstOut;
 } Ctx;
 
-static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFlags flags, CVImageBufferRef img,
-                   CMTime pts, CMTime dur) {
+static void out_cb(void* refcon, void* frameRefcon, OSStatus st,
+                   VTDecodeInfoFlags flags, CVImageBufferRef img, CMTime pts,
+                   CMTime dur) {
   (void)pts, (void)dur;
   Ctx* c = refcon;
   long idx = (long)frameRefcon;
@@ -163,8 +181,9 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFla
   OSType f = CVPixelBufferGetPixelFormatType(img);
   if (f != c->wantFormat) {
     c->wrongFormat++;
-    printf("frame %ld: pixel format '%c%c%c%c', not the one our decoder gives\n", idx, (char)(f >> 24),
-           (char)(f >> 16), (char)(f >> 8), (char)f);
+    printf(
+        "frame %ld: pixel format '%c%c%c%c', not the one our decoder gives\n",
+        idx, (char)(f >> 24), (char)(f >> 16), (char)(f >> 8), (char)f);
     return;
   }
   if ((size_t)idx >= c->refFrames) {
@@ -179,8 +198,10 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFla
   CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
   const uint8_t* y = CVPixelBufferGetBaseAddressOfPlane(img, 0);
   const uint8_t* uv = CVPixelBufferGetBaseAddressOfPlane(img, 1);
-  size_t ys = CVPixelBufferGetBytesPerRowOfPlane(img, 0), uvs = CVPixelBufferGetBytesPerRowOfPlane(img, 1);
-  bool sizes = (int)CVPixelBufferGetWidth(img) == c->w && (int)CVPixelBufferGetHeight(img) == c->h &&
+  size_t ys = CVPixelBufferGetBytesPerRowOfPlane(img, 0),
+         uvs = CVPixelBufferGetBytesPerRowOfPlane(img, 1);
+  bool sizes = (int)CVPixelBufferGetWidth(img) == c->w &&
+               (int)CVPixelBufferGetHeight(img) == c->h &&
                (int)CVPixelBufferGetHeightOfPlane(img, 1) == c->chromaRows;
   int frameMax = 0;
   if (sizes) {
@@ -194,7 +215,8 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFla
     for (int r = 0; r < c->chromaRows; r++)
       for (int x = 0; x < cw; x++) {
         int du = abs((int)uv[r * uvs + 2 * x] - (int)ru[(size_t)r * cw + x]);
-        int dv = abs((int)uv[r * uvs + 2 * x + 1] - (int)rv[(size_t)r * cw + x]);
+        int dv =
+            abs((int)uv[r * uvs + 2 * x + 1] - (int)rv[(size_t)r * cw + x]);
         int dd = du > dv ? du : dv;
         if (dd > frameMax) frameMax = dd;
         c->sqErr += (double)du * du + (double)dv * dv;
@@ -204,8 +226,8 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFla
   CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
   if (!sizes) {
     c->mismatches++;
-    printf("frame %ld: %zux%zu, not %dx%d\n", idx, CVPixelBufferGetWidth(img), CVPixelBufferGetHeight(img), c->w,
-           c->h);
+    printf("frame %ld: %zux%zu, not %dx%d\n", idx, CVPixelBufferGetWidth(img),
+           CVPixelBufferGetHeight(img), c->w, c->h);
     return;
   }
   if (frameMax > c->maxDiff) c->maxDiff = frameMax;
@@ -217,15 +239,19 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st, VTDecodeInfoFla
 
 static int usage(void) {
   fprintf(stderr,
-          "usage: vtjpegtest -load bundle clip.mjpeg reference.yuv width height 420|422 [-dmb1] [-frames N]\n"
-          "       vtjpegtest -apple clip.mjpeg reference.yuv width height 420|422 [-dmb1]  (CPU only)\n"
+          "usage: vtjpegtest -load bundle clip.mjpeg reference.yuv width "
+          "height 420|422 [-dmb1] [-frames N]\n"
+          "       vtjpegtest -system clip.mjpeg reference.yuv width height "
+          "420|422 [-dmb1] [-frames N]  (the installed plug-in)\n"
+          "       vtjpegtest -apple clip.mjpeg reference.yuv width height "
+          "420|422 [-dmb1]  (CPU only)\n"
           "A run goes to the GPU: there is no switch to arm.\n");
   return 1;
 }
 
 int main(int argc, char** argv) {
   const char* bundle = NULL;
-  bool apple = false;
+  bool apple = false, system = false;
   const char* pos[5];
   int npos = 0, maxFrames = INT_MAX;
   bool dmb1 = false;
@@ -234,6 +260,8 @@ int main(int argc, char** argv) {
       bundle = argv[++i];
     else if (!strcmp(argv[i], "-apple"))
       apple = true;
+    else if (!strcmp(argv[i], "-system"))
+      system = true;
     else if (!strcmp(argv[i], "-dmb1"))
       dmb1 = true;
     else if (!strcmp(argv[i], "-frames") && i + 1 < argc)
@@ -243,18 +271,23 @@ int main(int argc, char** argv) {
     else
       return usage();
   }
-  if (!!bundle == apple || npos != 5 || maxFrames < 1) return usage();
+  if ((!!bundle + apple + system) != 1 || npos != 5 || maxFrames < 1)
+    return usage();
   int w = atoi(pos[2]), h = atoi(pos[3]);
   bool s422 = !strcmp(pos[4], "422");
-  if (w < 1 || h < 1 || w > 16384 || h > 16384 || (!s422 && strcmp(pos[4], "420"))) return usage();
-  FourCharCode codec = dmb1 ? kCMVideoCodecType_JPEG_OpenDML : kCMVideoCodecType_JPEG;
+  if (w < 1 || h < 1 || w > 16384 || h > 16384 ||
+      (!s422 && strcmp(pos[4], "420")))
+    return usage();
+  FourCharCode codec =
+      dmb1 ? kCMVideoCodecType_JPEG_OpenDML : kCMVideoCodecType_JPEG;
   const char* fourcc = dmb1 ? "dmb1" : "jpeg";
-  if (!apple && load_bundle(bundle, codec, fourcc)) return 1;
+  if (bundle && load_bundle(bundle, codec, fourcc)) return 1;
 
   size_t clipLen = 0, refLen = 0;
   uint8_t* clip = read_all(pos[0], &clipLen);
   uint8_t* ref = read_all(pos[1], &refLen);
-  if (!clip || !ref) return fprintf(stderr, "cannot read %s or %s\n", pos[0], pos[1]), 1;
+  if (!clip || !ref)
+    return fprintf(stderr, "cannot read %s or %s\n", pos[0], pos[1]), 1;
   Ctx c = {0};
   c.ref = ref;
   c.w = w;
@@ -262,32 +295,54 @@ int main(int argc, char** argv) {
   c.chromaRows = s422 ? h : (h + 1) / 2;
   c.frameBytes = (size_t)w * h + 2 * (size_t)((w + 1) / 2) * c.chromaRows;
   c.refFrames = refLen / c.frameBytes;
-  c.wantFormat = s422 ? kCVPixelFormatType_422YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+  c.wantFormat = s422 ? kCVPixelFormatType_422YpCbCr8BiPlanarFullRange
+                      : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
 
   CMVideoFormatDescriptionRef fmt = NULL;
   OSStatus st = CMVideoFormatDescriptionCreate(NULL, codec, w, h, NULL, &fmt);
   if (st) return fprintf(stderr, "format description %d\n", (int)st), 1;
   CFMutableDictionaryRef spec =
-      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
   CFMutableDictionaryRef dest = NULL;
-  if (!apple) {
-    CFDictionarySetValue(spec, kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder, kCFBooleanTrue);
-    CFStringRef id = CFStringCreateWithFormat(NULL, NULL, CFSTR("com.droga.vtjpegtest.%s"), fourcc);
+  if (system) {
+    // Apple's JPEG decoders are software ones: a hardware decoder for 'jpeg'
+    // or 'dmb1' on this Mac can only be ours.
+    CFDictionarySetValue(
+        spec,
+        kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+        kCFBooleanTrue);
+    printf(
+        "asking VideoToolbox for any hardware decoder (the installed one)\n");
+  } else if (!apple) {
+    CFDictionarySetValue(
+        spec,
+        kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+        kCFBooleanTrue);
+    CFStringRef id = CFStringCreateWithFormat(
+        NULL, NULL, CFSTR("com.droga.vtjpegtest.%s"), fourcc);
     CFDictionarySetValue(spec, CFSTR("DecoderID"), id);
-    printf("asking for decoder com.droga.vtjpegtest.%s (ours, loaded in this process)\n", fourcc);
+    printf(
+        "asking for decoder com.droga.vtjpegtest.%s (ours, loaded in this "
+        "process)\n",
+        fourcc);
     CFRelease(id);
   } else {
     // Apple's decoder, converted by VideoToolbox to the format ours gives
-    dest = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    dest = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                     &kCFTypeDictionaryValueCallBacks);
     int32_t pf = (int32_t)c.wantFormat;
     CFNumberRef n = CFNumberCreate(NULL, kCFNumberSInt32Type, &pf);
     CFDictionarySetValue(dest, kCVPixelBufferPixelFormatTypeKey, n);
     CFRelease(n);
-    printf("Apple's software decoder (no -load), output asked as the format ours gives\n");
+    printf(
+        "Apple's software decoder (no -load), output asked as the format ours "
+        "gives\n");
   }
   VTDecompressionOutputCallbackRecord cb = {out_cb, &c};
   VTDecompressionSessionRef sess = NULL;
-  if (dest && getenv("VTJPEG_NODEST")) {  // debugging: Apple's own output format
+  if (dest &&
+      getenv("VTJPEG_NODEST")) {  // debugging: Apple's own output format
     CFRelease(dest);
     dest = NULL;
   }
@@ -297,8 +352,11 @@ int main(int argc, char** argv) {
   printf("VTDecompressionSessionCreate = %d\n", (int)st);
   if (st || !sess) return 1;
   CFBooleanRef hw = NULL;
-  VTSessionCopyProperty(sess, kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder, NULL, &hw);
-  printf("UsingHardwareAcceleratedVideoDecoder = %s\n", hw == kCFBooleanTrue ? "yes" : "no");
+  VTSessionCopyProperty(
+      sess, kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+      NULL, &hw);
+  printf("UsingHardwareAcceleratedVideoDecoder = %s\n",
+         hw == kCFBooleanTrue ? "yes" : "no");
   if (hw) CFRelease(hw);
 
   size_t at = 0, start = 0, len = 0;
@@ -307,10 +365,13 @@ int main(int argc, char** argv) {
   while (fed < maxFrames && next_picture(clip, clipLen, &at, &start, &len)) {
     CMBlockBufferRef bb = NULL;
     CMSampleBufferRef sb = NULL;
-    st = CMBlockBufferCreateWithMemoryBlock(NULL, clip + start, len, kCFAllocatorNull, NULL, 0, len, 0, &bb);
-    CMSampleTimingInfo ti = {CMTimeMake(1, 30), CMTimeMake(fed, 30), kCMTimeInvalid};
+    st = CMBlockBufferCreateWithMemoryBlock(
+        NULL, clip + start, len, kCFAllocatorNull, NULL, 0, len, 0, &bb);
+    CMSampleTimingInfo ti = {CMTimeMake(1, 30), CMTimeMake(fed, 30),
+                             kCMTimeInvalid};
     size_t ss = len;
-    if (!st) st = CMSampleBufferCreateReady(NULL, bb, fmt, 1, 1, &ti, 1, &ss, &sb);
+    if (!st)
+      st = CMSampleBufferCreateReady(NULL, bb, fmt, 1, 1, &ti, 1, &ss, &sb);
     if (!st) {
       VTDecodeInfoFlags info = 0;
       st = VTDecompressionSessionDecodeFrame(sess, sb, 0, (void*)fed, &info);
@@ -326,15 +387,23 @@ int main(int argc, char** argv) {
   VTDecompressionSessionInvalidate(sess);
   CFRelease(sess);
   CFRelease(fmt);
-  double psnr = c.sqErr > 0 ? 10 * log10(255.0 * 255.0 * c.samples / c.sqErr) : INFINITY;
-  printf("fed %ld pictures (%s %s %dx%d), got %d frames in %.1f ms (%.2f ms each)\n", fed, fourcc,
-         s422 ? "4:2:2" : "4:2:0", w, h, c.frames, ms, fed ? ms / (double)fed : 0.0);
-  printf("errors %d, wrong pixel format %d, differ %d, no reference %d; max difference %d, PSNR %.2f dB\n", c.errors,
-         c.wrongFormat, c.mismatches, c.missing, c.maxDiff, psnr);
-  bool ok = fed > 0 && c.frames == fed && !c.errors && !c.wrongFormat && !c.mismatches && !c.missing;
-  printf("%s\n", ok ? (apple ? "PASS: every frame from Apple's decoder, matching FFmpeg"
-                             : "PASS: every frame from our decoder, matching FFmpeg")
-                     : "FAIL");
+  double psnr =
+      c.sqErr > 0 ? 10 * log10(255.0 * 255.0 * c.samples / c.sqErr) : INFINITY;
+  printf(
+      "fed %ld pictures (%s %s %dx%d), got %d frames in %.1f ms (%.2f ms "
+      "each)\n",
+      fed, fourcc, s422 ? "4:2:2" : "4:2:0", w, h, c.frames, ms,
+      fed ? ms / (double)fed : 0.0);
+  printf(
+      "errors %d, wrong pixel format %d, differ %d, no reference %d; max "
+      "difference %d, PSNR %.2f dB\n",
+      c.errors, c.wrongFormat, c.mismatches, c.missing, c.maxDiff, psnr);
+  bool ok = fed > 0 && c.frames == fed && !c.errors && !c.wrongFormat &&
+            !c.mismatches && !c.missing;
+  printf("%s\n",
+         ok ? (apple ? "PASS: every frame from Apple's decoder, matching FFmpeg"
+                     : "PASS: every frame from our decoder, matching FFmpeg")
+            : "FAIL");
   free(clip);
   free(ref);
   return ok ? 0 : 2;

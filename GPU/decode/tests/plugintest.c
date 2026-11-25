@@ -1,8 +1,9 @@
 // plugintest: the VideoToolbox side of a decoder plug-in, with the decoder
 // session replaced by a stand-in (nothing opens the GPU or the driver). Built
-// once for each plug-in, with -DTEST_AV1, -DTEST_VP9, -DTEST_JPEG, -DTEST_MPEG2,
-// -DTEST_VC1 or -DTEST_MPEG4 (the last three share common/vtlegacy.h and have no
-// hidden frames: their sample 6 is one more shown frame). It checks:
+// once for each plug-in, with -DTEST_AV1, -DTEST_VP9, -DTEST_JPEG,
+// -DTEST_MPEG2, -DTEST_VC1 or -DTEST_MPEG4 (the last three share
+// common/vtlegacy.h and have no hidden frames: their sample 6 is one more shown
+// frame). It checks:
 //
 //   1. the factory refuses a NULL result pointer;
 //   2. a second session start replaces the decoder of the first;
@@ -376,6 +377,10 @@ VcnJpeg* vcnjpeg_create(uint32_t w, uint32_t h, char* err, size_t n) {
   return fake_create();
 }
 void vcnjpeg_destroy(VcnJpeg* d) { fake_destroy(d); }
+bool vcnjpeg_fits(VcnJpeg* d, uint32_t w, uint32_t h) {
+  (void)d, (void)w, (void)h;
+  return true;
+}
 const char* vcnjpeg_last_error(VcnJpeg* d) {
   (void)d;
   return "stand-in";
@@ -385,12 +390,12 @@ unsigned vcnjpeg_firmware_errors(VcnJpeg* d) {
   return 0;
 }
 CFDictionaryRef vcnjpeg_copy_pixel_buffer_attributes(uint32_t w, uint32_t h,
-                                                    bool t) {
+                                                     bool t) {
   (void)w, (void)h, (void)t;
   return CFDictionaryCreate(NULL, NULL, NULL, 0, NULL, NULL);
 }
 int vcnjpeg_decode(VcnJpeg* d, const uint8_t* chunk, size_t size, int64_t tag,
-                  VcnJpegOutputFn fn, void* ctx) {
+                   VcnJpegOutputFn fn, void* ctx) {
   (void)size;
   fake_decode_begin(d);
   if (chunk[0] == 5) slow_decode();
