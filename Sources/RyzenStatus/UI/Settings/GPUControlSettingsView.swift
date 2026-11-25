@@ -19,12 +19,17 @@ struct GPUControlSettingsView: View {
             strings: FeatureStrings.gpuControlPage(l10n.language),
             fan: FeatureStrings.gpuControlFan(l10n.language),
             clock: FeatureStrings.gpuControlClock(l10n.language),
+            boot: FeatureStrings.gpuControlBoot(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
                 backToStartUp: { service.backToStartUp() },
                 openWriting: { service.openWriting(prompt: FeatureStrings.gpuControlPage(l10n.language).armPrompt) },
                 setRemember: { service.remember = $0 },
+                setBootArm: { on in
+                    let boot = FeatureStrings.gpuControlBoot(l10n.language)
+                    service.setBootArm(on, prompt: on ? boot.promptOn : boot.promptOff)
+                },
                 applyFan: { service.applyFan($0) },
                 chooseGfxMax: { service.chooseGfxMax($0) },
                 closeChanges: { service.closeChanges() }))
@@ -46,6 +51,10 @@ struct GPUControlPageInput: Equatable {
     var isArming = false
     var armFailed = false
     var remember = false
+    /// "Allow changes after restart too": the start-up daemon is installed.
+    var bootArm = false
+    var isChangingBootArm = false
+    var bootArmFailed = false
     /// `VersionInfo`, the kext's build name.
     var kextVersion: String?
     /// The controller exists (a channel was connected at launch).
@@ -72,6 +81,9 @@ struct GPUControlPageInput: Equatable {
         isArming = service.isArming
         armFailed = service.armFailed
         remember = service.remember
+        bootArm = service.bootArm
+        isChangingBootArm = service.isChangingBootArm
+        bootArmFailed = service.bootArmFailed
         kextVersion = service.control?.writing?.kextVersion
         canChoose = service.mode != .none
         writing = service.control?.writing
@@ -83,6 +95,7 @@ struct GPUControlPageActions {
     var backToStartUp: () -> Void = {}
     var openWriting: () -> Void = {}
     var setRemember: (Bool) -> Void = { _ in }
+    var setBootArm: (Bool) -> Void = { _ in }
     var applyFan: (GPUControlFanDraft) -> Void = { _ in }
     var chooseGfxMax: (Int?) -> Void = { _ in }
     var closeChanges: () -> Void = {}
@@ -186,6 +199,7 @@ struct GPUControlPageContent: View {
     let strings: GPUControlPageStrings
     let fan: GPUControlFanStrings
     let clock: GPUControlClockStrings
+    let boot: GPUControlBootStrings
     let title: String
     let actions: GPUControlPageActions
     @State private var copied = false
@@ -195,11 +209,13 @@ struct GPUControlPageContent: View {
     @State private var lastOD8Source: GPUControlOD8Source = .fan
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
-         clock: GPUControlClockStrings, title: String, actions: GPUControlPageActions) {
+         clock: GPUControlClockStrings, boot: GPUControlBootStrings = .enUS, title: String,
+         actions: GPUControlPageActions) {
         self.input = input
         self.strings = strings
         self.fan = fan
         self.clock = clock
+        self.boot = boot
         self.title = title
         self.actions = actions
         var held: GPUControlOD8Want?
@@ -228,6 +244,7 @@ struct GPUControlPageContent: View {
                                        lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMax)
             }
             if case .closed? = input.state { armSection }
+            if Self.showsBootArm(input) { bootArmSection }
             rememberSection
             detailsSection
         }
@@ -282,7 +299,7 @@ struct GPUControlPageContent: View {
             Text(s.stateSection)
         } footer: {
             if case .ready? = input.state {
-                Text(s.readyWarning)
+                Text(input.bootArm ? boot.readyWarning : s.readyWarning)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -518,11 +535,52 @@ struct GPUControlPageContent: View {
         }
     }
 
+    // MARK: After a restart (GPUControlBootArm)
+
+    /// Shown where opening writing is possible at all: the tool installed
+    /// safely (the button), or the daemon already there, so it can always be
+    /// turned off. Not on the read-only card, where writing never opens.
+    static func showsBootArm(_ input: GPUControlPageInput) -> Bool {
+        if input.bootArm { return true }
+        if case .readOnlyCard? = input.state { return false }
+        return input.armTool == .button
+    }
+
+    /// Turning it on needs the tool installed safely; off is always allowed.
+    static func bootArmEnabled(_ input: GPUControlPageInput) -> Bool {
+        guard !input.isChangingBootArm, input.canChoose else { return false }
+        return input.bootArm || input.armTool == .button
+    }
+
+    /// "Toggles": the label says what turning it on does; the footer says
+    /// the password is asked once and what turning it off leaves open. Its
+    /// own section, like "remember": it can be set while writing is closed.
+    /// The regular size, as "remember" (a11y A8).
+    private var bootArmSection: some View {
+        Section {
+            // Dimmed while the administrator dialog is up: the dialog is the
+            // feedback, and the switch shows the disk's state after it.
+            Toggle(boot.toggle, isOn: Binding(get: { input.bootArm }, set: { actions.setBootArm($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+                .disabled(!Self.bootArmEnabled(input))
+                .accessibilityHint(boot.hint)
+            if input.bootArmFailed {
+                GPUControlProblemLabel(text: boot.failed, isProblem: true)
+            }
+        } footer: {
+            Text(boot.footer)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: Opening writing (plan 4)
 
     private var armSection: some View {
         Section {
-            Text(s.armClosed)
+            Text(input.bootArm ? boot.armClosed : s.armClosed)
                 .fixedSize(horizontal: false, vertical: true)
             switch input.armTool {
             case .button:

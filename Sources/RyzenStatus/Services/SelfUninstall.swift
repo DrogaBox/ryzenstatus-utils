@@ -29,7 +29,7 @@ enum SelfUninstall {
             DispatchQueue.global(qos: .userInitiated).async {
                 let sleepRestored = restoreSleepBeforeRemoval()
                 detachFromSystem()
-                removeSudoersRuleIfPresent { ruleRemoved in    // may show one admin prompt
+                removeSystemRulesIfPresent { ruleRemoved in    // may show one admin prompt
                     let reset = resetTCC()
                     DispatchQueue.main.async {
                         // The published permissions still say granted. Read the
@@ -72,7 +72,7 @@ enum SelfUninstall {
                     stop(L10n.shared.s.advancedUninstallFailedBody)
                     return
                 }
-                removeSudoersRuleIfPresent { ruleRemoved in
+                removeSystemRulesIfPresent { ruleRemoved in
                     guard ruleRemoved else {
                         stop(L10n.shared.s.advancedClearFailed)
                         return
@@ -166,6 +166,26 @@ enum SelfUninstall {
         let verification = Shell.run("/usr/bin/pmset", ["-g"])
         return verification.status == 0
             && !SudoersSupport.sleepDisabled(inPmsetOutput: verification.output)
+    }
+
+    /// The closed-lid rule, then the GPU start-up daemon: each asks for the
+    /// password only when it is there.
+    private static func removeSystemRulesIfPresent(then: @escaping (Bool) -> Void) {
+        removeSudoersRuleIfPresent { ruleRemoved in
+            guard ruleRemoved else { then(false); return }
+            removeGPUBootArmIfPresent(then: then)
+        }
+    }
+
+    /// "Allow GPU changes after restart too" (`GPUControlBootArm`): a
+    /// LaunchDaemon that would keep running `gpucontrol arm` at every
+    /// start-up after the app is gone.
+    private static func removeGPUBootArmIfPresent(then: @escaping (Bool) -> Void) {
+        guard FileManager.default.fileExists(atPath: GPUControlBootArm.plistPath) else { then(true); return }
+        let prompt = FeatureStrings.gpuControlBoot(L10n.shared.language).promptOff
+        AdminShell.run(GPUControlBootArm.removeCommand, prompt: prompt) { ok in
+            then(ok && !FileManager.default.fileExists(atPath: GPUControlBootArm.plistPath))
+        }
     }
 
     private static func removeSudoersRuleIfPresent(then: @escaping (Bool) -> Void) {
