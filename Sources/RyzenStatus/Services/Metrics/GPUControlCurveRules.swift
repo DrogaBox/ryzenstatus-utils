@@ -21,7 +21,7 @@ import Foundation
 /// the curve is applied.
 enum GPUControlCurveRules {
     static let entryCount = 38
-    static let gfxMax = 0, gfxMin = 1, memMax = 8, targetTemp = 12, zeroRpm = 15, zeroRpmStop = 35
+    static let gfxMax = 0, gfxMin = 1, memMax = 8, targetTemp = 12, zeroRpm = 15, zeroRpmStop = 35, gfxVolt = 37
     static let points = GPUControlWire.fanCurvePoints
     static func tempID(_ k: Int) -> Int { 19 + 2 * k }
     static func speedID(_ k: Int) -> Int { 20 + 2 * k }
@@ -31,6 +31,9 @@ enum GPUControlCurveRules {
     static let driftMHz = 25
     static let sensorGapC = 22
     static let firstPointMaxC = 30
+    // GPUSensors 0.9.0: the GFX voltage's feature bit and step.
+    static let voltFeature = GPUControlStatus.voltFeature
+    static let voltStepMV = GPUControlWire.voltStepMV
 
     /// The kext builds this copy was checked against (`VersionInfo`). With
     /// any other build the preview says so and does not decide.
@@ -46,7 +49,8 @@ enum GPUControlCurveRules {
     /// ("081") leaves these checks as they were in 0.8.0. GPUSensors 0.9.0
     /// ("090") adds the GFX minimum (`GfxMinRange`) and gives the same
     /// answers as 0.8.0 for the first 100 lines of `curve-cases.jsonl`; the
-    /// lines after them are its GFX minimum cases.
+    /// lines after them are its GFX minimum cases, then (the same 0.9.0) its
+    /// GFX voltage and overclock cases, after the first 120.
     static let checkedReleases: Set<String> = ["080", "081", "090"]
 
     /// The kext build is one this copy was checked against. Neither the
@@ -98,6 +102,9 @@ enum GPUControlCurveRules {
         var first = [Entry](repeating: Entry(), count: GPUControlCurveRules.entryCount)
         var fresh = [Entry](repeating: Entry(), count: GPUControlCurveRules.entryCount)
         var current = [Int](repeating: 0, count: GPUControlCurveRules.entryCount)
+        /// The features the driver does not allow now (the current read's
+        /// mask, `OD8.NotAllowed`): read only for a GFX voltage (0.9.0).
+        var notAllowed: UInt32 = 0
 
         init() {}
 
@@ -110,6 +117,7 @@ enum GPUControlCurveRules {
             guard let caps = table.caps else { return nil }
             firstCaps = caps
             freshCaps = caps
+            notAllowed = table.notAllowed ?? 0
             for (id, name) in GPUControlCurveRules.names.enumerated() {
                 guard let setting = table.settings[name] else { continue }
                 first[id] = Entry(feature: setting.feature, min: setting.min, max: setting.max, def: setting.stock)
@@ -223,7 +231,9 @@ enum GPUControlCurveRules {
             }
         }
         if let mhz = want.gfxMaxMHz {
-            let top = Swift.min(s.first[gfxMax].def, s.fresh[gfxMax].def)
+            // GPUSensors 0.9.0: with the overclock flag the top is the card's
+            // own maximum for id 0 (the same in both reads, checked above).
+            let top = want.overclock ? s.fresh[gfxMax].max : Swift.min(s.first[gfxMax].def, s.fresh[gfxMax].def)
             if mhz < gfxFloorMHz || mhz > top || mhz < s.first[gfxMin].def { return Result(check: .gfxRange) }
         }
         // GPUSensors 0.9.0: the minimum in the card's range for id 1 (the
@@ -233,6 +243,15 @@ enum GPUControlCurveRules {
             let range = s.fresh[gfxMin]
             let top = want.gfxMaxMHz ?? Swift.min(s.first[gfxMax].def, s.fresh[gfxMax].def)
             if low < range.min || low > range.max || low > top { return Result(check: .gfxMinRange) }
+        }
+        // GPUSensors 0.9.0: the GFX voltage, offered as at boot and allowed
+        // now, lower only, in 25 mV steps from stock.
+        if let mv = want.voltMV {
+            let v = s.first[gfxVolt]
+            if v.feature != voltFeature || s.notAllowed & voltFeature != 0 { return Result(check: .noFeature) }
+            if mv < v.min || mv > v.max || mv > v.def || (v.def - mv) % voltStepMV != 0 {
+                return Result(check: .voltRange)
+            }
         }
         return .ok
     }
@@ -309,5 +328,6 @@ struct GPUControlFanDraft: Equatable, Sendable {
     /// no clock held.
     func givesBack(_ held: GPUControlOD8Want) -> Bool {
         want.isStock && (held.curve != nil || held.zeroRpmOff) && held.gfxMaxMHz == nil && held.gfxMinMHz == nil
+            && held.voltMV == nil
     }
 }

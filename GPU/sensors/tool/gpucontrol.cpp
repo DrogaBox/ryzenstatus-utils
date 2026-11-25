@@ -5,25 +5,33 @@
 //   gpucontrol od8                           what the kext read of OD8 (fan
 //                                            curve, clock ranges); anyone
 //   gpucontrol hold [fan C:%,C:%,C:%,C:%,C:%] [zerorpm off] [gfxmax MHz]
-//                   [gfxmin MHz]
+//                   [gfxmin MHz] [volt mV] [overclock]
 //                   -- <command>             holds that fan curve / zero RPM
 //                                            off / lower GFX max / raised GFX
-//                                            min (0.9.0) while the command
-//                                            runs, then stock (0.7.0)
+//                                            min (0.9.0) / lower GFX voltage
+//                                            (0.9.0) while the command runs,
+//                                            then stock (0.7.0); overclock
+//                                            (0.9.0) lets gfxmax go above
+//                                            stock, up to the card's maximum
 //   gpucontrol check [fan ...] [zerorpm off] [gfxmax MHz] [gfxmin MHz]
+//                    [volt mV] [overclock]
 //                                            says whether the kext would take
 //                                            it, and why not; sends nothing
 //   sudo gpucontrol arm                      opens writing until restart
 //   gpucontrol disarm                        closes it again (0.8.0), anyone;
 //                                            refused while a change is applied
-//   gpucontrol hold power <W> -- <command>   lowers the limit to W watts while
+//   gpucontrol hold power <W> [raise] -- <command>
+//                                            lowers the limit to W watts while
 //                                            the command runs, then puts the
-//                                            start-up limit back
+//                                            start-up limit back; with raise
+//                                            (0.9.0) W may be above the
+//                                            start-up limit, up to the card's
+//                                            ceiling (PowerRange CeilW)
 //
 // The kext only takes the card's own minimum (PowerRange, 0.8.0) up to the
-// limit the card started with, in 10 W steps, from one program at a time, and
-// only after `arm`. It refuses anything else; this command does not clamp or
-// retry a refused value.
+// limit the card started with (or, with raise, its ceiling), in 10 W steps,
+// from one program at a time, and only after `arm`. It refuses anything else;
+// this command does not clamp or retry a refused value.
 //
 // hold always releases: when the command ends, on Ctrl-C, SIGTERM (passed on
 // to the command) or SIGHUP, and if this command is killed the kext sees the
@@ -62,12 +70,12 @@ const char* kUsage =
     "       gpucontrol od8\n"
     "       sudo gpucontrol arm\n"
     "       gpucontrol disarm\n"
-    "       gpucontrol hold power <W> -- <command> [args...]\n"
+    "       gpucontrol hold power <W> [raise] -- <command> [args...]\n"
     "       gpucontrol hold [fan C:%,C:%,C:%,C:%,C:%] [zerorpm off] [gfxmax "
-    "MHz] [gfxmin MHz]"
+    "MHz] [gfxmin MHz] [volt mV] [overclock]"
     " -- <command> [args...]\n"
     "       gpucontrol check [fan C:%,...] [zerorpm off] [gfxmax MHz] [gfxmin "
-    "MHz]\n";
+    "MHz] [volt mV] [overclock]\n";
 
 volatile sig_atomic_t gSignal = 0;
 // A SIGTERM has its own flag: a later Ctrl-C or hangup overwrites gSignal, and
@@ -136,7 +144,7 @@ struct Channel {
 };
 
 const char* writeOffName(uint64_t w) {
-  if (w > static_cast<uint64_t>(WriteOff::ReadOnlyCard))
+  if (w > static_cast<uint64_t>(WriteOff::PowerWatchdog))
     return "unknown reason";
   return writeOffText(static_cast<WriteOff>(w));
 }
@@ -293,6 +301,7 @@ void releaseAndReport(Channel& ch, bool od8) {
 struct HoldReq {
   bool od8 = false;
   uint32_t watts = 0;
+  bool raise = false;  // 0.9.0: watts may be above the start-up limit
   Od8Want want{};
 };
 
@@ -328,12 +337,18 @@ bool parseMHz(const char* s, int32_t* out) {
   return true;
 }
 // The OD8 options: fan CURVE, zerorpm off, gfxmax MHz, gfxmin MHz (0.9.0),
-// in any order, each once. argv ends at the first "--" or at the end.
-// Returns how many words it took, 0 on a mistake.
+// volt mV and overclock (0.9.0, one word), in any order, each once. argv
+// ends at the first "--" or at the end. Returns how many words it took, 0 on
+// a mistake.
 int parseOd8(char** argv, int argc, Od8Want* w) {
   int i = 0;
-  bool fan = false, zero = false, gfx = false, low = false;
+  bool fan = false, zero = false, gfx = false, low = false, volt = false;
   while (i < argc && strcmp(argv[i], "--") != 0) {
+    if (strcmp(argv[i], "overclock") == 0 && !w->overclock) {
+      w->overclock = true;
+      i += 1;
+      continue;
+    }
     if (strcmp(argv[i], "fan") == 0 && i + 1 < argc && !fan) {
       if (!parseCurve(argv[i + 1], w)) {
         fprintf(stderr,
@@ -352,16 +367,20 @@ int parseOd8(char** argv, int argc, Od8Want* w) {
     } else if (strcmp(argv[i], "gfxmin") == 0 && i + 1 < argc && !low) {
       if (!parseMHz(argv[i + 1], &w->gfxMinMHz)) return 0;
       low = true;
+    } else if (strcmp(argv[i], "volt") == 0 && i + 1 < argc && !volt) {
+      if (!parseMHz(argv[i + 1], &w->voltMV)) return 0;  // same bounds
+      volt = true;
     } else {
       return 0;
     }
     i += 2;
   }
-  return (fan || zero || gfx || low) ? i : 0;
+  // overclock alone changes nothing: it only lets gfxmax go above stock.
+  return (fan || zero || gfx || low || volt) ? i : 0;
 }
 void describe(const HoldReq& q, char* out, size_t n) {
   if (!q.od8) {
-    snprintf(out, n, "limit %u W", q.watts);
+    snprintf(out, n, "limit %u W%s", q.watts, q.raise ? " (raise)" : "");
     return;
   }
   size_t used = 0;
@@ -378,30 +397,58 @@ void describe(const HoldReq& q, char* out, size_t n) {
     used += snprintf(out + used, n - used, "%sGFX max %d MHz", used ? "; " : "",
                      q.want.gfxMaxMHz);
   if (q.want.gfxMinMHz != 0 && used < n)
-    snprintf(out + used, n - used, "%sGFX min %d MHz", used ? "; " : "",
-             q.want.gfxMinMHz);
+    used += snprintf(out + used, n - used, "%sGFX min %d MHz", used ? "; " : "",
+                     q.want.gfxMinMHz);
+  if (q.want.voltMV != 0 && used < n)
+    used += snprintf(out + used, n - used, "%sGFX voltage %d mV",
+                     used ? "; " : "", q.want.voltMV);
+  if (q.want.overclock && used < n)
+    snprintf(out + used, n - used, "%soverclock on", used ? "; " : "");
 }
 // Sends the request once. *check: why an OD8 state was refused.
 Reply sendReq(Channel& ch, const HoldReq& q, uint64_t* check) {
   *check = 0;
-  if (!q.od8) return ch.call(kSelSet, q.watts, true);
+  if (!q.od8 && !q.raise) return ch.call(kSelSet, q.watts, true);
+  if (!q.od8) {
+    // The raise form (0.9.0): {version, watts, raise}.
+    uint64_t in[kSetWireCountRaise] = {kChannelVersion, q.watts, kSetWantRaise};
+    uint64_t out[1] = {0};
+    uint32_t outCount = 1;
+    kern_return_t kr = IOConnectCallScalarMethod(
+        ch.conn, kSelSet, in, kSetWireCountRaise, out, &outCount);
+    if (kr == kIOReturnBadArgument)
+      fprintf(stderr,
+              "gpucontrol: this GPUSensors takes no raised limit (0.9.0 or "
+              "newer does)\n");
+    if (kr != KERN_SUCCESS || outCount < 1) return Reply::BadArgs;
+    return static_cast<Reply>(out[0]);
+  }
   uint64_t in[kOd8WireCount] = {kChannelVersion};
   in[1] = (q.want.curve ? kOd8WantCurve : 0) |
-          (q.want.zeroRpmOff ? kOd8WantZeroRpmOff : 0);
+          (q.want.zeroRpmOff ? kOd8WantZeroRpmOff : 0) |
+          (q.want.overclock ? kOd8WantOverclock : 0);
   for (uint32_t k = 0; k < kOd8CurvePoints; k++) {
     in[2 + k] = q.want.curve ? static_cast<uint64_t>(q.want.temp[k]) : 0;
     in[7 + k] = q.want.curve ? static_cast<uint64_t>(q.want.speed[k]) : 0;
   }
   in[12] = static_cast<uint64_t>(q.want.gfxMaxMHz);
   in[13] = static_cast<uint64_t>(q.want.gfxMinMHz);
-  // The 0.7.0 form unless a GFX minimum is asked: a 0.7.x or 0.8.x kext
-  // takes only 13 scalars (and refuses 14 with kIOReturnBadArgument).
-  uint32_t count = q.want.gfxMinMHz != 0 ? kOd8WireCount : kOd8WireCountV070;
+  in[14] = static_cast<uint64_t>(q.want.voltMV);
+  // The shortest form that carries the request: a 0.7.x or 0.8.x kext takes
+  // only 13 scalars, a 0.9.x one 13 or 14 (both refuse more with
+  // kIOReturnBadArgument).
+  uint32_t count = q.want.voltMV != 0      ? kOd8WireCount
+                   : q.want.gfxMinMHz != 0 ? kOd8WireCountV090
+                                           : kOd8WireCountV070;
   uint64_t out[2] = {0, 0};
   uint32_t outCount = 2;
   kern_return_t kr =
       IOConnectCallScalarMethod(ch.conn, kSelSetOd8, in, count, out, &outCount);
   if (kr == kIOReturnBadArgument && count == kOd8WireCount)
+    fprintf(stderr,
+            "gpucontrol: this GPUSensors takes no GFX voltage (0.9.0 or "
+            "newer does)\n");
+  if (kr == kIOReturnBadArgument && count == kOd8WireCountV090)
     fprintf(stderr,
             "gpucontrol: this GPUSensors takes no GFX minimum (0.9.0 or "
             "newer does)\n");
@@ -618,18 +665,24 @@ void printRange() {
   if (state && CFGetTypeID(state) == CFStringGetTypeID())
     CFStringGetCString(static_cast<CFStringRef>(state), text, sizeof(text),
                        kCFStringEncodingUTF8);
-  bool haveFloor = false;
-  int64_t floorW = 0, maxW = 0;
+  bool haveFloor = false, haveCeil = false;
+  int64_t floorW = 0, maxW = 0, ceilW = 0;
   if (range && CFGetTypeID(range) == CFDictionaryGetTypeID()) {
     auto d = static_cast<CFDictionaryRef>(range);
     floorW = cfInt(d, "FloorW", &haveFloor);
     maxW = cfInt(d, "MaxW");
+    ceilW = cfInt(d, "CeilW", &haveCeil);
   }
   if (haveFloor)
     printf("  range       %lld-%lld W in 10 W steps (%s)\n", floorW, maxW,
            text);
   else
     printf("  range       %s\n", text);
+  if (haveFloor && haveCeil && ceilW > maxW)
+    printf(
+        "  raise       up to %lld W with hold power <W> raise (the card's "
+        "own power percent)\n",
+        ceilW);
   if (state) CFRelease(state);
   if (range) CFRelease(range);
 }
@@ -782,13 +835,17 @@ int main(int argc, char** argv) {
   if (argc == 2 && strcmp(argv[1], "disarm") == 0) return doDisarm();
   if (argc == 2 && strcmp(argv[1], "od8") == 0) return doOd8();
   if (argc >= 6 && strcmp(argv[1], "hold") == 0 &&
-      strcmp(argv[2], "power") == 0 && strcmp(argv[4], "--") == 0) {
+      strcmp(argv[2], "power") == 0 &&
+      (strcmp(argv[4], "--") == 0 ||
+       (argc >= 7 && strcmp(argv[4], "raise") == 0 &&
+        strcmp(argv[5], "--") == 0))) {
     HoldReq q;
     if (!parseWatts(argv[3], &q.watts)) {
       fprintf(stderr, "gpucontrol: %s is not a number of watts\n", argv[3]);
       return 64;
     }
-    return doHold(q, argv + 5);
+    q.raise = strcmp(argv[4], "raise") == 0;
+    return doHold(q, argv + (q.raise ? 6 : 5));
   }
   if (argc >= 5 && strcmp(argv[1], "hold") == 0) {
     HoldReq q;

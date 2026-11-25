@@ -72,9 +72,17 @@ extension GPUControlStatus {
             /// `Takes`: what `setOD8` takes, in held bits (kext 0.9.0); nil
             /// from an older kext, which takes no GFX minimum.
             var takes: GPUControlOD8Held? = nil
+            /// `VoltHeld`: the GFX voltage held now in mV, nil at stock
+            /// (kext 0.9.0).
+            var voltHeld: Int? = nil
 
             /// The kext takes a GFX minimum (0.9.0 publishes `Takes`).
             var takesGfxMin: Bool { takes?.contains(.gfxMin) == true }
+            /// The kext takes a GFX voltage (`Takes` 32, kext 0.9.0).
+            var takesVolt: Bool { takes?.contains(.volt) == true }
+            /// The kext takes the overclock flag for a GFX maximum above
+            /// stock (`Takes` 64, kext 0.9.0), and with it `set`'s raise form.
+            var takesGfxMaxUp: Bool { takes?.contains(.gfxMaxUp) == true }
         }
 
         /// `OD8State`: whether the kext read OD8 since boot.
@@ -139,6 +147,26 @@ extension GPUControlStatus {
                       setting.min <= setting.max else { return nil }
                 return (setting.min, setting.max, setting.stock)
             }
+
+            /// The card's own top for the GFX maximum (`GfxMaxMHz.Max`, the
+            /// 0x9f maximum of id 0): what the kext takes with the overclock
+            /// flag. Nil unless the stock maximum is known.
+            var gfxMaxTopMHz: Int? {
+                guard stockGfxMaxMHz != nil, let setting = settings["GfxMaxMHz"] else { return nil }
+                return setting.max
+            }
+
+            /// The GFX voltage entry (OD8 id 37, `GfxVoltOffset`, kext 0.9.0):
+            /// its range and stock value in mV. Nil unless the card offers it
+            /// (feature 0x20000), the driver allows it now (`NotAllowed`
+            /// without that bit) and the range holds the stock value: the
+            /// kext answers "no feature" otherwise.
+            var gfxVolt: (min: Int, max: Int, stock: Int)? {
+                guard let setting = settings["GfxVoltOffset"], setting.feature == GPUControlStatus.voltFeature,
+                      (notAllowed ?? 0) & GPUControlStatus.voltFeature == 0,
+                      setting.min <= setting.stock, setting.stock <= setting.max else { return nil }
+                return (setting.min, setting.max, setting.stock)
+            }
         }
 
         /// `Write`, as the kext wrote it.
@@ -180,6 +208,9 @@ extension GPUControlStatus {
                 powerRangeState: GPUControlStatus.text(properties["PowerRangeState"]))
         }
     }
+
+    /// The GFX voltage's feature bit (`kOd8VoltFeature`).
+    static let voltFeature: UInt32 = 0x20000
 
     /// A signed 32-bit value: the kext's OD8 numbers are `int32_t` published
     /// as 32-bit numbers, so -6 can arrive as -6 or as 4294967290. Nil for
@@ -275,7 +306,8 @@ extension GPUControlStatus.Writing.OD8State {
                     fanCurveHeld: GPUControlStatus.fanCurvePacked(dict["FanCurveHeld"]),
                     gfxMaxHeld: n("GfxMaxHeld").flatMap { $0 > 0 ? $0 : nil },
                     gfxMinHeld: n("GfxMinHeld").flatMap { $0 > 0 ? $0 : nil },
-                    takes: n("Takes").map { GPUControlOD8Held(rawValue: UInt64($0)) })
+                    takes: n("Takes").map { GPUControlOD8Held(rawValue: UInt64($0)) },
+                    voltHeld: n("VoltHeld").flatMap { $0 > 0 ? $0 : nil })
     }
 }
 
@@ -345,8 +377,13 @@ struct GPUControlPowerRange: Equatable, Sendable {
     var source: Source
     /// The lowest limit taken; nil while the kext does not know it.
     var floorW: Int?
-    /// The start-up limit, the highest taken; nil while the floor is not known.
+    /// The start-up limit, the highest taken without the raise flag; nil
+    /// while the floor is not known.
     var maxW: Int?
+    /// `CeilW` (kext 0.9.0): the highest limit `set`'s raise form takes,
+    /// equal to `maxW` when the card offers nothing higher. Nil from an
+    /// older kext and while the floor is not known.
+    var ceilW: Int? = nil
     var stepW: Int
     /// The card's OD8 power percent, once read.
     var percentMin: Int?
@@ -366,7 +403,10 @@ struct GPUControlPowerRange: Equatable, Sendable {
         let step = GPUControlStatus.integer(dict["StepW"]).flatMap { $0 > 0 ? $0 : nil } ?? GPUControlWire.powerStepW
         var usable = false
         if known, let floor, let max { usable = floor > 0 && floor <= max }
-        return Self(source: .kext, floorW: usable ? floor : nil, maxW: usable ? max : nil, stepW: step,
+        // A ceiling below the start-up value is not one the kext publishes.
+        let ceil = GPUControlStatus.integer(dict["CeilW"]).flatMap { value in max.map { value >= $0 } == true ? value : nil }
+        return Self(source: .kext, floorW: usable ? floor : nil, maxW: usable ? max : nil,
+                    ceilW: usable ? ceil : nil, stepW: step,
                     percentMin: signed(dict["PercentMin"]), percentMax: signed(dict["PercentMax"]))
     }
 

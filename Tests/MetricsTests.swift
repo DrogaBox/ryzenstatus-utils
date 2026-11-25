@@ -14477,6 +14477,7 @@ struct MetricsTests {
                 ("SudoersInstallTests", SudoersInstallTests.run),
                 ("GPUControlFanTests", GPUControlFanTests.run),
                 ("GPUControlClockTests", GPUControlClockTests.run),
+                ("GPUControlOverclockTests", GPUControlOverclockTests.run),
                 ("GPUControlA11yTests", GPUControlA11yTests.run),
                 ("GPUFolderTests", GPUFolderTests.run),
                 ("GPUInstallerDMGTests", GPUInstallerDMGTests.run),

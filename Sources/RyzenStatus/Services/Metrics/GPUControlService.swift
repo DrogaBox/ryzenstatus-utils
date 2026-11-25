@@ -66,6 +66,16 @@ final class GPUControlService: ObservableObject {
         }
     }
 
+    /// The "Allow overclocking" switch (GPUSensors 0.9.0; off by default).
+    /// Turning it off gives back every raise the app holds or asks for.
+    @Published var overclock: Bool {
+        didSet {
+            guard overclock != oldValue else { return }
+            defaults.set(overclock, forKey: DefaultsKey.gpuControlOverclock)
+            if !overclock { controller?.dropRaises() }
+        }
+    }
+
     private let defaults: UserDefaults
     private var controller: GPUControlController?
     private var fake: FakeGPUControlKext?
@@ -83,6 +93,7 @@ final class GPUControlService: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         remember = defaults.bool(forKey: DefaultsKey.gpuControlRemember)
+        overclock = defaults.bool(forKey: DefaultsKey.gpuControlOverclock)
     }
 
     var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control) }
@@ -128,7 +139,9 @@ final class GPUControlService: ObservableObject {
             let od8Ready = control?.writing?.od8Read == .read
             return GPUControlRememberPolicy.checkedAgain(
                 request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
-                gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready))
+                gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready),
+                volt: GPUControlVoltLogic.limits(writing: control?.writing, od8Ready: od8Ready),
+                overclock: GPUControlOverclockLogic.gfxLimits(writing: control?.writing, od8Ready: od8Ready))
         }
         controller.start()
         self.controller = controller
@@ -178,6 +191,18 @@ final class GPUControlService: ObservableObject {
     /// or nil for the stock one. The rest of a held OD8 state goes with it.
     func chooseGfxMin(_ mhz: Int?) {
         controller?.chooseGfxMin(mhz)
+    }
+
+    /// The overclock control (GPUSensors 0.9.0): a GFX maximum above stock,
+    /// sent with the overclock flag, or nil for the stock maximum.
+    func chooseGfxMaxRaised(_ mhz: Int?) {
+        controller?.chooseGfxMaxRaised(mhz)
+    }
+
+    /// The voltage control (GPUSensors 0.9.0): a lower GFX voltage in mV, or
+    /// nil for stock. The rest of a held OD8 state goes with it.
+    func chooseVolt(_ mv: Int?) {
+        controller?.chooseVolt(mv)
     }
 
     func backToStartUp() {

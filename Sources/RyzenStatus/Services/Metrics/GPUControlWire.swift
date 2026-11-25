@@ -11,7 +11,12 @@ import Foundation
 /// `disarm` selector, two replies, one `WriteOff` reason and the card's own
 /// power range (`PowerRange`, read from the properties). 0.9.0 keeps it too
 /// and adds the GFX minimum clock: a 14-scalar `setOD8`, one OD8 refusal,
-/// one held bit and one status flag. Nothing here talks to the kext.
+/// one held bit and one status flag; then the GFX voltage (a 15-scalar
+/// `setOD8`), the overclock flag for a GFX maximum above stock, the raise
+/// form of `set` (3 scalars, a limit above the start-up one up to
+/// `PowerRange.CeilW`), two replies, one more OD8 refusal, one `WriteOff`
+/// reason, two held bits and two status flags. Nothing here talks to the
+/// kext.
 enum GPUControlWire {
     /// The first scalar of every call. A kext that speaks another version
     /// answers `badVersion` and nothing else.
@@ -30,7 +35,8 @@ enum GPUControlWire {
         /// still needs `arm`. A 0.7.x kext does not know it: the call fails.
         case disarm = 6
 
-        /// Scalars in, the version included; for `setOD8` its 0.7.0 form.
+        /// Scalars in, the version included; for `setOD8` its 0.7.0 form, for
+        /// `set` the form that never raises.
         var inputCount: Int {
             switch self {
             case .set: return 2
@@ -40,10 +46,18 @@ enum GPUControlWire {
         }
 
         /// Whether the kext takes this many scalars: `setOD8` also takes the
-        /// 14 of kext 0.9.0, which carry a GFX minimum.
+        /// 14 and 15 of kext 0.9.0 (a GFX minimum, a GFX voltage), and `set`
+        /// its 3-scalar raise form (`od8WireCountOk`, `setWireCountOk`).
         func takes(inputCount count: Int) -> Bool {
-            self == .setOD8 ? count == GPUControlWire.setOD8InputCount
-                || count == GPUControlWire.setOD8InputCountGfxMin : count == inputCount
+            switch self {
+            case .setOD8:
+                return count == GPUControlWire.setOD8InputCount || count == GPUControlWire.setOD8InputCountGfxMin
+                    || count == GPUControlWire.setOD8InputCountVolt
+            case .set:
+                return count == inputCount || count == GPUControlWire.setInputCountRaise
+            default:
+                return count == inputCount
+            }
         }
 
         /// Scalars out, the reply first.
@@ -62,6 +76,12 @@ enum GPUControlWire {
     /// The same and `gfxMinMHz` (kext 0.9.0). Sent only with a GFX minimum:
     /// an older kext refuses this count.
     static let setOD8InputCountGfxMin = 14
+    /// The same and `voltMV` (kext 0.9.0, `kOd8WireCount`). Sent only with a
+    /// GFX voltage.
+    static let setOD8InputCountVolt = 15
+    /// `set`'s raise form, `{version, watts, flags}` (kext 0.9.0,
+    /// `kSetWireCountRaise`). Sent only for a limit above the start-up one.
+    static let setInputCountRaise = 3
     static let fanCurvePoints = 5
 
     /// `set` and `setOD8` wait this long for the kext's worker.
@@ -91,6 +111,14 @@ enum GPUControlWire {
     /// `setOD8`'s flags scalar.
     static let wantCurve: UInt64 = 1
     static let wantZeroRpmOff: UInt64 = 2
+    /// 0.9.0: the GFX maximum may be above stock, up to the card's own
+    /// maximum (`kOd8WantOverclock`). A permission, not a setting.
+    static let wantOverclock: UInt64 = 4
+    /// `set`'s flags scalar in the raise form (`kSetWantRaise`): the limit
+    /// may be above the start-up one, up to the card's ceiling.
+    static let setWantRaise: UInt64 = 1
+    /// The GFX voltage goes down from stock in these steps (`kOd8VoltStepMV`).
+    static let voltStepMV = 25
 }
 
 /// A call's first scalar out (`gpuctl::Reply`).
@@ -119,6 +147,12 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
     /// `set` (0.8.0): the card's minimum power limit is not known
     /// (`PowerRangeState` says why): only the start-up value is taken.
     case noFloor = 20
+    /// `set` with the raise flag (0.9.0): above the card's ceiling
+    /// (`PowerRange.CeilW`).
+    case aboveCeiling = 21
+    /// `set` with the raise flag (0.9.0): the watchdog has no fresh hotspot
+    /// readings, so nothing above the start-up limit.
+    case noReadings = 22
 
     /// The kext's own words (`replyText`), shown under the app's sentence.
     var kextText: String {
@@ -147,6 +181,8 @@ enum GPUControlReply: UInt64, CaseIterable, Sendable {
         case .stillApplied:
             return "refused: a change is still applied or being handled; go back to the start-up values first"
         case .noFloor: return "refused: the card's minimum power limit is not known (PowerRangeState)"
+        case .aboveCeiling: return "refused: above the card's own power ceiling (PowerRange CeilW)"
+        case .noReadings: return "refused: no fresh hotspot readings for the watchdog, so no raised limit"
         }
     }
 }
@@ -169,6 +205,9 @@ enum GPUControlOD8Check: UInt64, CaseIterable, Sendable {
     /// 0.9.0: the GFX minimum is outside the card's range for it, or above
     /// the GFX maximum of the same state.
     case gfxMinRange = 12
+    /// 0.9.0: the GFX voltage is above stock, below the card's minimum, or
+    /// not a 25 mV step from stock.
+    case voltRange = 13
 
     /// `od8CheckText`.
     var kextText: String {
@@ -183,9 +222,11 @@ enum GPUControlOD8Check: UInt64, CaseIterable, Sendable {
         case .curveFirst: return "the first fan point must be at 30 C or below"
         case .curveLast: return "the last fan point must be 100 % at or below the safe top temperature"
         case .curveCooling: return "the curve gives less air than stock somewhere"
-        case .gfxRange: return "GFX max must be between 1500 MHz and the stock maximum"
+        case .gfxRange:
+            return "GFX max must be between 1500 MHz and the stock maximum (with overclock: the card's own maximum)"
         case .noReadings: return "the fan watchdog has no fresh hotspot and fan readings"
         case .gfxMinRange: return "GFX min must be in the card's range and not above GFX max"
+        case .voltRange: return "GFX voltage must be at or below stock, in the card's range, in 25 mV steps from stock"
         }
     }
 }
@@ -210,6 +251,9 @@ enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
     /// 0.8.0: a card the kext reads but never writes (the RX 6900 XT, 73BF
     /// rev C0). Off from boot; the reads still run.
     case readOnlyCard = 15
+    /// 0.9.0: the watchdog put the start-up power limit back over a raised
+    /// one (95 C, or no readings).
+    case powerWatchdog = 16
 
     /// `writeOffText`.
     var kextText: String {
@@ -230,6 +274,7 @@ enum GPUControlWriteOff: UInt64, CaseIterable, Sendable {
         case .od8Failed: return "an OD8 change did not read back as sent"
         case .od8Watchdog: return "the fan watchdog put the stock fan back"
         case .readOnlyCard: return "this card can only be read (RX 6900 XT, 73BF rev C0): writing never opens on it"
+        case .powerWatchdog: return "the watchdog put the start-up power limit back over a raised one"
         }
     }
 }
@@ -258,6 +303,11 @@ struct GPUControlFlags: OptionSet, Hashable, Sendable {
     static let od8Ready = GPUControlFlags(rawValue: 256)
     /// `setOD8` takes a GFX minimum (kext 0.9.0).
     static let gfxMin = GPUControlFlags(rawValue: 512)
+    /// `setOD8` takes a GFX voltage (kext 0.9.0, 15 scalars).
+    static let volt = GPUControlFlags(rawValue: 1024)
+    /// `setOD8` takes the overclock flag and `set` its raise form (kext
+    /// 0.9.0).
+    static let raise = GPUControlFlags(rawValue: 2048)
 }
 
 /// What the confirmed OD8 state changes (`kOd8Held*`).
@@ -271,6 +321,10 @@ struct GPUControlOD8Held: OptionSet, Hashable, Sendable {
     static let unknown = GPUControlOD8Held(rawValue: 8)
     /// A raised GFX minimum (kext 0.9.0).
     static let gfxMin = GPUControlOD8Held(rawValue: 16)
+    /// A lowered GFX voltage (kext 0.9.0).
+    static let volt = GPUControlOD8Held(rawValue: 32)
+    /// A GFX maximum above stock, with the overclock flag (kext 0.9.0).
+    static let gfxMaxUp = GPUControlOD8Held(rawValue: 64)
 }
 
 /// The 13 scalars `status` returns, in the kext's order (`StatusField`).
@@ -362,45 +416,77 @@ struct GPUControlFanPoint: Equatable, Hashable, Sendable {
 }
 
 /// The whole OD8 state a program wants, never one setting: the kext takes
-/// the fan curve, zero RPM and the GFX clock pair together in every call,
-/// so a request that left one out would put that one back to stock.
+/// the fan curve, zero RPM, the GFX clock pair and the GFX voltage together
+/// in every call, so a request that left one out would put that one back to
+/// stock.
 struct GPUControlOD8Want: Equatable, Hashable, Sendable {
     /// Five points, or nil for the stock fan.
     var curve: [GPUControlFanPoint]?
     /// True keeps the fan turning; false is the stock behaviour.
     var zeroRpmOff = false
-    /// A lower GFX maximum clock in MHz, or nil for stock.
+    /// A lower GFX maximum clock in MHz (or, with `overclock`, a higher
+    /// one), or nil for stock.
     var gfxMaxMHz: Int?
     /// A raised GFX minimum clock in MHz, or nil for stock (kext 0.9.0).
     var gfxMinMHz: Int?
+    /// A lowered GFX voltage in mV, or nil for stock (kext 0.9.0): the cap
+    /// the whole GFX voltage curve is offset down to.
+    var voltMV: Int?
+    /// The overclock flag (kext 0.9.0): `gfxMaxMHz` may be above stock, up
+    /// to the card's own maximum. A permission, not a setting: alone it is
+    /// still the stock state.
+    var overclock = false
 
     static let stock = GPUControlOD8Want()
 
-    /// The stock state is the way back, never a change (`od8IsStock`).
-    var isStock: Bool { curve == nil && !zeroRpmOff && gfxMaxMHz == nil && gfxMinMHz == nil }
+    /// The stock state is the way back, never a change (`od8IsStock`). The
+    /// overclock flag alone changes nothing.
+    var isStock: Bool { curve == nil && !zeroRpmOff && gfxMaxMHz == nil && gfxMinMHz == nil && voltMV == nil }
 
-    /// What `status` reports while this state is held (`od8HeldFlags`).
+    /// What `status` reports while this state is held (`od8HeldFlags`),
+    /// without the bit for a GFX maximum above stock (64): only the stock
+    /// maximum of the moment tells that (`heldFlags(stockGfxMaxMHz:)`).
     var heldFlags: GPUControlOD8Held {
         var held: GPUControlOD8Held = []
         if curve != nil { held.insert(.curve) }
         if zeroRpmOff { held.insert(.zeroRpmOff) }
         if gfxMaxMHz != nil { held.insert(.gfxMax) }
         if gfxMinMHz != nil { held.insert(.gfxMin) }
+        if voltMV != nil { held.insert(.volt) }
         return held
     }
 
+    /// The same with the bit for a GFX maximum above stock, as the kext
+    /// sets it (`od8RaisesGfxMax`: the overclock flag and a maximum above
+    /// the stock one).
+    func heldFlags(stockGfxMaxMHz: Int?) -> GPUControlOD8Held {
+        var held = heldFlags
+        if overclock, let mhz = gfxMaxMHz, let stock = stockGfxMaxMHz, mhz > stock { held.insert(.gfxMaxUp) }
+        return held
+    }
+
+    /// `status` shows this state: the same held bits, the bit for a raised
+    /// maximum only with the overclock flag (the kext sets it for nothing
+    /// else).
+    func matches(held: GPUControlOD8Held) -> Bool {
+        held.subtracting(.gfxMaxUp) == heldFlags && (overclock || !held.contains(.gfxMaxUp))
+    }
+
     /// The scalars of `setOD8` for this state, as `gpucontrol` builds them:
-    /// 13, or 14 with a GFX minimum (kext 0.9.0); without a curve its ten
-    /// entries are 0, and a stock clock is 0. Nil when the state cannot be
-    /// written as scalars at all (a curve that is not five points, a
-    /// negative number, a clock of 0 that would read as "stock"). Every
-    /// other value goes out unchanged: the kext decides, and the app never
-    /// clamps.
+    /// the shortest form that carries it: 15 with a GFX voltage, else 14
+    /// with a GFX minimum (kext 0.9.0), else 13; without a curve its ten
+    /// entries are 0, and a stock clock or voltage is 0; the overclock flag
+    /// is 4 in the flags. Nil when the state cannot be written as scalars at
+    /// all (a curve that is not five points, a negative number, a clock or a
+    /// voltage of 0 that would read as "stock"). Every other value goes out
+    /// unchanged: the kext decides, and the app never clamps.
     func scalars() -> [UInt64]? {
-        let count = gfxMinMHz == nil ? GPUControlWire.setOD8InputCount : GPUControlWire.setOD8InputCountGfxMin
+        let count = voltMV != nil ? GPUControlWire.setOD8InputCountVolt
+            : gfxMinMHz != nil ? GPUControlWire.setOD8InputCountGfxMin : GPUControlWire.setOD8InputCount
         var input = [UInt64](repeating: 0, count: count)
         input[0] = GPUControlWire.channelVersion
         input[1] = (curve != nil ? GPUControlWire.wantCurve : 0) | (zeroRpmOff ? GPUControlWire.wantZeroRpmOff : 0)
+            | (overclock ? GPUControlWire.wantOverclock : 0)
         if let curve {
             guard curve.count == GPUControlWire.fanCurvePoints else { return nil }
             for (index, point) in curve.enumerated() {
@@ -417,12 +503,16 @@ struct GPUControlOD8Want: Equatable, Hashable, Sendable {
             guard gfxMinMHz > 0 else { return nil }
             input[13] = UInt64(gfxMinMHz)
         }
+        if let voltMV {
+            guard voltMV > 0 else { return nil }
+            input[14] = UInt64(voltMV)
+        }
         return input
     }
 }
 
 /// The sentences the app shows for the kext's numbers. The kext answers with
-/// 20 replies besides "ok", 11 OD8 refusals and 15 reasons that keep writing
+/// 22 replies besides "ok", 13 OD8 refusals and 16 reasons that keep writing
 /// off; the app translates one sentence per group and puts the kext's own
 /// English text under it. A number this app does not know has no group and is
 /// shown as the kext wrote it.
@@ -455,6 +545,9 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
     case offDriverStopped
     /// Off: the fan watchdog put the stock fan back.
     case offWatchdog
+    /// Off: the watchdog put the start-up power limit back over a raised
+    /// one (kext 0.9.0).
+    case offPowerWatchdog
     /// `disarm` refused: something is still applied (kext 0.8.0).
     case stillApplied
     /// The card's minimum power limit is not known yet (kext 0.8.0).
@@ -469,7 +562,8 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         switch reply {
         case .ok: return nil
         case .badVersion: return .otherVersion
-        case .badArgs, .belowFloor, .aboveBoot, .notAStep: return .notAllowed
+        case .badArgs, .belowFloor, .aboveBoot, .notAStep, .aboveCeiling: return .notAllowed
+        case .noReadings: return .settingMissing
         case .noFloor: return .noFloor
         case .stillApplied: return .stillApplied
         case .notPrivileged: return .needsAdministrator
@@ -490,7 +584,7 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .ok: return nil
         case .notRead, .drifted, .memoryMoved: return .notReady
         case .noFeature, .noReadings: return .settingMissing
-        case .curveRange, .curveOrder, .curveFirst, .curveLast, .curveCooling, .gfxRange, .gfxMinRange:
+        case .curveRange, .curveOrder, .curveFirst, .curveLast, .curveCooling, .gfxRange, .gfxMinRange, .voltRange:
             return .notAllowed
         }
     }
@@ -506,6 +600,7 @@ enum GPUControlTextGroup: CaseIterable, Sendable {
         case .teardown: return .offDriverStopped
         case .od8Watchdog: return .offWatchdog
         case .readOnlyCard: return .readOnlyCard
+        case .powerWatchdog: return .offPowerWatchdog
         }
     }
 }

@@ -103,6 +103,20 @@
 //     and turns writing off. The "too hot with the fan under 90 %" rule
 //     stays with the curve: the stock fan climbs slowly by design.
 //
+//  9. 0.9.0 also. Three more, all inside the card's own OverDrive range (the
+//     0x9f read, the same limits AMD's own tool offers) and never past it:
+//     a lower GFX voltage (OD8 id 37, VddGfxOffset; lower only, 25 mV steps,
+//     read back exactly, and carried in every call so a way back always puts
+//     the stock offset back), and two raises that a request must ask for
+//     with its own flag: a GFX maximum above stock up to the 0x9f maximum
+//     (setOd8 flag 4), and a power limit above the start-up one up to the
+//     0x9f power percent (at most +15 %; set's 3-scalar form). A raise is
+//     taken only while the watchdog has fresh readings and is held under it
+//     (95 C or no readings for 10 s: stock back, writing off). Memory clock
+//     and fast memory timings stay out: on macOS the driver's memory
+//     overclock start (IRI 0x110018) is not implemented by Apple's DAL glue,
+//     so the driver never applies them (control_logic.hpp, OD8 writes).
+//
 //  Only on an RX 6800 XT (73BF revision C1) or, read only, an RX 6900 XT (C0),
 //  and only when each function starts with the bytes in control_logic.hpp.
 //  Writing needs more: an RX 6800 XT, exactly one AMD GPU,
@@ -236,7 +250,11 @@ gpuctl::Od8Check gOd8LastCheck{gpuctl::Od8Check::Ok};
 uint64_t gOd8SentPower{0};  // 0xa1 calls during which a power limit went out
 bool gOd8OffAfterWayBack{false};  // the watchdog tripped: off once stock
 uint32_t gSlotKind{0};            // 0 power, 1 OD8: what the slot's request is
+bool gSlotRaise{false};  // 0.9.0: the power request carries the raise flag
 gpuctl::Od8Want gSlotWant{};
+// 0.9.0: the watchdog took a raised limit back; off once the start-up one is
+// confirmed (runRevert).
+bool gPowerOffAfterWayBack{false};
 uint32_t gSlotCheck{0};  // the worker's Od8Check for a refused setOd8
 
 const char* gStatus{"waiting for the driver's library"};
@@ -623,10 +641,13 @@ gpuctl::Access askAccess() {
     return gpuctl::Access::No;
   return gpuctl::classifyAccess(ret, outSize, out);
 }
-gpuctl::Sent sendLimit(uint32_t boot, uint32_t floor, uint32_t watts) {
+// ceil: the card's ceiling for a request with the raise flag (0.9.0), 0 for
+// everything else (then nothing above the start-up value is built).
+gpuctl::Sent sendLimit(uint32_t boot, uint32_t floor, uint32_t watts,
+                       uint32_t ceil = 0) {
   if (gReadOnlyCard) return gpuctl::Sent::NotSent;  // never on a read-only card
   gpuctl::SetLimitIn in;
-  if (!gpuctl::makeSetLimit(boot, floor, watts, &in))
+  if (!gpuctl::makeSetLimit(boot, floor, watts, &in, ceil))
     return gpuctl::Sent::Failed;
   __atomic_store_n(&gTagCount, 0, __ATOMIC_RELAXED);
   __atomic_store_n(&gTagW, 0, __ATOMIC_RELAXED);
@@ -766,6 +787,10 @@ void runRevert() {
         } else {
           if (!gOwner.isChanged()) gHeldW = 0;
           gReverts++;
+          // The watchdog took a raised limit back (0.9.0): off once the
+          // start-up limit is confirmed.
+          if (gPowerOffAfterWayBack)
+            turnOffLocked(gpuctl::WriteOff::PowerWatchdog);
         }
       }
     } else if (next == gpuctl::Next::GiveUp) {
@@ -795,6 +820,8 @@ void runRevert() {
   }
 }
 
+bool od8DogSees();
+
 void runSet() {
   uint64_t t = 0, client = 0;
   uint32_t watts = 0;
@@ -802,8 +829,10 @@ void runSet() {
   bool have = gSlot.take(&t, &client, &watts);
   bool off = have && gOwner.isOff();
   bool od8 = have && gSlotKind == 1;
+  bool raise = have && gSlotKind == 0 && gSlotRaise;
   gpuctl::Od8Want want = gSlotWant;
   gSlotKind = 0;
+  gSlotRaise = false;
   if (off) {  // off: answered at once, nothing is asked of the driver
     gSlot.finish(t, gpuctl::Reply::Off);
     gLastReply = gpuctl::Reply::Off;
@@ -816,9 +845,14 @@ void runSet() {
     return;
   }
   uint32_t boot = bootW();
-  uint32_t floor = rangeNow().floorW;  // fixed once known; 0 = not known
+  gpuctl::PowerRange range = rangeNow();
+  uint32_t floor = range.floorW;  // fixed once known; 0 = not known
+  // The ceiling only for a request that asked to raise (0.9.0).
+  uint32_t ceil = raise ? range.ceilW : 0;
+  // A raised limit is held under the watchdog: never one it cannot watch.
+  bool blind = raise && watts > boot && !od8DogSees();
   // 0x2a first: a GPU that is not up changes nothing, not even Owner.
-  gpuctl::Access access = askAccess();
+  gpuctl::Access access = blind ? gpuctl::Access::No : askAccess();
   IOLockLock(gStateLock);
   gpuctl::Reply reply = gpuctl::Reply::Ok;
   bool go = false;
@@ -826,11 +860,14 @@ void runSet() {
     reply = gpuctl::Reply::Cancelled;
   else if (sleepingLocked())
     reply = gpuctl::Reply::Sleeping;
+  else if (blind)
+    reply = gpuctl::Reply::NoReadings;
   else if (access != gpuctl::Access::Yes)
     reply = gpuctl::Reply::NotReady;
   else if (gOd8Dirty)
     reply = gpuctl::Reply::Busy;  // an OD8 change is held: never both
-  else if (gpuctl::routeSet(boot, floor, watts) != gpuctl::SetRoute::Change)
+  else if (gpuctl::routeSet(boot, floor, watts, ceil) !=
+           gpuctl::SetRoute::Change)
     reply = gpuctl::Reply::BadArgs;  // the client routed it already
   else {
     reply = gpuctl::replyFor(gOwner.change(client, nowMs()));
@@ -845,7 +882,7 @@ void runSet() {
   }
   IOLockUnlock(gStateLock);
 
-  gpuctl::Sent sent = sendLimit(boot, floor, watts);
+  gpuctl::Sent sent = sendLimit(boot, floor, watts, ceil);
 
   IOLockLock(gStateLock);
   if (sent == gpuctl::Sent::Failed) {
@@ -1106,11 +1143,14 @@ Od8Result od8Commit(bool* sentPower, uint32_t* retOut) {
   return Od8Result::Confirmed;
 }
 
-uint64_t od8HeldFlags(const gpuctl::Od8Want& w) {
+// raised: the GFX maximum is above stock (od8RaisesGfxMax, 0.9.0).
+uint64_t od8HeldFlags(const gpuctl::Od8Want& w, bool raised) {
   return (w.curve ? gpuctl::kOd8HeldCurve : 0) |
          (w.zeroRpmOff ? gpuctl::kOd8HeldZeroRpmOff : 0) |
          (w.gfxMaxMHz != 0 ? gpuctl::kOd8HeldGfx : 0) |
-         (w.gfxMinMHz != 0 ? gpuctl::kOd8HeldGfxMin : 0);
+         (w.gfxMinMHz != 0 ? gpuctl::kOd8HeldGfxMin : 0) |
+         (w.voltMV != 0 ? gpuctl::kOd8HeldVolt : 0) |
+         (raised ? gpuctl::kOd8HeldGfxUp : 0);
 }
 
 // The fixed way back once (design v3.1 B). Confirmed: stock again.
@@ -1183,9 +1223,10 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
   IOLockUnlock(gStateLock);
   gpuctl::Od8Check check = gpuctl::Od8Check::Ok;
   Od8Result p = Od8Result::Confirmed;
-  if (reply == gpuctl::Reply::Ok && (want.curve || want.gfxMinMHz != 0) &&
-      !od8DogSees()) {
-    // never a curve or a raised GFX minimum it cannot watch
+  if (reply == gpuctl::Reply::Ok &&
+      (want.curve || want.gfxMinMHz != 0 || want.overclock) && !od8DogSees()) {
+    // never a curve, a raised GFX minimum or (0.9.0) an overclock it cannot
+    // watch
     check = gpuctl::Od8Check::NoReadings;
     p = Od8Result::Refused;
     reply = gpuctl::Reply::Od8Refused;
@@ -1227,10 +1268,12 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
   Od8Result back = Od8Result::Confirmed;
   if (c == Od8Result::Failed) back = od8WayBackOnce();  // stock over it
 
+  // wOd8First / wOd8Fresh are the reads od8Prepare checked the state against.
+  bool raised = gpuctl::od8RaisesGfxMax(want, wOd8First, wOd8Fresh);
   IOLockLock(gStateLock);
   if (sentPower) gOd8SentPower++;
   if (c == Od8Result::Confirmed) {
-    gOd8Held = od8HeldFlags(want);
+    gOd8Held = od8HeldFlags(want, raised);
     gOd8HeldWant = want;
     gOd8Changes++;
     gOd8LastCheck = gpuctl::Od8Check::Ok;
@@ -1263,8 +1306,10 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
   IOLockUnlock(gStateLock);
   if (c == Od8Result::Confirmed)
     SYSLOG("gpuctl",
-           "OD8 change held: curve %d, zero RPM off %d, GFX max %d, GFX min %d",
-           want.curve, want.zeroRpmOff, want.gfxMaxMHz, want.gfxMinMHz);
+           "OD8 change held: curve %d, zero RPM off %d, GFX max %d%s, GFX "
+           "min %d, GFX voltage %d mV",
+           want.curve, want.zeroRpmOff, want.gfxMaxMHz,
+           raised ? " (above stock)" : "", want.gfxMinMHz, want.voltMV);
   if (c == Od8Result::Failed)
     SYSLOG("gpuctl",
            "OD8 change FAILED (ppCWDDE 0x%x, read-back %u), way back %s: "
@@ -1278,13 +1323,19 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
 // climbs slowly by design (75 % at 76 C, 2026-11-19), so only the 95 C limit
 // and the missing readings count then: the target temperature goes in as 0.
 uint64_t od8DogPass() {
+  uint32_t boot = bootW();
   IOLockLock(gStateLock);
-  bool live = gOd8Dirty && !gTornDown && !gOwner.isOff() && !gReadOnlyCard;
+  bool on = !gTornDown && !gOwner.isOff() && !gReadOnlyCard;
+  bool live = gOd8Dirty && on;
   bool curve = live && (gOd8Held &
                         (gpuctl::kOd8HeldCurve | gpuctl::kOd8HeldUnknown)) != 0;
-  bool low = live && (gOd8Held & gpuctl::kOd8HeldGfxMin) != 0;
+  // A raised GFX minimum, or (0.9.0) a GFX maximum above stock.
+  bool low = live &&
+             (gOd8Held & (gpuctl::kOd8HeldGfxMin | gpuctl::kOd8HeldGfxUp)) != 0;
+  // 0.9.0: a power limit above the start-up one (never with OD8 held).
+  bool power = on && !gOd8Dirty && gHeldW > boot && !gPowerOffAfterWayBack;
   IOLockUnlock(gStateLock);
-  if (!curve && !low) return 0;
+  if (!curve && !low && !power) return 0;
   uint64_t now = nowMs();
   if (now < wDogNextMs) return wDogNextMs;
   wDogNextMs = now + 1000;
@@ -1297,6 +1348,19 @@ uint64_t od8DogPass() {
   gpuctl::Od8Dog d =
       gpuctl::od8Watchdog(&wDog, have, ageNs / 1000000, hot, fan, target, now);
   if (d == gpuctl::Od8Dog::Fine) return wDogNextMs;
+  if (power) {
+    // The start-up limit goes back through runRevert (its 3 tries, and after
+    // a wake if a sleep comes first); writing goes off once it is confirmed.
+    SYSLOG("gpuctl", "watchdog: %s (hotspot %u C): start-up power limit",
+           d == gpuctl::Od8Dog::Trip ? "too hot" : "no readings", hot);
+    IOLockLock(gStateLock);
+    gPowerOffAfterWayBack = true;
+    uint64_t id = gOwner.release(gOwner.owner());
+    if (id != 0) gPendingRevert = id;
+    IOLockUnlock(gStateLock);
+    signalWorker();
+    return 0;
+  }
   SYSLOG("gpuctl", "OD8 watchdog: %s (hotspot %u C, fan %u %%): stock fan",
          d == gpuctl::Od8Dog::Trip ? "too hot" : "no readings", hot, fan);
   // One try here; if it is not confirmed, writing goes off and the
@@ -1791,6 +1855,8 @@ void GPUControl::status(uint64_t client, uint64_t out[gpuctl::kStatusCount]) {
   uint64_t f = 0;
   if (od8ok) f |= gpuctl::kFlagOd8Ready;
   f |= gpuctl::kFlagGfxMin;  // 0.9.0: setOd8 takes a GFX minimum
+  f |= gpuctl::kFlagVolt;    // 0.9.0: setOd8 takes a GFX voltage
+  f |= gpuctl::kFlagRaise;   // 0.9.0: the overclock flag and set's raise form
   if (gOwner.isArmed()) f |= gpuctl::kFlagArmed;
   if (gOwner.isOff()) f |= gpuctl::kFlagOff;
   if (sleepingLocked()) f |= gpuctl::kFlagSleeping;
@@ -1849,13 +1915,15 @@ gpuctl::Reply GPUControl::disarm(bool administrator) {
 }
 
 gpuctl::Reply GPUControl::set(uint64_t client, uint64_t rawWatts,
-                              const uint32_t* closedFlag) {
+                              uint64_t rawFlags, const uint32_t* closedFlag) {
   if (gStateLock == nullptr) return gpuctl::Reply::Off;
   checkRuntime();
   uint32_t boot = bootW();
   // Before gStateLock (it takes gOd8Lock); fixed once known.
-  uint32_t floor = rangeNow().floorW;
+  gpuctl::PowerRange range = rangeNow();
+  uint32_t floor = range.floorW;
   uint32_t watts = 0;
+  bool raise = false;
   IOLockLock(gStateLock);
   // The connection's own flag, set by closed() under this lock: a set that
   // got past externalMethod's check while the connection closed stops here.
@@ -1876,13 +1944,16 @@ gpuctl::Reply GPUControl::set(uint64_t client, uint64_t rawWatts,
     r = gpuctl::Reply::BadArgs;
   } else if (gReadOnlyCard) {
     r = gpuctl::Reply::Off;
-  } else if ((r = gpuctl::setWire(gOwner, rawWatts, &watts)) !=
-             gpuctl::Reply::Ok) {
-    // off or not armed, before the value; then a value that is no watts
+  } else if ((r = gpuctl::setWireRaise(gOwner, rawWatts, rawFlags, &watts,
+                                       &raise)) != gpuctl::Reply::Ok) {
+    // off or not armed, before the value; then a value that is no watts, or
+    // a flag the kext does not know
   } else {
-    switch (gpuctl::routeSet(boot, floor, watts)) {
+    // The card's ceiling only when the request asked to raise (0.9.0).
+    uint32_t ceil = raise ? range.ceilW : 0;
+    switch (gpuctl::routeSet(boot, floor, watts, ceil)) {
       case gpuctl::SetRoute::Refuse:
-        r = gpuctl::replyFor(gpuctl::checkPower(boot, floor, watts));
+        r = gpuctl::replyFor(gpuctl::checkPower(boot, floor, watts, ceil));
         break;
       case gpuctl::SetRoute::Release:
         // The start-up value is going back, never a change.
@@ -1902,10 +1973,12 @@ gpuctl::Reply GPUControl::set(uint64_t client, uint64_t rawWatts,
           r = gpuctl::Reply::Busy;  // an OD8 change is held: never both
         if (r == gpuctl::Reply::Ok) {
           ticket = gSlot.post(client, watts);
-          if (ticket == 0)
+          if (ticket == 0) {
             r = gpuctl::Reply::Busy;
-          else
+          } else {
             gSlotKind = 0;
+            gSlotRaise = raise;
+          }
         }
         break;
     }
@@ -2011,6 +2084,8 @@ const char* GPUControl::writeText() {
     text = "armed: going back to the start-up limit";
   // One program holds one thing at a time, the power limit or an OD8 change,
   // and Owner marks both as changed: say which one it is.
+  else if (gOwner.owner() != 0 && gOwner.isChanged() && gHeldW > bootW())
+    text = "armed: a program holds a raised limit (watchdog on)";
   else if (gOwner.owner() != 0 && gOwner.isChanged() && gHeldW != 0)
     text = "armed: a program holds a lower limit";
   else if (gOwner.owner() != 0 && gOwner.isChanged() && gOd8Dirty)
@@ -2291,7 +2366,7 @@ const char* GPUControl::od8WriteText() {
   else if ((gOd8Held & gpuctl::kOd8HeldUnknown) != 0)
     text = "armed: the last OD8 call was not taken; going back to stock";
   else if (gOd8Dirty && gOd8Held != 0)
-    text = "armed: a program holds a fan or clock change";
+    text = "armed: a program holds a fan, clock or voltage change";
   else if (gOd8Dirty)
     text = "armed: going back to stock";
   else

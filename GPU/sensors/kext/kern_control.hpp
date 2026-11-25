@@ -57,8 +57,10 @@ gpuctl::Reply disarm(bool administrator);
 // closedFlag is the connection's own "closed" word: closed() sets it under
 // the state lock and set() reads it there, so no set lands after a close.
 // watts is the wire's scalar as sent: Off and NotArmed come before it is
-// looked at (gpuctl::setWire).
-gpuctl::Reply set(uint64_t client, uint64_t watts, const uint32_t* closedFlag);
+// looked at (gpuctl::setWire). flags: the 3-scalar form's (0.9.0,
+// kSetWantRaise), 0 for the 2-scalar form.
+gpuctl::Reply set(uint64_t client, uint64_t watts, uint64_t flags,
+                  const uint32_t* closedFlag);
 gpuctl::Reply alive(uint64_t client);
 gpuctl::Reply release(uint64_t client);
 // The connection closed or its program died. True the first time only.
@@ -83,7 +85,8 @@ OSDictionary* od8Dictionary();
 // OD8 writes (0.7.0, design-od8-b.md v3.1), for the user client. setOd8 waits
 // like set(); *check is the Od8Check when the reply is Od8Refused. in is the
 // wire's scalars as sent, version first, count of them (kOd8WireCount or the
-// 0.7.0 form kOd8WireCountV070; gpuctl::od8Wire).
+// 0.9.0 and 0.7.0 forms kOd8WireCountV090 and kOd8WireCountV070;
+// gpuctl::od8Wire).
 gpuctl::Reply setOd8(uint64_t client, const uint64_t* in, uint32_t count,
                      const uint32_t* closedFlag, uint32_t* check);
 const char* od8WriteText();

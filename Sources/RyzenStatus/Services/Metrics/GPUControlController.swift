@@ -6,9 +6,11 @@ import Foundation
 
 /// What the app asks GPUSensors.kext to hold.
 enum GPUControlRequest: Equatable, Hashable, Sendable {
-    /// A lower power limit in watts.
+    /// A lower power limit in watts, or (kext 0.9.0) a higher one, sent with
+    /// `set`'s raise form.
     case power(watts: UInt32)
-    /// The whole OD8 state: fan curve, zero RPM and GFX maximum together.
+    /// The whole OD8 state: fan curve, zero RPM, the GFX clocks and the GFX
+    /// voltage together.
     case od8(GPUControlOD8Want)
     /// Back to the start-up values: `release`, never a change.
     case startUp
@@ -234,12 +236,54 @@ final class GPUControlEngine {
         snapshot.outcome = nil
     }
 
-    /// The whole OD8 state with the GFX maximum changed: the curve and zero
-    /// RPM that are held or asked for go with it.
+    /// The whole OD8 state with the GFX maximum lowered: the curve, zero RPM
+    /// and the rest that are held or asked for go with it. The stock maximum
+    /// (nil) gives back a lowered one only: a raised maximum belongs to the
+    /// overclock control, and stays.
     func chooseGfxMax(_ mhz: Int?) {
         var want = od8Basis
+        if mhz == nil, want.overclock { return chooseOD8(want) }
         want.gfxMaxMHz = mhz
+        want.overclock = false
         chooseOD8(want)
+    }
+
+    /// The whole OD8 state with a GFX maximum above stock (GPUSensors 0.9.0,
+    /// the overclock flag), or nil for the stock maximum: nil gives back a
+    /// raised maximum only, and keeps a lowered one.
+    func chooseGfxMaxRaised(_ mhz: Int?) {
+        var want = od8Basis
+        if let mhz {
+            want.gfxMaxMHz = mhz
+            want.overclock = true
+        } else if want.overclock {
+            want.gfxMaxMHz = nil
+            want.overclock = false
+        }
+        chooseOD8(want)
+    }
+
+    /// The whole OD8 state with the GFX voltage changed (GPUSensors 0.9.0):
+    /// a lower one in mV, or nil for stock. The rest goes with it.
+    func chooseVolt(_ mv: Int?) {
+        var want = od8Basis
+        want.voltMV = mv
+        chooseOD8(want)
+    }
+
+    /// The overclock switch went off: every raise the app holds or asks for
+    /// goes back to stock (a power limit above the start-up one, a GFX
+    /// maximum above stock). Nothing else changes.
+    func dropRaises() {
+        let current = wanted ?? snapshot.held
+        switch current {
+        case .power(let watts)?:
+            if let boot = snapshot.status?.bootW, boot != 0, UInt64(watts) > boot { choose(.startUp) }
+        case .od8(let want)? where want.overclock:
+            chooseGfxMaxRaised(nil)
+        default:
+            break
+        }
     }
 
     /// The whole OD8 state with the GFX minimum changed (GPUSensors 0.9.0):
@@ -492,7 +536,7 @@ final class GPUControlEngine {
     static func matches(_ request: GPUControlRequest, _ status: GPUControlChannelStatus) -> Bool {
         switch request {
         case .power(let watts): return status.heldW == UInt64(watts) && !status.holdsOD8
-        case .od8(let want): return status.od8Held == want.heldFlags && !status.holdsPower
+        case .od8(let want): return want.matches(held: status.od8Held) && !status.holdsPower
         case .startUp: return !status.holdsPower && !status.holdsOD8
         }
     }
@@ -603,7 +647,12 @@ final class GPUControlEngine {
         quietSince = nil
         let answer: GPUControlAnswer?
         switch request {
-        case .power(let watts): answer = channel.setPower(watts: watts)
+        case .power(let watts):
+            // Above the start-up limit only in the raise form, and only to a
+            // kext that takes it; an older one refuses the value either way.
+            let status = snapshot.status
+            let raise = status.map { $0.flags.contains(.raise) && $0.bootW != 0 && UInt64(watts) > $0.bootW } ?? false
+            answer = channel.setPower(watts: watts, raise: raise)
         case .od8(let want):
             guard want.scalars() != nil else {
                 refuse(request, GPUControlAnswer(replyCode: GPUControlReply.badArgs.rawValue))
@@ -849,6 +898,12 @@ final class GPUControlController: @unchecked Sendable {
     func chooseGfxMax(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMax(mhz); run() } }
 
     func chooseGfxMin(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMin(mhz); run() } }
+
+    func chooseGfxMaxRaised(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMaxRaised(mhz); run() } }
+
+    func chooseVolt(_ mv: Int?) { queue.async { [self] in engine.chooseVolt(mv); run() } }
+
+    func dropRaises() { queue.async { [self] in engine.dropRaises(); run() } }
 
     func chooseFan(curve: [GPUControlFanPoint]?, zeroRpmOff: Bool) {
         queue.async { [self] in engine.chooseFan(curve: curve, zeroRpmOff: zeroRpmOff); run() }

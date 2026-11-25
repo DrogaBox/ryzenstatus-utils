@@ -83,7 +83,8 @@ enum GPUControlFanTests {
             return
         }
         let lines = text.split(separator: "\n")
-        suite.expect(lines.count == 120, "120 cases (100 from 0.7.2, 20 for the GFX minimum of 0.9.0)")
+        suite.expect(lines.count == 149,
+                     "149 cases (100 from 0.7.2, 20 for the GFX minimum of 0.9.0, 29 for its GFX voltage and overclock)")
         var seen: [UInt64: Int] = [:]
         for (index, line) in lines.enumerated() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -104,7 +105,7 @@ enum GPUControlFanTests {
                          "case \(index + 1): never a code od8CheckWant does not give")
             seen[expected, default: 0] += 1
         }
-        suite.expect(seen == [0: 42, 2: 14, 3: 5, 4: 13, 5: 9, 6: 4, 7: 3, 8: 6, 9: 6, 10: 9, 12: 9],
+        suite.expect(seen == [0: 55, 2: 15, 3: 5, 4: 15, 5: 9, 6: 4, 7: 3, 8: 6, 9: 6, 10: 14, 12: 10, 13: 7],
                      "every code od8CheckWant gives is in the file: \(seen)")
         // The GFX drift boundary, by hand: +25 MHz is taken, +26 is not.
         var drift = base
@@ -120,10 +121,13 @@ enum GPUControlFanTests {
         let curve = (dict["curve"] as? Bool) == true
             ? zip(temps, speeds).map { GPUControlFanPoint(temperatureC: $0, speedPercent: $1) } : nil
         let gfx = (dict["gfx"] as? Int) ?? 0
-        // GPUSensors 0.9.0: written only when it is not stock.
+        // GPUSensors 0.9.0: written only when it is not stock (the voltage)
+        // or set (the overclock flag).
         let low = (dict["gfxMin"] as? Int) ?? 0
+        let mv = (dict["volt"] as? Int) ?? 0
         return GPUControlOD8Want(curve: curve, zeroRpmOff: (dict["zeroRpmOff"] as? Bool) == true,
-                                 gfxMaxMHz: gfx == 0 ? nil : gfx, gfxMinMHz: low == 0 ? nil : low)
+                                 gfxMaxMHz: gfx == 0 ? nil : gfx, gfxMinMHz: low == 0 ? nil : low,
+                                 voltMV: mv == 0 ? nil : mv, overclock: (dict["overclock"] as? Bool) == true)
     }
 
     private static func apply(_ mutation: [String: Any], to state: inout Rules.State) {
@@ -147,6 +151,8 @@ enum GPUControlFanTests {
         case "firstEntry": change(&state.first[id])
         case "bothEntry": change(&state.fresh[id]); change(&state.first[id])
         case "cur": state.current[id] = Int(value)
+        // GPUSensors 0.9.0: the current read's mask, as 32 bits.
+        case "notAllowed": state.notAllowed = UInt32(truncatingIfNeeded: value)
         default: break
         }
     }
