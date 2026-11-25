@@ -44,6 +44,10 @@ typedef struct {
   // VC-1 simple and main profile: the decode block carries the size in
   // macroblocks (Mesa, ac_vcn_dec.c vcn_build_decode_cmd).
   bool sizeInMacroblocks;
+  // MPEG-4: the decode block carries the size aligned to 16 (1920x1080 as
+  // 1920x1088), as Mesa's radeon_create_decoder aligns dec->base for this
+  // codec. The pictures keep the real size.
+  bool alignSizeTo16;
   const char* logSubsystem;  // os_log subsystem of the codec
 } VcnLegacyConfig;
 
@@ -98,6 +102,7 @@ typedef struct {
   uint32_t codecId, messageId;
   uint32_t width, height;
   bool sizeInMacroblocks;
+  bool alignSizeTo16;  // width/height_in_samples aligned to 16
   uint32_t pitch, texHeight, bytesPerElement;  // of the target texture
   uint32_t dpbSize, bitstreamSize;
   uint32_t streamHandle, feedbackNumber;

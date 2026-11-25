@@ -27,12 +27,19 @@ extern int vcnmpeg4_index_mode;
 // busy about 2 s with no picture, and three in a row hung the video engine
 // (2026-11-23). So B-VOPs are refused: a configuration whose VOL does not rule
 // them out fails create(), and a B-VOP fails decode (VCNMPEG4_ALLOW_B=1 lets
-// both through, for experiments only).
+// both through, for experiments only). A B-VOP whose TRD is 0 is refused even
+// then.
 extern int vcnmpeg4_block_mode;
-// The quantiser matrices: 0 = in the order the stream sends them (zigzag),
-// what MPEG-2 needs on this card; 1 = the transposed matrix in zigzag order,
-// what Mesa's VA-API path sends for MPEG-2. Only for experiments.
-extern int vcnmpeg4_matrix_mode;
+// The quantiser matrices always go in the order the stream sends them
+// (zigzag), the order MPEG-2 needs on this card (a transposed order, as Mesa's
+// VA-API path sends for MPEG-2, gave 23-27 dB there, 2026-11-23).
+//
+// What goes to the firmware as the bitstream of a VOP: 0 (the default) = the
+// access unit from its first start code, with the headers in front of the VOP
+// (visual object sequence, VOL, GOV) when there are any; 1 = from the VOP start
+// code on. Only for experiments; a unit that is a VOP alone is the same in
+// both.
+extern int vcnmpeg4_cut_mode;
 
 void vcnmpeg4_fill_block(VcnMpeg4Msg* m, const Mpeg4Parser* p,
                          const Mpeg4Picture* pic, uint32_t frameNumber,

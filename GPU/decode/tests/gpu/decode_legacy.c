@@ -18,7 +18,7 @@
 //   VCNMPEG2_ALLOW_FIELDS=1 send field pictures (refused by default)
 //   VCNMPEG4_INDEX=0|1   vcnmpeg4_index_mode
 //   VCNMPEG4_BLOCK=0..3  vcnmpeg4_block_mode  (Mesa's block / VOP part filled)
-//   VCNMPEG4_MATRIX=0|1  vcnmpeg4_matrix_mode (stream order / transposed)
+//   VCNMPEG4_CUT=0|1     vcnmpeg4_cut_mode (whole unit / from the VOP)
 //   VCNMPEG4_ALLOW_B=1   send B-VOPs too (each can hang the video engine)
 //   VCNLEGACY_DB_HEIGHT=0|1     vcnlegacy_db_height_mode (aligned / 0)
 //   VCNLEGACY_CLEAR_DPB=0|1     vcnlegacy_clear_dpb (zero the DPB first)
@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
   vcnmpeg2_field_mode = env_int("VCNMPEG2_FIELD", vcnmpeg2_field_mode);
   vcnmpeg4_index_mode = env_int("VCNMPEG4_INDEX", vcnmpeg4_index_mode);
   vcnmpeg4_block_mode = env_int("VCNMPEG4_BLOCK", vcnmpeg4_block_mode);
-  vcnmpeg4_matrix_mode = env_int("VCNMPEG4_MATRIX", vcnmpeg4_matrix_mode);
+  vcnmpeg4_cut_mode = env_int("VCNMPEG4_CUT", vcnmpeg4_cut_mode);
   vcnlegacy_debug = env_int("VCNLEGACY_DEBUG", vcnlegacy_debug);
   vcnlegacy_db_height_mode =
       env_int("VCNLEGACY_DB_HEIGHT", vcnlegacy_db_height_mode);

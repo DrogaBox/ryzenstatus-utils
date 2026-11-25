@@ -13,7 +13,7 @@
 #   4. a refused AV1 sample or VP9 header leaves the parser consistent (av1state, vp9state);
 #      the plug-ins' VideoToolbox side, with a stand-in decoder (plugintest);
 #      the MPEG-2, VC-1 and MPEG-4 parsers and the messages built from them (legacyparse);
-#      what the MPEG-2 and VC-1 codec layers send for a stream, on a stand-in session
+#      what the MPEG-2, VC-1 and MPEG-4 codec layers send for a stream, on a stand-in session
 #      (layertest);
 #      which decoder VideoToolbox gives an MPEG-4 stream, ours (on a stand-in session)
 #      next to Apple's AppleMP4V (legacypick);
@@ -128,7 +128,7 @@ legacyparse() { decode/build/tests/legacyparse > decode/build/tests/legacyparse.
 check "the MPEG-2, VC-1 and MPEG-4 parsers and messages, with made-up and damaged streams" legacyparse
 layers() { decode/build/tests/layertest > decode/build/tests/layertest.txt ||
   { cat decode/build/tests/layertest.txt; return 1; }; }
-check "the MPEG-2 and VC-1 codec layers send the firmware only what it decodes" layers
+check "the MPEG-2, VC-1 and MPEG-4 codec layers send the firmware only what it decodes" layers
 pick() { decode/build/tests/legacypick > decode/build/tests/legacypick.txt ||
   { cat decode/build/tests/legacypick.txt; return 1; }; }
 check "VideoToolbox gives our MPEG-4 plug-in the streams it takes, and Apple's the rest" pick

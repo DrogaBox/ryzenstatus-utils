@@ -6,27 +6,9 @@
 
 int vcnmpeg4_index_mode = 0;
 int vcnmpeg4_block_mode = 0;
-int vcnmpeg4_matrix_mode = 0;
+int vcnmpeg4_cut_mode = 0;
 
-// Zigzag scan of ISO 14496-2 figure 7-3.
-static const uint8_t kZigzag[64] = {
-    0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
-    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
-
-static void put_matrix(uint8_t* out, const uint8_t* stream) {
-  if (vcnmpeg4_matrix_mode != 1) {
-    memcpy(out, stream, 64);
-    return;
-  }
-  uint8_t block[64];
-  for (int i = 0; i < 64; i++) block[kZigzag[i]] = stream[i];
-  for (int i = 0; i < 64; i++) {
-    unsigned at = kZigzag[i];
-    out[i] = block[(at & 7) * 8 + (at >> 3)];
-  }
-}
+static uint16_t al16(uint32_t v) { return (uint16_t)((v + 15) & ~15u); }
 
 typedef struct {
   Mpeg4Parser parser;
@@ -60,8 +42,11 @@ void vcnmpeg4_fill_block(VcnMpeg4Msg* m, const Mpeg4Parser* p,
     m->forward_ref_pic_idx = ref_index(frameNumber, forwardRef);
     m->backward_ref_pic_idx = ref_index(frameNumber, backwardRef);
   }
-  m->video_object_layer_width = (uint16_t)p->width;
-  m->video_object_layer_height = (uint16_t)p->height;
+  // Aligned to whole macroblocks, as Mesa's radeon_create_decoder makes
+  // dec->base.width/height for this codec (mesa-25.0.0 radeon_vcn_dec.c,
+  // get_mpeg4_msg): 1920x1080 goes out as 1920x1088.
+  m->video_object_layer_width = al16(p->width);
+  m->video_object_layer_height = al16(p->height);
   m->vop_time_increment_resolution = p->time_increment_resolution;
   uint32_t fl = VCN_MPEG4_COMPLEXITY_ESTIMATION_DISABLE;
   if (p->interlaced) fl |= VCN_MPEG4_INTERLACED;
@@ -75,8 +60,8 @@ void vcnmpeg4_fill_block(VcnMpeg4Msg* m, const Mpeg4Parser* p,
     m->profile_and_level_indication = 0xF0;
     m->video_object_layer_verid = 5;
     fl |= VCN_MPEG4_LOAD_INTRA_QUANT_MAT | VCN_MPEG4_LOAD_NONINTRA_QUANT_MAT;
-    put_matrix(m->intra_quant_mat, p->intra_matrix);
-    put_matrix(m->nonintra_quant_mat, p->nonintra_matrix);
+    memcpy(m->intra_quant_mat, p->intra_matrix, 64);
+    memcpy(m->nonintra_quant_mat, p->nonintra_matrix, 64);
     // Mode 2: and the B-VOP's time distances, which direct mode scales its
     // motion vectors by. Mode 3: the whole VOP part.
     if (vcnmpeg4_block_mode == 2) {
@@ -103,8 +88,8 @@ void vcnmpeg4_fill_block(VcnMpeg4Msg* m, const Mpeg4Parser* p,
     if (p->obmc_disable) fl |= VCN_MPEG4_OBMC_DISABLE;
     if (p->quant_type) {
       fl |= VCN_MPEG4_LOAD_INTRA_QUANT_MAT | VCN_MPEG4_LOAD_NONINTRA_QUANT_MAT;
-      put_matrix(m->intra_quant_mat, p->intra_matrix);
-      put_matrix(m->nonintra_quant_mat, p->nonintra_matrix);
+      memcpy(m->intra_quant_mat, p->intra_matrix, 64);
+      memcpy(m->nonintra_quant_mat, p->nonintra_matrix, 64);
     }
     m->vop.vop_data_present = 1;
     m->vop.vop_coding_type = pic->coding_type;
@@ -156,6 +141,7 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
                            .messageId = VCN_MESSAGE_MPEG4_ASP_VLD,
                            .width = p->width,
                            .height = p->height,
+                           .alignSizeTo16 = true,
                            .logSubsystem = "com.droga.vtmpeg4vcn"};
     d->vcn = vcnlegacy_create(&cfg, d->err, sizeof(d->err));
     if (!d->vcn) {
@@ -170,6 +156,19 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
   if (pic->coding_type == MPEG4_B && pic->vop_coded && !b_vops_allowed()) {
     snprintf(d->err, sizeof(d->err),
              "MPEG-4 B-VOPs are not decoded on this GPU yet");
+    return -1;
+  }
+  // Direct mode scales the co-located motion vectors by TRB / TRD. A B-VOP
+  // whose reference VOPs carry the same time (or times the parser could not
+  // order) has TRD 0, and a firmware that divides by it unguarded may never
+  // finish: such a B-VOP never goes to the GPU, whatever VCNMPEG4_ALLOW_B
+  // says. It fails as a missing reference, on which FFmpeg goes on with the
+  // next frame.
+  if (pic->coding_type == MPEG4_B && pic->vop_coded && !pic->trd) {
+    snprintf(d->err, sizeof(d->err),
+             "MPEG-4 B-VOP with no time distance between its reference VOPs "
+             "(TRD 0); not sent to the GPU");
+    d->failure = VCNLEGACY_FAIL_REFERENCE;
     return -1;
   }
   int need = pic->coding_type == MPEG4_B   ? 2
@@ -208,7 +207,11 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
   }
   VcnMpeg4Msg msg;
   vcnmpeg4_fill_block(&msg, p, pic, n, fwd, back);
-  VcnLegacyBytes part = {pic->data, pic->size};
+  // Cut mode 1 (experiments only): from the VOP start code on, without the
+  // headers in front of it (visual object sequence, VOL, GOV). Mesa's VA path
+  // never sends a VOL in the bitstream either.
+  size_t skip = vcnmpeg4_cut_mode == 1 ? pic->vopOffset : 0;
+  VcnLegacyBytes part = {pic->data + skip, pic->size - skip};
   if (vcnlegacy_decode(d->vcn, &msg, sizeof(msg), &part, 1, target)) {
     snprintf(d->err, sizeof(d->err), "%s", vcnlegacy_last_error(d->vcn));
     d->failure = vcnlegacy_failure(d->vcn);
