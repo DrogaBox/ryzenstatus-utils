@@ -83,7 +83,7 @@ enum GPUControlFanTests {
             return
         }
         let lines = text.split(separator: "\n")
-        suite.expect(lines.count == 100, "100 cases")
+        suite.expect(lines.count == 120, "120 cases (100 from 0.7.2, 20 for the GFX minimum of 0.9.0)")
         var seen: [UInt64: Int] = [:]
         for (index, line) in lines.enumerated() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -104,7 +104,7 @@ enum GPUControlFanTests {
                          "case \(index + 1): never a code od8CheckWant does not give")
             seen[expected, default: 0] += 1
         }
-        suite.expect(seen == [0: 33, 2: 14, 3: 5, 4: 12, 5: 9, 6: 4, 7: 3, 8: 6, 9: 6, 10: 8],
+        suite.expect(seen == [0: 42, 2: 14, 3: 5, 4: 13, 5: 9, 6: 4, 7: 3, 8: 6, 9: 6, 10: 9, 12: 9],
                      "every code od8CheckWant gives is in the file: \(seen)")
         // The GFX drift boundary, by hand: +25 MHz is taken, +26 is not.
         var drift = base
@@ -120,8 +120,10 @@ enum GPUControlFanTests {
         let curve = (dict["curve"] as? Bool) == true
             ? zip(temps, speeds).map { GPUControlFanPoint(temperatureC: $0, speedPercent: $1) } : nil
         let gfx = (dict["gfx"] as? Int) ?? 0
+        // GPUSensors 0.9.0: written only when it is not stock.
+        let low = (dict["gfxMin"] as? Int) ?? 0
         return GPUControlOD8Want(curve: curve, zeroRpmOff: (dict["zeroRpmOff"] as? Bool) == true,
-                                 gfxMaxMHz: gfx == 0 ? nil : gfx)
+                                 gfxMaxMHz: gfx == 0 ? nil : gfx, gfxMinMHz: low == 0 ? nil : low)
     }
 
     private static func apply(_ mutation: [String: Any], to state: inout Rules.State) {
@@ -189,10 +191,11 @@ enum GPUControlFanTests {
         suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .notChecked, "no build name: not checked")
         // GPUSensors 0.8.0 and 0.8.1: the build date follows the package
         // build, so any date of a release build is the same checked source.
-        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05", "REL-081-2026-11-22"] {
+        for build in ["REL-080-2026-11-21", "REL-080-2026-11-20", "REL-080-2027-01-05", "REL-081-2026-11-22",
+                      "REL-090-2026-11-25"] {
             other.kextVersion = build
             suite.expect(GPUControlCurvePreview.make(want: tested, writing: other) == .accepted,
-                         "\(build): GPUSensors 0.8.0 or 0.8.1, checked")
+                         "\(build): GPUSensors 0.8.0, 0.8.1 or 0.9.0, checked")
         }
         for build in ["DBG-080-2026-11-21", "REL-082-2026-11-21", "REL-080", "REL-080-2026-11", "REL-080-2026-11-21x",
                       "REL-080-2026-11-21-1", "REL-08-2026-11-21", "REL-072-2026-11-20", "rel-080-2026-11-21", ""] {

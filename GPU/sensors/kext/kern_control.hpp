@@ -82,8 +82,9 @@ OSDictionary* od8Dictionary();
 
 // OD8 writes (0.7.0, design-od8-b.md v3.1), for the user client. setOd8 waits
 // like set(); *check is the Od8Check when the reply is Od8Refused. in is the
-// wire's kOd8WireCount scalars as sent, version first (gpuctl::od8Wire).
-gpuctl::Reply setOd8(uint64_t client, const uint64_t* in,
+// wire's scalars as sent, version first, count of them (kOd8WireCount or the
+// 0.7.0 form kOd8WireCountV070; gpuctl::od8Wire).
+gpuctl::Reply setOd8(uint64_t client, const uint64_t* in, uint32_t count,
                      const uint32_t* closedFlag, uint32_t* check);
 const char* od8WriteText();
 struct Od8WriteState {

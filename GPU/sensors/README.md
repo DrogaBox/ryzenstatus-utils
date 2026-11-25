@@ -97,7 +97,7 @@ The properties of `DrogaBoxGPUSensors` are:
 | `OD8State` | OD8, read only (0.6.0): `read`, `read, but an entry is not as expected`, `not available: ...`, `no data: ...`, `not read: ...`, `stopped: ...`, `waiting ...` or `off: ...` |
 | `OD8` | once tried: `Reads`, `Tries`, `LastResult`, `LastReadAgeS`, `Caps`, `NotAllowed`, `StockOdd`, `DefaultsMoved`, `CurrentMoved`, `FanCurveStock`, `FanCurve` (five [C, %] pairs) and `Settings` by name (`Feature`, `Min`, `Max`, `Stock`, `Current`); `OddEntry` and `OddEscape` when an answer was not as expected. See [OD8, read only](#od8-read-only-060) |
 | `OD8Write` | OD8 writes (0.7.0): `off until restart: see WriteState`, `read only: this card can only be read (see WriteState)` (0.8.0), `waiting for a clean OD8 read (OD8State)`, `closed: sudo gpucontrol arm opens it until restart`, or `armed: ...` (OD8 at stock, a program holds a fan or clock change, going back to stock, the last call was not taken) |
-| `OD8WriteState` | `Held` (1 fan curve, 2 zero RPM off, 4 GFX max, 8 not confirmed), `Changes` and `Reverts` (confirmed since boot), `LastCheck` and `LastCheckText` (why the last OD8 request was refused, 0 = none), `SentPower` (power limit sends seen during OD8 calls), `FanCurveHeld` (C × 1000 + %) and `GfxMaxHeld` while held. See [OD8 writes](#od8-writes-070) |
+| `OD8WriteState` | `Held` (1 fan curve, 2 zero RPM off, 4 GFX max, 8 not confirmed, 16 GFX min since 0.9.0), `Changes` and `Reverts` (confirmed since boot), `LastCheck` and `LastCheckText` (why the last OD8 request was refused, 0 = none), `SentPower` (power limit sends seen during OD8 calls), `FanCurveHeld` (C × 1000 + %), `GfxMaxHeld` and `GfxMinHeld` (0.9.0) while held, `Takes` (0.9.0: what `setOd8` takes, in `Held` bits, 23). See [OD8 writes](#od8-writes-070) |
 | `Samples` | readings copied since boot |
 | `SampleAgeMs` | how old the last reading is; with `Sensors`, `Units` and `PMLog` it is absent once the copy is older than 5 s (the driver stopped sampling: the card is asleep, powered down, or its driver is gone) |
 | `Sensors` | `{ name: value }`, in the units of `Units` |
@@ -242,7 +242,8 @@ itself is killed, the kext sees the connection close and goes back on its own.
 The channel is an IOUserClient on `DrogaBoxGPUSensors` (type 0), with scalars only:
 `status`, `arm`, `set(watts)`, `alive`, `release`, since 0.7.0 `setOd8`, and since 0.8.0
 `disarm` (selector 6, `{version}` in, one reply out, any caller) (version 2;
-0.5.0 and 0.6.0 were version 1; 0.8.0 only adds, so it stays 2). Every call passes the
+0.5.0 and 0.6.0 were version 1; 0.8.0 only adds, so it stays 2; so does 0.9.0, whose
+`setOd8` also takes a 14th scalar, the GFX minimum, and still takes the 13 of 0.7.0). Every call passes the
 version first; another version is refused. 0.8.0 adds two answers: 19 "a change is still
 applied or being handled" (disarm) and 20 "the card's minimum power limit is not known"
 (set, only below the start-up value: above it is "above the start-up limit" either way). `set` and
@@ -313,9 +314,17 @@ else:
   refused: it reaches 100 % only at 70 C.
 - Zero RPM off (the fan spins at idle).
 - A lower GFX maximum, from 1500 MHz up to the stock one.
+- A raised GFX minimum (0.9.0), inside the card's own range for it (500 to 2800 MHz on the
+  test card, stock 500) and never above the GFX maximum of the same state. It keeps the clock
+  up at idle, so it is the one setting that can make the card warmer: it is taken only while
+  the watchdog below has a fresh PMLog copy, and the watchdog's 95 C limit and its missing
+  readings rule hold it as they hold a curve (not the 75 C rule, which needs a curve: the
+  stock fan climbs slowly by design). `gpucontrol hold gfxmin 1500 -- <command>`.
 
-Memory clock, voltage and power percent are never written; the GFX minimum is only sent
-at its stock value. A request
+Memory clock, voltage and power percent are never written. The memory maximum cannot be
+lowered on this card anyway: its 0x9f minimum is the stock value (2000 MHz), and a memory
+clock change blanks the display. The fan minimum speed and target temperature are not
+offered by the driver while it offers the curve (feature 0; the driver skips them). A request
 that fails a check is refused with the reason, never clamped; `gpucontrol check` runs the
 same checks on the published OD8 and says what would be taken. OD8 and the power limit are
 never held together.
@@ -380,6 +389,7 @@ it. The kext does not route it.
 | Power limit and OD8 at once (0.7.1) | With 230 W held, an OD8 change was refused ("busy") and the 230 W stayed; with zero RPM off held, a power limit was refused. Curve + zero RPM off + GFX max 2300 in one call: all three read back, all three taken back |
 | OD8 across a sleep (0.7.1) | Zero RPM off, and then the curve, held while the Mac slept. The curve was still on the card right after the wake (fan 1950 RPM); 2 s later the kext had put stock back by itself (1329, then 1201 RPM), `gpucontrol hold` asked again and the curve came back; stock again at the end. The GPU log lines at sleep are the same as with nothing held |
 | A long load at stock (2026-11-19) | gpubench --sustain 300 at the 240 W start-up limit, stock fan, read only: 232.5 W, no compute errors; hotspot 85 C after 80 s, 88 C after 2 minutes, 90-91 C after 5 and still rising about 0.7 C a minute; edge 62 C at most; stock fan 96-100 %. 220 of the 300 s at 85 C or more, which is why the watchdog's limit went from 85 to 95 C in 0.7.2 |
+| The 0.9.0 decisions | `controltest`, 371 checks on the CPU (was 336): the GFX minimum against the card's real 0x9f (500 to 2800, never above the stock or the lowered maximum, the range from the entry, not a constant), the call it builds (the pair with the minimum, memory and fan entries untouched), the shapes never sent (minimum above the maximum, the pair split, a minimum of 0), its read-back (up to 25 MHz lower, never higher), the 14- and 13-scalar wire forms and every other count, the watchdog without a curve (only 95 C and no readings count). `curve-cases.jsonl` grew by 20 GFX minimum cases, the first 100 unchanged. Four mutations of the new rules each failed the tests. Not booted |
 | The 0.8.0 decisions | `controltest`, 336 checks on the CPU (was 277): the floor from the card's real 0x9f (225 W at 240 W, 248 W at 264 W, Linux's integer division), no floor and every change refused when OD8 is not read, odd or its power entry is not as expected; disarm taken from any caller, administrator or not, refused while a change, its way back or an unconfirmed state is there, and closed afterwards (arm still needs an administrator); a read-only card readable, never armable or changeable, its worker started; `set` and `setOd8` answering "off" / "not armed" before any value, absurd ones included; the GFX clock refused by the card's stock maximum, not the wire; the scan's decision for one read-only card and for a mixed machine; which reason `WriteOff` keeps; a request counted as being handled only while waiting or running. Each new check was broken on purpose once and failed. Not booted |
 | The floor's source on this Mac (0.8.0) | `PP_PhmSoftPowerPlayTable` in ioreg, read 2026-11-20: overdrive table revision 0x81, power limit cap set, `POWERPERCENTAGE` max 9 min 6, `SocketPowerLimitAc[0]` 240; the kext's 0x9f gives -6 to 9 and the start-up read 240 W. Linux's formula read in `sienna_cichlid_ppt.c` (master, and v6.6, which had no minimum) |
 | The stock GFX maximum across wakes | The driver's default moves between 2354 and 2359 MHz at a wake, in both directions (seen three times); the way back sends the lower of the first read and the fresh one |

@@ -2,6 +2,33 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.9.0 (host tests only, not booted)
+
+- A program may now hold a raised GFX minimum clock (OD8 id 1) with the rest of the OD8
+  state: `gpucontrol hold gfxmin 1500 -- <command>`, `gpucontrol check gfxmin 1500`. It is
+  taken only inside the card's own range for it (the 0x9f entry: 500 to 2800 MHz on the test
+  RX 6800 XT, stock 500) and never above the GFX maximum of the same state (the stock one, or
+  the lowered one held with it): the driver's own rule (`PhwComm_OD8_SetGfxClockLimits`: both
+  requested, each in its range, minimum at most the maximum). Anything else is refused with
+  the new reason `GfxMinRange` (12), never clamped. It goes back to stock in the same cases
+  as the rest of OD8 (release, close, 30 s of silence, a wake), through the same stock pair.
+- It is the first setting that can make the card warmer at idle, so it is taken only while
+  the fan watchdog has fresh readings, and the watchdog runs while it is held: 95 C, or no
+  readings for 10 s, puts stock back and turns writing off. The "too hot with the fan under
+  90 %" rule stays with a held curve, because the stock fan climbs slowly by design.
+- The read-back allows the minimum to read up to 25 MHz lower than sent, never higher, as
+  for the maximum. Whether the firmware ever rounds it is not known yet.
+- The channel stays version 2: `setOd8` takes 14 scalars (the 14th is the minimum) as well as
+  the 0.7.0 form of 13, `status` sets flag 512 (`kFlagGfxMin`), `OD8WriteState` gains `Held`
+  bit 16, `GfxMinHeld` and `Takes` (23: what `setOd8` takes). An older kext refuses the
+  14-scalar form with a wrong-count error; `gpucontrol` and the app send it only with a
+  minimum.
+- Not added, and why (read on this card and in the 25G342 driver, 2026-11-25): the memory
+  maximum (id 8), whose 0x9f minimum is its stock value (2000 MHz here), so there is nothing
+  lower to take, and whose change blanks the display; the fan minimum speed (id 10) and fan
+  target temperature (id 12), which the driver does not offer while the fan curve is offered
+  (feature 0, and `PhwComm_OD8_SetGenericSetting` skips a setting whose feature is 0).
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

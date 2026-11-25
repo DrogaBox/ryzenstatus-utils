@@ -681,8 +681,19 @@ inline const char* floorStateText(FloorState s) {
 // design-od8-b.md v3 + v3.1. Three settings, each only in the direction that
 // cannot make the card hotter: the fan curve (more air than stock, all ten
 // entries in every call), zero RPM (off only: the fan always spins), and the
-// GFX maximum clock (lower only, not below 1500 MHz). Everything else goes out
-// with requested 0.
+// GFX maximum clock (lower only, not below 1500 MHz). 0.9.0 adds a fourth, the
+// GFX minimum clock, the one setting that may go up: inside the card's own
+// 0x9f range for id 1 and never above the GFX maximum of the same call (the
+// driver's own rule, PhwComm_OD8_SetGfxClockLimits: both requested, each in
+// its range, FMIN <= FMAX). A raised minimum keeps the GPU clock up at idle,
+// so it is only taken while the watchdog has readings and the watchdog's
+// 95 C limit holds it (od8DogPass). Everything else goes out with requested
+// 0. Not taken, and why (2026-11-25, 25G342): the memory maximum (id 8; its
+// 0x9f minimum is the stock value, 2000 MHz on the test card, so nothing is
+// lower, and a memory clock change blanks the display), the fan minimum
+// speed and target temperature (ids 10 and 12; the driver does not offer
+// them while the fan curve is offered: feature 0, and SetGenericSetting
+// skips a setting whose feature is 0).
 //   0xa1 OD8_SetSettings: in = header {16, 0x00C000A1, 1 = not kept for
 //        replay, 0} + count 38 + 38 x {value, requested, reset, 0, 0} + 8
 //        unused (788); out = a 0xa0 answer (164), out[0] must equal 38.
@@ -726,9 +737,10 @@ struct Od8Want {
   int32_t temp[kOd8CurvePoints], speed[kOd8CurvePoints];
   bool zeroRpmOff;
   int32_t gfxMaxMHz;  // 0 = stock
+  int32_t gfxMinMHz;  // 0 = stock (0.9.0)
 };
 inline bool od8IsStock(const Od8Want& w) {
-  return !w.curve && !w.zeroRpmOff && w.gfxMaxMHz == 0;
+  return !w.curve && !w.zeroRpmOff && w.gfxMaxMHz == 0 && w.gfxMinMHz == 0;
 }
 
 enum class Od8Check : uint32_t {
@@ -743,7 +755,10 @@ enum class Od8Check : uint32_t {
   CurveLast,     // the last point not 100 %, or above the target - the gap
   CurveCooling,  // less air than the stock curve somewhere below the target
   GfxRange,      // GFX max above stock, below 1500, or below the GFX min
-  NoReadings,    // a curve, but the fan watchdog has no fresh readings
+  NoReadings,    // a curve or a raised GFX min, but the watchdog has no
+                 // fresh readings
+  GfxMinRange,   // 0.9.0: GFX min outside the card's range for it, or above
+                 // the GFX max of the same state
 };
 inline const char* od8CheckText(uint64_t c) {
   switch (static_cast<Od8Check>(c)) {
@@ -772,6 +787,8 @@ inline const char* od8CheckText(uint64_t c) {
       return "GFX max must be between 1500 MHz and the stock maximum";
     case Od8Check::NoReadings:
       return "the fan watchdog has no fresh hotspot and fan readings";
+    case Od8Check::GfxMinRange:
+      return "GFX min must be in the card's range and not above GFX max";
   }
   return "unknown";
 }
@@ -882,6 +899,13 @@ inline Od8Check od8CheckWant(const Od8Want& w, const Od8InitialOut& first,
         w.gfxMaxMHz < first.e[kOd8GfxMin].def)
       return Od8Check::GfxRange;
   }
+  if (w.gfxMinMHz != 0) {
+    // The range of id 1 is the same in both reads (od8SameLayout above).
+    const Od8Entry& m = fresh.e[kOd8GfxMin];
+    int32_t max = w.gfxMaxMHz != 0 ? w.gfxMaxMHz : od8StockGfxMax(first, fresh);
+    if (w.gfxMinMHz < m.min || w.gfxMinMHz > m.max || w.gfxMinMHz > max)
+      return Od8Check::GfxMinRange;
+  }
   return Od8Check::Ok;
 }
 
@@ -912,7 +936,8 @@ inline void od8Build(const Od8Want& w, const Od8InitialOut& first,
       Od8SetEntry{fresh.e[kOd8ZeroRpmStop].def, 1, 0, 0, 0};
   int32_t gfx = w.gfxMaxMHz != 0 ? w.gfxMaxMHz : od8StockGfxMax(first, fresh);
   out->e[kOd8GfxMax] = Od8SetEntry{gfx, 1, 0, 0, 0};
-  out->e[kOd8GfxMin] = Od8SetEntry{first.e[kOd8GfxMin].def, 1, 0, 0, 0};
+  int32_t low = w.gfxMinMHz != 0 ? w.gfxMinMHz : first.e[kOd8GfxMin].def;
+  out->e[kOd8GfxMin] = Od8SetEntry{low, 1, 0, 0, 0};
 }
 // Every call's shape, checked again where it is sent: count 38, all ten curve
 // entries requested 1 (never 1..9 of them), nothing outside the five
@@ -937,13 +962,22 @@ inline bool od8ShapeOk(const Od8SetIn& in) {
     if (i == kOd8GfxMax && e.requested == 1 && e.value < kOd8GfxFloorMHz)
       return false;
   }
+  // The GFX pair always together, the minimum never above the maximum
+  // (the driver refuses the pair otherwise, and then keeps neither).
+  const Od8SetEntry& hi = in.e[kOd8GfxMax];
+  const Od8SetEntry& lo = in.e[kOd8GfxMin];
+  if (hi.requested != lo.requested ||
+      (lo.requested == 1 && (lo.value <= 0 || lo.value > hi.value)))
+    return false;
   return curve == 10 && in.unused[0] == 0 && in.unused[1] == 0;
 }
 
 // The read-back after a call (design section 5): 0 = as sent, else the first
 // entry that is not + 1 (39 = the allowed mask moved). Requested entries
-// must read what was sent (GFX max may read lower, by up to the allowance:
-// the firmware rounds; never higher); the others what they read before.
+// must read what was sent (GFX max and, since 0.9.0, GFX min may read lower,
+// by up to the allowance: the firmware rounds; never higher); the others what
+// they read before. Whether the firmware ever rounds the minimum is not known
+// (not seen on a card yet): reading higher than sent fails as for the max.
 inline uint32_t od8VerifyAfter(const Od8SetIn& sent,
                                const Od8CurrentOut& before,
                                const Od8CurrentOut& after) {
@@ -951,7 +985,8 @@ inline uint32_t od8VerifyAfter(const Od8SetIn& sent,
     int32_t a = after.cur[i];
     if (sent.e[i].requested == 1) {
       int32_t v = sent.e[i].value;
-      bool ok = i == kOd8GfxMax ? (a <= v && a >= v - kOd8DriftMHz) : a == v;
+      bool gfx = i == kOd8GfxMax || i == kOd8GfxMin;
+      bool ok = gfx ? (a <= v && a >= v - kOd8DriftMHz) : a == v;
       if (!ok) return i + 1;
     } else if (a != before.cur[i]) {
       return i + 1;
@@ -1336,15 +1371,21 @@ class Owner {
 //   alive    in {version}            the owner's word, every 5 s
 //   release  in {version}            the owner goes back to the start-up limit
 //   setOd8   in {version, flags, t1..t5, s1..s5, gfxMaxMHz} (13 scalars)
+//            or, since 0.9.0, {..., gfxMaxMHz, gfxMinMHz} (14)
 //            out {reply, Od8Check}; flags 1 = a fan curve, 2 = zero RPM off;
-//            gfxMaxMHz 0 = stock (0.7.0). The stock state is the way back.
+//            gfxMaxMHz 0 = stock (0.7.0); gfxMinMHz 0 = stock, and the 13
+//            scalar form means a stock minimum. The stock state is the way
+//            back.
 //   disarm   in {version}            anyone (0.8.0): closes writing again;
 //            StillApplied while anything is applied; arm reopens it
 // Version 2 (0.7.0): setOd8, and status grew. A power change and an OD8
 // change are never held together: the other kind answers "busy". 0.8.0 adds
 // disarm and two replies at the end and keeps version 2: nothing an older
 // program sends means anything else now. An older kext answers disarm with
-// kIOReturnBadArgument (an unknown selector).
+// kIOReturnBadArgument (an unknown selector). 0.9.0 adds the 14-scalar
+// setOd8, one Od8Check (GfxMinRange), one held bit and one status flag
+// (kFlagGfxMin) and keeps version 2 the same way; an older kext answers the
+// 14-scalar setOd8 with kIOReturnBadArgument (a wrong count).
 // set and setOd8 answer Off (writing off, or a read-only card) and then
 // NotArmed (never armed since restart, or disarmed) before they look at any
 // value they carry (valueGate), so an absurd value still gets the real
@@ -1501,12 +1542,14 @@ enum : uint64_t {
   kFlagMine = 64,       // the program asking does
   kFlagReady = 128,     // the PowerPlay object and the start-up limit are known
   kFlagOd8Ready = 256,  // OD8 was read cleanly since boot: setOd8 can work
+  kFlagGfxMin = 512,    // 0.9.0: setOd8 takes a GFX minimum (14 scalars)
 };
 enum : uint64_t {
   kOd8HeldCurve = 1,
   kOd8HeldZeroRpmOff = 2,
   kOd8HeldGfx = 4,
   kOd8HeldUnknown = 8,  // not confirmed stock (a failed or unapplied call)
+  kOd8HeldGfxMin = 16,  // 0.9.0: a raised GFX minimum
 };
 // setOd8's flags scalar.
 enum : uint64_t {
@@ -1554,22 +1597,32 @@ inline Reply setWire(const Owner& o, uint64_t watts, uint32_t* out) {
   *out = static_cast<uint32_t>(watts);
   return Reply::Ok;
 }
-// setOd8's {version, flags, t1..t5, s1..s5, gfxMaxMHz}: the gate, then
-// anything that cannot be a fan point or a clock is malformed (BadArgs).
-// The clock's only wire bound is the 32-bit field (0.8.0, was 5000 MHz): its
-// first real check is od8CheckWant's, against the card's stock maximum.
-constexpr uint32_t kOd8WireCount = 13;
+// setOd8's {version, flags, t1..t5, s1..s5, gfxMaxMHz[, gfxMinMHz]}: the
+// gate, then anything that cannot be a fan point or a clock is malformed
+// (BadArgs). The clocks' only wire bound is the 32-bit field (0.8.0, was 5000
+// MHz): their first real check is od8CheckWant's, against the card's range.
+// count is how many scalars came: kOd8WireCount (0.9.0) or the 0.7.0 form,
+// kOd8WireCountV070, whose GFX minimum is the stock one.
+constexpr uint32_t kOd8WireCount = 14;
+constexpr uint32_t kOd8WireCountV070 = 13;
 constexpr uint64_t kOd8WireMaxPoint = 200;
-inline Reply od8Wire(const Owner& o, const uint64_t* in, Od8Want* want) {
+inline bool od8WireCountOk(uint32_t count) {
+  return count == kOd8WireCount || count == kOd8WireCountV070;
+}
+inline Reply od8Wire(const Owner& o, const uint64_t* in, uint32_t count,
+                     Od8Want* want) {
   Reply g = valueGate(o);
   if (g != Reply::Ok) return g;
   *want = Od8Want{};
+  if (!od8WireCountOk(count)) return Reply::BadArgs;
   uint64_t flags = in[1];
+  uint64_t low = count == kOd8WireCount ? in[13] : 0;
   bool ok = (flags & ~uint64_t(kOd8WantCurve | kOd8WantZeroRpmOff)) == 0 &&
-            in[12] <= 0x7fffffffULL;
+            in[12] <= 0x7fffffffULL && low <= 0x7fffffffULL;
   want->curve = (flags & kOd8WantCurve) != 0;
   want->zeroRpmOff = (flags & kOd8WantZeroRpmOff) != 0;
   want->gfxMaxMHz = static_cast<int32_t>(in[12] <= 0x7fffffffULL ? in[12] : 0);
+  want->gfxMinMHz = static_cast<int32_t>(low <= 0x7fffffffULL ? low : 0);
   for (uint32_t k = 0; k < kOd8CurvePoints; k++) {
     uint64_t t = in[2 + k], v = in[7 + k];
     if (t > kOd8WireMaxPoint || v > kOd8WireMaxPoint ||

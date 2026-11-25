@@ -424,6 +424,8 @@ enum GPUControlRemembered: Equatable, Sendable {
             var want = GPUControlOD8Want(zeroRpmOff: defaults.bool(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff))
             let mhz = defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
             if mhz > 0 { want.gfxMaxMHz = mhz }
+            let low = defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz)
+            if low > 0 { want.gfxMinMHz = low }
             if let flat = defaults.array(forKey: DefaultsKey.gpuControlRememberedCurve) as? [Int] {
                 guard flat.count == 2 * GPUControlWire.fanCurvePoints else { return .nothing }
                 want.curve = stride(from: 0, to: flat.count, by: 2).map {
@@ -441,6 +443,7 @@ enum GPUControlRemembered: Equatable, Sendable {
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedCurve)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz)
         switch self {
         case .nothing:
             defaults.set("none", forKey: DefaultsKey.gpuControlRememberedKind)
@@ -455,6 +458,7 @@ enum GPUControlRemembered: Equatable, Sendable {
             }
             defaults.set(want.zeroRpmOff, forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
             if let mhz = want.gfxMaxMHz { defaults.set(mhz, forKey: DefaultsKey.gpuControlRememberedGfxMHz) }
+            if let low = want.gfxMinMHz { defaults.set(low, forKey: DefaultsKey.gpuControlRememberedGfxMinMHz) }
         }
     }
 }
@@ -488,9 +492,13 @@ enum GPUControlRememberPolicy {
     /// RPM) goes out only to a build the curve rules were checked against, as
     /// with "Apply curve" (none given: no fan state). A clock alone does not
     /// depend on them, as on the page.
+    /// `gfxMin`: the GFX minimum the kext takes now (`GPUControlClockMinLogic
+    /// .limits`), nil when it takes none (a kext before 0.9.0): a remembered
+    /// minimum outside it is left out of the request, like the maximum.
     static func request(remembered: GPUControlRemembered, active: Bool,
                         facts: GPUControlFacts?, stopped: GPUControlStop?,
-                        stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil) -> GPUControlRequest? {
+                        stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil,
+                        gfxMin: GPUControlClockMinLogic.Limits? = nil) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         switch remembered {
@@ -510,6 +518,7 @@ enum GPUControlRememberPolicy {
             if let mhz = want.gfxMaxMHz, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) {
                 want.gfxMaxMHz = nil
             }
+            want = GPUControlClockMinLogic.checked(want, limits: gfxMin, stockGfxMaxMHz: stockGfxMaxMHz)
             return want.isStock ? nil : .od8(want)
         }
     }
@@ -575,13 +584,94 @@ enum GPUControlClockLogic {
     }
 }
 
+// MARK: - The GFX minimum clock (GPUSensors 0.9.0)
+
+/// The minimum clock control's numbers. The range is the card's stock
+/// minimum (OD8 id 1, 500 MHz on the test card; the way back, never a hold)
+/// up to the GFX maximum of the same state: the lowered maximum held or
+/// asked for, else the stock maximum, and never past the card's own top for
+/// id 1. The kext takes the same and nothing else (`GfxMinRange`). Only
+/// offered when the kext publishes `Takes` with the GFX minimum.
+enum GPUControlClockMinLogic {
+    static let step = 10
+    static let tickStepMHz = 100
+
+    /// The card's range for the minimum, and its stock value.
+    struct Limits: Equatable, Sendable {
+        var min: Int
+        var max: Int
+        var stock: Int
+    }
+
+    /// Nil when the kext takes no minimum (before 0.9.0), OD8 is not read
+    /// cleanly, or the table has no usable GFX pair.
+    static func limits(writing: GPUControlStatus.Writing?, od8Ready: Bool) -> Limits? {
+        guard od8Ready, writing?.od8State?.takesGfxMin == true, let m = writing?.od8?.gfxMin else { return nil }
+        return Limits(min: m.min, max: m.max, stock: m.stock)
+    }
+
+    /// The control's range: stock up to the GFX maximum in force. Nil when
+    /// there is nothing above stock to choose.
+    static func range(limits: Limits?, gfxMaxMHz: Int?) -> ClosedRange<Int>? {
+        guard let limits, let gfxMaxMHz else { return nil }
+        let top = Swift.min(gfxMaxMHz, limits.max)
+        let bottom = Swift.max(limits.stock, limits.min)
+        guard top > bottom else { return nil }
+        return bottom...top
+    }
+
+    /// A value the control may send as a hold: above stock, inside the range.
+    static func raises(_ mhz: Int, range: ClosedRange<Int>?) -> Bool {
+        guard let range else { return false }
+        return mhz > range.lowerBound && mhz <= range.upperBound
+    }
+
+    /// What choosing `mhz` asks for: nil (the stock minimum, the way back) at
+    /// or below the stock value, else the value.
+    static func request(_ mhz: Int, stockMHz: Int) -> Int? {
+        mhz <= stockMHz ? nil : mhz
+    }
+
+    /// A slider position as a value: 10 MHz steps from the stock minimum,
+    /// the top of the range when it is not on a step.
+    static func snapped(_ raw: Double, range: ClosedRange<Int>) -> Int {
+        let floor = range.lowerBound
+        let value = floor + Int(((raw - Double(floor)) / Double(step)).rounded()) * step
+        if value >= range.upperBound - step / 2 { return range.upperBound }
+        return Swift.max(floor, value)
+    }
+
+    /// The slider's tick marks, one every 100 MHz from the stock minimum.
+    static func tickCount(range: ClosedRange<Int>) -> Int {
+        (range.upperBound - range.lowerBound) / tickStepMHz + 1
+    }
+
+    /// A state with its minimum checked against what the kext takes now:
+    /// left out when the kext takes none, or when it is not above stock or
+    /// passes the GFX maximum of the state (the lowered one, else the stock
+    /// maximum of the moment). The rest of the state is kept.
+    static func checked(_ want: GPUControlOD8Want, limits: Limits?, stockGfxMaxMHz: Int?) -> GPUControlOD8Want {
+        guard let low = want.gfxMinMHz else { return want }
+        var want = want
+        let range = range(limits: limits, gfxMaxMHz: want.gfxMaxMHz ?? stockGfxMaxMHz)
+        if !raises(low, range: range) { want.gfxMinMHz = nil }
+        return want
+    }
+}
+
 extension GPUControlRememberPolicy {
     /// A remembered request again, right before it goes out: a clock that no
     /// longer lowers the stock maximum of the moment is left out (the rest
-    /// of the fan state still goes). Nil when nothing is left to ask.
-    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?) -> GPUControlRequest? {
-        guard case .od8(var want) = request, let mhz = want.gfxMaxMHz else { return request }
-        if !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }
+    /// of the fan state still goes), and so is a minimum the kext does not
+    /// take now (`gfxMin` nil: a kext before 0.9.0, or no clean OD8 read).
+    /// Nil when nothing is left to ask.
+    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?,
+                             gfxMin: GPUControlClockMinLogic.Limits? = nil) -> GPUControlRequest? {
+        guard case .od8(var want) = request else { return request }
+        if let mhz = want.gfxMaxMHz, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) {
+            want.gfxMaxMHz = nil
+        }
+        want = GPUControlClockMinLogic.checked(want, limits: gfxMin, stockGfxMaxMHz: stockGfxMaxMHz)
         return want.isStock ? nil : .od8(want)
     }
 }

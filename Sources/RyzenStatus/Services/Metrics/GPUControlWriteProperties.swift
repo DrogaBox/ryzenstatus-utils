@@ -67,6 +67,14 @@ extension GPUControlStatus {
             var fanCurveHeld: [GPUControlFanPoint]?
             /// The GFX maximum held now in MHz, nil at stock.
             var gfxMaxHeld: Int?
+            /// The GFX minimum held now in MHz, nil at stock (kext 0.9.0).
+            var gfxMinHeld: Int? = nil
+            /// `Takes`: what `setOD8` takes, in held bits (kext 0.9.0); nil
+            /// from an older kext, which takes no GFX minimum.
+            var takes: GPUControlOD8Held? = nil
+
+            /// The kext takes a GFX minimum (0.9.0 publishes `Takes`).
+            var takesGfxMin: Bool { takes?.contains(.gfxMin) == true }
         }
 
         /// `OD8State`: whether the kext read OD8 since boot.
@@ -119,6 +127,17 @@ extension GPUControlStatus {
             var stockGfxMaxMHz: Int? {
                 guard let setting = settings["GfxMaxMHz"], setting.feature == 0x1 else { return nil }
                 return Swift.min(setting.stock, setting.defaultNow)
+            }
+
+            /// The GFX minimum's range and stock value (OD8 id 1), from the
+            /// card's own table: the kext takes a minimum in `min...max`,
+            /// never above the GFX maximum of the same state. Nil unless both
+            /// GFX entries have feature 0x1 (the kext refuses every OD8 call
+            /// otherwise).
+            var gfxMin: (min: Int, max: Int, stock: Int)? {
+                guard stockGfxMaxMHz != nil, let setting = settings["GfxMinMHz"], setting.feature == 0x1,
+                      setting.min <= setting.max else { return nil }
+                return (setting.min, setting.max, setting.stock)
             }
         }
 
@@ -254,7 +273,9 @@ extension GPUControlStatus.Writing.OD8State {
                     changes: c("Changes"), reverts: c("Reverts"), lastCheck: n("LastCheck"),
                     lastCheckText: GPUControlStatus.text(dict["LastCheckText"]), sentPower: c("SentPower"),
                     fanCurveHeld: GPUControlStatus.fanCurvePacked(dict["FanCurveHeld"]),
-                    gfxMaxHeld: n("GfxMaxHeld").flatMap { $0 > 0 ? $0 : nil })
+                    gfxMaxHeld: n("GfxMaxHeld").flatMap { $0 > 0 ? $0 : nil },
+                    gfxMinHeld: n("GfxMinHeld").flatMap { $0 > 0 ? $0 : nil },
+                    takes: n("Takes").map { GPUControlOD8Held(rawValue: UInt64($0)) })
     }
 }
 

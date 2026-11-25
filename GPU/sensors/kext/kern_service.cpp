@@ -205,7 +205,7 @@ void DrogaBoxGPUSensors::publish() {
   setProperty("OD8Write", GPUControl::od8WriteText());
   GPUControl::Od8WriteState ow;
   if (GPUControl::od8WriteState(&ow)) {
-    auto d = OSDictionary::withCapacity(10);
+    auto d = OSDictionary::withCapacity(12);
     if (d) {
       putNumber(d, "Held", ow.held);
       putNumber(d, "Changes", ow.changes);
@@ -237,6 +237,14 @@ void DrogaBoxGPUSensors::publish() {
       }
       if (ow.want.gfxMaxMHz != 0)
         putNumber(d, "GfxMaxHeld", static_cast<uint64_t>(ow.want.gfxMaxMHz));
+      if (ow.want.gfxMinMHz != 0)
+        putNumber(d, "GfxMinHeld", static_cast<uint64_t>(ow.want.gfxMinMHz));
+      // 0.9.0: what setOd8 takes, in the Held bits (1 fan curve, 2 zero RPM
+      // off, 4 GFX max, 16 GFX min), so a program knows the GFX minimum is
+      // there before it sends one.
+      putNumber(d, "Takes",
+                gpuctl::kOd8HeldCurve | gpuctl::kOd8HeldZeroRpmOff |
+                    gpuctl::kOd8HeldGfx | gpuctl::kOd8HeldGfxMin);
       setProperty("OD8WriteState", d);
       d->release();
     }
@@ -352,9 +360,14 @@ IOReturn DrogaBoxGPUControlClient::externalMethod(
     IOExternalMethodDispatch*, OSObject*, void*) {
   if (args == nullptr || selector >= gpuctl::kSelCount)
     return kIOReturnBadArgument;
-  uint32_t wantIn = selector == gpuctl::kSelSet      ? 2
-                    : selector == gpuctl::kSelSetOd8 ? gpuctl::kOd8WireCount
-                                                     : 1;
+  uint32_t wantIn = 1;
+  if (selector == gpuctl::kSelSet) wantIn = 2;
+  // setOd8 takes two counts (0.9.0): its 0.7.0 form and the one with a
+  // GFX minimum. The count is passed on; od8Wire reads only what came.
+  if (selector == gpuctl::kSelSetOd8)
+    wantIn = gpuctl::od8WireCountOk(args->scalarInputCount)
+                 ? args->scalarInputCount
+                 : gpuctl::kOd8WireCount;
   uint32_t wantOut = selector == gpuctl::kSelStatus   ? gpuctl::kStatusCount
                      : selector == gpuctl::kSelSetOd8 ? 2
                                                       : 1;
@@ -414,10 +427,12 @@ IOReturn DrogaBoxGPUControlClient::externalMethod(
         r = GPUControl::release(id_);
         break;
       case gpuctl::kSelSetOd8: {
-        // {version, flags, t1..t5, s1..s5, gfxMaxMHz}, decoded by
-        // gpuctl::od8Wire after off and not armed; the kext checks the rest.
+        // {version, flags, t1..t5, s1..s5, gfxMaxMHz[, gfxMinMHz]}, decoded
+        // by gpuctl::od8Wire after off and not armed; the kext checks the
+        // rest.
         uint32_t check = 0;
-        r = GPUControl::setOd8(id_, args->scalarInput, &closed_, &check);
+        r = GPUControl::setOd8(id_, args->scalarInput, args->scalarInputCount,
+                               &closed_, &check);
         out[1] = check;
         break;
       }

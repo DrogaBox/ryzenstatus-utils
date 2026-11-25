@@ -43,8 +43,11 @@ enum GPUControlCurveRules {
     /// source. GPUSensors 0.8.0 ("080"): its `od8CheckWant` gives the same
     /// answers as 0.7.2's for every line of `curve-cases.jsonl`, and its
     /// source is GPU/sensors/kext in this repository. GPUSensors 0.8.1
-    /// ("081") leaves these checks as they were in 0.8.0.
-    static let checkedReleases: Set<String> = ["080", "081"]
+    /// ("081") leaves these checks as they were in 0.8.0. GPUSensors 0.9.0
+    /// ("090") adds the GFX minimum (`GfxMinRange`) and gives the same
+    /// answers as 0.8.0 for the first 100 lines of `curve-cases.jsonl`; the
+    /// lines after them are its GFX minimum cases.
+    static let checkedReleases: Set<String> = ["080", "081", "090"]
 
     /// The kext build is one this copy was checked against. Neither the
     /// editor nor a remembered fan state sends anything to another build.
@@ -223,6 +226,14 @@ enum GPUControlCurveRules {
             let top = Swift.min(s.first[gfxMax].def, s.fresh[gfxMax].def)
             if mhz < gfxFloorMHz || mhz > top || mhz < s.first[gfxMin].def { return Result(check: .gfxRange) }
         }
+        // GPUSensors 0.9.0: the minimum in the card's range for id 1 (the
+        // same in both reads, checked above) and never above the maximum of
+        // the same state.
+        if let low = want.gfxMinMHz {
+            let range = s.fresh[gfxMin]
+            let top = want.gfxMaxMHz ?? Swift.min(s.first[gfxMax].def, s.fresh[gfxMax].def)
+            if low < range.min || low > range.max || low > top { return Result(check: .gfxMinRange) }
+        }
         return .ok
     }
 }
@@ -297,6 +308,6 @@ struct GPUControlFanDraft: Equatable, Sendable {
     /// the start-up values): it is the stock fan over a held fan state, with
     /// no clock held.
     func givesBack(_ held: GPUControlOD8Want) -> Bool {
-        want.isStock && (held.curve != nil || held.zeroRpmOff) && held.gfxMaxMHz == nil
+        want.isStock && (held.curve != nil || held.zeroRpmOff) && held.gfxMaxMHz == nil && held.gfxMinMHz == nil
     }
 }

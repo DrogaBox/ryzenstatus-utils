@@ -1102,4 +1102,6 @@ extension DefaultsKey {
     static let gpuControlRememberedCurve = "gpuControlRememberedCurve"   // [C, %] x 5, flat
     static let gpuControlRememberedZeroRpmOff = "gpuControlRememberedZeroRpmOff"
     static let gpuControlRememberedGfxMHz = "gpuControlRememberedGfxMHz"
+    /// A raised GFX minimum (GPUSensors 0.9.0), in MHz.
+    static let gpuControlRememberedGfxMinMHz = "gpuControlRememberedGfxMinMHz"
 }

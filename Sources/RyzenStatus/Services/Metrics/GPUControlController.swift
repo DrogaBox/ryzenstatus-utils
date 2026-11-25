@@ -242,8 +242,17 @@ final class GPUControlEngine {
         chooseOD8(want)
     }
 
-    /// The whole OD8 state with the fan changed: the GFX maximum that is held
-    /// or asked for goes with it.
+    /// The whole OD8 state with the GFX minimum changed (GPUSensors 0.9.0):
+    /// the fan state and the GFX maximum that are held or asked for go with
+    /// it.
+    func chooseGfxMin(_ mhz: Int?) {
+        var want = od8Basis
+        want.gfxMinMHz = mhz
+        chooseOD8(want)
+    }
+
+    /// The whole OD8 state with the fan changed: the GFX clocks that are held
+    /// or asked for go with it.
     func chooseFan(curve: [GPUControlFanPoint]?, zeroRpmOff: Bool) {
         var want = od8Basis
         want.curve = curve
@@ -838,6 +847,8 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     func chooseGfxMax(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMax(mhz); run() } }
+
+    func chooseGfxMin(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMin(mhz); run() } }
 
     func chooseFan(curve: [GPUControlFanPoint]?, zeroRpmOff: Bool) {
         queue.async { [self] in engine.chooseFan(curve: curve, zeroRpmOff: zeroRpmOff); run() }

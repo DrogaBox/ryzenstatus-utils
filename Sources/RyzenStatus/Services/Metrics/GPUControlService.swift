@@ -125,7 +125,10 @@ final class GPUControlService: ObservableObject {
         let model = fake
         controller.setReaskFilter { request in
             let control = model.flatMap(GPUControlService.fakeControl) ?? GPUSensorsService.shared.currentControl()
-            return GPUControlRememberPolicy.checkedAgain(request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz)
+            let od8Ready = control?.writing?.od8Read == .read
+            return GPUControlRememberPolicy.checkedAgain(
+                request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
+                gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready))
         }
         controller.start()
         self.controller = controller
@@ -169,6 +172,12 @@ final class GPUControlService: ObservableObject {
     /// back first.
     func chooseGfxMax(_ mhz: Int?) {
         controller?.chooseGfxMax(mhz)
+    }
+
+    /// The minimum clock control (GPUSensors 0.9.0): a raised GFX minimum,
+    /// or nil for the stock one. The rest of a held OD8 state goes with it.
+    func chooseGfxMin(_ mhz: Int?) {
+        controller?.chooseGfxMin(mhz)
     }
 
     func backToStartUp() {
@@ -416,7 +425,9 @@ final class GPUControlService: ObservableObject {
         if let request = GPUControlRememberPolicy.request(remembered: remembered, active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped,
                                                           stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
-                                                          kextVersion: control?.writing?.kextVersion) {
+                                                          kextVersion: control?.writing?.kextVersion,
+                                                          gfxMin: GPUControlClockMinLogic.limits(
+                                                            writing: control?.writing, od8Ready: facts.od8Ready)) {
             controller.choose(request, origin: .remembered)
         }
     }

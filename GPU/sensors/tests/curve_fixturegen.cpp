@@ -24,6 +24,8 @@
 //  37 GfxVoltOffset 131072/881/1075/1075/1075
 //  All other ids (2-7, 13, 29-34): unpublished, zero.
 // Prints one JSON line per case: {"want":{...},"check":<Od8Check number>}.
+// A GFX minimum (0.9.0) is written as "gfxMin" only when it is not stock, so
+// the 100 lines from before it stay byte for byte as they were.
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -123,11 +125,12 @@ static void emit(const Od8Want& w, std::initializer_list<Mut> muts = {}) {
   Od8Check c = od8CheckWant(w, F, R, C);
   printf(
       "{\"want\":{\"curve\":%s,\"temp\":[%d,%d,%d,%d,%d],"
-      "\"speed\":[%d,%d,%d,%d,%d],\"zeroRpmOff\":%s,\"gfx\":%d},"
-      "\"muts\":[",
+      "\"speed\":[%d,%d,%d,%d,%d],\"zeroRpmOff\":%s,\"gfx\":%d",
       w.curve ? "true" : "false", w.temp[0], w.temp[1], w.temp[2], w.temp[3],
       w.temp[4], w.speed[0], w.speed[1], w.speed[2], w.speed[3], w.speed[4],
       w.zeroRpmOff ? "true" : "false", w.gfxMaxMHz);
+  if (w.gfxMinMHz != 0) printf(",\"gfxMin\":%d", w.gfxMinMHz);
+  printf("},\"muts\":[");
   bool sep = false;
   for (const Mut& m : muts) {
     if (sep) printf(",");
@@ -360,6 +363,49 @@ int main() {
        {{"bothEntry", kOd8GfxMax, "feature", 0}});
   emit(stock, {{"firstEntry", kOd8GfxMax, "feature",
                 0}});  // layout differs -> Drifted
+
+  // 0.9.0: the GFX minimum (id 1), in the card's range for it (500-2800)
+  // and never above the GFX maximum of the same state (2359 stock here).
+  for (int32_t g : {500, 501, 1500, 2000, 2358, 2359}) {
+    Od8Want w{};
+    w.gfxMinMHz = g;
+    emit(w);  // Ok
+  }
+  for (int32_t g : {499, 2360, 2800, 2801}) {
+    Od8Want w{};
+    w.gfxMinMHz = g;
+    emit(w);  // GfxMinRange
+  }
+  {
+    Od8Want w{};
+    w.gfxMaxMHz = 2000;
+    w.gfxMinMHz = 2000;
+    emit(w);  // Ok: equal to the max asked
+    w.gfxMinMHz = 2001;
+    emit(w);  // GfxMinRange: above the max asked
+    w.gfxMaxMHz = 1400;
+    w.gfxMinMHz = 1000;
+    emit(w);  // GfxRange: the max's own refusal comes first
+  }
+  {
+    Od8Want w = curve(new int32_t[5]{30, 40, 44, 46, 48},
+                      new int32_t[5]{20, 36, 52, 68, 100}, true, 2300);
+    w.gfxMinMHz = 1800;
+    emit(w);  // Ok: everything at once
+    w.gfxMinMHz = 2301;
+    emit(w);  // GfxMinRange
+  }
+  {
+    Od8Want w{};
+    w.gfxMinMHz = 2350;
+    emit(w, {{"freshEntry", kOd8GfxMax, "def", 2340}});  // GfxMinRange
+    w.gfxMinMHz = 2340;
+    emit(w, {{"freshEntry", kOd8GfxMax, "def", 2340}});  // Ok (lower read)
+    w.gfxMinMHz = 550;
+    emit(w, {{"bothEntry", kOd8GfxMin, "min", 600}});    // GfxMinRange
+    emit(w, {{"bothEntry", kOd8GfxMin, "max", 540}});    // GfxMinRange
+    emit(w, {{"bothEntry", kOd8GfxMin, "feature", 8}});  // NoFeature first
+  }
 
   return 0;
 }

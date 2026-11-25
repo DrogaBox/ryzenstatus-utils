@@ -32,6 +32,7 @@ struct GPUControlSettingsView: View {
                 },
                 applyFan: { service.applyFan($0) },
                 chooseGfxMax: { service.chooseGfxMax($0) },
+                chooseGfxMin: { service.chooseGfxMin($0) },
                 closeChanges: { service.closeChanges() }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
@@ -98,6 +99,7 @@ struct GPUControlPageActions {
     var setBootArm: (Bool) -> Void = { _ in }
     var applyFan: (GPUControlFanDraft) -> Void = { _ in }
     var chooseGfxMax: (Int?) -> Void = { _ in }
+    var chooseGfxMin: (Int?) -> Void = { _ in }
     var closeChanges: () -> Void = {}
 }
 
@@ -242,6 +244,11 @@ struct GPUControlPageContent: View {
             if showsPower {
                 GPUControlClockSection(input: input, strings: strings, clock: clock,
                                        lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMax)
+            }
+            // Right under the maximum: the two ends of the same clock range.
+            if showsPower, GPUControlClockMinSection.shows(input) {
+                GPUControlClockMinSection(input: input, strings: strings, clock: clock,
+                                          lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMin)
             }
             if case .closed? = input.state { armSection }
             if Self.showsBootArm(input) { bootArmSection }

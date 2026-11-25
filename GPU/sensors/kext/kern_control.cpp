@@ -92,6 +92,17 @@
 //     and 0xa0 (0x2a and 0x6e are sent only by runSet and runRevert, 0xa1 only
 //     by od8Commit, and none of them can run; each sender checks again).
 //
+//  8. 0.9.0. A raised GFX minimum clock (OD8 id 1) joins the OD8 state: in
+//     the card's own range for it and never above the GFX maximum of the
+//     same state (the driver's FMIN <= FMAX rule), through the same setOd8
+//     (14 scalars; the 13-scalar form still works and keeps the stock
+//     minimum), the same owner rules and the same way back (the stock pair).
+//     It is the first setting that can make the card warmer at idle, so it
+//     is taken only while the watchdog has fresh readings, and the watchdog
+//     runs while it is held: 95 C or no readings for 10 s puts stock back
+//     and turns writing off. The "too hot with the fan under 90 %" rule
+//     stays with the curve: the stock fan climbs slowly by design.
+//
 //  Only on an RX 6800 XT (73BF revision C1) or, read only, an RX 6900 XT (C0),
 //  and only when each function starts with the bytes in control_logic.hpp.
 //  Writing needs more: an RX 6800 XT, exactly one AMD GPU,
@@ -1098,7 +1109,8 @@ Od8Result od8Commit(bool* sentPower, uint32_t* retOut) {
 uint64_t od8HeldFlags(const gpuctl::Od8Want& w) {
   return (w.curve ? gpuctl::kOd8HeldCurve : 0) |
          (w.zeroRpmOff ? gpuctl::kOd8HeldZeroRpmOff : 0) |
-         (w.gfxMaxMHz != 0 ? gpuctl::kOd8HeldGfx : 0);
+         (w.gfxMaxMHz != 0 ? gpuctl::kOd8HeldGfx : 0) |
+         (w.gfxMinMHz != 0 ? gpuctl::kOd8HeldGfxMin : 0);
 }
 
 // The fixed way back once (design v3.1 B). Confirmed: stock again.
@@ -1171,8 +1183,10 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
   IOLockUnlock(gStateLock);
   gpuctl::Od8Check check = gpuctl::Od8Check::Ok;
   Od8Result p = Od8Result::Confirmed;
-  if (reply == gpuctl::Reply::Ok && want.curve && !od8DogSees()) {
-    check = gpuctl::Od8Check::NoReadings;  // never a curve it cannot watch
+  if (reply == gpuctl::Reply::Ok && (want.curve || want.gfxMinMHz != 0) &&
+      !od8DogSees()) {
+    // never a curve or a raised GFX minimum it cannot watch
+    check = gpuctl::Od8Check::NoReadings;
     p = Od8Result::Refused;
     reply = gpuctl::Reply::Od8Refused;
   }
@@ -1248,8 +1262,9 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
   IOLockWakeup(gStateLock, &gSlot, false);
   IOLockUnlock(gStateLock);
   if (c == Od8Result::Confirmed)
-    SYSLOG("gpuctl", "OD8 change held: curve %d, zero RPM off %d, GFX max %d",
-           want.curve, want.zeroRpmOff, want.gfxMaxMHz);
+    SYSLOG("gpuctl",
+           "OD8 change held: curve %d, zero RPM off %d, GFX max %d, GFX min %d",
+           want.curve, want.zeroRpmOff, want.gfxMaxMHz, want.gfxMinMHz);
   if (c == Od8Result::Failed)
     SYSLOG("gpuctl",
            "OD8 change FAILED (ppCWDDE 0x%x, read-back %u), way back %s: "
@@ -1258,14 +1273,18 @@ void runSetOd8(uint64_t t, uint64_t client, const gpuctl::Od8Want& want) {
            back == Od8Result::Confirmed ? "ok" : "NOT confirmed");
 }
 
-// The fan watchdog (design v3.1 F), once a second while a curve is held.
+// The fan watchdog (design v3.1 F), once a second while a curve or (0.9.0)
+// a raised GFX minimum is held. Without a curve the stock fan runs, which
+// climbs slowly by design (75 % at 76 C, 2026-11-19), so only the 95 C limit
+// and the missing readings count then: the target temperature goes in as 0.
 uint64_t od8DogPass() {
   IOLockLock(gStateLock);
-  bool curve =
-      (gOd8Held & (gpuctl::kOd8HeldCurve | gpuctl::kOd8HeldUnknown)) != 0 &&
-      gOd8Dirty && !gTornDown && !gOwner.isOff() && !gReadOnlyCard;
+  bool live = gOd8Dirty && !gTornDown && !gOwner.isOff() && !gReadOnlyCard;
+  bool curve = live && (gOd8Held &
+                        (gpuctl::kOd8HeldCurve | gpuctl::kOd8HeldUnknown)) != 0;
+  bool low = live && (gOd8Held & gpuctl::kOd8HeldGfxMin) != 0;
   IOLockUnlock(gStateLock);
-  if (!curve) return 0;
+  if (!curve && !low) return 0;
   uint64_t now = nowMs();
   if (now < wDogNextMs) return wDogNextMs;
   wDogNextMs = now + 1000;
@@ -1274,7 +1293,7 @@ uint64_t od8DogPass() {
   uint32_t hot = 0, fan = 0;
   have = have && gpusens::entry(wDogLog, 27, &hot) &&
          gpusens::entry(wDogLog, 15, &fan);
-  int32_t target = wOd8First.e[gpuctl::kOd8TargetTemp].def;
+  int32_t target = curve ? wOd8First.e[gpuctl::kOd8TargetTemp].def : 0;
   gpuctl::Od8Dog d =
       gpuctl::od8Watchdog(&wDog, have, ageNs / 1000000, hot, fan, target, now);
   if (d == gpuctl::Od8Dog::Fine) return wDogNextMs;
@@ -1771,6 +1790,7 @@ void GPUControl::status(uint64_t client, uint64_t out[gpuctl::kStatusCount]) {
   IOLockLock(gStateLock);
   uint64_t f = 0;
   if (od8ok) f |= gpuctl::kFlagOd8Ready;
+  f |= gpuctl::kFlagGfxMin;  // 0.9.0: setOd8 takes a GFX minimum
   if (gOwner.isArmed()) f |= gpuctl::kFlagArmed;
   if (gOwner.isOff()) f |= gpuctl::kFlagOff;
   if (sleepingLocked()) f |= gpuctl::kFlagSleeping;
@@ -2166,7 +2186,8 @@ OSDictionary* GPUControl::od8Dictionary() {
 // ---------------------------------------------------- OD8 writes, channel ----
 
 gpuctl::Reply GPUControl::setOd8(uint64_t client, const uint64_t* in,
-                                 const uint32_t* closedFlag, uint32_t* check) {
+                                 uint32_t count, const uint32_t* closedFlag,
+                                 uint32_t* check) {
   *check = 0;
   gpuctl::Od8Want want{};
   if (gStateLock == nullptr) return gpuctl::Reply::Off;
@@ -2190,7 +2211,8 @@ gpuctl::Reply GPUControl::setOd8(uint64_t client, const uint64_t* in,
     r = gpuctl::Reply::BadArgs;
   } else if (gReadOnlyCard) {
     r = gpuctl::Reply::Off;
-  } else if ((r = gpuctl::od8Wire(gOwner, in, &want)) != gpuctl::Reply::Ok) {
+  } else if ((r = gpuctl::od8Wire(gOwner, in, count, &want)) !=
+             gpuctl::Reply::Ok) {
     // off or not armed, before any value; then a malformed state
   } else if (gpuctl::od8IsStock(want)) {
     // The stock state is the way back, never a change.

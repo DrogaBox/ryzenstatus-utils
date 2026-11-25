@@ -129,6 +129,8 @@ struct GPUControlPageStrings {
     let zeroRpmItem: String
     /// %d = MHz.
     let gfxItemFormat: String
+    /// A raised GFX minimum in the held sentence (GPUSensors 0.9.0); %d = MHz.
+    let gfxMinItemFormat: String
     /// Between the held settings, and before the last one: "a, b and c".
     let listSeparator: String
     let listLastSeparator: String
@@ -165,6 +167,7 @@ struct GPUControlPageStrings {
         if want.curve != nil { items.append(fanCurveItem) }
         if want.zeroRpmOff { items.append(zeroRpmItem) }
         if let mhz = want.gfxMaxMHz { items.append(String(format: gfxItemFormat, mhz)) }
+        if let mhz = want.gfxMinMHz { items.append(String(format: gfxMinItemFormat, mhz)) }
         // An empty hold would leave "RyzenStatus is holding " with nothing
         // after it: say the short form instead.
         guard !items.isEmpty else { return heldOD8Short }
@@ -208,7 +211,7 @@ struct GPUControlPageStrings {
          kextVersion, channel, panelLabel, notAllowed, busy, notReady, off, closedGroup, needsAdministrator,
          otherVersion, unconfirmed, notOwner, settingMissing, offNotAsExpected, offChangeUnconfirmed,
          offDriverStopped, offWatchdog, gaveUpFormat, timedOut, notConfirmed, backToStartUp, alreadyAtStartUp,
-         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat,
+         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat, gfxMinItemFormat,
          listSeparator, listLastSeparator, unsafeSetID, heldOD8Short, closeChanges, closeChangesHelp, closedAgain,
          closeRefused, closeNotSupported, closedByOther, readOnlyTitle, readOnlyDetail, cardRangeFormat, floorUnknown,
          nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading]
@@ -325,6 +328,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "a fan curve",
         zeroRpmItem: "the fan always running",
         gfxItemFormat: "a GFX maximum of %d MHz",
+        gfxMinItemFormat: "a GFX minimum of %d MHz",
         listSeparator: ", ",
         listLastSeparator: " and ",
         heldOD8Short: "RyzenStatus is holding OD8 settings",
@@ -421,6 +425,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "una curva de ventilador",
         zeroRpmItem: "el ventilador siempre girando",
         gfxItemFormat: "un reloj máximo de GFX de %d MHz",
+        gfxMinItemFormat: "un reloj mínimo de GFX de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " y ",
         heldOD8Short: "RyzenStatus mantiene ajustes OD8",
@@ -517,6 +522,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "uma curva de ventoinha",
         zeroRpmItem: "a ventoinha sempre girando",
         gfxItemFormat: "um clock GFX máximo de %d MHz",
+        gfxMinItemFormat: "um clock GFX mínimo de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
         heldOD8Short: "O RyzenStatus está mantendo ajustes OD8",
@@ -613,6 +619,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "bir fan eğrisi",
         zeroRpmItem: "her zaman dönen fan",
         gfxItemFormat: "maks. GFX saat hızı %d MHz",
+        gfxMinItemFormat: "min. GFX saat hızı %d MHz",
         listSeparator: ", ",
         listLastSeparator: " ve ",
         heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor",
@@ -709,6 +716,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "кривую вентилятора",
         zeroRpmItem: "постоянное вращение вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
+        gfxMinItemFormat: "мин. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " и ",
         heldOD8Short: "RyzenStatus удерживает настройки OD8",
@@ -805,6 +813,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "krivku ventilátora",
         zeroRpmItem: "ventilátor stále v chode",
         gfxItemFormat: "maximálny takt GFX %d MHz",
+        gfxMinItemFormat: "minimálny takt GFX %d MHz",
         listSeparator: ", ",
         listLastSeparator: " a ",
         heldOD8Short: "RyzenStatus drží nastavenia OD8",
@@ -901,6 +910,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "eine Lüfterkurve",
         zeroRpmItem: "den Lüfter im Dauerbetrieb",
         gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
+        gfxMinItemFormat: "einen minimalen GFX-Takt von %d MHz",
         listSeparator: ", ",
         listLastSeparator: " und ",
         heldOD8Short: "RyzenStatus hält OD8-Einstellungen",
@@ -997,6 +1007,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "une courbe de ventilateur",
         zeroRpmItem: "le ventilateur toujours en marche",
         gfxItemFormat: "une fréquence GFX max de %d MHz",
+        gfxMinItemFormat: "une fréquence GFX min de %d MHz",
         listSeparator: ", ",
         listLastSeparator: " et ",
         heldOD8Short: "RyzenStatus maintient des réglages OD8",
@@ -1093,6 +1104,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "una curva della ventola",
         zeroRpmItem: "la ventola sempre in rotazione",
         gfxItemFormat: "un clock GFX massimo di %d MHz",
+        gfxMinItemFormat: "un clock GFX minimo di %d MHz",
         listSeparator: ", ",
         listLastSeparator: " e ",
         heldOD8Short: "RyzenStatus mantiene impostazioni OD8",
@@ -1189,6 +1201,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "ファンカーブ",
         zeroRpmItem: "常に回るファン",
         gfxItemFormat: "GFX 最大クロック %d MHz",
+        gfxMinItemFormat: "GFX 最小クロック %d MHz",
         listSeparator: "、",
         listLastSeparator: "と",
         heldOD8Short: "RyzenStatus が OD8 設定を保持中",
@@ -1285,6 +1298,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "팬 곡선",
         zeroRpmItem: "항상 도는 팬",
         gfxItemFormat: "최대 GFX 클록 %d MHz",
+        gfxMinItemFormat: "최소 GFX 클록 %d MHz",
         listSeparator: ", ",
         listLastSeparator: " 및 ",
         heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중",
@@ -1381,6 +1395,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "风扇曲线",
         zeroRpmItem: "始终转动的风扇",
         gfxItemFormat: "GFX 最大时钟频率 %d MHz",
+        gfxMinItemFormat: "GFX 最小时钟频率 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
         heldOD8Short: "RyzenStatus 正在维持 OD8 设置",
@@ -1477,6 +1492,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "風扇曲線",
         zeroRpmItem: "始終轉動的風扇",
         gfxItemFormat: "GFX 最大時脈 %d MHz",
+        gfxMinItemFormat: "GFX 最小時脈 %d MHz",
         listSeparator: "、",
         listLastSeparator: "和",
         heldOD8Short: "RyzenStatus 正在維持 OD8 設定",
@@ -1573,6 +1589,7 @@ extension GPUControlPageStrings {
         fanCurveItem: "криву вентилятора",
         zeroRpmItem: "постійне обертання вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
+        gfxMinItemFormat: "мін. частоту GFX %d МГц",
         listSeparator: ", ",
         listLastSeparator: " і ",
         heldOD8Short: "RyzenStatus утримує налаштування OD8",

@@ -37,7 +37,7 @@ Inc.
 | Loader kext (`decode/loader/`) | 1.1.0 | RX 6800 XT (Tahoe 26.7.3) with AMFIPass off; not run on Sequoia |
 | Encoding fix kext (`encode/kext/`) | 1.3.0 (code as 1.2.6) | RX 6800 XT (Tahoe 26.7.3); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3); Navi 23 static only |
 | Encoding fix service (`encode/tool/`) | 1.3.0 | RX 6800 XT (Tahoe 26.7.3; FaceTime encoder part in a test process); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3); cc decoder part run with an iPhone camera on RX 6900 XT (15.8.2) |
-| GPU sensors kext (`sensors/`) | 0.8.1 | 0.8.0 on RX 6800 XT (Tahoe 26.7.3) |
+| GPU sensors kext (`sensors/`) | 0.9.0 | 0.8.0 on RX 6800 XT (Tahoe 26.7.3) |
 
 Full test results, dates and what has never been tried are in [docs/status.md](docs/status.md).
 

@@ -5,10 +5,12 @@
 //   gpucontrol od8                           what the kext read of OD8 (fan
 //                                            curve, clock ranges); anyone
 //   gpucontrol hold [fan C:%,C:%,C:%,C:%,C:%] [zerorpm off] [gfxmax MHz]
+//                   [gfxmin MHz]
 //                   -- <command>             holds that fan curve / zero RPM
-//                                            off / lower GFX max while the
-//                                            command runs, then stock (0.7.0)
-//   gpucontrol check [fan ...] [zerorpm off] [gfxmax MHz]
+//                                            off / lower GFX max / raised GFX
+//                                            min (0.9.0) while the command
+//                                            runs, then stock (0.7.0)
+//   gpucontrol check [fan ...] [zerorpm off] [gfxmax MHz] [gfxmin MHz]
 //                                            says whether the kext would take
 //                                            it, and why not; sends nothing
 //   sudo gpucontrol arm                      opens writing until restart
@@ -62,9 +64,10 @@ const char* kUsage =
     "       gpucontrol disarm\n"
     "       gpucontrol hold power <W> -- <command> [args...]\n"
     "       gpucontrol hold [fan C:%,C:%,C:%,C:%,C:%] [zerorpm off] [gfxmax "
-    "MHz]"
+    "MHz] [gfxmin MHz]"
     " -- <command> [args...]\n"
-    "       gpucontrol check [fan C:%,...] [zerorpm off] [gfxmax MHz]\n";
+    "       gpucontrol check [fan C:%,...] [zerorpm off] [gfxmax MHz] [gfxmin "
+    "MHz]\n";
 
 volatile sig_atomic_t gSignal = 0;
 // A SIGTERM has its own flag: a later Ctrl-C or hangup overwrites gSignal, and
@@ -189,9 +192,11 @@ int doStatus() {
   else if (h == 0)
     printf("  OD8         at stock\n");
   else
-    printf("  OD8         %s%s%s%s\n", (h & kOd8HeldCurve) ? "fan curve " : "",
+    printf("  OD8         %s%s%s%s%s\n",
+           (h & kOd8HeldCurve) ? "fan curve " : "",
            (h & kOd8HeldZeroRpmOff) ? "zero RPM off " : "",
            (h & kOd8HeldGfx) ? "GFX max lowered " : "",
+           (h & kOd8HeldGfxMin) ? "GFX min raised " : "",
            (h & kOd8HeldUnknown) ? "not confirmed, going back to stock" : "");
   if (f & kFlagOwned) printf("  held by     a program\n");
   if (f & kFlagReverting) printf("  going back  to the start-up limit\n");
@@ -313,12 +318,21 @@ bool parseCurve(const char* text, Od8Want* w) {
   w->curve = true;
   return true;
 }
-// The OD8 options: fan CURVE, zerorpm off, gfxmax MHz, in any order, each
-// once. argv ends at the first "--" or at the end. Returns how many words
-// it took, 0 on a mistake.
+// A clock in MHz: any the 32-bit field carries; the kext checks it against
+// the card's range.
+bool parseMHz(const char* s, int32_t* out) {
+  char* end = nullptr;
+  long m = strtol(s, &end, 10);
+  if (end == s || *end != '\0' || m <= 0 || m > 0x7fffffffL) return false;
+  *out = static_cast<int32_t>(m);
+  return true;
+}
+// The OD8 options: fan CURVE, zerorpm off, gfxmax MHz, gfxmin MHz (0.9.0),
+// in any order, each once. argv ends at the first "--" or at the end.
+// Returns how many words it took, 0 on a mistake.
 int parseOd8(char** argv, int argc, Od8Want* w) {
   int i = 0;
-  bool fan = false, zero = false, gfx = false;
+  bool fan = false, zero = false, gfx = false, low = false;
   while (i < argc && strcmp(argv[i], "--") != 0) {
     if (strcmp(argv[i], "fan") == 0 && i + 1 < argc && !fan) {
       if (!parseCurve(argv[i + 1], w)) {
@@ -333,20 +347,17 @@ int parseOd8(char** argv, int argc, Od8Want* w) {
       w->zeroRpmOff = true;
       zero = true;
     } else if (strcmp(argv[i], "gfxmax") == 0 && i + 1 < argc && !gfx) {
-      char* end = nullptr;
-      long m = strtol(argv[i + 1], &end, 10);
-      // Any clock the 32-bit field carries; the kext checks it against the
-      // card's stock maximum.
-      if (end == argv[i + 1] || *end != '\0' || m <= 0 || m > 0x7fffffffL)
-        return 0;
-      w->gfxMaxMHz = static_cast<int32_t>(m);
+      if (!parseMHz(argv[i + 1], &w->gfxMaxMHz)) return 0;
       gfx = true;
+    } else if (strcmp(argv[i], "gfxmin") == 0 && i + 1 < argc && !low) {
+      if (!parseMHz(argv[i + 1], &w->gfxMinMHz)) return 0;
+      low = true;
     } else {
       return 0;
     }
     i += 2;
   }
-  return (fan || zero || gfx) ? i : 0;
+  return (fan || zero || gfx || low) ? i : 0;
 }
 void describe(const HoldReq& q, char* out, size_t n) {
   if (!q.od8) {
@@ -364,14 +375,17 @@ void describe(const HoldReq& q, char* out, size_t n) {
   if (q.want.zeroRpmOff && used < n)
     used += snprintf(out + used, n - used, "%szero RPM off", used ? "; " : "");
   if (q.want.gfxMaxMHz != 0 && used < n)
-    snprintf(out + used, n - used, "%sGFX max %d MHz", used ? "; " : "",
-             q.want.gfxMaxMHz);
+    used += snprintf(out + used, n - used, "%sGFX max %d MHz", used ? "; " : "",
+                     q.want.gfxMaxMHz);
+  if (q.want.gfxMinMHz != 0 && used < n)
+    snprintf(out + used, n - used, "%sGFX min %d MHz", used ? "; " : "",
+             q.want.gfxMinMHz);
 }
 // Sends the request once. *check: why an OD8 state was refused.
 Reply sendReq(Channel& ch, const HoldReq& q, uint64_t* check) {
   *check = 0;
   if (!q.od8) return ch.call(kSelSet, q.watts, true);
-  uint64_t in[13] = {kChannelVersion};
+  uint64_t in[kOd8WireCount] = {kChannelVersion};
   in[1] = (q.want.curve ? kOd8WantCurve : 0) |
           (q.want.zeroRpmOff ? kOd8WantZeroRpmOff : 0);
   for (uint32_t k = 0; k < kOd8CurvePoints; k++) {
@@ -379,10 +393,18 @@ Reply sendReq(Channel& ch, const HoldReq& q, uint64_t* check) {
     in[7 + k] = q.want.curve ? static_cast<uint64_t>(q.want.speed[k]) : 0;
   }
   in[12] = static_cast<uint64_t>(q.want.gfxMaxMHz);
+  in[13] = static_cast<uint64_t>(q.want.gfxMinMHz);
+  // The 0.7.0 form unless a GFX minimum is asked: a 0.7.x or 0.8.x kext
+  // takes only 13 scalars (and refuses 14 with kIOReturnBadArgument).
+  uint32_t count = q.want.gfxMinMHz != 0 ? kOd8WireCount : kOd8WireCountV070;
   uint64_t out[2] = {0, 0};
   uint32_t outCount = 2;
   kern_return_t kr =
-      IOConnectCallScalarMethod(ch.conn, kSelSetOd8, in, 13, out, &outCount);
+      IOConnectCallScalarMethod(ch.conn, kSelSetOd8, in, count, out, &outCount);
+  if (kr == kIOReturnBadArgument && count == kOd8WireCount)
+    fprintf(stderr,
+            "gpucontrol: this GPUSensors takes no GFX minimum (0.9.0 or "
+            "newer does)\n");
   if (kr != KERN_SUCCESS || outCount < 2) return Reply::BadArgs;
   *check = out[1];
   return static_cast<Reply>(out[0]);

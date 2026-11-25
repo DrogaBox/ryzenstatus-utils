@@ -77,6 +77,11 @@ final class FakeGPUControlKext: @unchecked Sendable {
     var od8Ready = true
     var stockGfxMaxMHz = 2_359
     var gfxMinMHz = 500
+    /// GPUSensors 0.9.0: `setOD8` also takes 14 scalars with a GFX minimum,
+    /// `OD8WriteState` has `Takes`, and `status` the `gfxMin` flag. The
+    /// minimum's range is `gfxMinMHz...gfxMinTopMHz` (500-2800 on the card).
+    var takesGfxMin = false
+    var gfxMinTopMHz = 2_800
     /// The stock fan target; the last curve point must be at 100 % at or
     /// below this minus 22 C.
     var fanTargetC = 70
@@ -230,10 +235,13 @@ final class FakeGPUControlKext: @unchecked Sendable {
 
     /// The fan watchdog trips (95 C, or 75 C with the fan under 90 % for 5 s,
     /// or 10 s without readings): stock fan once, writing off until restart.
+    /// Since 0.9.0 it also watches a raised GFX minimum (95 C or no
+    /// readings).
     func tripFanWatchdog() {
         locked {
-            let curve = (od8Held & (GPUControlOD8Held.curve.rawValue | GPUControlOD8Held.unknown.rawValue)) != 0
-            guard curve, od8Dirty, !tornDown, !owner.isOff else { return }
+            let watched = GPUControlOD8Held.curve.rawValue | GPUControlOD8Held.unknown.rawValue
+                | GPUControlOD8Held.gfxMin.rawValue
+            guard od8Held & watched != 0, od8Dirty, !tornDown, !owner.isOff else { return }
             if inSleep {
                 // After the wake Owner goes back, and writing goes off then.
                 od8OffAfterWayBack = true
@@ -279,6 +287,11 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 od8State["FanCurveHeld"] = curve.map { NSNumber(value: $0.temperatureC * 1_000 + $0.speedPercent) }
             }
             if od8Dirty, let gfx = od8HeldWant.gfxMaxMHz { od8State["GfxMaxHeld"] = NSNumber(value: gfx) }
+            if takesGfxMin {
+                if od8Dirty, let low = od8HeldWant.gfxMinMHz { od8State["GfxMinHeld"] = NSNumber(value: low) }
+                let takes: GPUControlOD8Held = [.curve, .zeroRpmOff, .gfxMax, .gfxMin]
+                od8State["Takes"] = NSNumber(value: takes.rawValue)
+            }
             var all: [String: Any] = [
                 "Write": writeText(),
                 "WriteState": [
@@ -358,7 +371,9 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 out[0] = GPUControlReply.badVersion.rawValue
                 return out
             }
-            guard input.count == selector.inputCount, outputCount >= selector.outputCount else { return nil }
+            let countTaken = selector == .setOD8 && takesGfxMin ? selector.takes(inputCount: input.count)
+                : input.count == selector.inputCount
+            guard countTaken, outputCount >= selector.outputCount else { return nil }
             if var forced = forcedReplies[selector], !forced.isEmpty {
                 let reply = forced.removeFirst()
                 forcedReplies[selector] = forced
@@ -399,11 +414,14 @@ final class FakeGPUControlKext: @unchecked Sendable {
         }
     }
 
-    /// The dispatcher's reading of `setOD8`'s 13 scalars; nil is malformed.
-    /// The clock's wire bound: 5000 MHz in 0.7.2, the 32-bit field in 0.8.0.
+    /// The dispatcher's reading of `setOD8`'s 13 scalars (or 14 with a GFX
+    /// minimum, 0.9.0); nil is malformed. The clock's wire bound: 5000 MHz in
+    /// 0.7.2, the 32-bit field in 0.8.0.
     private static func want(from input: [UInt64], maxGfxMHz: UInt64) -> GPUControlOD8Want? {
         let flags = input[1]
-        guard flags & ~(GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff) == 0, input[12] <= maxGfxMHz else {
+        let low = input.count > 13 ? input[13] : 0
+        guard flags & ~(GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff) == 0, input[12] <= maxGfxMHz,
+              low <= 0x7FFF_FFFF else {
             return nil
         }
         let curve = flags & GPUControlWire.wantCurve != 0
@@ -415,7 +433,8 @@ final class FakeGPUControlKext: @unchecked Sendable {
         }
         return GPUControlOD8Want(curve: curve ? points : nil,
                                  zeroRpmOff: flags & GPUControlWire.wantZeroRpmOff != 0,
-                                 gfxMaxMHz: input[12] == 0 ? nil : Int(input[12]))
+                                 gfxMaxMHz: input[12] == 0 ? nil : Int(input[12]),
+                                 gfxMinMHz: low == 0 ? nil : Int(low))
     }
 
     // MARK: The kext's calls
@@ -597,6 +616,9 @@ final class FakeGPUControlKext: @unchecked Sendable {
         if let gfx = want.gfxMaxMHz, gfx < GPUControlWire.gfxFloorMHz || gfx > stockGfxMaxMHz || gfx < gfxMinMHz {
             return .gfxRange
         }
+        if let low = want.gfxMinMHz, low < gfxMinMHz || low > gfxMinTopMHz || low > (want.gfxMaxMHz ?? stockGfxMaxMHz) {
+            return .gfxMinRange
+        }
         return .ok
     }
 
@@ -618,6 +640,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
     private func statusScalars(client: UInt64) -> [UInt64] {
         var flags: GPUControlFlags = []
         if od8Ready { flags.insert(.od8Ready) }
+        if takesGfxMin { flags.insert(.gfxMin) }
         if owner.isArmed { flags.insert(.armed) }
         if owner.isOff || owner.isReadOnly { flags.insert(.off) }
         if sleepingLocked { flags.insert(.sleeping) }

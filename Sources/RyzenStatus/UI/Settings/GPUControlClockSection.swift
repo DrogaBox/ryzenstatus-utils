@@ -239,6 +239,8 @@ struct GPUControlClockSection: View {
 enum GPUControlOD8Source: Equatable {
     case fan
     case clock
+    /// The GFX minimum (GPUSensors 0.9.0).
+    case clockMin
 }
 
 /// A native slider with tick marks (SwiftUI's has none on macOS) that
