@@ -170,6 +170,31 @@ static int unit(const char* samplePath) {
       "     (%zu single-bit header changes still parse with another size; each "
       "goes through the layout check)\n",
       wrongSize);
+  {
+    // the scan must name the frame's components, in order; the frame's ids
+    // must differ
+    auto at = [&](uint8_t m) {
+      for (size_t i = 2; i + 1 < norm.size(); i++)
+        if (norm[i] == 0xff && norm[i + 1] == m) return i;
+      return norm.size();
+    };
+    size_t sos = at(0xda), sof = at(0xc0);
+    bool found = sos + 9 < norm.size() && sof + 16 < norm.size();
+    std::vector<uint8_t> a = norm, b = norm, c = norm;
+    if (found) {
+      a[sos + 5] ^= 0x40;                 // first component id of the scan
+      std::swap(b[sos + 7], b[sos + 9]);  // Cb and Cr named the other way round
+      c[sof + 13] = c[sof + 10];          // Cb's id equal to Y's
+    }
+    jc::StreamInfo x;
+    CHECK(found && parseCopy(a.data(), a.size(), &x) == jc::Stream::BadScan &&
+              (b[sos + 7] == b[sos + 9] ||
+               parseCopy(b.data(), b.size(), &x) == jc::Stream::BadScan) &&
+              parseCopy(c.data(), c.size(), &x) == jc::Stream::BadFrame &&
+              parseCopy(norm.data(), norm.size(), &x) == jc::Stream::Ok,
+          "a scan naming other components, or in another order, is refused; so "
+          "are two components with the same id");
+  }
   uint8_t progressive[] = {0xff, 0xd8, 0xff, 0xc2, 0x00, 0x11, 8,   0,
                            16,   0,    16,   3,    1,    0x22, 0,   2,
                            0x11, 0,    3,    0x11, 0,    0xff, 0xd9};

@@ -362,12 +362,14 @@ enum class Stream : uint32_t {
   NoFrame,   // SOS before SOF0
   NoScan,
   NoEoi,
+  BadScan,  // SOS that does not name the frame's three components, in order
 };
 
 struct StreamInfo {
   uint32_t width = 0;
   uint32_t height = 0;
-  uint32_t scanOffset = 0;  // first byte after the SOS header
+  uint32_t scanOffset = 0;     // first byte after the SOS header
+  uint8_t ids[3] = {0, 0, 0};  // the frame's component identifiers
   uint32_t restartInterval = 0;
   Chroma chroma = Chroma::k420;
 };
@@ -406,6 +408,9 @@ constexpr Stream parseStream(const uint8_t* d, size_t n, StreamInfo* out) {
       else
         return Stream::BadFrame;
       if (info.width == 0 || info.height == 0) return Stream::BadFrame;
+      info.ids[0] = s[6], info.ids[1] = s[9], info.ids[2] = s[12];
+      if (s[6] == s[9] || s[6] == s[12] || s[9] == s[12])
+        return Stream::BadFrame;
       frame = true;
     } else if (m == 0xdb) {
       dqt = true;
@@ -417,6 +422,11 @@ constexpr Stream parseStream(const uint8_t* d, size_t n, StreamInfo* out) {
     } else if (m == 0xda) {
       if (!frame) return Stream::NoFrame;
       if (!dqt || !dht) return Stream::NoTables;
+      // one interleaved scan of the three components, in the frame's order
+      // (T.81 B.2.3), as Mesa sends it
+      if (len != 12 || s[0] != 3 || s[1] != info.ids[0] ||
+          s[3] != info.ids[1] || s[5] != info.ids[2])
+        return Stream::BadScan;
       info.scanOffset = static_cast<uint32_t>(i + 2 + len);
       *out = info;
       return Stream::Ok;
@@ -453,6 +463,8 @@ constexpr const char* streamText(Stream s) {
       return "no scan";
     case Stream::NoEoi:
       return "does not end with EOI";
+    case Stream::BadScan:
+      return "scan header does not name the frame's three components in order";
   }
   return "?";
 }

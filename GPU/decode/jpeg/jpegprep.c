@@ -150,6 +150,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
     return fail(why, whyLen, JPEG_UNSUPPORTED, "no size in the frame header");
   if (t.sof[5] != 3)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "not three components");
+  if (t.sof[6] == t.sof[9] || t.sof[6] == t.sof[12] || t.sof[9] == t.sof[12])
+    return fail(why, whyLen, JPEG_BAD, "two components with the same id");
   // sampling (Y, Cb, Cr) as Mesa's radeon_dec_jpeg_check_format: NV12 or YUYV
   uint32_t sf =
       ((uint32_t)t.sof[7] << 16) | ((uint32_t)t.sof[10] << 8) | t.sof[13];
@@ -168,6 +170,11 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
   if (t.sos[0] != 3)
     return fail(why, whyLen, JPEG_UNSUPPORTED,
                 "a scan without all three components");
+  // the scan names the frame's components in the frame's order (T.81 B.2.3)
+  for (int c = 0; c < 3; c++)
+    if (t.sos[1 + 2 * c] != t.sof[6 + 3 * c])
+      return fail(why, whyLen, JPEG_BAD,
+                  "the scan names other components than the frame");
   // The scan runs to the first marker that is neither a stuffed FF00 nor RSTn.
   size_t e = i;
   while (1) {
@@ -180,6 +187,8 @@ int jpeg_prepare(const uint8_t* d, size_t n, uint8_t** out, size_t* outLen,
   // fill bytes before EOI belong to no segment
   size_t f = e;
   while (f + 1 < n && d[f + 1] == 0xff) f++;
+  // a sample that ends in fill bytes has no EOI after them
+  if (f + 1 >= n) return fail(why, whyLen, JPEG_BAD, "no EOI after the scan");
   if (d[f + 1] != 0xd9)
     return fail(why, whyLen, JPEG_UNSUPPORTED, "more than one scan");
   t.scan = d + i;

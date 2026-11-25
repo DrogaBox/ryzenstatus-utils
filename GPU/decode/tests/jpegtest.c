@@ -391,6 +391,41 @@ int main(void) {
         "sampling 211111 and 222121 are YUYV too; 4:4:4 and 4:4:0 are refused",
         all);
   }
+  {
+    // EOI replaced by fill bytes: the sample ends in 0xff 0xff. The copy has
+    // the exact size, so a read past its end is caught by the sanitizer.
+    size_t n = sizeof(kJpeg48x32);
+    uint8_t* c = malloc(n);
+    memcpy(c, kJpeg48x32, n);
+    c[n - 1] = 0xff;
+    o = NULL;
+    r = jpeg_prepare(c, n, &o, &on, &info, why, sizeof(why));
+    expect(
+        "a sample that ends in fill bytes instead of EOI is refused, nothing "
+        "read past it",
+        r != JPEG_OK && !o);
+    free(o);
+    free(c);
+  }
+  {
+    // a scan that names another component than the frame: refused here, and
+    // by the kext again
+    uint8_t* c = malloc(sizeof(kJpeg48x32));
+    memcpy(c, kJpeg48x32, sizeof(kJpeg48x32));
+    bool found = false;
+    for (size_t i = 2; i + 6 < sizeof(kJpeg48x32); i++)
+      if (c[i] == 0xff && c[i + 1] == 0xda) {
+        c[i + 5] ^= 0x40;
+        found = true;
+        break;
+      }
+    o = NULL;
+    r = jpeg_prepare(c, sizeof(kJpeg48x32), &o, &on, &info, why, sizeof(why));
+    expect("a scan that names other components than the frame is refused",
+           found && r == JPEG_BAD && !o);
+    free(o);
+    free(c);
+  }
   bool prefixes = true;
   for (size_t n = 0; n < sizeof(kJpeg48x32) - 1; n++) {
     uint8_t* copy = malloc(n ? n : 1);
@@ -476,6 +511,26 @@ int main(void) {
       "16384x16384 do not",
       d && vcnjpeg_fits(d, 1920, 1080) && vcnjpeg_fits(d, 2048, 2048) &&
           !vcnjpeg_fits(d, 2896, 2896) && !vcnjpeg_fits(d, 16384, 16384));
+  {
+    // A small frame whose SOF says 4096x4096: more than the kext's 16 MiB. It
+    // must be refused before anything is allocated for it or sent.
+    uint8_t* big = malloc(sizeof(kJpeg16x16));
+    memcpy(big, kJpeg16x16, sizeof(kJpeg16x16));
+    for (size_t i = 2; i + 9 < sizeof(kJpeg16x16); i++)
+      if (big[i] == 0xff && big[i + 1] == 0xc0) {
+        big[i + 5] = 0x10, big[i + 6] = 0x00;  // height 4096
+        big[i + 7] = 0x10, big[i + 8] = 0x00;  // width 4096
+        break;
+      }
+    int before = K.calls;
+    expect(
+        "a frame whose header asks for more than the kext's buffer is refused "
+        "as the stream's, nothing sent",
+        d && vcnjpeg_decode(d, big, sizeof(kJpeg16x16), 0, on_picture, NULL) &&
+            vcnjpeg_failure(d) == VCNJPEG_FAIL_STREAM && K.calls == before &&
+            strstr(vcnjpeg_last_error(d), "kext's buffer"));
+    free(big);
+  }
   bool pics = d != NULL;
   for (size_t k = 0; pics && k < 3; k++) {
     int calls = K.calls;

@@ -302,6 +302,14 @@ int vcnjpeg_decode(VcnJpeg* d, const uint8_t* sample, size_t size, int64_t tag,
                   "picture larger than the session allows", 0);
   }
   size_t need = surface_bytes(info.width, info.height, info.yuyv);
+  // The size comes from the picture's own header, before the kext has seen it:
+  // a picture the kext cannot hold is refused here, so that a few bytes of SOF
+  // cannot make this process allocate hundreds of megabytes.
+  if (need > d->surfaceRoom) {
+    free(jpeg);
+    return failed(d, VCNJPEG_FAIL_STREAM,
+                  "picture larger than the kext's buffer", 0);
+  }
   if (need > d->surfaceCap) {
     free(d->surface);
     d->surface = malloc(need);
