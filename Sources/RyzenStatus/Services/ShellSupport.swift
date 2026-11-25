@@ -180,9 +180,7 @@ enum Sudoers {
         let rule = SudoersSupport.clamshellRule(uid: getuid())
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.
-        let legacy = legacyRulePaths.joined(separator: " ")
-        // No more `chmod 0755 /etc/sudoers.d` and atomic 0440 file installation
-        let command = "mkdir -p /etc/sudoers.d && rm -f \(legacy) && (umask 077 && /bin/echo '\(rule)' | /usr/bin/install -m 0440 /dev/stdin \(rulePath)) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
+        let command = SudoersSupport.installCommand(rule: rule, rulePath: rulePath, legacyPaths: legacyRulePaths)
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
             completion(ok && isConfigured())
         }
