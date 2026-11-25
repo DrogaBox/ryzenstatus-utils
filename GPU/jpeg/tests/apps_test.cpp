@@ -124,6 +124,9 @@ static void advance(uint64_t ms) {
   }
   gNow = end;
 }
+// The pid of the process making the request (proc_selfpid in the kext).
+static uint32_t gCaller = 100;
+static uint32_t appCaller() { return gCaller; }
 #include "apps_handler.hpp"
 
 static int fails = 0;
@@ -193,6 +196,11 @@ static uint32_t load(void* self, const std::vector<uint8_t>& jpeg,
     off += n;
   }
   return status;
+}
+static bool bitstreamClean() {
+  for (uint32_t i = 0; i < gP.bitstreamCap; i++)
+    if (gPool[gP.bitstream + i] != 0) return false;
+  return true;
 }
 static bool surfaceClean() {
   for (uint32_t i = 0; i < gP.surfaceCap; i++)
@@ -293,6 +301,8 @@ int main(int argc, char** argv) {
   CHECK(call(A, request(JA_OP_READ, 0), JA_MAX_IO).head.status == JA_NOT_OWNER,
         "it cannot be read twice");
 
+  advance(kAppTurnMs);  // the turn B was promised lapses: it did not come back
+
   // ---- the same through the caller's own memory ----
   gOwned.push_back({reinterpret_cast<uintptr_t>(jpeg.data()), jpeg.size()});
   r = call(A,
@@ -303,6 +313,7 @@ int main(int argc, char** argv) {
         "LOAD_USER takes the whole JPEG in one call");
   CHECK(load(B, jpeg) == JA_BUSY,
         "and holds the buffers against another client");
+  advance(kAppTurnMs);  // B's turn lapses: it does not come back for it
   call(A, request(JA_OP_RUN), JA_MAX_IO);
   std::vector<uint8_t> whole(pic.surfaceBytes - 1);
   gOwned.push_back({reinterpret_cast<uintptr_t>(whole.data()), whole.size()});
@@ -607,6 +618,96 @@ int main(int argc, char** argv) {
   gBlockRefuses = false;
   advance(jidle::kIdleMs);
 
+  // ---- who holds the decoder, and for how long ----
+  {
+    advance(kAppMaxHoldMs);  // no turn kept, no cooldown left from above
+    CHECK(load(A, jpeg) == JA_OK && !bitstreamClean(),
+          "a loaded JPEG sits in the bitstream buffer");
+    call(A, request(JA_OP_RUN), JA_MAX_IO);
+    gCaller = 200;  // the same context address, another process
+    CHECK(call(A, request(JA_OP_READ, 0), JA_MAX_IO).head.status ==
+                  JA_NOT_OWNER &&
+              load(A, jpeg) == JA_BUSY,
+          "a context at the owner's address in another process is another "
+          "client: it cannot read the picture nor take the buffers");
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+    CHECK(gAppOwner == A && gAppOwnerPid == 100 && gDecoded,
+          "nor release them");
+    gCaller = 100;
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+    CHECK(gAppOwner == nullptr && surfaceClean() && bitstreamClean(),
+          "when a turn ends the JPEG is cleared as well as the picture");
+    gCaller = 200;
+    advance(kAppTurnMs);  // the turn the other process was promised is gone
+    CHECK(
+        load(A, jpeg) == JA_OK && gAppOwnerPid == 200,
+        "once free, the other process takes the buffers with its own context");
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+    gCaller = 100;
+
+    // B is turned away while A holds the buffers: the next turn is B's
+    CHECK(load(A, jpeg) == JA_OK && load(B, jpeg) == JA_BUSY,
+          "a second client is told to wait");
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+    CHECK(load(A, jpeg) == JA_BUSY && gAppOwner == nullptr,
+          "the client that just finished cannot take the next turn from one "
+          "that waits");
+    CHECK(load(B, jpeg) == JA_OK && gAppOwner == B,
+          "the client that waited takes it");
+    CHECK(load(A, jpeg) == JA_BUSY, "and now the other one waits");
+    call(B, request(JA_OP_RELEASE), JA_MAX_IO);
+    advance(kAppTurnMs);
+    CHECK(load(B, jpeg) == JA_OK && gAppOwner == B,
+          "a turn kept for a client that does not come back for it lapses");
+    call(B, request(JA_OP_RELEASE), JA_MAX_IO);
+
+    // a client that keeps asking cannot keep the buffers forever
+    CHECK(load(A, jpeg) == JA_OK, "a client takes the buffers");
+    bool held = true;
+    for (uint64_t t = 1000; t < kAppMaxHoldMs; t += 1000) {
+      advance(1000);
+      held = held && load(A, jpeg) == JA_OK && gAppOwner == A;
+    }
+    CHECK(held, "asking again and again keeps them, for a while");
+    advance(1000);
+    gCaller = 300;  // another process
+    CHECK(load(B, jpeg) == JA_OK && gAppOwner == B,
+          "after five seconds in all another client takes them");
+    call(B, request(JA_OP_RELEASE), JA_MAX_IO);
+    gCaller = 100;
+    advance(kAppTurnMs);
+    CHECK(load(A, jpeg) == JA_BUSY && gAppOwner == nullptr,
+          "the process that held them too long waits, even with nobody else");
+    advance(kAppCooldownMs);
+    CHECK(load(A, jpeg) == JA_OK && gAppOwner == A,
+          "and takes them again two seconds later");
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+
+    // only the owner's requests keep the block on
+    CHECK(frame(A) && load(A, jpeg) == JA_OK && gIdle.on,
+          "a client decodes and keeps the buffers");
+    int offs = gPowerOffs;
+    for (int i = 0; i < 6; i++) {
+      advance(300);
+      call(B, request(JA_OP_READ, 0), JA_MAX_IO);
+      call(B, request(JA_OP_RUN), JA_MAX_IO);
+    }
+    advance(jidle::kIdleMs - 6 * 300);
+    CHECK(!gIdle.on && gPowerOffs == offs + 1,
+          "another client's refused requests do not keep the block powered");
+    call(A, request(JA_OP_RELEASE), JA_MAX_IO);
+
+    // the driver stops: every client is forgotten
+    load(A, jpeg);
+    load(B, jpeg);
+    appDrop();
+    appForget();
+    CHECK(load(B, jpeg) == JA_OK,
+          "after the driver stops nobody's turn is kept");
+    call(B, request(JA_OP_RELEASE), JA_MAX_IO);
+    advance(kAppMaxHoldMs);
+  }
+
   // ---- random requests: nothing may read or write outside its buffers ----
   uint32_t seed = 12345;
   auto rnd = [&]() {
@@ -616,6 +717,7 @@ int main(int argc, char** argv) {
   uint32_t handled = 0;
   for (int i = 0; i < 300000; i++) {
     void* who = rnd() % 3 == 0 ? B : A;
+    gCaller = rnd() % 7 == 0 ? 200 : 100;
     size_t dataBytes =
         rnd() % 4 == 0 ? rnd() % (JA_LOAD_PIECE + 1) : rnd() % 64;
     std::vector<uint8_t> d(dataBytes);

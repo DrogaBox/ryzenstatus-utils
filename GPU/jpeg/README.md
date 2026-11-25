@@ -20,6 +20,11 @@ not changed.
 - A program reaches the kext through the accelerator's video context: the connection every
   program that decodes video may open. The kext answers only its own requests there, and
   checks every size and every JPEG before the block sees it.
+- One program decodes at a time. It loses its turn after 2 s without a request, or after 5 s
+  in all (then it waits 2 s before it may take it again), and a program that was turned
+  away gets the next turn. The kext does not pick programs: VideoToolbox runs the plug-in
+  inside whichever program decodes Motion JPEG.
+- When a turn ends, the kext clears the picture and the JPEG it was given.
 - The block is powered only while pictures arrive. The first one asks PowerPlay for it the
   way the driver asks for a VCN session, and starts the queue. Two seconds after the last
   picture the kext stops the queue and gives the power back.
@@ -61,6 +66,14 @@ buffer). Motion JPEG without Huffman tables of its own gets the standard ones.
 
 Progressive JPEG, 4:4:4, grey and CMYK are refused. VideoToolbox then uses Apple's software
 decoder.
+
+Restart intervals (DRI) stay in the JPEG the block is given, as Mesa gives them on Linux:
+the block reads them from the stream, there is no register for them.
+
+Not tried on the GPU yet: whether the block ever reads the JPEG past the write pointer the
+kext sets (the read buffer's size is "unbounded", `0xfffffff0`, as on Linux). If it does,
+it reads zeros, because the rest of the JPEG buffer is cleared. A JPEG with a restart
+interval has not been decoded on the GPU either.
 
 ## Build and test
 

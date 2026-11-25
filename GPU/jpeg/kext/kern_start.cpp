@@ -64,6 +64,7 @@
 #include <libkern/c++/OSString.h>
 #include <mach-o/loader.h>
 #include <pexpert/pexpert.h>
+#include <sys/proc.h>
 #include <sys/systm.h>
 
 #pragma clang diagnostic push
@@ -689,6 +690,8 @@ static bool appCopyOut(uint64_t dst, const uint8_t* src, uint32_t bytes) {
   return copyout(src, static_cast<user_addr_t>(dst), bytes) == 0;
 }
 static void appTouch() { idleArm(jidle::touch(gIdle, nowMs())); }
+// sendPMCommand runs in the thread of the process that called the selector.
+static uint32_t appCaller() { return static_cast<uint32_t>(proc_selfpid()); }
 static bool appBlockOn() { return blockOn(); }
 #include "apps_handler.hpp"
 
@@ -804,7 +807,7 @@ static uint32_t wrapStopMM(void* ttl) {
     gPoolGpu = gPoolHandle = 0;
     gLoadedBytes = gLoadPos = 0;
     gDecoded = false;
-    gAppOwner = nullptr;
+    appForget();
     gStuck = false;
     gTtl = nullptr;
     gJpegCtx = nullptr;

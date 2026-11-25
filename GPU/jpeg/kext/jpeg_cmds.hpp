@@ -232,6 +232,10 @@ constexpr uint32_t buildDecodeIb(uint32_t* ib, uint32_t cap,
   w.set(reg::kReadBarHigh, 0, 0, static_cast<uint32_t>(d.bitstreamGpu >> 32));
   w.set(reg::kReadBarLow, 0, 0, static_cast<uint32_t>(d.bitstreamGpu));
   w.set(reg::kRbBase, 0, 0, 0);
+  // Mesa's value: the read buffer has no end of its own, only the write
+  // pointer below bounds the read. Whether the block ever reads past it is not
+  // known (no GPU test yet); the kext keeps the rest of the bitstream buffer
+  // zeroed (apps_handler.hpp, appDrop) so that it would find zeros there.
   w.set(reg::kRbSize, 0, 0, 0xfffffff0);
   w.set(reg::kRbWptr, 0, 0, d.bitstreamBytes >> 2);
   // target
@@ -417,6 +421,9 @@ constexpr Stream parseStream(const uint8_t* d, size_t n, StreamInfo* out) {
     } else if (m == 0xc4) {
       dht = true;
     } else if (m == 0xdd) {
+      // Kept in the stream: the block reads the restart interval from it, as
+      // Mesa gives it (vlVaGetJpegSliceHeader writes DRI; the IB has no
+      // register for it, in Mesa either).
       if (len != 4) return Stream::BadSegment;
       info.restartInterval = (static_cast<uint32_t>(s[0]) << 8) | s[1];
     } else if (m == 0xda) {

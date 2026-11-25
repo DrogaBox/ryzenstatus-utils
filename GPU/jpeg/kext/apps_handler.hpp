@@ -9,7 +9,19 @@
 //  block and start its queue if it is not yet; false = it cannot be); and the
 //  decoder's globals and functions (gPool, gP, gLayout, gStream, gResult,
 //  gDecoded, gLoadedBytes, gLoadPos, gJobs, gDecodeResolved, gCreated, nowMs,
-//  decodeState, decodeAccept, decodeRun, logResult).
+//  decodeState, decodeAccept, decodeRun, logResult); appCaller() (the pid of
+//  the process making the request: proc_selfpid in the kext).
+//
+//  Who may use it: VideoToolbox runs the plug-in inside whatever program
+//  decodes Motion JPEG (VTDecoderXPCService, AVFoundation apps, avconvert, the
+//  test tools), so there is no program to single out; any process may already
+//  reach the decoder through VideoToolbox's public API. What is limited instead
+//  is how long one client holds it: kAppHoldMs without a request, kAppMaxHoldMs
+//  in all per turn (then that process waits kAppCooldownMs before it may take
+//  it again), and a client turned away with JA_BUSY gets the next turn
+//  (kAppTurnMs to come back for it). Only the owner's requests keep the block
+//  powered. A job that hangs the block still stops it for everybody until the
+//  next restart (gStuck): that is the state of the hardware, not of a client.
 //
 #include "jpeg_app.h"
 
@@ -33,29 +45,100 @@ static bool appCopyOutChunks(uint64_t dst, const uint8_t* src, uint32_t bytes) {
   return true;
 }
 
+// A client is its video context and its process: a context freed and another
+// allocated at the same address by another process is another client.
+struct AppClient {
+  void* self = nullptr;
+  uint32_t pid = 0;
+};
+static bool appSame(const AppClient& a, void* self, uint32_t pid) {
+  return a.self == self && a.pid == pid;
+}
 static void* gAppOwner = nullptr;  // the video context that holds the buffers
+static uint32_t gAppOwnerPid = 0;  // and its process
 static uint64_t gAppDeadline = 0;  // ms; the owner loses them after this
+static uint64_t gAppTaken = 0;     // ms; when the owner took them
 static uint32_t gAppRequests = 0;
+static uint32_t gAppDirty = 0;  // bitstream bytes that may hold a client's data
+static AppClient gAppNext;      // turned away while another held the buffers
+static uint64_t gAppNextUntil = 0;    // ms; its turn is kept until then
+static uint32_t gAppCooldownPid = 0;  // held them too long; waits until:
+static uint64_t gAppCooldownUntil = 0;
 static constexpr uint64_t kAppHoldMs = 2000;
+// One turn (LOAD, RUN, READ) takes well under a second; a RUN gives up after 3.
+static constexpr uint64_t kAppMaxHoldMs = 5000;
+static constexpr uint64_t kAppCooldownMs = 2000;
+// The plug-in asks again every 2 ms while it is turned away.
+static constexpr uint64_t kAppTurnMs = 50;
 
-// Ends the current ownership: nothing of the picture may be left to read.
+static void appMarkDirty(uint64_t bytes) {
+  uint64_t a = (bytes + 127) / 128 * 128;
+  if (a > gP.bitstreamCap) a = gP.bitstreamCap;
+  if (a > gAppDirty) gAppDirty = static_cast<uint32_t>(a);
+}
+
+// Ends the current ownership: nothing of the picture, nor of the JPEG, may be
+// left to read. The JPEG is cleared too because the block reads the bitstream
+// up to the write pointer only as far as anyone knows; past it, it finds zeros
+// rather than another client's JPEG.
 static void appDrop() {
   if (gPool != nullptr && gDecoded)
     memset(gPool + gP.surface, 0, gLayout.bytes);
+  if (gPool != nullptr && gAppDirty != 0)
+    memset(gPool + gP.bitstream, 0, gAppDirty);
+  gAppDirty = 0;
   gDecoded = false;
   gLoadedBytes = gLoadPos = 0;
   gAppOwner = nullptr;
+  gAppOwnerPid = 0;
+}
+
+// The buffers are gone (the driver stopped): forget every client.
+static void appForget() {
+  gAppDirty = 0;
+  gAppOwner = nullptr;
+  gAppOwnerPid = 0;
+  gAppNext = AppClient{};
+  gAppNextUntil = gAppCooldownPid = 0;
+  gAppCooldownUntil = 0;
 }
 
 // True when `self` holds the buffers now, or can take them (take = a LOAD at
 // offset 0).
 static bool appOwns(void* self, bool take) {
   uint64_t now = nowMs();
-  if (gAppOwner != nullptr && gAppOwner != self && now >= gAppDeadline)
+  uint32_t pid = appCaller();
+  if (gAppOwner != nullptr && now - gAppTaken >= kAppMaxHoldMs) {
+    gAppCooldownPid = gAppOwnerPid;  // held them too long: others first
+    gAppCooldownUntil = now + kAppCooldownMs;
     appDrop();
-  if (gAppOwner == nullptr && take) gAppOwner = self;
-  if (gAppOwner != self) return false;
+  }
+  bool mine = gAppOwner == self && gAppOwnerPid == pid;
+  if (gAppOwner != nullptr && !mine && now >= gAppDeadline) appDrop();
+  if (gAppOwner == nullptr && take) {
+    bool waiting = gAppNextUntil > now;
+    if ((waiting && !appSame(gAppNext, self, pid)) ||
+        (pid == gAppCooldownPid && now < gAppCooldownUntil))
+      return false;  // somebody else's turn
+    gAppOwner = self;
+    gAppOwnerPid = pid;
+    gAppTaken = now;
+    if (waiting) gAppNextUntil = 0;
+    mine = true;
+  }
+  if (!mine) {
+    // turned away while another holds them: the next turn is this client's,
+    // unless one is waiting for it already
+    if (take && gAppOwner != nullptr &&
+        (gAppNextUntil <= now || appSame(gAppNext, self, pid))) {
+      gAppNext = AppClient{self, pid};
+      gAppNextUntil = now + kAppTurnMs;
+    }
+    return false;
+  }
   gAppDeadline = now + kAppHoldMs;
+  // Only the owner's requests keep the block powered for another while.
+  appTouch();
   return true;
 }
 
@@ -87,8 +170,6 @@ static uint32_t appHandle(void* self, const uint8_t* in, uint32_t inSize,
   }
   if (!gDecodeResolved || gPool == nullptr || !gCreated)
     return done(JA_NOT_READY, 0, 0);
-  // Every request of a client keeps the block powered for another while.
-  appTouch();
   switch (rq.op) {
     case JA_OP_LOAD: {
       uint32_t piece = inSize - static_cast<uint32_t>(sizeof(rq));
@@ -103,6 +184,7 @@ static uint32_t appHandle(void* self, const uint8_t* in, uint32_t inSize,
         appDrop();
         return done(JA_BAD_REQUEST, 0, 0);
       }
+      appMarkDirty(rq.arg0 + piece);
       memcpy(gPool + gP.bitstream + rq.arg0, in + sizeof(rq), piece);
       gLoadPos += piece;
       if (gLoadPos != rq.arg1) return done(JA_MORE, 0, 0);
@@ -124,6 +206,7 @@ static uint32_t appHandle(void* self, const uint8_t* in, uint32_t inSize,
         appDrop();
         return done(JA_BAD_REQUEST, 0, 0);
       }
+      appMarkDirty(rq.arg1);  // a copy that fails may have written part
       if (!appCopyInChunks(gPool + gP.bitstream, rq.arg0,
                            static_cast<uint32_t>(rq.arg1))) {
         appDrop();
@@ -193,7 +276,7 @@ static uint32_t appHandle(void* self, const uint8_t* in, uint32_t inSize,
       return n;
     }
     case JA_OP_RELEASE:
-      if (gAppOwner == self) appDrop();
+      if (gAppOwner == self && gAppOwnerPid == appCaller()) appDrop();
       return done(JA_OK, 0, 0);
     default:
       return done(JA_BAD_REQUEST, 0, 0);
