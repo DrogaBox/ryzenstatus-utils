@@ -14473,6 +14473,7 @@ struct MetricsTests {
                 ("GPUControlKext080Tests", GPUControlKext080Tests.run),
                 ("GPUControlPageTests", GPUControlPageTests.run),
                 ("GPUControlBootArmTests", GPUControlBootArmTests.run),
+                ("SudoersInstallTests", SudoersInstallTests.run),
                 ("GPUControlFanTests", GPUControlFanTests.run),
                 ("GPUControlClockTests", GPUControlClockTests.run),
                 ("GPUControlA11yTests", GPUControlA11yTests.run),
