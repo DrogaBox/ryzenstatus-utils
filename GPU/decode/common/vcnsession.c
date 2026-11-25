@@ -1,9 +1,11 @@
 // The part of a decoder session that only talks to the driver through its
 // function pointers: the wait for a command, opening and closing the
-// accelerator, driver and bitstream pool. See vcndriver.h.
+// accelerator, driver and bitstream pool, and what a system sleep does to a
+// session. See vcndriver.h.
 #include <dispatch/dispatch.h>
 #include <dlfcn.h>
 #include <mach/mach_time.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,16 +63,127 @@ VcnWaitResult vcn_wait_command(AVD_QueryAVDCommandStatus_fn query, void* driver,
 
 #define FN(name) ((AVD_##name##_fn)s->accel->fn[AVD_FN_##name])
 
+bool vcn_slept_between(const VcnSleepMark* then, const VcnSleepMark* now) {
+  if (now->asleepNs > then->asleepNs + 1000000) return true;
+  return then->wakeUs && now->wakeUs && then->wakeUs != now->wakeUs;
+}
+
+bool vcn_session_lost(VcnDriverSession* s) {
+  if (s->lost) return true;
+  if (!s->accel) return false;
+  VcnSleepMark now;
+  vcn_sleep_mark(&now);
+  if (!vcn_slept_between(&s->opened, &now)) return false;
+  s->lost = true;
+  os_log_error(s->log,
+               "the system slept since this session opened (%.1f s asleep in "
+               "between): the video engine was restarted at wake, the session "
+               "sends it nothing more",
+               now.asleepNs > s->opened.asleepNs
+                   ? (double)(now.asleepNs - s->opened.asleepNs) / 1e9
+                   : 0.0);
+  return true;
+}
+
+// The open sessions of this plug-in, and how the plug-ins of a process count
+// each other's sessions from before a sleep. Each plug-in bundle has its own
+// copy of this file. They meet in the process's local notification center,
+// which calls every observer, in every image, on the posting thread before the
+// post returns.
+static pthread_mutex_t g_open_lock = PTHREAD_MUTEX_INITIALIZER;
+static VcnDriverSession* g_open;
+
+static void list_open(VcnDriverSession* s) {
+  pthread_mutex_lock(&g_open_lock);
+  s->nextOpen = g_open;
+  g_open = s;
+  s->listed = true;
+  pthread_mutex_unlock(&g_open_lock);
+}
+static void unlist(VcnDriverSession* s) {
+  if (!s->listed) return;
+  pthread_mutex_lock(&g_open_lock);
+  for (VcnDriverSession** p = &g_open; *p; p = &(*p)->nextOpen)
+    if (*p == s) {
+      *p = s->nextOpen;
+      break;
+    }
+  s->listed = false;
+  pthread_mutex_unlock(&g_open_lock);
+}
+
+#define STALE_QUERY CFSTR("com.droga.vcn.sessions-from-before-a-sleep")
+typedef struct {
+  VcnSleepMark now;
+  int stale;
+} StaleQuery;
+
+// One plug-in's answer: how many of its open sessions opened before a sleep.
+static void count_stale(CFNotificationCenterRef center, void* observer,
+                        CFNotificationName name, const void* object,
+                        CFDictionaryRef info) {
+  (void)center, (void)observer, (void)name, (void)object;
+  CFNumberRef n = info ? CFDictionaryGetValue(info, CFSTR("query")) : NULL;
+  int64_t addr = 0;
+  if (!n || CFGetTypeID(n) != CFNumberGetTypeID() ||
+      !CFNumberGetValue(n, kCFNumberSInt64Type, &addr) || !addr)
+    return;
+  StaleQuery* q = (StaleQuery*)(intptr_t)addr;
+  pthread_mutex_lock(&g_open_lock);
+  for (VcnDriverSession* s = g_open; s; s = s->nextOpen)
+    if (vcn_slept_between(&s->opened, &q->now)) q->stale++;
+  pthread_mutex_unlock(&g_open_lock);
+}
+
+static void pin_this_image(void);
+
+// Sessions of this process, in every plug-in, opened before a sleep and still
+// open; -1 when the question could not be asked.
+static int stale_sessions(const VcnSleepMark* now) {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    // The observer is called from other plug-ins: this image must stay.
+    pin_this_image();
+    CFNotificationCenterAddObserver(
+        CFNotificationCenterGetLocalCenter(), (const void*)&g_open, count_stale,
+        STALE_QUERY, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+  });
+  StaleQuery q = {.now = *now};
+  int64_t addr = (int64_t)(intptr_t)&q;
+  CFNumberRef n = CFNumberCreate(NULL, kCFNumberSInt64Type, &addr);
+  const void* k[] = {CFSTR("query")};
+  const void* v[] = {n};
+  CFDictionaryRef info =
+      n ? CFDictionaryCreate(NULL, k, v, 1, &kCFTypeDictionaryKeyCallBacks,
+                             &kCFTypeDictionaryValueCallBacks)
+        : NULL;
+  if (n) CFRelease(n);
+  if (!info) return -1;
+  CFNotificationCenterPostNotification(CFNotificationCenterGetLocalCenter(),
+                                       STALE_QUERY, NULL, info, true);
+  CFRelease(info);
+  return q.stale;
+}
+
 bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
                       io_service_t svc, os_log_t log, char* err,
                       size_t errLen) {
   *s = (VcnDriverSession){.destroy = lib->destroy, .svc = svc, .log = log};
+  // Before anything is opened: a sleep during the open loses the session too.
+  vcn_sleep_mark(&s->opened);
 #define FAIL(...)                       \
   do {                                  \
     snprintf(err, errLen, __VA_ARGS__); \
     vcn_session_close(s);               \
     return false;                       \
   } while (0)
+  // No new session beside one from before a sleep (vcndriver.h).
+  int stale = stale_sessions(&s->opened);
+  if (stale > 0)
+    FAIL(
+        "%d session(s) of this process from before a system sleep still "
+        "open: no new one until they close",
+        stale);
   if (!lib->destroy) {
     // Said once per process: every session would say the same.
     static bool told;
@@ -119,12 +232,16 @@ bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
   for (int i = 0; i < VCN_NUM_BS; i++)
     if (!s->bsAddr[i]) FAIL("AllocateBitstreamBufferPool: no buffer %d", i);
 #undef FAIL
+  list_open(s);
   return true;
 }
 
 void vcn_session_close(VcnDriverSession* s) {
+  // Asked here too: a session can be closed without having been asked since
+  // the wake (a paused video that is closed after it).
+  bool lost = vcn_session_lost(s);
   if (s->accel) {
-    if (s->drv) {
+    if (s->drv && !lost) {
       if (s->ctx) {
         void* ctxs[1] = {s->ctx};
         AVD_DriverContextDelete del = {.count = 1, .contexts = ctxs};
@@ -134,7 +251,17 @@ void vcn_session_close(VcnDriverSession* s) {
       FN(DeleteDriver)(s->drv);
     }
     if (s->destroy) s->destroy(s->accel);
+    if (lost)
+      os_log_error(s->log,
+                   "session from before the sleep closed without the driver's "
+                   "own teardown%{public}s",
+                   s->destroy ? ""
+                              : " (this driver build has no "
+                                "AVD_DestroyAVDAccelerator: it stays open)");
   }
+  // Out of the list only now: until the accelerator is closed, the session
+  // still counts as open for a new one.
+  unlist(s);
   // Released only after the driver is gone: it may hold on to the service.
   if (s->svc) IOObjectRelease(s->svc);
   os_log_t log = s->log;
@@ -156,32 +283,39 @@ static dispatch_queue_t teardown_queue(void) {
     // A close may still run after the host is done with the plug-in. If the
     // host unloaded the bundle by then, the queue would run code that is gone:
     // this image stays loaded for the life of the process.
-    Dl_info info;
-    if (dladdr((const void*)vcn_teardown, &info) && info.dli_fname)
-      dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE);
+    pin_this_image();
   });
   return q;
 }
 
-void vcn_teardown(bool stuck, os_log_t log, const char* what,
+static void pin_this_image(void) {
+  Dl_info info;
+  if (dladdr((const void*)vcn_teardown, &info) && info.dli_fname)
+    dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE);
+}
+
+void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
                   void (^close)(void)) {
-  if (!stuck) {
+  if (!stuck && !lost) {
     close();
     return;
   }
   // Kept for the line after the close, which runs once the caller is gone.
   char* name = strdup(what ? what : "session");
-  os_log_error(log,
-               "%{public}s: a command never finished; closing the session on "
-               "a background thread, the driver may wait for the GPU",
-               name ? name : "session");
+  os_log_error(
+      log,
+      "%{public}s: %{public}s; closing the session on a background "
+      "thread, the close may wait for the GPU",
+      name ? name : "session",
+      stuck ? "a command never finished" : "the system slept since it opened");
   dispatch_queue_t q = teardown_queue();  // also makes the group
   // dispatch_group_async copies this block, and with it close.
   dispatch_group_async(teardown_group, q, ^{
     double t0 = wait_now_ms();
     close();
-    os_log_error(log, "%{public}s: stuck session closed after %.0f ms",
-                 name ? name : "session", wait_now_ms() - t0);
+    os_log_error(log, "%{public}s: %{public}s session closed after %.0f ms",
+                 name ? name : "session", stuck ? "stuck" : "lost",
+                 wait_now_ms() - t0);
     free(name);
   });
 }

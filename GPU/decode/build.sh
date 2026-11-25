@@ -109,8 +109,17 @@ if [[ ${1:-} == tests ]]; then
     -o $T/legacypick 2>&1 | { grep -v -E "pointer not aligned in '_k(Base|Decoder)Class'|disabling chained fixups" || true; }
   xcrun clang $TFLAGS -Icommon tests/acceltest.c common/vcndriver.c -framework CoreFoundation -framework IOKit \
     -o $T/acceltest
-  xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c -framework CoreFoundation -framework IOKit \
+  # vcndriver.c for vcn_sleep_mark, which vcnsession.c reads when a session opens or closes
+  xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c common/vcndriver.c -framework CoreFoundation \
+    -framework IOKit \
     -o $T/waittest
+  # Two plug-ins in one process, each with its own copy of the session code (stalelib.c built
+  # twice), and a made-up sleep: one's session from before the sleep stops the other's new one.
+  for l in a b; do
+    xcrun clang $TFLAGS -dynamiclib -fvisibility=hidden -Icommon tests/stalelib.c common/vcnsession.c \
+      -framework CoreFoundation -framework IOKit -install_name @rpath/libstale-$l.dylib -o $T/libstale-$l.dylib
+  done
+  xcrun clang $TFLAGS -Icommon tests/staletest.c -o $T/staletest
   # The decoder sessions against a made-up driver: sessiontest.c stands in for common/vcndriver.c.
   for c in av1 vp9; do
     xcrun clang $TFLAGS -DTEST_${(U)c} -Icommon -I$c tests/sessiontest.c $c/vcn$c.c $c/${c}parse.c \

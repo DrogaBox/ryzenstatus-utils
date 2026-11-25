@@ -22,7 +22,8 @@
 #      the parsers survive damaged streams: libvpx's invalid files and thousands of copies
 #      damaged at random, under the address and undefined-behaviour sanitizers
 #   5. the rule that picks AMD's accelerator; the wait for a decode command gives up on a
-#      command that never finishes (waittest, with a made-up driver)
+#      command that never finishes (waittest, with a made-up driver); two plug-ins of one
+#      process: a session from before a sleep stops new ones until it closes (staletest)
 #   5b. the loader kext: its decisions, that it builds twice to the same bytes and lists the
 #      plug-ins just built, that install/loader.sh puts it on an EFI and takes it off again
 #      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac
@@ -143,6 +144,9 @@ check "$rounds damaged copies of each stream are survived" damaged
 step "decoders: accelerator rule"
 check "only AMD's accelerator is taken" decode/build/tests/acceltest
 check "a decode command that never finishes times out" decode/build/tests/waittest
+stale() { decode/build/tests/staletest decode/build/tests/libstale-{a,b}.dylib > decode/build/tests/staletest.txt ||
+  { cat decode/build/tests/staletest.txt; return 1; }; }
+check "two plug-ins of one process: a session from before a sleep stops new ones until it closes" stale
 sessions() {
   decode/build/tests/sessiontest-av1 tests/media/av1/av1-1-b8-01-size-16x16.ivf tests/media/av1/av1-1-b8-05-mv.ivf > decode/build/tests/sessiontest-av1.txt &&
     decode/build/tests/sessiontest-vp9 tests/media/vp9/vp90-2-12-droppable_1.ivf \

@@ -165,8 +165,11 @@ decode/build/gpu/vtvp9test -load decode/build/VP9VCNDecoder.bundle v.ivf v.ivf.m
   bundle cannot be registered. Pass `-id` with the decoder ID that `list` prints for it,
   or VideoToolbox may pick the installed decoder instead of the one you loaded.
 - `-n` reads no pixels. `-a` decodes asynchronously. `-pace fps` feeds frames at a fixed
-  rate and reports how late they come out. `vtvp9test` also has `-loop N` (the file N times
-  in one session), `-frames N` and `-sw` (does not ask for hardware). `vtav1test -sw` decodes
+  rate and reports how late they come out. `-loop N` feeds the file N times in one session
+  and prints a line with the time after each pass; `-renew` makes a new session for every
+  pass, in the same process. Together they make the sleep test: `-loop 100 -pace 30` across
+  `pmset sleepnow` (`docs/testing.md`). `vtvp9test` also has `-frames N` and `-sw` (does
+  not ask for hardware). `vtav1test -sw` decodes
   in software only: it turns hardware decoders off and stops before the first frame if
   VideoToolbox gives one anyway. (Apple's software AV1 decoder refused every stream here on
   macOS 26.7.3, 8-bit too: -12906.)

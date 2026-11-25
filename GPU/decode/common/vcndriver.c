@@ -3,8 +3,11 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <mach/mach_time.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
 
 bool vcn_codec_is_amd(CFTypeRef codec) {
   return codec && CFGetTypeID(codec) == CFStringGetTypeID() &&
@@ -74,4 +77,26 @@ bool vcn_driver_load(VcnDriverLib* lib, char* err, size_t errLen) {
     return false;
   }
   return true;
+}
+
+void vcn_sleep_mark(VcnSleepMark* m) {
+  static mach_timebase_info_data_t tb;
+  if (!tb.denom) mach_timebase_info(&tb);
+  // mach_continuous_time is mach_absolute_time plus the time spent asleep. The
+  // two are read apart: a reading whose two absolute times are more than 10 us
+  // apart (the thread was preempted between them) is taken again.
+  uint64_t asleep = 0;
+  for (int i = 0; i < 8; i++) {
+    uint64_t a = mach_absolute_time(), c = mach_continuous_time(),
+             b = mach_absolute_time();
+    asleep = c > b ? c - b : 0;
+    if ((b - a) * tb.numer / tb.denom < 10000) break;
+  }
+  m->asleepNs = asleep * tb.numer / tb.denom;
+  struct timeval wake = {0};
+  size_t len = sizeof(wake);
+  m->wakeUs =
+      sysctlbyname("kern.waketime", &wake, &len, NULL, 0) || len != sizeof(wake)
+          ? 0
+          : (int64_t)wake.tv_sec * 1000000 + wake.tv_usec;
 }

@@ -35,7 +35,18 @@
 //  11. (AV1) a 12-bit sequence header is refused as unsupported (VideoToolbox
 //      then gives the stream to the software decoder); a 10-bit BT.2020 PQ
 //      one is taken, and the session reports its colour and the light level
-//      of its metadata OBU (vcnav1_color).
+//      of its metadata OBU (vcnav1_color);
+//  12. a system sleep (a made-up sleep mark, standing in for the clocks and
+//      kern.waketime): a session opened before it sends nothing after it, not
+//      even into the bitstream pool, and fails as a device; its close, on the
+//      background queue, skips DeleteContexts, FreeBitstreamBufferPool and
+//      DeleteDriver and only destroys the accelerator; the same for a session
+//      that was stuck when the sleep came, and for one that is only closed
+//      after the wake; a new wake time alone counts as a sleep, a change of
+//      the time asleep under 1 ms does not; a session opened after the wake
+//      decodes and closes fully; while one from before the sleep is still
+//      open, a new session is refused before it opens anything, and opens
+//      again once that one is closed.
 //
 // usage: sessiontest <small IVF clip of the codec> [clip with hidden frames]
 // Exit status 0 = pass.
@@ -110,6 +121,7 @@ static struct {
   bool useAfterDestroy;  // a driver call after the accelerator was destroyed
   bool deleteCtxOnMain;  // DeleteContexts ran on the test's own thread
   bool gateTimedOut;     // DeleteContexts waited at the gate in vain
+  bool destroyOnMain;    // a gated close destroyed on the test's own thread
 } st;
 // What it should get wrong.
 static struct {
@@ -124,7 +136,7 @@ static struct {
 } fault;
 
 enum { kFakeBuffer = 1 << 20 };  // larger than any frame of the test clips
-typedef struct {
+typedef struct FakeDrv {
   void* va;       // +8 holds the VAContext pointer, as the real driver's does
   void* factory;  // what va+75072 points to (VP9 swaps its class pointer)
   bool poolAllocated;
@@ -135,6 +147,10 @@ typedef struct {
   AVD_Accelerator a;
   bool destroyed;
 } FakeAccel;
+// The start of every bitstream buffer of the last driver made, to see that
+// nothing was written into the pool after a sleep.
+static FakeDrv* lastDrv;
+static uint8_t poolSnapshot[VCN_NUM_BS][64];
 
 static int f_create_driver(void** out, AVD_DriverCreate* dc) {
   st.createDrivers++;
@@ -153,10 +169,21 @@ static int f_create_driver(void** out, AVD_DriverCreate* dc) {
   // keep FakeDrv reachable from the handle: raw[0]
   raw[0] = d;
   st.liveDrivers++;
+  lastDrv = d;
   *out = raw;
   return 0;
 }
 static FakeDrv* drv_of(void* h) { return ((void**)h)[0]; }
+static void snapshot_pool(void) {
+  for (int i = 0; lastDrv && i < VCN_NUM_BS; i++)
+    if (lastDrv->buffers[i]) memcpy(poolSnapshot[i], lastDrv->buffers[i], 64);
+}
+static bool pool_untouched(void) {
+  for (int i = 0; lastDrv && i < VCN_NUM_BS; i++)
+    if (lastDrv->buffers[i] && memcmp(poolSnapshot[i], lastDrv->buffers[i], 64))
+      return false;
+  return lastDrv != NULL;
+}
 static int f_delete_driver(void* h) {
   st.deleteDrivers++;
   st.seqDeleteDriver = ++st.seq;
@@ -216,6 +243,14 @@ static int f_delete_ctx(void* h, AVD_DriverContextDelete* del) {
   }
   return del->count == 1 && del->contexts[0] ? 0 : 5;
 }
+// What vcn_sleep_mark reports: the test moves it to make a sleep.
+static VcnSleepMark fakeSleep = {.asleepNs = 5000000000ull,
+                                 .wakeUs = 1795000000000000ll};
+static void sleep_for(uint64_t ns) {
+  fakeSleep.asleepNs += ns;
+  fakeSleep.wakeUs += 1000000;
+}
+
 static int f_schedule(void* h, AVD_CmdList* l, AVD_RefConList* r) {
   (void)h, (void)l;
   st.schedules++;
@@ -276,6 +311,8 @@ static int f_create_accel(AVD_Accelerator** out, AVD_AcceleratorCreate* in,
 }
 static int f_destroy_accel(AVD_Accelerator* acc) {
   st.destroys++;
+  if (closeGate && pthread_equal(pthread_self(), mainThread))
+    st.destroyOnMain = true;
   st.seqDestroy = ++st.seq;
   FakeAccel* a = (FakeAccel*)acc;
   if (a->destroyed) st.useAfterDestroy = true;
@@ -299,6 +336,7 @@ bool vcn_driver_uuid(char out[33]) {
   snprintf(out, 33, "1181E2CA31B33DF090E23AE70552D753");
   return true;
 }
+void vcn_sleep_mark(VcnSleepMark* m) { *m = fakeSleep; }
 bool vcn_driver_load(VcnDriverLib* lib, char* err, size_t errLen) {
   (void)err, (void)errLen;
   *lib = (VcnDriverLib){.create = f_create_accel,
@@ -363,6 +401,23 @@ static bool closed_in_background(Vcn* d) {
   closeGate = NULL;
   return drained && st.deleteCtx == 1 && !st.deleteCtxOnMain &&
          !st.gateTimedOut;
+}
+
+// Destroys a session from before a sleep: its close runs on the background
+// queue and calls nothing of the driver but AVD_DestroyAVDAccelerator. The
+// driver handle it never deleted stays: the made-up driver counts it live.
+static bool closed_quietly(Vcn* d) {
+  int before = st.deleteCtx + st.frees + st.deleteDrivers;
+  closeGate = dispatch_semaphore_create(0);
+  DESTROY(d);
+  // Nothing calls DeleteContexts, so nothing waits at the gate: open it anyway.
+  dispatch_semaphore_signal(closeGate);
+  bool drained = vcn_teardown_drain(10000);
+  if (drained) dispatch_release(closeGate);
+  closeGate = NULL;
+  return drained && st.deleteCtx + st.frees + st.deleteDrivers == before &&
+         st.destroys == 1 && st.liveAccels == 0 && !st.useAfterDestroy &&
+         !st.destroyOnMain;
 }
 
 // ---- samples split the way FFmpeg sends them
@@ -675,6 +730,80 @@ int main(int argc, char** argv) {
   expect("a damaged sample is a stream failure",
          d && rj != 0 && FAILURE(d) == FAIL_STREAM && st.schedules == 0);
   if (d) DESTROY(d);
+
+  // 12. A system sleep.
+  reset();
+  d = make();
+  int rb = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  expect("before the sleep, a frame decodes", d && rb == 0);
+  int schedulesBefore12 = st.schedules;
+  snapshot_pool();
+  sleep_for(30000000000ull);
+  int ra = d ? DECODE(d, frame0, frame0Size, 1, on_out, NULL) : 0;
+  int ka = d ? FAILURE(d) : -1;
+  printf("     after the sleep: %s\n", d ? LASTERR(d) : "");
+  int ra2 = d ? DECODE(d, frame0, frame0Size, 2, on_out, NULL) : 0;
+  expect(
+      "after it, the session fails as a device and sends nothing, not even "
+      "into the pool",
+      ra != 0 && ka == FAIL_DEVICE && ra2 != 0 && FAILURE(d) == FAIL_DEVICE &&
+          st.schedules == schedulesBefore12 && pool_untouched());
+  expect(
+      "its close skips the driver's own teardown and only destroys the "
+      "accelerator, in the background",
+      d && closed_quietly(d));
+
+  reset();
+  d = make();
+  sleep_for(10000000000ull);
+  expect("a session only closed after the wake closes the same way",
+         d && closed_quietly(d) && st.schedules == 0);
+
+  reset();
+  d = make();
+  fault.hang = true;
+  int rs12 = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : 0;
+  sleep_for(10000000000ull);
+  expect("a session stuck when the sleep came closes the same way",
+         rs12 != 0 && d && closed_quietly(d));
+
+  reset();
+  d = make();
+  fakeSleep.wakeUs += 1000000;  // a wake whose time asleep was not counted
+  int rw = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : 0;
+  expect("a new wake time alone counts as a sleep",
+         rw != 0 && d && FAILURE(d) == FAIL_DEVICE && st.schedules == 0);
+  if (d) closed_quietly(d);
+
+  reset();
+  d = make();
+  fakeSleep.asleepNs += 900000;  // 0.9 ms: the reading's error, no sleep
+  int rj12 = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  if (d) DESTROY(d);
+  expect("a change of the time asleep under 1 ms is not a sleep",
+         rj12 == 0 && st.deleteCtx == 1 && all_released());
+
+  reset();
+  Vcn* before = make();
+  sleep_for(10000000000ull);
+  int createsBefore = st.creates;
+  Vcn* beside = make();
+  expect(
+      "while a session from before the sleep is open, a new one is refused "
+      "before it opens anything",
+      before && !beside && st.creates == createsBefore);
+  if (beside) DESTROY(beside);
+  if (before) closed_quietly(before);
+
+  reset();
+  d = make();
+  int rn = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  if (d) DESTROY(d);
+  expect(
+      "once it is closed, a session opened after the wake decodes and closes "
+      "fully",
+      rn == 0 && st.deleteCtx == 1 && st.destroys == 1 && all_released() &&
+          released_in_order());
 
   if (argc == 3) hidden_frames(argv[2]);
 

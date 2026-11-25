@@ -258,7 +258,7 @@ static void destroy_now(VcnAV1* d) {
 
 void vcnav1_destroy(VcnAV1* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, vlog(), "AV1 session", ^{
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "AV1 session", ^{
     destroy_now(d);
   });
 }
@@ -647,6 +647,15 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
   d->dpb[slot] = target;
   pack_seq(d);
   pack_frame(d);
+  // Nothing goes into the pool or to the engine for a session from before a
+  // system sleep (vcndriver.h).
+  if (vcn_session_lost(&d->s)) {
+    d->broken = true;
+    d->failure = VCNAV1_FAIL_DEVICE;
+    snprintf(d->err, sizeof(d->err), "%s",
+             "the system slept since this session opened");
+    return -1;
+  }
   // bitstream: concatenated tile data
   int bi = d->bsNext;
   d->bsNext = (d->bsNext + 1) % NUM_BS;
@@ -743,10 +752,12 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
+  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck ? "the GPU did not finish an earlier frame"
-                      : "an earlier driver call failed");
+             d->stuck    ? "the GPU did not finish an earlier frame"
+             : d->s.lost ? "the system slept since it opened"
+                         : "an earlier driver call failed");
     d->failure = VCNAV1_FAIL_DEVICE;
     return -1;
   }

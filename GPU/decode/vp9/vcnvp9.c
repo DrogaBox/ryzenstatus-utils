@@ -655,7 +655,7 @@ static void destroy_now(VcnVP9* d) {
 
 void vcnvp9_destroy(VcnVP9* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, vlog(), "VP9 session", ^{
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "VP9 session", ^{
     destroy_now(d);
   });
 }
@@ -806,6 +806,15 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
   }
   if (d->dpb[slot]) CVPixelBufferRelease(d->dpb[slot]);
   d->dpb[slot] = target;
+  // Nothing goes into the pool or to the engine for a session from before a
+  // system sleep (vcndriver.h).
+  if (vcn_session_lost(&d->s)) {
+    d->broken = true;
+    d->failure = VCNVP9_FAIL_DEVICE;
+    snprintf(d->err, sizeof(d->err), "%s",
+             "the system slept since this session opened");
+    return -1;
+  }
   int bi = d->bsNext;
   d->bsNext = (d->bsNext + 1) % NUM_BS;
   memcpy(d->s.bsAddr[bi], data, size);
@@ -870,10 +879,12 @@ int vcnvp9_decode(VcnVP9* d, const uint8_t* chunk, size_t size, int64_t tag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
+  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck ? "the GPU did not finish an earlier frame"
-                      : "an earlier driver call failed");
+             d->stuck    ? "the GPU did not finish an earlier frame"
+             : d->s.lost ? "the system slept since it opened"
+                         : "an earlier driver call failed");
     d->failure = VCNVP9_FAIL_DEVICE;
     return -1;
   }

@@ -2,6 +2,31 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Decoders 0.3.6 (not released; host tests only)
+
+- A decode session from before a system sleep is no longer used after it. A user reported
+  that with the AV1 and VP9 decoders a wake from sleep hung the Mac a while later, with
+  glitches before it, and that a VP9 video came out red and broken in Chrome right after a
+  wake while Safari played it fine. Apple's kernel driver keeps a decoder's video context
+  across a sleep but restarts the video engine under it, and nothing tells the program
+  (see "A system sleep" in `docs/how-it-works.md`). The plug-ins now notice a sleep from the
+  time the Mac spent asleep or the time of its last wake, with no notification. A session
+  opened before it writes and sends nothing more: its frames fail as a malfunction
+  (-12911), so VideoToolbox makes a new session, and the host gets a working decoder again
+  or falls back to software. Closing such a session leaves out the driver's own teardown,
+  which would send the restarted engine a command for the lost session and wait for it
+  with no time limit; only the accelerator's connections are closed, on a background
+  thread. The MPEG-2, VC-1 and MPEG-4 decoders share the code and get the same.
+- While such a session is still open in a process, no new session opens there, in any of
+  the plug-ins: VideoToolbox decodes the new stream in software until the old sessions are
+  closed. The reporter's log showed why: a browser's decoder process kept two VP9 sessions
+  open across a sleep, the AV1 session it opened after the wake never decoded a frame, and
+  the Mac hung after the next wake.
+- `vtvp9test` has `-renew` (a new session for every `-loop` pass, in the same process) and
+  prints a line per pass with the time; `vtav1test` gets `-loop` and `-renew` too. They are
+  for the sleep test in `docs/testing.md`.
+- Not run across a real sleep yet.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

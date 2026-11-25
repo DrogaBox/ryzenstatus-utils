@@ -145,6 +145,47 @@ ends. A failed driver call or a stuck command is reported to VideoToolbox as a m
 `canAcceptFormatDescription` says no from then on. It reads the format under a lock of its
 own, so it never waits for a frame the GPU is decoding.
 
+### A system sleep (0.3.6)
+
+Apple's kernel driver keeps a decoder's video context across a sleep, but restarts the
+video engine under it. Read in IDA (AMDRadeonX6000, 26.7.3 KDK): `systemWillSleep` calls
+each video context's `setSuspendResumeState(false)`, which waits for the last command of
+every VCN ring and then stops the rings; `saveVCNSession`, called on the way down, is
+empty. At wake, `powerUpHW` and `internalDidWake` start the rings again, and
+`restoreVCNSession` only sends the context's clocks and power client again. Nothing tells
+the program: AMDRadeonVADriver2, AppleGVA and VideoToolbox have no sleep handling at all.
+The engine has lost the sessions it had (the driver sends a create-session command once,
+when a decoder opens, and a destroy-session command when it closes).
+
+So a session opened before a sleep is never used again (`vcn_session_lost` in
+`decode/common/vcnsession.c`). A sleep is seen without any notification: the time the Mac
+has spent asleep (`mach_continuous_time` minus `mach_absolute_time`) or the time of the
+last wake (`kern.waketime`) changed since the session opened. Such a session writes nothing
+more into its bitstream pool and schedules nothing; its frames fail as a malfunction, and
+VideoToolbox makes a new session, which opens on the restarted engine. Closing it skips
+`DeleteContexts`, `FreeBitstreamBufferPool` and `DeleteDriver`: the first sends the engine
+a destroy-session command for a session it no longer has and waits for it with no time
+limit, and `DeleteDriver` does the same for a context still open. Only
+`AVD_DestroyAVDAccelerator` runs, on the background queue: it closes the three IOKit
+connections, and the kernel's own close of the video context sends the engine nothing
+(`submitDestroyCommand` returns at once). What the driver allocated in the process stays
+until the process ends. A notification could not be used anyway: VideoToolbox's decoder
+service runs in a sandbox (`VTDecoderSandboxProfile.sb`) that does not allow the power
+domain's user client `IORegisterForSystemPower` opens.
+
+While a session from before a sleep is still open in a process, no new session opens in
+that process, in any of the plug-ins: `vcn_session_open` fails before it opens anything,
+and VideoToolbox gives the stream to another decoder (software). A reported hang began just
+so: a browser's decoder process kept two VP9 sessions open across a sleep, and the AV1
+session it opened after the wake never decoded a frame; the Mac hung after the next wake.
+Each plug-in bundle has its own copy of the session code, so they count each other's open
+sessions through the process's local notification center (`CFNotificationCenterGetLocalCenter`,
+which calls every observer on the posting thread). Once those sessions are closed, new ones
+open on the GPU again.
+
+The kernel side has been read, not run across a sleep with a decode going: the CPU tests
+(`sessiontest`, a made-up sleep) cover the plug-in side.
+
 ### The parsers
 
 The engine decodes the tile data; the host must read the headers. Each decoder has its own

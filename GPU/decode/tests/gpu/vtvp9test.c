@@ -4,7 +4,7 @@
 //   vtvp9test [-load bundle] list
 //       shows the vp09 decoders VideoToolbox knows about
 //   vtvp9test [-load bundle] file [reference] [-n] [-a] [-pace fps] [-loop N]
-//             [-frames N] [-id decoder] [-sw] [-attach]
+//             [-renew] [-frames N] [-id decoder] [-sw] [-attach]
 //             [-color primaries,transfer,matrix] [-hdr]
 //       decodes the file (IVF or WebM) and compares the MD5 of every frame as
 //       I420 with a reference in the format of FFmpeg's FATE suite
@@ -12,7 +12,10 @@
 // -load registers the bundle in this process only, nothing is installed on the
 // system. -n reads no pixels, -a decodes asynchronously, -pace feeds at a fixed
 // rate and reports lateness, -loop feeds the file N times in one session (a
-// seek back to a keyframe), -frames stops after N container frames, -id picks
+// seek back to a keyframe), -renew makes that a new session for every pass, in
+// this same process (a browser that opens one video after another), and with
+// -loop a line per pass says when it ended and how it went (for a run across a
+// system sleep), -frames stops after N container frames, -id picks
 // one decoder when several handle vp09, -sw doesn't ask for hardware.
 // -attach prints the colour attachments of the first picture, and again
 // whenever they change. The format description carries no colour unless
@@ -36,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "container.h"
@@ -231,7 +235,8 @@ static int usage(void) {
   fprintf(stderr,
           "usage: vtvp9test [-load bundle] list\n"
           "       vtvp9test [-load bundle] file [reference] [-n] [-a] "
-          "[-pace fps] [-loop N] [-frames N] [-id decoder] [-sw] [-attach]\n"
+          "[-pace fps] [-loop N] [-renew] [-frames N] [-id decoder] [-sw] "
+          "[-attach]\n"
           "       [-color primaries,transfer,matrix] [-hdr]\n"
           "A decode run goes to the GPU: there is no switch to arm.\n");
   return 1;
@@ -265,7 +270,7 @@ int main(int argc, char** argv) {
   if (!strcmp(argv[1], "list")) return list();
   if (argv[1][0] == '-') return usage();
   Ctx c = {0};
-  int async = 0, loops = 1, limit = 0, require_hw = 1;
+  int async = 0, loops = 1, limit = 0, require_hw = 1, renew = 0;
   // -color: the colour a container would give (vpcC and the format
   // description's extensions), as Safari passes a WebM Colour element. 2 =
   // unspecified, what a stream with no container colour gets.
@@ -296,6 +301,8 @@ int main(int argc, char** argv) {
       pace = v;
     } else if (!strcmp(argv[i], "-loop") && i + 1 < argc) {
       if ((loops = parse_count(argv[++i], 1)) < 0) return fail("invalid -loop");
+    } else if (!strcmp(argv[i], "-renew")) {
+      renew = 1;
     } else if (!strcmp(argv[i], "-frames") && i + 1 < argc) {
       if ((limit = parse_count(argv[++i], 0)) < 0)
         return fail("invalid -frames");
@@ -442,7 +449,34 @@ int main(int argc, char** argv) {
 
   double t0 = now_ms();
   size_t fed = 0;
+  int passFrames = 0, passMismatches = 0, passErrors = 0;
   for (int l = 0; l < loops; l++) {
+    if (l > 0 && loops > 1) {
+      // The pass before is all out: say how it went, with the wall clock, so
+      // that a pass across a sleep can be told from the ones before and after.
+      VTDecompressionSessionWaitForAsynchronousFrames(sess);
+      time_t now = time(NULL);
+      char when[32];
+      strftime(when, sizeof(when), "%H:%M:%S", localtime(&now));
+      printf("pass %d ended %s: %d frames, %d mismatches, %d errors\n", l, when,
+             c.frames - passFrames, c.mismatches - passMismatches,
+             c.errors - passErrors);
+      fflush(stdout);
+      passFrames = c.frames;
+      passMismatches = c.mismatches;
+      passErrors = c.errors;
+    }
+    if (l > 0 && renew) {
+      VTDecompressionSessionInvalidate(sess);
+      CFRelease(sess);
+      sess = NULL;
+      st = VTDecompressionSessionCreate(NULL, fmt, spec, NULL, &cb, &sess);
+      if (st) {
+        printf("pass %d: VTDecompressionSessionCreate = %d\n", l + 1, (int)st);
+        c.errors++;
+        break;
+      }
+    }
     if (c.ref) {
       // Every pass over the file starts the reference again, once the frames
       // of the pass before are all out.
@@ -482,8 +516,16 @@ int main(int argc, char** argv) {
       CFRelease(bb);
     }
   }
-  VTDecompressionSessionWaitForAsynchronousFrames(sess);
+  if (sess) VTDecompressionSessionWaitForAsynchronousFrames(sess);
   double t = now_ms() - t0;
+  if (loops > 1) {
+    time_t now = time(NULL);
+    char when[32];
+    strftime(when, sizeof(when), "%H:%M:%S", localtime(&now));
+    printf("last pass ended %s: %d frames, %d mismatches, %d errors\n", when,
+           c.frames - passFrames, c.mismatches - passMismatches,
+           c.errors - passErrors);
+  }
   // A decoder that shows fewer frames than the reference lists must not pass.
   // With -frames the file was cut short on purpose.
   int missing = 0;
@@ -513,8 +555,10 @@ int main(int argc, char** argv) {
         "50 ms %d (of %zu)\n",
         pace, sum / (double)total, mx, late33, late50, total);
   }
-  VTDecompressionSessionInvalidate(sess);
-  CFRelease(sess);
+  if (sess) {
+    VTDecompressionSessionInvalidate(sess);
+    CFRelease(sess);
+  }
   return c.mismatches || missing || c.errors ||
                  c.frames + c.dropped != (int)total
              ? 2
