@@ -17,6 +17,7 @@ the parts installed. The second part is for whoever adds support for a new build
 | VCNVTLoader | your OpenCore EFI | Still there. It acts only if AMFI's function starts as it expects |
 | Encoding fix | the service in `/usr/local/libexec` and `/Library/LaunchDaemons`, the kext on your EFI | Still there. Both halves stay off on a build they were not validated for |
 | GPU sensors | your OpenCore EFI | Still there. It acts only if the driver's function starts as it expects |
+| JPEG decoder (optional) | the kext on your EFI, the plug-in on the system volume | The plug-in is gone like the decoders. The kext stays off: it knows 26.7.3 (25G342) only |
 
 **The decoders are lost.** `install/decoders.sh install` put them into a changed copy of
 the system volume and booted from a new snapshot of it. A macOS update writes a new system
@@ -272,6 +273,20 @@ The prologue says nothing about the table itself: what each id means was read in
 driver, the fine points in that of 26.7.3 ([sensors/README.md](../sensors/README.md)).
 After booting a new build, `sensors/build/gpusensors --compare` must show the same values
 as macOS for the readings both publish (see [testing.md](testing.md)).
+
+### VCNJpeg
+
+The kext knows one build: `jpeg/kext/hwlibs_expect.hpp` holds the LC_UUID of
+`AMDRadeonX6000HWLibs` and `AMDRadeonX6000` of 26.7.3, and the offset and first 16 bytes of
+the 20 functions it calls or routes. `jpeg/kext/jpeg_layout.hpp` holds the offsets it reads
+inside the driver's objects. On another build it stays off (`off: AMDRadeonX6000HWLibs
+build not validated`), and the JPEG plug-in finds no decoder, so VideoToolbox uses Apple's.
+
+Adding a build means reading the code that uses each function and offset again in that
+build's KDK (or kernel collection), regenerating the table with `jpeg/tools/gen_expect.py`,
+and a run of `decode/tests/gpu/vtjpegtest` on a card. Until then its `jpeg` value in
+`install/validated-builds.json` stays `false` (`install/check_lists.sh` refuses anything
+else for a build the table does not name).
 
 ### A new macOS version
 

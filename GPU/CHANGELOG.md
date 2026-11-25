@@ -2,6 +2,23 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## JPEG decoder 1.0.0 (not released; host tests only, not booted)
+
+- New, optional, macOS 26.7.3 only: `VCNJpeg.kext` (`jpeg/`) and the VideoToolbox plug-in
+  `JPEGVCNDecoder.bundle` (`decode/jpeg/`) decode JPEG and Motion JPEG (`jpeg`, `dmb1`) on
+  the JPEG block of the VCN, which Apple's driver carries but never starts. Baseline 4:2:0
+  and 4:2:2; anything else goes to Apple's software decoder.
+- The kext creates the JPEG queue and a 128 MiB block of buffers (`vcnjpegpool=<MiB>`, 8 to
+  128) when the driver starts its video queues, and powers the block only while pictures
+  arrive: PowerPlay client 21 and the queue start with the first picture, both are given
+  back two seconds after the last one.
+- Off by default: `install/install.sh --with-jpeg`, or `install/jpeg.sh install` and
+  `install/decoders.sh install --jpeg`. The package carries them only when built with
+  `VCNVT_JPEG_DECODER=1`. The loader kext lists the JPEG plug-in too.
+- It comes from the test kext that decoded through the same plug-in on an RX 6800 XT
+  (4:2:0, 4:2:2 and `dmb1` at 1280x720, under 5 ms a frame, within 1 of FFmpeg). The
+  product kext itself has not run yet.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

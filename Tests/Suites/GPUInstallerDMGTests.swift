@@ -269,7 +269,7 @@ enum GPUInstallerDMGTests {
         suite.expect(main.contains("if let sns = sensors, sns.toolsOnly == true {"),
                      "the guided install ticks GPU sensors when only the commands need copying")
         suite.expect(install.contains("tools)    /bin/zsh \"$SELF_DIR/sensors.sh\" tools ;;")
-                         && install.contains("for part in loader decoders encoder sensors tools; do"),
+                         && install.contains("for part in loader decoders encoder sensors jpeg tools; do"),
                      "install.sh copies just the commands, last, when the sensors kext is in place")
     }
 

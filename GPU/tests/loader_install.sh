@@ -342,15 +342,17 @@ dspy $T/other 'd["pending"] == "none"' && ok "a removal from another boot sessio
 #     (put_decoders and what it uses) run on a made-up system volume and /Library folder;
 #     chown is left out (not root), everything else is the script's own code.
 LEG=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
-put_fns=$(for f in safe_rm_bundle source_ok install_one drop_stale_legacy put_decoders; do sed -n "/^$f() {/,/^}/p" $D; done)
+put_fns=$(for f in safe_rm_bundle source_ok install_one drop_stale_legacy drop_stale_jpeg put_decoders; do sed -n "/^$f() {/,/^}/p" $D; done)
 SYS=$T/leg-sys/System/Library/Video/Plug-Ins
 LIBP=$T/leg-lib/Library/Video/Plug-Ins
 mkdir -p $SYS $LIBP
-dput() { # [legacy]: put_decoders as decoders.sh install runs it, with or without --legacy
-  VCNVT_LEGACY_DECODERS=$([[ ${1:-} == legacy ]] && print 1 || print 0) /bin/zsh -c 'emulate -L zsh; setopt no_unset; ROOT=$1; source $ROOT/install/common.zsh
+dput() { # [legacy|jpeg]: put_decoders as decoders.sh install runs it, with or without --legacy / --jpeg
+  VCNVT_LEGACY_DECODERS=$([[ ${1:-} == legacy ]] && print 1 || print 0) VCNVT_JPEG_DECODER=$([[ ${1:-} == jpeg ]] && print 1 || print 0) \
+  /bin/zsh -c 'emulate -L zsh; setopt no_unset; ROOT=$1; source $ROOT/install/common.zsh
     BUNDLES=$ROOT/decode/build; MNT=$2; PLUGDIR=System/Library/Video/Plug-Ins; LIBPLUG=$3
     AV1=AV1VCNDecoder.bundle; VP9=VP9VCNDecoder.bundle; WANT=($AV1 $VP9); legacy_on && WANT+=($LEGACY_BUNDLES)
-    ALL=($AV1 $VP9 $LEGACY_BUNDLES); chown() { :; }; eval "$4"; put_decoders' \
+    jpeg_on && WANT+=($JPEG_BUNDLE)
+    ALL=($AV1 $VP9 $LEGACY_BUNDLES $JPEG_BUNDLE); chown() { :; }; eval "$4"; put_decoders' \
     dput "$ROOT" $T/leg-sys $LIBP "$put_fns"
 }
 nleg() { local n=0 b; for b in $LEG; do [[ -e $1/$b ]] && n=$((n + 1)); done; print $n; }
@@ -384,6 +386,13 @@ dspy $T/leg-running2 'd["pending"] == "install" and [c for c in d["checks"] if c
   ok "after an install without --legacy in this boot: the left-over legacy plug-in goes at the reboot, no warning" || bad "stale pending: $(dcheck $T/leg-running2 --json)"
 dput legacy > /dev/null 2>&1 && [[ $(nleg $SYS) == 3 ]] && dput legacy > $T/lp4.out 2>&1 && [[ $(nleg $SYS) == 3 ]] && ! grep -q removed $T/lp4.out &&
   ok "install --legacy keeps them" || bad "legacy kept: $(cat $T/lp4.out)"
+# 17. The JPEG plug-in works the same way with --jpeg.
+dput jpeg > $T/lj1.out 2>&1 && [[ -d $SYS/JPEGVCNDecoder.bundle && $(nleg $SYS) == 0 && -d $SYS/AV1VCNDecoder.bundle ]] &&
+  ok "install --jpeg: AV1, VP9 and JPEG on the system volume (the legacy ones taken off)" || bad "install --jpeg: $(cat $T/lj1.out)"
+dlcheck $SYS --json | spy 'd["installed"] == "outdated" and [c for c in d["checks"] if c["id"] == "jpeg-left" and c["status"] == "warn"]' &&
+  ok "check without --jpeg sees the JPEG plug-in left over: a warning, installed outdated" || bad "check jpeg stale: $(dlcheck $SYS --json)"
+dput > $T/lj2.out 2>&1 && [[ ! -e $SYS/JPEGVCNDecoder.bundle && -d $SYS/AV1VCNDecoder.bundle ]] && grep -q "removed .*JPEGVCNDecoder.bundle (an earlier install with --jpeg put it there)" $T/lj2.out &&
+  ok "install without --jpeg takes the JPEG plug-in off, keeps AV1 and VP9" || bad "install drops jpeg: $(cat $T/lj2.out; ls $SYS)"
 
 cd /; /bin/rm -rf -- "$T"
 print "loader install tests: $pass passed, $fail failed"

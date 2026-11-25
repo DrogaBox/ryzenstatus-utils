@@ -68,6 +68,12 @@ zsh $G/build.sh
 print "▸ Every symbol the kexts import exists here (GPU/tools/kextlinks.sh)"
 ENC=$G/encode/dist/VCNEncodeFix-$(cat $G/encode/VERSION)
 KEXTS=($G/sensors/build/GPUSensors.kext $G/decode/build/VCNVTLoader.kext $ENC/Kexts/VCNEncodeFloor.kext)
+# The JPEG plug-in and its kext ship only with VCNVT_JPEG_DECODER=1 (GPU/tools/package.sh).
+JPEG=()
+if [[ ${VCNVT_JPEG_DECODER:-0} == 1 ]]; then
+  KEXTS+=($G/jpeg/build/VCNJpeg.kext)
+  JPEG=($G/decode/build/JPEGVCNDecoder.bundle)
+fi
 zsh $G/tools/kextlinks.sh $KEXTS || fail "a kext imports a symbol this Mac's kernel and Lilu do not export"
 
 print "▸ Signatures"
@@ -75,7 +81,7 @@ print "▸ Signatures"
 LEGACY=()
 [[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]] &&
   LEGACY=($G/decode/build/MPEG2VCNDecoder.bundle $G/decode/build/VC1VCNDecoder.bundle $G/decode/build/MPEG4VCNDecoder.bundle)
-for signed in $G/decode/build/AV1VCNDecoder.bundle $G/decode/build/VP9VCNDecoder.bundle $LEGACY \
+for signed in $G/decode/build/AV1VCNDecoder.bundle $G/decode/build/VP9VCNDecoder.bundle $LEGACY $JPEG \
               $G/decode/build/lvprobe $G/decode/build/kextentry $KEXTS \
               $G/sensors/build/gpusensors $G/sensors/build/gpucontrol $ENC/bin/vcnencodefix $ENC/bin/vtenc; do
   why=$(codesign --verify --deep --strict "$signed" 2>&1) ||
@@ -96,7 +102,9 @@ extra=$(find $P \( -name '*.dSYM' -o -name obj -o -name '*.o' -o -path "$P/insta
              -o -name check_lists.sh -o -name .DS_Store \) -print)
 [[ -z $extra ]] || fail "files that do not belong in the parts:"$'\n'"$extra"
 top=$(cd $P && ls -A | LC_ALL=C sort | tr '\n' ' ')
-want="BUILD-INFO.txt CHANGELOG.md LICENSE NOTICE.md README.md SHA256SUMS decode docs encode install sensors tools "
+want="BUILD-INFO.txt CHANGELOG.md LICENSE NOTICE.md README.md SHA256SUMS decode docs encode install"
+(( ${#JPEG} )) && want+=" jpeg"
+want+=" sensors tools "
 [[ $top == "$want" ]] || fail "the top of the parts is '$top', expected '$want'"
 for needed in install/install.sh install/check.sh install/decoders.sh install/loader.sh install/encoder.sh \
               install/sensors.sh install/undo.sh install/common.zsh install/efikext.zsh \

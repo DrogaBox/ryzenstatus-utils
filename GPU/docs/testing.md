@@ -63,6 +63,10 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
 
 - Decoding against references, in a test process, without installing anything: see
   `decode/tests/gpu/README.md`.
+- JPEG, after the reboot that starts `VCNJpeg.kext`: `install/jpeg.sh check` must end in
+  "working"; `decode/tests/gpu/vtjpegtest` on 4:2:0, 4:2:2 and `dmb1` clips must match
+  FFmpeg within 2; `ioreg -rd1 -c IOResources | grep VCNJpeg` must show `Powered` = Yes
+  while it decodes and No two seconds later, and `Jobs` going up.
 - Encoding: `test.sh` (two short encodes with reference numbers, three with `--wide`) and
   `doctor.sh`, run from the built package folder `encode/dist/VCNEncodeFix-<version>`
   (the copies in `encode/scripts` look for `bin/vtenc` next to themselves). Close any video

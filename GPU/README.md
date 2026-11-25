@@ -16,6 +16,7 @@ without replacing any Apple driver:
 | **Decoders** (`decode/`) | Safari and Chrome play AV1 and VP9 video (YouTube up to 4K60 and 8K) on the GPU instead of the CPU | Two of macOS's VideoToolbox plug-ins that send AV1 and VP9 to the card's video engine through Apple's own driver |
 | **Encoding fix** (`encode/`, optional) | Hardware HEVC/H.264 encoding at full speed: OBS at 4K60 without repeated frames, sizes wider than 4096 without GPU stalls | A small kernel extension for Lilu (a kext OpenCore loads, 1.7.0 or newer) that keeps the video engine's clocks up while encoding, and a service that corrects two settings in Apple's encoder process |
 | **GPU sensors** (`sensors/`, optional) | Edge, memory and VR temperatures, voltages, throttling, video and fabric clocks, and PCIe link | A Lilu kernel extension that publishes the readings Apple's AMD driver already takes and hides, and `gpusensors` to print them |
+| **JPEG decoder** (`jpeg/`, optional, macOS 26.7.3 only) | Motion JPEG (webcam recordings, camera clips) decoded on the GPU in apps that use VideoToolbox | A Lilu kernel extension that starts the card's JPEG block, which Apple's driver carries but never uses, and a VideoToolbox plug-in for `jpeg` and `dmb1` |
 | **Installer app** (`installer/`, optional) | Graphical front end for checking, installing, updating and removing each part | A SwiftUI app for the command-line tools in `install/` |
 
 ## Before you start
@@ -38,6 +39,7 @@ Inc.
 | Encoding fix kext (`encode/kext/`) | 1.3.0 (code as 1.2.6) | RX 6800 XT (Tahoe 26.7.3); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3); Navi 23 static only |
 | Encoding fix service (`encode/tool/`) | 1.3.0 | RX 6800 XT (Tahoe 26.7.3; FaceTime encoder part in a test process); 1.2.1 reported on RX 6900 XT (Sequoia 15.8.3); cc decoder part run with an iPhone camera on RX 6900 XT (15.8.2) |
 | GPU sensors kext (`sensors/`) | 0.8.1 | 0.8.0 on RX 6800 XT (Tahoe 26.7.3) |
+| JPEG decoder kext (`jpeg/`) | 1.0.0 | not run yet; the test kext it comes from decoded through the same plug-in on RX 6800 XT (Tahoe 26.7.3) |
 
 Full test results, dates and what has never been tried are in [docs/status.md](docs/status.md).
 
@@ -102,6 +104,7 @@ in [install/README.md](install/README.md#undo-everything).
 | `decode/` | The two decoder plug-ins: `av1/`, `vp9/`, the code they share in `common/`, the kext that lets them load without AMFIPass in `loader/`, and their tests |
 | `encode/` | The encoding fix: `kext/`, the service in `tool/`, a test encoder in `vtenc/`, its scripts and tests |
 | `sensors/` | The GPU sensors: a kext that publishes the readings the driver takes and hides, and `gpusensors` to show them |
+| `jpeg/` | The JPEG decoder kext; its VideoToolbox plug-in is in `decode/jpeg/` |
 | `install/` | Command-line installers and the list of validated macOS builds |
 | `installer/` | Graphical installer app (SwiftUI front end for `install/`) |
 | `tools/` | Dependency bootstrap, the repository cleanliness check, formatting, binary comparison, driver validation helpers |
