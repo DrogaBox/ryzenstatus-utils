@@ -39,7 +39,11 @@
 //      a frame decodes;
 //  15. an invalidate on another thread while a decode has passed its check
 //      for invalidate and not yet queued its frame returns only after that
-//      decode has queued it, and the frame is emitted.
+//      decode has queued it, and the frame is emitted;
+//  16. (AV1, VP9) the picture handed back carries the colour attachments:
+//      AV1 takes the stream's values before the format description's, VP9
+//      the format description's before the stream's, each value on its own;
+//      a picture with no colour from either loses what an earlier one left.
 //
 // usage: plugintest   (exit status 0 = pass)
 #include <CoreFoundation/CoreFoundation.h>
@@ -282,6 +286,12 @@ CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d) {
   (void)d;
   return hiddenOnly ? picture : NULL;
 }
+static VcnColor streamColor = {
+    .primaries = -1, .transfer = -1, .matrix = -1};  // what the stand-in says
+void vcnav1_color(VcnAV1* d, VcnColor* c) {
+  (void)d;
+  *c = streamColor;
+}
 #elif defined(TEST_LEGACY)
 // The codec layer the plug-in drives, and the two functions of
 // common/vcnlegacy.c it calls itself.
@@ -369,6 +379,11 @@ int vcnvp9_failure(VcnVP9* d) {
 CVPixelBufferRef vcnvp9_hidden_picture(VcnVP9* d) {
   (void)d;
   return hiddenOnly ? picture : NULL;
+}
+static VcnColor streamColor = {.primaries = -1, .transfer = -1, .matrix = -1};
+void vcnvp9_color(VcnVP9* d, VcnColor* c) {
+  (void)d;
+  *c = streamColor;
 }
 #else
 int vcnjpeg_gpu_armed;
@@ -487,6 +502,167 @@ static CMVideoFormatDescriptionRef format(CMVideoCodecType codec,
   if (ext) CFRelease(ext);
   return f;
 }
+
+#if defined(TEST_AV1) || defined(TEST_VP9)
+static VTVideoDecoderRef dec;
+// Test 16: a format description with colour extensions; NULL values are left
+// out.
+static CMVideoFormatDescriptionRef color_format(CFStringRef prim,
+                                                CFStringRef tf, CFStringRef mat,
+                                                const uint8_t* mdcv,
+                                                const uint8_t* cll) {
+  CFMutableDictionaryRef ext =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  if (prim)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_ColorPrimaries,
+                         prim);
+  if (tf)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_TransferFunction,
+                         tf);
+  if (mat)
+    CFDictionarySetValue(ext, kCMFormatDescriptionExtension_YCbCrMatrix, mat);
+  if (mdcv) {
+    CFDataRef d = CFDataCreate(NULL, mdcv, 24);
+    CFDictionarySetValue(
+        ext, kCMFormatDescriptionExtension_MasteringDisplayColorVolume, d);
+    CFRelease(d);
+  }
+  if (cll) {
+    CFDataRef d = CFDataCreate(NULL, cll, 4);
+    CFDictionarySetValue(
+        ext, kCMFormatDescriptionExtension_ContentLightLevelInfo, d);
+    CFRelease(d);
+  }
+  CMVideoFormatDescriptionRef f = NULL;
+  CMVideoFormatDescriptionCreate(NULL, CODEC, 64, 64, ext, &f);
+  CFRelease(ext);
+  return f;
+}
+// The picture's attachment for key is the string want (NULL: none).
+static bool has_name(CFStringRef key, CFStringRef want) {
+  CFTypeRef v = CVBufferCopyAttachment(picture, key, NULL);
+  bool ok = want ? v && CFEqual(v, want) : !v;
+  if (v) CFRelease(v);
+  return ok;
+}
+// The picture's attachment for key is these n bytes (NULL: none).
+static bool has_bytes(CFStringRef key, const uint8_t* want, CFIndex n) {
+  CFTypeRef v = CVBufferCopyAttachment(picture, key, NULL);
+  bool ok = want ? v && CFGetTypeID(v) == CFDataGetTypeID() &&
+                       CFDataGetLength(v) == n &&
+                       !memcmp(CFDataGetBytePtr(v), want, (size_t)n)
+                 : !v;
+  if (v) CFRelease(v);
+  return ok;
+}
+static void decode_with(CMVideoFormatDescriptionRef f) {
+  dec_start_session(dec, NULL, f);
+  CMSampleBufferRef sb = sample(1);
+  dec_decode_frame(dec, NULL, sb, 0, NULL);
+  CFRelease(sb);
+}
+static void color_tests(void) {
+#if defined(TEST_AV1)
+  static const uint8_t mdcvA[24] = {1,  2,  3,  4,  5,  6,  7,  8,
+                                    9,  10, 11, 12, 13, 14, 15, 16,
+                                    17, 18, 19, 20, 21, 22, 23, 24};
+#endif
+  static const uint8_t mdcvB[24] = {0x3d, 0x13, 0x86, 0xc4};
+  static const uint8_t cllB[4] = {0x03, 0xe8, 0x01, 0x90};
+  CMVideoFormatDescriptionRef sdr =
+      color_format(kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
+                   kCMFormatDescriptionTransferFunction_ITU_R_709_2,
+                   kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2, mdcvB, cllB);
+  CMVideoFormatDescriptionRef pqOnly =
+      color_format(NULL, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ,
+                   NULL, NULL, NULL);
+  CMVideoFormatDescriptionRef none = format(CODEC, NULL, 0);
+#if defined(TEST_AV1)
+  // The sequence header says BT.2020 PQ and the stream sent a mastering
+  // display; the container says BT.709 and has both kinds of metadata.
+  vcn_color_clear(&streamColor);
+  streamColor.primaries = 9;
+  streamColor.transfer = 16;
+  streamColor.matrix = 9;
+  streamColor.has_mdcv = true;
+  memcpy(streamColor.mdcv, mdcvA, 24);
+  decode_with(sdr);
+  expect("AV1: the sequence header's colour wins over the container's",
+         has_name(kCVImageBufferColorPrimariesKey,
+                  kCVImageBufferColorPrimaries_ITU_R_2020) &&
+             has_name(kCVImageBufferTransferFunctionKey,
+                      kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) &&
+             has_name(kCVImageBufferYCbCrMatrixKey,
+                      kCVImageBufferYCbCrMatrix_ITU_R_2020));
+  expect(
+      "AV1: the stream's mastering display wins, the container's light "
+      "level fills in",
+      has_bytes(kCVImageBufferMasteringDisplayColorVolumeKey, mdcvA, 24) &&
+          has_bytes(kCVImageBufferContentLightLevelInfoKey, cllB, 4));
+  // Unspecified (2) in the sequence header: the container's values.
+  streamColor.primaries = streamColor.transfer = streamColor.matrix = 2;
+  streamColor.has_mdcv = false;
+  decode_with(sdr);
+  expect(
+      "AV1: an unspecified sequence header takes the container's colour",
+      has_name(kCVImageBufferColorPrimariesKey,
+               kCVImageBufferColorPrimaries_ITU_R_709_2) &&
+          has_name(kCVImageBufferTransferFunctionKey,
+                   kCVImageBufferTransferFunction_ITU_R_709_2) &&
+          has_bytes(kCVImageBufferMasteringDisplayColorVolumeKey, mdcvB, 24));
+  streamColor.primaries = 9;
+  streamColor.matrix = 9;
+  decode_with(pqOnly);
+  expect(
+      "AV1: each value on its own (primaries and matrix from the stream, "
+      "transfer from the container)",
+      has_name(kCVImageBufferColorPrimariesKey,
+               kCVImageBufferColorPrimaries_ITU_R_2020) &&
+          has_name(kCVImageBufferTransferFunctionKey,
+                   kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) &&
+          has_name(kCVImageBufferYCbCrMatrixKey,
+                   kCVImageBufferYCbCrMatrix_ITU_R_2020));
+#else
+  // color_space BT.2020 names primaries and matrix, never the transfer.
+  vcn_color_clear(&streamColor);
+  streamColor.primaries = streamColor.matrix = 9;
+  decode_with(pqOnly);
+  expect("VP9: the container's transfer, the bitstream's primaries and matrix",
+         has_name(kCVImageBufferColorPrimariesKey,
+                  kCVImageBufferColorPrimaries_ITU_R_2020) &&
+             has_name(kCVImageBufferTransferFunctionKey,
+                      kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) &&
+             has_name(kCVImageBufferYCbCrMatrixKey,
+                      kCVImageBufferYCbCrMatrix_ITU_R_2020) &&
+             has_bytes(kCVImageBufferMasteringDisplayColorVolumeKey, NULL, 24));
+  decode_with(sdr);
+  expect(
+      "VP9: the container's colour wins over the bitstream's, with its "
+      "HDR metadata",
+      has_name(kCVImageBufferColorPrimariesKey,
+               kCVImageBufferColorPrimaries_ITU_R_709_2) &&
+          has_name(kCVImageBufferYCbCrMatrixKey,
+                   kCVImageBufferYCbCrMatrix_ITU_R_709_2) &&
+          has_bytes(kCVImageBufferMasteringDisplayColorVolumeKey, mdcvB, 24) &&
+          has_bytes(kCVImageBufferContentLightLevelInfoKey, cllB, 4));
+#endif
+  // Nothing from either: what the earlier pictures left is taken off.
+  vcn_color_clear(&streamColor);
+  decode_with(none);
+  expect(
+      "a picture with no colour from stream or container loses the old "
+      "tags",
+      has_name(kCVImageBufferColorPrimariesKey, NULL) &&
+          has_name(kCVImageBufferTransferFunctionKey, NULL) &&
+          has_name(kCVImageBufferYCbCrMatrixKey, NULL) &&
+          has_bytes(kCVImageBufferMasteringDisplayColorVolumeKey, NULL, 24) &&
+          has_bytes(kCVImageBufferContentLightLevelInfoKey, NULL, 4));
+  CFRelease(sdr);
+  CFRelease(pqOnly);
+  CFRelease(none);
+}
+#endif
 
 static VTVideoDecoderRef dec;
 static int reentered;
@@ -639,6 +815,11 @@ int main(void) {
   CFRelease(nomem);
   expect("a new start takes the format again",
          !dec_start_session(dec, NULL, fmt) && dec_can_accept_format(dec, fmt));
+#if defined(TEST_AV1) || defined(TEST_VP9)
+  color_tests();
+  expect("the session takes the first format again",
+         !dec_start_session(dec, NULL, fmt) && dec_can_accept_format(dec, fmt));
+#endif
 
   // A decode holds the session while the GPU works on its frame.
   CMSampleBufferRef slow = sample(5);

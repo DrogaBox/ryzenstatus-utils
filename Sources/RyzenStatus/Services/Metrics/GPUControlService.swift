@@ -51,6 +51,11 @@ final class GPUControlService: ObservableObject {
     @Published private(set) var armTool: GPUControlArmTool.Availability = .missing
     @Published private(set) var isArming = false
     @Published private(set) var armFailed = false
+    /// "Allow changes after restart too": the daemon is installed
+    /// (`GPUControlBootArm`). Read from the disk, never from a preference.
+    @Published private(set) var bootArm = false
+    @Published private(set) var isChangingBootArm = false
+    @Published private(set) var bootArmFailed = false
     @Published private(set) var mode: GPUControlConnectionMode = .none
     /// The "remember" box (off by default).
     @Published var remember: Bool {
@@ -201,6 +206,42 @@ final class GPUControlService: ObservableObject {
         }
     }
 
+    /// The switch: installs or removes the start-up daemon, through the
+    /// administrator dialog, only when the owner flips it. Turning it on is
+    /// offered only while the button would be (the tool is installed safely);
+    /// turning it off always is.
+    func setBootArm(_ on: Bool, prompt: String) {
+        guard !isChangingBootArm, on != bootArm else { return }
+        if fake != nil {
+            bootArm = on
+            if on { fake?.arm() }
+            refreshNow()
+            return
+        }
+        if on {
+            refreshArmTool()
+            guard armTool == .button else { return }
+        }
+        isChangingBootArm = true
+        bootArmFailed = false
+        let command = on ? GPUControlBootArm.installCommand : GPUControlBootArm.removeCommand
+        AdminShell.run(command, prompt: prompt) { ok in
+            Task { @MainActor in
+                let service = GPUControlService.shared
+                service.isChangingBootArm = false
+                service.refreshBootArm()
+                service.bootArmFailed = !ok || service.bootArm != on
+                service.refreshNow()
+            }
+        }
+    }
+
+    private func refreshBootArm() {
+        guard fake == nil else { return }
+        let installed = GPUControlBootArm.isInstalled()
+        if bootArm != installed { bootArm = installed }
+    }
+
     // MARK: On screen
 
     /// The page or the row appeared: read every second while one shows.
@@ -251,6 +292,7 @@ final class GPUControlService: ObservableObject {
     private func refreshArmTool() {
         armTool = fake != nil ? .button
             : GPUControlArmTool.availability()
+        refreshBootArm()
     }
 
     /// The model's properties, as the kext would publish them.

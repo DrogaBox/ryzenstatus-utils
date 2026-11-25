@@ -31,7 +31,11 @@
 //      the hidden frame sent alone (as FFmpeg sends frames) shows nothing and
 //      leaves its picture in *_hidden_picture, the rest of the sample then
 //      shows one frame and clears it; a frame whose reference was never
-//      decoded is a reference failure, not a stream failure.
+//      decoded is a reference failure, not a stream failure;
+//  11. (AV1) a 12-bit sequence header is refused as unsupported (VideoToolbox
+//      then gives the stream to the software decoder); a 10-bit BT.2020 PQ
+//      one is taken, and the session reports its colour and the light level
+//      of its metadata OBU (vcnav1_color).
 //
 // usage: sessiontest <small IVF clip of the codec> [clip with hidden frames]
 // Exit status 0 = pass.
@@ -47,6 +51,7 @@
 #include "vcndriver.h"
 
 #if defined(TEST_AV1)
+#include "obuwrite.h"
 #include "vcnav1.h"
 typedef VcnAV1 Vcn;
 #define CREATE vcnav1_create
@@ -591,6 +596,32 @@ int main(int argc, char** argv) {
   (void)k1;
   if (d) DESTROY(d);
   expect("and the session closes fully", all_released() && st.destroys == 1);
+
+#if defined(TEST_AV1)
+  reset();
+  d = make();
+  uint8_t obus[128];
+  size_t on = obu_sequence_header(obus, 0, 2, 12, 9, 16, 9, 0);
+  int r12 = d ? vcnav1_configure(d, obus, on) : 0;
+  expect("a 12-bit sequence header is refused as unsupported",
+         d && r12 == VCNAV1_UNSUPPORTED);
+  if (d) DESTROY(d);
+  reset();
+  d = make();
+  on = obu_sequence_header(obus, 0, 0, 10, 9, 16, 9, 0);
+  on = obu_cll(obus, on, 1000, 400);
+  int r10 = d ? vcnav1_configure(d, obus, on) : -1;
+  VcnColor col;
+  vcnav1_color(d, &col);
+  expect(
+      "a 10-bit BT.2020 PQ one is taken, and gives its colour and light "
+      "level",
+      d && r10 == 0 && col.primaries == 9 && col.transfer == 16 &&
+          col.matrix == 9 && col.has_cll && !col.has_mdcv &&
+          col.cll[0] == 0x03 && col.cll[1] == 0xe8 && col.cll[3] == 0x90);
+  if (d) DESTROY(d);
+  expect("and both sessions close fully", all_released());
+#endif
 
   reset();
   d = make();

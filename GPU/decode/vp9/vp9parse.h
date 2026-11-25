@@ -52,6 +52,12 @@ typedef struct {
   // The last chunk failed on a reference never decoded. After err, so the
   // parser test's digest (everything before err) is the same as before.
   bool missing_ref;
+  // color_space and color_range of the last colour config read (key frames,
+  // intra-only frames of profiles 1 to 3); -1 until one is read. After err
+  // too. A profile 0 intra-only frame codes none and keeps them: the BT.601
+  // the spec gives it is the profile's default, not a change of the stream's
+  // colour.
+  int color_space, color_range;
 } VP9Parser;
 
 typedef enum { VP9_PARSE_DECODE, VP9_PARSE_SHOW_EXISTING } VP9ParseResult;

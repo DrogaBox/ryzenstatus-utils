@@ -272,6 +272,20 @@ int vcnav1_failure(VcnAV1* d) { return d ? d->failure : VCNAV1_FAIL_DEVICE; }
 CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d) {
   return d && !d->shown ? d->hidden : NULL;
 }
+void vcnav1_color(VcnAV1* d, VcnColor* c) {
+  vcn_color_clear(c);
+  if (!d) return;
+  const AV1Seq* s = &d->parser.seq;
+  // Without color_description_present_flag the sequence header says nothing
+  // (5.5.2: the three are then "unspecified").
+  if (s->valid && s->color_description_present_flag) {
+    c->primaries = s->color_primaries;
+    c->transfer = s->transfer_characteristics;
+    c->matrix = s->matrix_coefficients;
+  }
+  c->has_mdcv = av1_hdr_mdcv(&d->parser.hdr, c->mdcv);
+  c->has_cll = av1_hdr_cll(&d->parser.hdr, c->cll);
+}
 
 static inline void S32(uint8_t* base, int idx, int v) {
   ((int32_t*)base)[idx] = v;

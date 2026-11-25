@@ -34,6 +34,7 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `vc1info` | no | no | none |
 | `tools/driver/dscdiff.py`, `vcnmsg.py`, `mk4k.py`, `mkvp9.py`, `rawpatch` | no | no | none |
 | `mkfield.py` | no | no | none |
+| `av1hdr.py` | no | no | none |
 
 The switches must have exactly these values. Anything else leaves the program unarmed: it
 stops with "GPU submission disabled" before it sends anything.
@@ -184,12 +185,46 @@ decode/build/gpu/vtvp9test -load decode/build/VP9VCNDecoder.bundle v.ivf v.ivf.m
   or VideoToolbox may pick the installed decoder instead of the one you loaded.
 - `-n` reads no pixels. `-a` decodes asynchronously. `-pace fps` feeds frames at a fixed
   rate and reports how late they come out. `vtvp9test` also has `-loop N` (the file N times
-  in one session), `-frames N` and `-sw` (does not ask for hardware).
+  in one session), `-frames N` and `-sw` (does not ask for hardware). `vtav1test -sw` decodes
+  in software only: it turns hardware decoders off and stops before the first frame if
+  VideoToolbox gives one anyway. (Apple's software AV1 decoder refused every stream here on
+  macOS 26.7.3, 8-bit too: -12906.)
+- `-attach` prints the colour attachments of the first picture (pixel format, primaries,
+  transfer function, matrix, mastering display, light level) and again whenever they change.
+- `vtvp9test -color P,T,M` gives the format description the colour a container would (the
+  vpcC record and the colour extensions, H.273 code points; `9,16,9` = BT.2020 PQ), as
+  Safari passes a WebM Colour element; `-hdr` adds a typical HDR10 mastering display and
+  light level. Without `-color` the format says nothing (vpcC 2,2,2) and the plug-in has only
+  the bitstream's color_space, which names no transfer function.
 - These programs have no switch of their own: the plug-in arms itself. **A decode run can
   hang the GPU**, as soon as a hardware decoder is installed or loaded.
 
 A pass: `UsingHardwareAcceleratedVideoDecoder = true`, then
 `N frames, 0 mismatches, 0 errors`, and exit status 0.
+
+### HDR test clips
+
+FFmpeg makes the clips. Its libaom wrapper writes the colour of the sequence header but no
+HDR metadata OBUs, so `av1hdr.py` adds an HDR_MDCV and an HDR_CLL OBU to every temporal unit
+with a sequence header (P3 primaries, D65, 1000 / 0.005 cd/m2, MaxCLL 1000, MaxFALL 400):
+
+```sh
+SP=setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=tv
+ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 2 -vf $SP,format=yuv420p10le \
+  -c:v libaom-av1 -cpu-used 8 -row-mt 1 -g 30 -f ivf av1-pq.ivf
+python3 -I decode/tests/gpu/av1hdr.py av1-pq.ivf av1-hdr10.ivf
+ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 2 -vf $SP,format=yuv420p10le \
+  -c:v libvpx-vp9 -profile:v 2 -deadline realtime -cpu-used 8 -g 30 vp9-hdr10.webm
+decode/build/gpu/vtav1test -load decode/build/AV1VCNDecoder.bundle av1-hdr10.ivf -n -attach \
+  -id <decoder ID from list>
+decode/build/gpu/vtvp9test -load decode/build/VP9VCNDecoder.bundle vp9-hdr10.webm -n -attach \
+  -color 9,16,9 -hdr -id <decoder ID from list>
+```
+
+The setparams filter matters: without it FFmpeg 9.1 writes the matrix but leaves the
+primaries and the transfer function unspecified. Expected for both clips: `x420`,
+`ITU_R_2020`, `SMPTE_ST_2084_PQ`, `ITU_R_2020`, the 24 mastering display bytes
+`33c286c4 1d4c0bb8 84d03e80 3d134042 00989680 00000032` and the light level `03e80190`.
 
 ## vtchurn
 

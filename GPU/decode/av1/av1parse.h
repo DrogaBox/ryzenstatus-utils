@@ -136,6 +136,16 @@ typedef struct {
       size;  // relative to the start of the frame's tile data buffer
 } AV1Tile;
 
+// The HDR metadata OBUs (AV1 spec 5.8.3, 5.8.4, 6.7.3, 6.7.4), as coded.
+typedef struct {
+  bool has_cll, has_mdcv;
+  uint16_t max_cll, max_fall;  // cd/m2
+  // 0.16 fixed point CIE 1931 x and y, in the order red, green, blue
+  uint16_t primary_x[3], primary_y[3], white_x, white_y;
+  uint32_t luminance_max;  // 24.8 fixed point cd/m2
+  uint32_t luminance_min;  // 18.14 fixed point cd/m2
+} AV1HdrMetadata;
+
 typedef struct {
   AV1Seq seq;
   AV1Frame fh;
@@ -148,6 +158,11 @@ typedef struct {
   int num_tiles;
   int next_tile;  // first tile the next tile group must start at
   int temporal_id, spatial_id;
+  // The last HDR_CLL and HDR_MDCV metadata OBU of the stream (configOBUs
+  // included). Each stays until another one of its type replaces it: encoders
+  // send them with the key frames, and they hold for the whole sequence. A
+  // metadata OBU that is cut short is ignored and changes nothing.
+  AV1HdrMetadata hdr;
 } AV1Parser;
 
 typedef enum {
@@ -169,6 +184,12 @@ int av1_parse_temporal_unit(AV1Parser* p, const uint8_t* data, size_t size,
 // Parse a raw sequence header OBU payload (e.g. from av1C configOBUs). Returns
 // 0 on success.
 int av1_parse_config_obus(AV1Parser* p, const uint8_t* data, size_t size);
+// The HDR metadata in the byte layout CoreVideo takes (common/vcncolor.h):
+// the 24-byte mastering display colour volume and the 4-byte content light
+// level of the HEVC SEI messages, big-endian. Returns false, writing nothing,
+// when the stream has sent no such metadata.
+bool av1_hdr_mdcv(const AV1HdrMetadata* m, uint8_t out[24]);
+bool av1_hdr_cll(const AV1HdrMetadata* m, uint8_t out[4]);
 // After a frame was decoded into hardware slot `dpb_slot`, update reference
 // state (spec 7.20).
 void av1_reference_update(AV1Parser* p, int dpb_slot);

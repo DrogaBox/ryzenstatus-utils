@@ -218,16 +218,17 @@ enum GPUControlA11yTests {
                         && fan.contains(".frame(minWidth: 44)\n                .fixedSize(horizontal: true, vertical: false)")
                         && clock.contains(".frame(minWidth: 56)\n                .fixedSize(horizontal: true, vertical: false)"),
                      "A4: the number fields grow with their number")
-        // A6: four hints and no more.
+        // A6: five hints and no more.
         suite.expect(page.contains(".accessibilityHint(s.powerHint)") && page.contains(".accessibilityHint(s.openWritingHint)")
                         && fan.contains(".accessibilityHint(fan.applyHint)"),
                      "A6: the power pop-up, Allow changes and Apply curve have their hints")
-        suite.expect(all.components(separatedBy: ".accessibilityHint(").count == 4
+        suite.expect(page.contains(".accessibilityHint(boot.hint)"), "A6: the after-restart switch says it asks for a password")
+        suite.expect(all.components(separatedBy: ".accessibilityHint(").count == 5
                         && all.components(separatedBy: "setAccessibilityHelp(").count == 2,
-                     "A6: three hints and the slider's help, nothing else")
+                     "A6: four hints and the slider's help, nothing else")
         // A8.
-        suite.expect(!all.contains(".controlSize(.mini)") && all.components(separatedBy: ".controlSize(.regular)").count == 5,
-                     "A8: the four switches at the regular size")
+        suite.expect(!all.contains(".controlSize(.mini)") && all.components(separatedBy: ".controlSize(.regular)").count == 6,
+                     "A8: the five switches at the regular size")
         // A11.
         suite.expect(page.contains("copied = true\n") && page.contains("AccessibilityNotification.Announcement(s.copied).post()"),
                      "A11: Copied is said")

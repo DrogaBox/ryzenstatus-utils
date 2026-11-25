@@ -11,6 +11,8 @@
 #   3. the AV1 and VP9 parsers read the public test streams exactly as recorded in
 #      tests/expected-digests.txt
 #   4. a refused AV1 sample or VP9 header leaves the parser consistent (av1state, vp9state);
+#      the colour of the pictures: the parsers' colour fields and AV1's HDR metadata OBUs,
+#      and the attachments set from them on a real pixel buffer (colortest);
 #      the plug-ins' VideoToolbox side, with a stand-in decoder (plugintest);
 #      the MPEG-2, VC-1 and MPEG-4 parsers and the messages built from them (legacyparse);
 #      what the MPEG-2 and VC-1 codec layers send for a stream, on a stand-in session
@@ -118,6 +120,9 @@ check "a refused AV1 sample leaves the parser consistent" av1state
 vp9state() { decode/build/tests/vp9state tests/media/vp9/vp90-2-05-resize.ivf > decode/build/tests/vp9state.txt ||
   { cat decode/build/tests/vp9state.txt; return 1; }; }
 check "a refused VP9 header leaves the parser consistent" vp9state
+colors() { decode/build/tests/colortest > decode/build/tests/colortest.txt ||
+  { cat decode/build/tests/colortest.txt; return 1; }; }
+check "the pictures' colour: stream and container colour, HDR metadata, attachments" colors
 check "5000 damaged AV1 and VP9 headers each are survived" decode/build/tests/parsefuzz 5000
 plugins() {
   local c

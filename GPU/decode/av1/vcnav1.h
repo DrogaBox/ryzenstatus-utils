@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "av1parse.h"
+#include "vcncolor.h"
 
 typedef struct VcnAV1 VcnAV1;
 
@@ -51,6 +52,9 @@ int vcnav1_failure(VcnAV1* d);
 // frame then comes alone. Valid until the next decode or destroy; retain it to
 // keep it.
 CVPixelBufferRef vcnav1_hidden_picture(VcnAV1* d);
+// The colour of the stream as its sequence header and its HDR metadata OBUs
+// give it (common/vcncolor.h), for the pictures this session outputs.
+void vcnav1_color(VcnAV1* d, VcnColor* c);
 // Decodes the GPU firmware reported as failed (the picture was still output).
 unsigned vcnav1_firmware_errors(VcnAV1* d);
 // Attributes of the pixel buffers the decoder outputs (caller releases).
