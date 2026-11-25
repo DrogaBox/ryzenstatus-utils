@@ -14468,6 +14468,7 @@ struct MetricsTests {
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("LeakHistoryTests", LeakHistoryTests.run),
                 ("GPUSensorsTests", GPUSensorsTests.run),
+                ("AwdlActivityTests", AwdlActivityTests.run),
                 ("GPUControlTests", GPUControlTests.run),
                 ("GPUControlChannelTests", GPUControlChannelTests.run),
                 ("GPUControlKext080Tests", GPUControlKext080Tests.run),

@@ -10,6 +10,7 @@ struct NetworkSection: View {
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var speed = SpeedTest.shared
     @StateObject private var addresses = NetworkAddressService()
+    @ObservedObject private var awdl = AwdlActivityService.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
     @AppStorage(DefaultsKey.monitorGraphNetwork) private var showGraph = true
@@ -19,6 +20,7 @@ struct NetworkSection: View {
     @AppStorage(DefaultsKey.monitorNetTest) private var netTest = true
     @AppStorage(DefaultsKey.monitorNetAddresses) private var netAddresses = true
     @AppStorage(DefaultsKey.monitorNetLatency) private var netLatency = true
+    @AppStorage(DefaultsKey.monitorNetAwdl) private var netAwdl = true
     @AppStorage(DefaultsKey.panelNetworkOrder) private var networkOrderRaw = ""
     @State private var draggingBlock: Block?
     @State private var appRows: [ProcessUsage] = []
@@ -26,6 +28,7 @@ struct NetworkSection: View {
     @State private var lastAppRefresh = Date.distantPast
     @State private var appRefreshSerial = 0
     @State private var networkMonitoringActive = false
+    @State private var awdlWatching = false
     private let appLimit = 6
 
     var body: some View {
@@ -56,6 +59,7 @@ struct NetworkSection: View {
                 startNetworkMonitoringIfNeeded()
             }
             refreshAppRows(force: true, delay: 0.2)
+            updateAwdlWatching(onScreen: true)
         }
         .onReceive(monitor.$snapshot) { _ in
             refreshAppRows(force: false, delay: 0.2)
@@ -71,22 +75,35 @@ struct NetworkSection: View {
                 stopNetworkMonitoringIfNeeded()
             }
         }
+        .onChange(of: netAwdl) { _, _ in updateAwdlWatching(onScreen: true) }
         .onDisappear {
             appRefreshSerial &+= 1
             appRows = []
             appRowsLoading = false
             stopNetworkMonitoringIfNeeded()
+            updateAwdlWatching(onScreen: false)
         }
     }
 
-    private enum Block: String, PanelOrderItem { case speed, apps, totals, addresses, latency, test }
+    private enum Block: String, PanelOrderItem { case speed, apps, totals, addresses, latency, awdl, test }
 
     private var visibleBlocks: [Block] {
         orderedBlocks.filter(isVisible)
     }
 
+    /// The AWDL line exists only with a driver that reports AWDL; without
+    /// one it is left out even while editing, so there is nothing to hide.
     private func blocks(editing: Bool) -> [Block] {
-        editing ? orderedBlocks : visibleBlocks
+        (editing ? orderedBlocks : visibleBlocks).filter { $0 != .awdl || awdl.activity != nil }
+    }
+
+    /// Reads AWDL only while this card is on screen with its line shown;
+    /// every start is balanced.
+    private func updateAwdlWatching(onScreen: Bool) {
+        let shouldWatch = onScreen && netAwdl
+        guard shouldWatch != awdlWatching else { return }
+        awdlWatching = shouldWatch
+        if shouldWatch { awdl.start() } else { awdl.stop() }
     }
 
     private var orderedBlocks: [Block] {
@@ -109,6 +126,7 @@ struct NetworkSection: View {
         case .totals: return netTotals
         case .addresses: return netAddresses
         case .latency: return netLatency
+        case .awdl: return netAwdl
         case .test: return netTest
         }
     }
@@ -121,6 +139,7 @@ struct NetworkSection: View {
         netTotals = true
         netAddresses = true
         netLatency = true
+        netAwdl = true
         netTest = true
     }
 
@@ -132,6 +151,7 @@ struct NetworkSection: View {
         case .totals: totalsRow(editing: editing)
         case .addresses: NetworkAddressBlock(service: addresses, isVisible: $netAddresses, editing: editing)
         case .latency: NetworkLatencyBlock(isVisible: $netLatency, editing: editing)
+        case .awdl: NetworkAwdlBlock(service: awdl, isVisible: $netAwdl, editing: editing)
         case .test: speedTestRow(editing: editing)
         }
     }
@@ -548,5 +568,56 @@ private struct NetworkLatencyBlock: View {
         guard shouldWatch != watching else { return }
         watching = shouldWatch
         if shouldWatch { ping.beginWatching() } else { ping.endWatching() }
+    }
+}
+
+/// AWDL (AirDrop, Sidecar, Continuity) as the Wi-Fi driver reports it: the
+/// peers exchanging data in the last few seconds and the data channel.
+/// Shown only while the driver publishes those numbers.
+private struct NetworkAwdlBlock: View {
+    @ObservedObject var service: AwdlActivityService
+    @Binding var isVisible: Bool
+    var editing: Bool
+    @ObservedObject private var l10n = L10n.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static let symbol = "dot.radiowaves.left.and.right"
+
+    var body: some View {
+        let strings = FeatureStrings.awdl(l10n.language)
+        if !isVisible {
+            PanelHiddenItemRow(title: strings.rowTitle, systemImage: Self.symbol, isVisible: $isVisible)
+        } else if let activity = service.activity {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: Self.symbol)
+                        .font(.system(size: 9))
+                        .foregroundStyle(activity.isActive
+                                         ? AnyShapeStyle(PanelMetricColor.green(for: colorScheme))
+                                         : AnyShapeStyle(.tertiary))
+                    Text(strings.rowTitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Text(activity.summary(strings))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(activity.isActive ? .primary : .secondary)
+                    if editing { PanelInlineHideButton(isVisible: $isVisible) }
+                }
+                if let led = activity.led {
+                    HStack(spacing: 6) {
+                        Text(strings.led)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Text(led.label(strings))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 }

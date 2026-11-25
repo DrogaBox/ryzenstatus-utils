@@ -22,6 +22,8 @@ struct MonitorAlertsControls: View {
     @AppStorage(DefaultsKey.monitorAlertMemory) private var alertMemory = false
     @AppStorage(DefaultsKey.monitorAlertDisk) private var alertDisk = false
     @AppStorage(DefaultsKey.monitorAlertBattery) private var alertBattery = false
+    @AppStorage(DefaultsKey.monitorAlertAwdl) private var alertAwdl = false
+    @ObservedObject private var awdl = AwdlActivityService.shared
     @AppStorage(DefaultsKey.monitorAlertCPUThreshold) private var alertCPUThreshold = 90
     @AppStorage(DefaultsKey.monitorAlertCPUTemperatureThreshold) private var alertCPUTemperatureThreshold = 90
     @AppStorage(DefaultsKey.monitorAlertGPUTemperatureThreshold) private var alertGPUTemperatureThreshold = 85
@@ -126,6 +128,15 @@ struct MonitorAlertsControls: View {
                             step: 5)
                 }
             }
+            // Only with a Wi-Fi driver that reports AWDL, or while the switch
+            // is still on after it went away, so it can be switched off.
+            if AppFeature.monitorNetwork.isAvailable, awdl.activity != nil || alertAwdl {
+                let awdlText = FeatureStrings.awdl(l10n.language)
+                Toggle(awdlText.notifyToggle, isOn: $alertAwdl)
+                if alertAwdl {
+                    hint(awdlText.notifyHint)
+                }
+            }
             if anyAlertEnabled {
                 Picker(text.sustain, selection: $alertSustain) {
                     Text(text.sustainImmediately).tag(0)
@@ -146,7 +157,7 @@ struct MonitorAlertsControls: View {
             // Alerts silently cannot fire when macOS notifications are denied
             // for the app; without this line that state is invisible (the
             // user just never hears anything).
-            if notificationsDenied, anyAlertEnabled {
+            if notificationsDenied, anyAlertEnabled || alertAwdl {
                 Text(text.notificationsDenied)
                     .font(compact ? .system(size: 9.5) : .caption)
                     .foregroundStyle(.orange)
@@ -166,6 +177,11 @@ struct MonitorAlertsControls: View {
             refreshNotificationStatus()
         }
         .onChange(of: alertValues) { _, _ in sanitizeAlertValues() }
+        // An event with its own reader, outside the sustained alerts.
+        .onChange(of: alertAwdl) { _, _ in
+            AwdlActivityService.shared.syncNotificationPreference()
+            refreshNotificationStatus()
+        }
     }
 
     private var temperatureUnit: TemperatureUnit {

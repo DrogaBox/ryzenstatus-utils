@@ -786,6 +786,7 @@ enum Defaults {
         DefaultsKey.monitorNetTotals: true,
         DefaultsKey.monitorNetTest: true,
         DefaultsKey.monitorNetLatency: true,
+        DefaultsKey.monitorNetAwdl: true,
         // Both reach outside the Mac, so they start off.
         DefaultsKey.networkPingEnabled: false,
         DefaultsKey.networkPublicIPEnabled: false,
@@ -808,6 +809,7 @@ enum Defaults {
         DefaultsKey.monitorAlertCPUPower: false,
         DefaultsKey.monitorAlertGPUMemoryTemperature: false,
         DefaultsKey.monitorAlertGPUThrottle: false,
+        DefaultsKey.monitorAlertAwdl: false,
         DefaultsKey.monitorAlertMemory: false,
         DefaultsKey.monitorAlertDisk: false,
         DefaultsKey.monitorAlertBattery: false,

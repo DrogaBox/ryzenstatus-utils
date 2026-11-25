@@ -203,6 +203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // GPUSensors.kext is there. Without the kext this is one IOKit
         // registration and nothing after it.
         GPUSensorsService.shared.watchPresence()
+        // The AWDL line and its notification: one IOKit registration, and
+        // nothing after it without a Wi-Fi driver that reports AWDL.
+        AwdlActivityService.shared.watchPresence()
         // The one place the app connects the GPU control's channel. Making
         // it opens nothing; a development build connects nothing at all
         // unless -gpuControlReal YES, so it never takes the control from
