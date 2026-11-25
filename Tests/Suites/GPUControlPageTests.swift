@@ -614,12 +614,14 @@ enum GPUControlPageTests {
 
         realFiles(suite)
 
-        // The service runs only that command, only from the button.
+        // The service runs only that command from the button, and the start-up
+        // daemon's fixed install or remove command from its switch.
         let source = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
                                     + "/Sources/RyzenStatus/Services/Metrics/GPUControlService.swift", encoding: .utf8)) ?? ""
-        suite.expect(source.components(separatedBy: "AdminShell.").count == 2
-                        && source.contains("AdminShell.run(GPUControlArmTool.armCommand, prompt: prompt)"),
-                     "one administrator call, with the fixed command")
+        suite.expect(source.components(separatedBy: "AdminShell.").count == 3
+                        && source.contains("AdminShell.run(GPUControlArmTool.armCommand, prompt: prompt)")
+                        && source.contains("let command = on ? GPUControlBootArm.installCommand : GPUControlBootArm.removeCommand\n        AdminShell.run(command, prompt: prompt)"),
+                     "two administrator calls, each with a fixed command")
         suite.expect(source.contains("guard armTool == .button else { return }"),
                      "the button checks the file again right before the dialog")
     }
