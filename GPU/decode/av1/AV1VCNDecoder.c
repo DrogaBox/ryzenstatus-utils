@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "vcnav1.h"
+#include "vtcolor.h"
 
 // ---- private CoreMedia / VideoToolbox plugin SPI
 // -------------------------------------------
@@ -99,6 +100,9 @@ typedef struct {
   VcnAV1* vcn;
   int32_t width, height;
   bool tenBit;
+  // What the format description of the running session says about colour;
+  // under lock.
+  VcnColor fmtColor;
   // Set by invalidate once the queue is drained, and by finalize: nothing is
   // emitted any more.
   bool invalidated;
@@ -365,6 +369,8 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   pthread_mutex_unlock(&s->lock);
   int32_t width = dim.width, height = dim.height;
   bool tenBit = false;
+  VcnColor fmtColor;
+  vt_color_from_format(fmt, &fmtColor);
 
   CFDataRef av1C = copy_av1C(fmt);
   const uint8_t* cfg = av1C ? CFDataGetBytePtr(av1C) : NULL;
@@ -434,6 +440,7 @@ static OSStatus start_session(State* s, VTVideoDecoderSession session,
   s->width = width;
   s->height = height;
   s->tenBit = tenBit;
+  s->fmtColor = fmtColor;
   long started = __atomic_add_fetch(&g_started, 1, __ATOMIC_RELAXED),
        live = __atomic_add_fetch(&g_live, 1, __ATOMIC_RELAXED),
        ended = __atomic_load_n(&g_ended, __ATOMIC_RELAXED);
@@ -593,6 +600,16 @@ static void decode_and_emit(State* s, VTVideoDecoderFrame frame,
   if (!status && !out && s->vcn) {
     CVPixelBufferRef hidden = vcnav1_hidden_picture(s->vcn);
     if (hidden) out = CVPixelBufferRetain(hidden);
+  }
+  // Colour tags on what is handed back, under lock: the session's parser is
+  // read here.
+  if (!status && out && s->vcn) {
+    VcnColor c;
+    vcnav1_color(s->vcn, &c);
+    // The sequence header first: it is the stream's own word, the
+    // container only repeats it, when it says anything.
+    vt_color_merge(&c, &c, &s->fmtColor);
+    vt_color_attach(out, &c);
   }
   double decode = now_ms() - started;
   // A sample with only a hidden frame carries another frame's time: it is

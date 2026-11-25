@@ -5,7 +5,7 @@
 //       shows the av01 decoders VideoToolbox knows about (LIST_ALL=1: all of
 //       them)
 //   vtav1test [-load bundle] file.ivf [file.md5] [-n] [-a] [-pace fps]
-//             [-id decoder]
+//             [-id decoder] [-sw] [-attach]
 //       decodes the file with a VTDecompressionSession that requires
 //       hardware, compares the MD5 of every frame as I420 with the reference,
 //       and reports timing
@@ -13,8 +13,12 @@
 // -load registers the bundle in this process only, nothing is installed on the
 // system. -n reads no pixels, -a decodes asynchronously, -pace feeds at a fixed
 // rate and reports lateness, -id picks one decoder when several handle av01
-// (the installed one and a -load'ed build).
-// VTAV1_DUMP_Y=<file> appends the 8-bit luma of every frame to that file.
+// (the installed one and a -load'ed build). -sw decodes in software only:
+// with -id com.apple.videotoolbox.videodecoder.av1.sw, Apple's decoder; a
+// session VideoToolbox gives a hardware decoder anyway decodes nothing. -attach
+// prints the colour attachments of the first picture, and again whenever they
+// change. VTAV1_DUMP_Y=<file> appends the 8-bit luma of every frame to that
+// file.
 //
 // There is no switch to arm here: a decode run goes to the GPU as soon as an
 // AV1 hardware decoder is installed or loaded.
@@ -32,6 +36,7 @@
 #include <unistd.h>
 
 #include "av1parse.h"
+#include "vtattach.h"
 
 static double now_ms(void) {
   static mach_timebase_info_data_t tb;
@@ -110,7 +115,8 @@ static int list(void) {
 
 typedef struct {
   FILE* md5;
-  int frames, mismatches, errors, nohash;
+  int frames, mismatches, errors, nohash, attach;
+  char lastAttach[1024];
   double *fed, *lat;  // per-frame feed time and output latency (ms), for -pace
 } Ctx;
 
@@ -128,6 +134,7 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st,
     return;
   }
   c->frames++;
+  if (c->attach) print_attachments(img, c->frames, c->lastAttach);
   if (c->nohash) return;
   int w = (int)CVPixelBufferGetWidth(img), h = (int)CVPixelBufferGetHeight(img);
   uint16_t* row = malloc((size_t)w * 2 + 16);
@@ -240,7 +247,7 @@ static int usage(void) {
   fprintf(stderr,
           "usage: vtav1test [-load bundle] list\n"
           "       vtav1test [-load bundle] file.ivf [file.md5] [-n] [-a] "
-          "[-pace fps] [-id decoder]\n"
+          "[-pace fps] [-id decoder] [-sw] [-attach]\n"
           "A decode run goes to the GPU: there is no switch to arm.\n");
   return 1;
 }
@@ -261,7 +268,7 @@ int main(int argc, char** argv) {
   if (!strcmp(argv[1], "list")) return list();
   if (argv[1][0] == '-') return usage();
   Ctx c = {0};
-  int async = 0;
+  int async = 0, require_hw = 1;
   double pace = 0;  // feed frames at this rate (fps) and report output latency
   const char *decoderID = NULL, *md5Path = NULL;
   for (int i = 2; i < argc; i++) {
@@ -269,6 +276,10 @@ int main(int argc, char** argv) {
       c.nohash = 1;
     } else if (!strcmp(argv[i], "-a")) {
       async = 1;
+    } else if (!strcmp(argv[i], "-sw")) {
+      require_hw = 0;
+    } else if (!strcmp(argv[i], "-attach")) {
+      c.attach = 1;
     } else if (!strcmp(argv[i], "-pace") && i + 1 < argc) {
       const char* s = argv[++i];
       char* end = NULL;
@@ -361,9 +372,20 @@ int main(int argc, char** argv) {
   CFMutableDictionaryRef spec =
       CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
                                 &kCFTypeDictionaryValueCallBacks);
-  CFDictionarySetValue(
-      spec, kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
-      kCFBooleanTrue);
+  if (require_hw)
+    CFDictionarySetValue(
+        spec,
+        kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+        kCFBooleanTrue);
+  else {
+    CFDictionarySetValue(
+        spec,
+        kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder,
+        kCFBooleanFalse);
+    // Apple's software decoder is a supplemental one: VideoToolbox finds no
+    // av01 software decoder without this.
+    VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1);
+  }
   if (decoderID) {
     CFStringRef id =
         CFStringCreateWithCString(NULL, decoderID, kCFStringEncodingUTF8);
@@ -379,7 +401,8 @@ int main(int argc, char** argv) {
   VTDecompressionOutputCallbackRecord cb = {out_cb, &c};
   VTDecompressionSessionRef sess = NULL;
   st = VTDecompressionSessionCreate(NULL, fmt, spec, NULL, &cb, &sess);
-  printf("VTDecompressionSessionCreate(require HW) = %d\n", (int)st);
+  printf("VTDecompressionSessionCreate(%s) = %d\n",
+         require_hw ? "require HW" : "software only", (int)st);
   if (st) return 1;
   CFBooleanRef hw = NULL;
   VTSessionCopyProperty(
@@ -387,6 +410,10 @@ int main(int argc, char** argv) {
       NULL, &hw);
   printf("UsingHardwareAcceleratedVideoDecoder = %s\n",
          hw == kCFBooleanTrue ? "true" : "false");
+  // -sw is a promise that nothing goes to the GPU: a hardware decoder given
+  // anyway decodes nothing.
+  if (!require_hw && hw == kCFBooleanTrue)
+    return fail("-sw: VideoToolbox gave a hardware decoder; nothing decoded");
 
   double t0 = now_ms();
   for (size_t i = 0; i < cnt; i++) {

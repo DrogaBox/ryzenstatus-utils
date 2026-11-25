@@ -79,9 +79,13 @@ if [[ ${1:-} == tests ]]; then
   xcrun clang $TFLAGS -Iav1 -Ivp9 tests/parsedigest.c av1/av1parse.c vp9/vp9parse.c -o $T/parsedigest
   xcrun clang $TFLAGS -Iav1 -Ivp9 tests/parsefuzz.c av1/av1parse.c vp9/vp9parse.c -o $T/parsefuzz
   xcrun clang $TFLAGS -Iav1 tests/av1state.c av1/av1parse.c -o $T/av1state
+  # The colour of the pictures: the parsers' colour fields, the HDR metadata and the
+  # attachments the plug-ins set (common/vtcolor.h), on a real pixel buffer.
+  xcrun clang $TFLAGS -Iav1 -Ivp9 -Icommon tests/colortest.c av1/av1parse.c vp9/vp9parse.c \
+    -framework CoreFoundation -framework CoreMedia -framework CoreVideo -o $T/colortest
   xcrun clang $TFLAGS -Ivp9 tests/vp9state.c vp9/vp9parse.c -o $T/vp9state
   for c in AV1 VP9; do
-    xcrun clang $TFLAGS -DTEST_$c tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
+    xcrun clang $TFLAGS -DTEST_$c -Icommon tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
       -framework CoreVideo -framework VideoToolbox -o $T/plugintest-${(L)c}
   done
   for c in MPEG2 VC1 MPEG4; do
