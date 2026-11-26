@@ -131,6 +131,18 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   for the sleep test in `docs/testing.md`.
 - Not run across a real sleep yet.
 
+## Unreleased: macOS 26.7.4 (25G422)
+
+- Decoders: `AMDRadeonVADriver2` of 26.7.4 has a new UUID,
+  `F7D8F5849EC139DB857C769697294957`, added to `kValidatedDrivers` in `decode/av1/vcnav1.c`,
+  `decode/vp9/vcnvp9.c` and `decode/common/vcnlegacy.c` (MPEG-2, VC-1, MPEG-4), and 25G422 to
+  `install/validated-builds.json` with `av1`, `vp9` and `legacy` set to `"untested-on-gpu"`
+  and `jpeg` false (the VCNJpeg kext knows only 26.7.3's HWLibs and AMDRadeonX6000). Checked from the installer before updating (its cryptex
+  rebuilt with `rawpatch`): the driver's 2760 functions are identical to 26.7.3's and every
+  section is the same except one Apple build path in `__cstring`. Not decoded on a card on
+  26.7.4 yet. New plug-ins mean new code directory hashes, so the loader kext must ship with
+  them.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

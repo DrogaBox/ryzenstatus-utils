@@ -67,6 +67,17 @@
       "legacy": "untested-on-gpu",
       "jpeg": "untested-on-gpu",
       "encode": true
+    },
+    {
+      "build": "25G422",
+      "product": "26.7.4",
+      "name": "Tahoe 26.7.4",
+      "driverUUID": "F7D8F5849EC139DB857C769697294957",
+      "av1": "untested-on-gpu",
+      "vp9": "untested-on-gpu",
+      "legacy": "untested-on-gpu",
+      "jpeg": false,
+      "encode": true
     }
   ],
   "supportedGPUs": [

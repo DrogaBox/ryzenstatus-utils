@@ -94,6 +94,9 @@ static bool mapped(const void* p, size_t n, vm_prot_t prot);
 static const char* const kValidatedDrivers[] = {
     "1181E2CA31B33DF090E23AE70552D753",  // macOS 26.7.2 (25G332) and 26.7.3
                                          // (25G342, same binary)
+    "F7D8F5849EC139DB857C769697294957",  // macOS 26.7.4 (25G422): same code
+                                         // as 26.7.3 (2760/2760 functions
+                                         // identical, only a build path)
 };
 
 // ---------------------------------------------------------------------------
