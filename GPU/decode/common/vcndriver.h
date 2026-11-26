@@ -43,16 +43,38 @@ bool vcn_driver_load(VcnDriverLib* lib, char* err, size_t errLen);
 // frame takes 5-60 ms on Navi 21, even at the video engine's lowest clock.
 enum { VCN_COMMAND_TIMEOUT_MS = 1000 };
 
+// The same for a command on a session from before a sleep, until it is
+// rebuilt. Around a real wake on this Mac (2026-11-25, 0.3.5) one frame of
+// each decode took 10.2 to 10.9 s and then decoded correctly. That time was
+// spent in Apple's calls (0.3.5 already gave up on a command after 1 s and
+// reported no error), probably while the GPU was being started again; a
+// command that waits like that on the engine itself must not be taken for a
+// stuck one. A variable, so a test can make it short; the plug-ins never
+// change it.
+enum { VCN_WAKE_COMMAND_TIMEOUT_MS = 15000 };
+extern unsigned vcn_wake_command_timeout_ms;
+
 // A system sleep, as a session sees it. Apple's kernel driver keeps a decoder's
 // video context across a sleep, but stops the video engine before it and starts
 // it again at wake, and saves nothing of the session on the engine
 // (AMDRadeonX6000, 26.7.3 KDK, read in IDA: systemWillSleep stops the VCN rings
 // once their last command finished, powerUpHW and internalDidWake start them
 // again, saveVCNSession is empty). Nothing in the driver, AppleGVA or
-// VideoToolbox tells a decoder about it. A session opened before a sleep is
-// therefore never used again: it decodes nothing more, and closing it skips the
-// driver's own teardown, which would send the engine a command for that session
-// and wait for it with no time limit (vcn_session_close).
+// VideoToolbox tells a decoder about it.
+//
+// On this Mac (RX 6800 XT, 26.7.3, 2026-11-25) a real sleep did not break the
+// sessions that were open across it: 0.3.5, which knows nothing of sleeps, kept
+// decoding on them after the wake with every frame matching its reference. So
+// an AV1 or VP9 session from before a sleep keeps decoding, and is rebuilt
+// quietly at its next key frame (vcnav1.c / vcnvp9.c), where nothing from
+// before the rebuild is needed any more: no frame is dropped and no error
+// reaches the host. (The MPEG-2, VC-1 and MPEG-4 sessions, vcnlegacy.c, still
+// stop at the first picture after a sleep, as in 0.3.6.) Only
+// when the old session fails after the wake (a driver call, a command that
+// does not finish, a firmware error) is it rebuilt at once, and the frames are
+// dropped until a key frame. Closing it still skips the driver's own teardown,
+// which would send the engine a command for that session and wait for it with
+// no time limit (vcn_session_close).
 //
 // The mark is the time this Mac has spent asleep since it started, as the
 // kernel counts it (mach_continuous_time runs on during a sleep,
@@ -131,17 +153,14 @@ typedef struct VcnDriverSession {
 //
 // It counts, once per process, the sessions of this process that opened before
 // a system sleep and are still open in any of the plug-ins (they ask each
-// other through the process's local notification center). It no longer refuses
-// because of them: those sessions rebuild for themselves now, and refusing
-// would turn a paused tab into no hardware decode in the whole process (F3 of
-// the review). A reported
-// hang began exactly so: two VP9 sessions of a browser's decoder process stayed
-// open across a sleep, and the AV1 session the same process opened after the
-// wake never decoded a frame. That is why a decoder session does not fail when
-// it finds the system slept: it rebuilds its driver side (vcn_session_reopen)
-// and drops frames until a key frame, so the host's decoder object lives on and
-// never sees a malfunction. What is left of the refusal below is the case where
-// the rebuild itself fails.
+// other through the process's local notification center), for the log. It
+// does not refuse because of them: those sessions rebuild for themselves, and
+// refusing turned a paused tab into no hardware decode in the whole process
+// (F3 of the review; in the real sleep test of 0.3.6, every new session after
+// the wake lost its first frames to it). A decoder session does not fail when
+// it finds the system slept either: it keeps decoding and rebuilds its driver
+// side (vcn_session_reopen) at the next key frame, so the host's decoder object
+// lives on and never sees a malfunction. Only a rebuild that fails stops it.
 bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
                       io_service_t svc, os_log_t log, char* err, size_t errLen);
 
@@ -159,15 +178,27 @@ bool vcn_session_reopen(VcnDriverSession* s, const VcnDriverLib* lib,
 // and the service. The driver handle, its context and the bitstream pool are
 // left where they are, because only the driver can free them and it may be
 // wedged after a wake (F4 of the review); a rebuild leaks that once per sleep
-// and starts a new pool. The session stays listed as open.
+// and starts a new pool. The session stays listed as open. On a session whose
+// last command finished this took 0-1 ms after a real wake (0.3.6 test,
+// 2026-11-25).
 void vcn_session_drop(VcnDriverSession* s);
 
+// The same, for a session whose last command may still be on the GPU (it did
+// not finish in time, or its status could not be read): the accelerator is
+// destroyed on the teardown queue (vcn_teardown), because that close can wait
+// for the command in the kernel, and then `after` runs there (the codec lets go
+// of the pictures the command may still write). The session is empty when this
+// returns and can be opened again at once.
+void vcn_session_drop_later(VcnDriverSession* s, const char* what,
+                            void (^after)(void));
+
 // True once the system has slept since s opened (see VcnSleepMark), and from
-// then on; the first time, it says so in the log. A codec that finds this
-// rebuilds its driver side (vcnav1.c / vcnvp9.c: vcn_session_drop then
-// vcn_session_reopen) and drops frames until a key frame; only a rebuild that
-// fails stops the session, with kVTVideoDecoderMalfunctionErr (-12911), which
-// is PR 160's behaviour. A session with no accelerator is never lost.
+// then on; the first time, it says so in the log. The AV1 or VP9 codec that
+// finds this keeps decoding on the session and rebuilds its driver side at the
+// next key frame (vcnav1.c / vcnvp9.c: vcn_session_drop then
+// vcn_session_reopen), or at once if the session fails after the wake; only a
+// rebuild that fails stops the session, with kVTVideoDecoderMalfunctionErr
+// (-12911). A session with no accelerator is never lost.
 bool vcn_session_lost(VcnDriverSession* s);
 
 // Closes what open (and the codec's CreateContexts) made, in the order Apple's

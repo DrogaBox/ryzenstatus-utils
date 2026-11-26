@@ -37,16 +37,23 @@
 //      one is taken, and the session reports its colour and the light level
 //      of its metadata OBU (vcnav1_color);
 //  12. a system sleep (a made-up sleep mark, standing in for the clocks and
-//      kern.waketime): a session opened before it sends nothing after it, not
-//      even into the bitstream pool, and fails as a device; its close, on the
-//      background queue, skips DeleteContexts, FreeBitstreamBufferPool and
-//      DeleteDriver and only destroys the accelerator; the same for a session
-//      that was stuck when the sleep came, and for one that is only closed
-//      after the wake; a new wake time alone counts as a sleep, a change of
-//      the time asleep under 1 ms does not; a session opened after the wake
-//      decodes and closes fully; while one from before the sleep is still
-//      open, a new session is refused before it opens anything, and opens
-//      again once that one is closed.
+//      kern.waketime), 0.3.7: a key frame right after it rebuilds the driver
+//      objects and decodes on the new ones; an inter frame after it still
+//      decodes on the old ones, with no error and no frame dropped, and the
+//      next key frame rebuilds; a second sleep rebuilds again; with no key
+//      frame the old session decodes on past the drop limit; when the old
+//      session fails after the wake (ScheduleAVDCommands, a command that does
+//      not finish within the longer wake limit, a firmware result) it is
+//      rebuilt at once, the frame is dropped with no error, the frames up to
+//      the next key frame too, and the key frame decodes; a command that did
+//      not finish has its accelerator closed on the background queue; with no
+//      key frame after such a failure the session stops as a device failure
+//      at the limit; a rebuild that fails stops the session; a session only
+//      closed after the wake, or stuck when the sleep came, closes quietly on
+//      the background queue (only AVD_DestroyAVDAccelerator); a new wake time
+//      alone or a wall clock that ran ahead counts as a sleep, a change of
+//      the time asleep under 1 ms or both clocks moving together does not; a
+//      new session opens beside one from before the sleep and decodes.
 //
 // usage: sessiontest <small IVF clip of the codec> [clip with hidden frames]
 // Exit status 0 = pass.
@@ -57,6 +64,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "vcndriver.h"
@@ -759,10 +767,16 @@ int main(int argc, char** argv) {
   // A second sample only exercises "dropped until a key frame" if it really
   // needs references: on a fresh session such a frame fails as a reference
   // error, while a second key frame would decode.
-  bool interUsable = false;
+  bool interUsable = false;  // reported below: the tests it gates must run
   if (haveInter) {
     reset();
     Vcn* probe = make();
+#if defined(TEST_AV1)
+    // An AV1 frame needs the sequence header of the first sample, and the
+    // references dropped after it.
+    if (probe) DECODE(probe, clip[0].data, clip[0].size, 0, on_out, NULL);
+    if (probe) vcnav1_flush(probe);
+#endif
     if (probe) DECODE(probe, clip[1].data, clip[1].size, 0, on_out, NULL);
     interUsable = probe && FAILURE(probe) == FAIL_REFERENCE;
     if (probe) DESTROY(probe);
@@ -841,43 +855,172 @@ int main(int argc, char** argv) {
   fakeSleep.wallUs -= 2000000;
   fakeSleep.monoNs -= 2000000000ull;
 
+  expect(
+      "the clip's second sample needs references (the inter frame tests run)",
+      interUsable);
   if (interUsable) {
-    // An inter frame after the sleep: the rebuild happens, the frame is dropped
-    // with no picture and no error, and the next key frame decodes.
+    // An inter frame after the sleep decodes on the driver objects from before
+    // it (a real sleep on this Mac did not break them), and the next key frame
+    // rebuilds them.
     reset();
     d = make();
     int k0 = d ? DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL) : -1;
     sleep_for(10000000000ull);
-    int createsBefore2 = st.creates;
+    int createsB = st.creates, ctxB = st.createCtx, schedB = st.schedules;
     int shownI = 0;
     int di = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shownI) : -1;
+    if (di) printf("     inter frame after the sleep: %s\n", LASTERR(d));
     expect(
-        "an inter frame after the sleep rebuilds and is dropped, with no "
-        "picture and no error",
-        d && k0 == 0 && di == 0 && shownI == 0 &&
-            st.creates == createsBefore2 + 1);
+        "an inter frame after the sleep decodes on the old session: shown, no "
+        "error, no rebuild",
+        d && k0 == 0 && di == 0 && shownI == 1 && st.creates == createsB &&
+            st.schedules == schedB + 1);
     int shownK = 0;
     int dk = d ? DECODE(d, clip[0].data, clip[0].size, 2, on_out, &shownK) : -1;
-    if (dk) printf("     key frame after the drop: %s\n", d ? LASTERR(d) : "");
-    expect("the next key frame decodes on the rebuilt driver",
-           d && dk == 0 && shownK == 1);
+    if (dk) printf("     key frame after it: %s\n", d ? LASTERR(d) : "");
+    expect("the next key frame rebuilds the driver and decodes on the new one",
+           d && dk == 0 && shownK == 1 && st.creates == createsB + 1 &&
+               st.createCtx == ctxB + 1);
+    int shownI2 = 0;
+    int di2 =
+        d ? DECODE(d, clip[1].data, clip[1].size, 3, on_out, &shownI2) : -1;
+    expect("an inter frame after the rebuild decodes, no second rebuild",
+           d && di2 == 0 && shownI2 == 1 && st.creates == createsB + 1);
+    sleep_for(10000000000ull);
+    int shownK2 = 0;
+    int dk2 =
+        d ? DECODE(d, clip[0].data, clip[0].size, 4, on_out, &shownK2) : -1;
+    expect("a second sleep: the next key frame rebuilds again",
+           d && dk2 == 0 && shownK2 == 1 && st.creates == createsB + 2);
     if (d) DESTROY(d);
-    expect("and that session closes fully, only the dropped driver left",
-           closed_after_rebuild(1));
+    expect("and that session closes, only the two dropped drivers left",
+           closed_after_rebuild(2));
 
-    // A stream that never sends one: frames are dropped for a while, then the
-    // session stops the way PR 160 stopped it.
+    // With no key frame at all, the old session simply decodes on: nothing is
+    // dropped, past the limit that applies after a failure.
     reset();
     d = make();
     if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
     sleep_for(10000000000ull);
+    int shownN = 0, failedN = 0;
+    for (int i = 0; d && i < 700; i++)
+      if (DECODE(d, clip[1].data, clip[1].size, i, on_out, &shownN)) failedN++;
+    expect(
+        "with no key frame the old session decodes on: 700 frames shown, no "
+        "error, no rebuild",
+        d && failedN == 0 && shownN == 700 && st.creates == 1);
+    if (d) DESTROY(d);
+    bool drainedN = vcn_teardown_drain(10000);
+    expect("and, never rebuilt, it closes quietly: nothing but the accelerator",
+           drainedN && st.deleteCtx == 0 && st.liveAccels == 0 &&
+               st.liveDrivers == 1);
+
+    // The old session fails after the wake: rebuilt at once, the frame
+    // dropped with no picture and no error, the frames up to the next key
+    // frame too, and the key frame decodes on the new driver.
+    reset();
+    d = make();
+    if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
+    sleep_for(10000000000ull);
+    fault.schedule = 3;
+    int shownF = 0;
+    int df = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shownF) : -1;
+    fault.schedule = 0;
+    if (df) printf("     schedule failure after the sleep: %s\n", LASTERR(d));
+    expect(
+        "a ScheduleAVDCommands failure after the sleep rebuilds at once and "
+        "drops the frame, with no error",
+        d && df == 0 && shownF == 0 && st.creates == 2);
+    int schedF = st.schedules, shownD = 0;
+    int dd = d ? DECODE(d, clip[1].data, clip[1].size, 2, on_out, &shownD) : -1;
+    expect("the next inter frame is dropped too, sending nothing",
+           d && dd == 0 && shownD == 0 && st.schedules == schedF);
+    int shownFK = 0;
+    int dfk =
+        d ? DECODE(d, clip[0].data, clip[0].size, 3, on_out, &shownFK) : -1;
+    expect("and the key frame decodes on the rebuilt driver",
+           d && dfk == 0 && shownFK == 1 && st.creates == 2);
+    if (d) DESTROY(d);
+    expect("and that session closes fully, only the dropped driver left",
+           closed_after_rebuild(1));
+
+    // A command on the old session that does not finish: it is waited for up
+    // to the wake limit (longer than the usual one), then the session is
+    // rebuilt and the old accelerator closed on the background queue.
+    reset();
+    d = make();
+    if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
+    sleep_for(10000000000ull);
+    vcn_wake_command_timeout_ms = 1500;  // above the usual 1000 ms
+    fault.hang = true;
+    closeGate = dispatch_semaphore_create(0);  // marks a destroy on this thread
+    int shownH = 0;
+    double h0 = (double)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6;
+    int dh = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shownH) : -1;
+    double waited = (double)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6 - h0;
+    fault.hang = false;
+    vcn_wake_command_timeout_ms = VCN_WAKE_COMMAND_TIMEOUT_MS;
+    printf("     waited %.0f ms for the command on the old session\n", waited);
+    bool drainedH = vcn_teardown_drain(10000);
+    if (drainedH) dispatch_release(closeGate);
+    closeGate = NULL;
+    expect(
+        "a command on the old session that does not finish is waited for up "
+        "to the wake limit, not the usual one",
+        waited >= 1400);
+    expect(
+        "then the session is rebuilt, the frame dropped with no error, and the "
+        "old accelerator closed on the background queue",
+        d && dh == 0 && shownH == 0 && st.creates == 2 && drainedH &&
+            st.destroys == 1 && !st.destroyOnMain && st.deleteCtx == 0);
+    int shownHK = 0;
+    int dhk =
+        d ? DECODE(d, clip[0].data, clip[0].size, 2, on_out, &shownHK) : -1;
+    expect("and the key frame decodes on the rebuilt driver",
+           d && dhk == 0 && shownHK == 1);
+    if (d) DESTROY(d);
+    expect("and that session closes fully, only the dropped driver left",
+           closed_after_rebuild(1));
+
+    // A firmware result on the old session after the wake: its picture is not
+    // trusted, the session is rebuilt and the frame dropped.
+    reset();
+    d = make();
+    if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
+    sleep_for(10000000000ull);
+    fault.firmware = 6;
+    int shownW = 0;
+    int dw = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shownW) : -1;
+    fault.firmware = 0;
+    expect(
+        "a firmware result on the old session after the sleep rebuilds and "
+        "drops the frame, with no error",
+        d && dw == 0 && shownW == 0 && st.creates == 2);
+    int shownWK = 0;
+    int dwk =
+        d ? DECODE(d, clip[0].data, clip[0].size, 2, on_out, &shownWK) : -1;
+    expect("and the key frame decodes on the rebuilt driver",
+           d && dwk == 0 && shownWK == 1);
+    if (d) DESTROY(d);
+    expect("and that session closes fully, only the dropped driver left",
+           closed_after_rebuild(1));
+
+    // A stream that never sends a key frame after such a failure: frames are
+    // dropped for a while, then the session stops the way PR 160 stopped it.
+    reset();
+    d = make();
+    if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
+    sleep_for(10000000000ull);
+    fault.schedule = 3;
+    int dl = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, NULL) : -1;
+    fault.schedule = 0;
     int stopped = 0, iters = 0;
-    for (; d && iters < 1000 && !stopped; iters++)
+    for (; d && dl == 0 && iters < 1000 && !stopped; iters++)
       stopped = DECODE(d, clip[1].data, clip[1].size, iters, on_out, NULL) != 0;
     expect(
-        "with no key frame the frames are dropped up to the limit, then the "
-        "session stops as a device failure",
-        d && stopped && FAILURE(d) == FAIL_DEVICE);
+        "with no key frame after a failure the frames are dropped up to the "
+        "limit, then the session stops as a device failure",
+        d && dl == 0 && stopped && FAILURE(d) == FAIL_DEVICE);
     if (d) DESTROY(d);
     expect("and it still releases everything, only the dropped driver left",
            closed_after_rebuild(1));

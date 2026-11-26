@@ -114,7 +114,7 @@ if [[ ${1:-} == tests ]]; then
     -framework IOKit \
     -o $T/waittest
   # Two plug-ins in one process, each with its own copy of the session code (stalelib.c built
-  # twice), and a made-up sleep: one's session from before the sleep stops the other's new one.
+  # twice), and a made-up sleep: the other sees a session from before the sleep and opens anyway.
   for l in a b; do
     xcrun clang $TFLAGS -dynamiclib -fvisibility=hidden -Icommon tests/stalelib.c common/vcnsession.c \
       -framework CoreFoundation -framework IOKit -install_name @rpath/libstale-$l.dylib -o $T/libstale-$l.dylib

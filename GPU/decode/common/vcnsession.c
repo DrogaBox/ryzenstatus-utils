@@ -63,6 +63,8 @@ VcnWaitResult vcn_wait_command(AVD_QueryAVDCommandStatus_fn query, void* driver,
 
 #define FN(name) ((AVD_##name##_fn)s->accel->fn[AVD_FN_##name])
 
+unsigned vcn_wake_command_timeout_ms = VCN_WAKE_COMMAND_TIMEOUT_MS;
+
 bool vcn_slept_between(const VcnSleepMark* then, const VcnSleepMark* now) {
   if (now->asleepNs > then->asleepNs + 1000000) return true;
   if (then->wakeUs && now->wakeUs && then->wakeUs != now->wakeUs) return true;
@@ -88,8 +90,7 @@ bool vcn_session_lost(VcnDriverSession* s) {
   s->lost = true;
   os_log_error(s->log,
                "the system slept since this session opened (%.1f s asleep in "
-               "between): the video engine was restarted at wake, the session "
-               "sends it nothing more",
+               "between)",
                now.asleepNs > s->opened.asleepNs
                    ? (double)(now.asleepNs - s->opened.asleepNs) / 1e9
                    : 0.0);
@@ -299,18 +300,44 @@ bool vcn_session_reopen(VcnDriverSession* s, const VcnDriverLib* lib,
   return open_session(s, lib, svc, log, true, err, errLen);
 }
 
-void vcn_session_drop(VcnDriverSession* s) {
-  if (!s->accel) return;
-  // No DeleteContexts, FreeBitstreamBufferPool or DeleteDriver: those send the
-  // engine a command for a session it has forgotten and wait with no limit.
-  if (s->destroy) s->destroy(s->accel);
+// Takes the accelerator and the service out of s and forgets the rest of the
+// driver objects (see vcn_session_drop); the session stays listed.
+static void detach(VcnDriverSession* s, AVD_Accelerator** accel,
+                   io_service_t* svc) {
+  *accel = s->accel;
+  *svc = s->svc;
   s->accel = NULL;
   s->drv = NULL;
   s->ctx = NULL;
   s->poolAllocated = false;
   memset(s->bsAddr, 0, sizeof(s->bsAddr));
-  if (s->svc) IOObjectRelease(s->svc);
   s->svc = 0;
+}
+
+void vcn_session_drop(VcnDriverSession* s) {
+  if (!s->accel) return;
+  // No DeleteContexts, FreeBitstreamBufferPool or DeleteDriver: those send the
+  // engine a command for a session it has forgotten and wait with no limit.
+  AVD_Accelerator* accel;
+  io_service_t svc;
+  detach(s, &accel, &svc);
+  if (s->destroy) s->destroy(accel);
+  if (svc) IOObjectRelease(svc);
+}
+
+void vcn_session_drop_later(VcnDriverSession* s, const char* what,
+                            void (^after)(void)) {
+  AVD_Accelerator* accel;
+  io_service_t svc;
+  detach(s, &accel, &svc);
+  AVD_DestroyAVDAccelerator_fn destroy = s->destroy;
+  // vcn_teardown copies the block, and with it `after`.
+  vcn_teardown(true, false, s->log, what, ^{
+    if (accel && destroy) destroy(accel);
+    // Released only after the driver is gone: it may hold on to the service.
+    if (svc) IOObjectRelease(svc);
+    if (after) after();
+  });
 }
 
 // Skipping the driver's own teardown keeps this close from waiting on a command

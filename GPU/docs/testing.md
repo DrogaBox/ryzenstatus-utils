@@ -109,14 +109,14 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
   leaves no context to delete, and `QueryAVDCommandStatus` with `.wait = 0` returns at
   once (status 1 done, 2 running). Still open: how long the kernel's own wait can last
   after a GPU restart.
-- Decoders 0.3.6, a system sleep during a decode: `vtvp9test` and `vtav1test` with
+- Decoders 0.3.7, a system sleep during a decode: `vtvp9test` and `vtav1test` with
   `-loop N -pace 30` keep one session going across `pmset sleepnow`, and `-renew` makes a
-  new session for every pass in the same process. The session from before the sleep must
-  fail as a malfunction (-12911) at the first frame after the wake, with no GPU restart in
-  the kernel log and no hang; with `-renew`, the passes after the wake must match their
-  reference again. The plug-ins log "the system slept since this session opened" and
-  "session from before the sleep closed without the driver's own teardown". In a browser:
-  a VP9 video left open (paused) across the sleep, then a second video in the same browser
-  after the wake must play (in software while the first tab stays open) and the Mac must
-  not hang. Only `sessiontest` and `staletest` (made-up driver and sleep) have run.
+  new session for every pass in the same process. No pass may have errors or frames that
+  differ from the reference, before or after the wake, and the kernel log must show no GPU
+  restart and no hang. The plug-ins log "the system slept since this session opened", then
+  "keeps decoding and is rebuilt at the next key frame" and "driver rebuilt at the first key
+  frame after the sleep"; "failed after the wake" means the old session failed and frames
+  were dropped up to a key frame. A first real run of 0.3.6 on this Mac (2026-11-25) failed
+  every frame of the old sessions; 0.3.5 passed. Only `sessiontest` and `staletest` (made-up
+  driver and sleep) have run for 0.3.7.
 - Everything at once: `install/check.sh` ends in one line.

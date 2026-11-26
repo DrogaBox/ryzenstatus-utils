@@ -2,7 +2,33 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
-## Decoders 0.3.6 (not released; host tests only)
+## Decoders 0.3.7 (not released; host tests only)
+
+- 0.3.6 made things worse in the first real sleep test on this Mac (RX 6800 XT, Tahoe
+  26.7.3): it noticed the sleep (132 s asleep), but every session from before it then
+  failed all its frames with -12911, and the new sessions after the wake lost their first
+  frames to the refusal below. The same test with 0.3.5, which knows nothing of sleeps,
+  kept decoding on the old sessions after the wake with every frame matching its reference.
+- So an AV1 or VP9 session from before a sleep now keeps decoding, as 0.3.5 did, and at its
+  next key frame (AV1: a key frame that refreshes every reference slot; VP9: a key frame, or
+  an intra-only frame that refreshes every slot and resets every probability context) its
+  driver objects are replaced inside the same decoder: the old accelerator is closed without
+  the driver's own teardown and a new accelerator, driver, context and bitstream pool are
+  opened, and the key frame decodes on them. No frame is dropped and the host sees no error.
+- Only when the old session fails after the wake (a driver call, a command that does not
+  finish, a firmware error) is it replaced at once; that frame and the ones up to the next
+  key frame are then dropped (no picture, no error), at most 600 of them. A command that did
+  not finish has its accelerator closed on the background thread. Right after a wake a
+  command on the old session may take up to 15 s instead of 1 s (in the test one frame of
+  each decode took about 10 s and then decoded correctly).
+- -12911 is left for a replacement that fails, or no key frame within those 600 frames.
+- A new session no longer refuses to open while one from before a sleep is still open.
+- The MPEG-2, VC-1 and MPEG-4 decoders are unchanged: their sessions from before a sleep
+  still stop as in 0.3.6.
+- Each replacement leaves the old driver handle and its bitstream pool (up to 96 MiB) in the
+  process, as the quiet close already did.
+
+## Decoders 0.3.6 (not released; replaced by 0.3.7)
 
 - A decode session from before a system sleep is no longer used after it. A user reported
   that with the AV1 and VP9 decoders a wake from sleep hung the Mac a while later, with

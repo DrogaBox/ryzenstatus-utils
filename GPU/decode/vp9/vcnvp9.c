@@ -26,9 +26,10 @@ int vcnvp9_gpu_armed = 0;
 #define VCN_MODE_VCN0 \
   4  // VP9 runs on both instances, but AV1 contexts only work on VCN0
 #define NUM_DPB 9
-// A rebuild after a sleep waits for a key frame; at 60 fps this is ten
-// seconds of frames. A stream that does not send one by then is stopped the
-// way PR 160 stopped it, so the host can hand it to another decoder.
+// A session that failed after a sleep is rebuilt and waits for a key frame,
+// dropping the frames before it; at 60 fps this is ten seconds of frames. A
+// stream that does not send one by then is stopped the way PR 160 stopped it,
+// so the host can hand it to another decoder.
 #define REBUILD_MAX_DROPPED 600
 #define NUM_BS VCN_NUM_BS
 #define BS_SIZE VCN_BS_SIZE
@@ -70,11 +71,16 @@ struct VcnVP9 {
   CVPixelBufferPoolRef pool;
   uint32_t poolW, poolH;
   bool poolTen;
-  bool stuck;         // a command never finished: the GPU may still hold it
-  bool broken;        // stuck, or a driver call failed: nothing more goes out
-  bool needKey;       // rebuilt after a sleep: drop frames until a key frame
+  bool stuck;   // a command never finished: the GPU may still hold it
+  bool broken;  // stuck, or a driver call failed: nothing more goes out
+  // The system slept since the driver side opened: frames still go to it, and
+  // it is rebuilt at the next key frame (on_frame).
+  bool rebuildAtKey;
+  unsigned keptAfterWake;  // frames decoded on it since the sleep was seen
+  bool needKey;       // rebuilt after a failure: drop frames until a key frame
   unsigned dropped;   // frames dropped since that rebuild
   unsigned rebuilds;  // driver objects rebuilt in this session (one per sleep)
+  uint32_t lastFw;    // firmware result of the last command that finished
   int failure;        // VCNVP9_FAIL_* of the last error
   bool shown;         // the current decode call output a frame
   CVPixelBufferRef hidden;  // retained: last frame it decoded without showing
@@ -665,35 +671,49 @@ VcnVP9* vcnvp9_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
   return d;
 }
 
-// Rebuilds the driver side of a session the system slept through (plan B of
-// the sleep fix, job 178): the objects from before the sleep are dropped
-// without a word to the driver, and a fresh accelerator, driver, context and
-// bitstream pool are opened for the same plug-in session, so the host's decoder
-// object lives on instead of failing frames with kVTVideoDecoderMalfunctionErr.
-// Nothing decoded before the sleep can be referenced after it, so the DPB, the
-// references, the parser state and the pictures go, and frames are dropped
-// until a key frame (on_frame). False when the rebuild fails: the caller then
-// stops the session as PR 160 did.
-static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
-  vcn_session_drop(&d->s);
+// Rebuilds the driver side of a session the system slept through: the objects
+// from before the sleep are dropped without a word to the driver, and a fresh
+// accelerator, driver, context and bitstream pool are opened for the same
+// plug-in session, so the host's decoder object lives on. The references live
+// in the old driver's DPB and the probability contexts in its context, so the
+// pictures and the reference slots go; the parser keeps the header being
+// decoded. busy: the old session's last command may still be on the GPU, so
+// its accelerator is closed on the teardown queue and the pictures are let go
+// only after that. False when the rebuild fails: the caller then stops the
+// session as PR 160 did.
+static bool vp9_rebuild(VcnVP9* d, bool busy, char* why, size_t whyLen) {
+  CVPixelBufferRef old[NUM_DPB + 1];
+  int n = 0;
   for (int i = 0; i < NUM_DPB; i++)
     if (d->dpb[i]) {
-      CVPixelBufferRelease(d->dpb[i]);
+      old[n++] = d->dpb[i];
       d->dpb[i] = NULL;
     }
+  if (d->hidden) {  // its own reference to one of them
+    old[n++] = d->hidden;
+    d->hidden = NULL;
+  }
+  if (busy) {
+    // Without memory for the list the pictures are never let go: a command
+    // still on the GPU may write into them.
+    CVPixelBufferRef* keep = n ? malloc((size_t)n * sizeof(*keep)) : NULL;
+    if (keep) memcpy(keep, old, (size_t)n * sizeof(*keep));
+    int kept = keep ? n : 0;
+    vcn_session_drop_later(&d->s, "VP9 session from before the sleep", ^{
+      for (int i = 0; i < kept; i++) CVPixelBufferRelease(keep[i]);
+      free(keep);
+    });
+  } else {
+    vcn_session_drop(&d->s);
+    for (int i = 0; i < n; i++) CVPixelBufferRelease(old[i]);
+  }
   memset(d->dpbRefs, 0, sizeof(d->dpbRefs));
   for (size_t i = 0; i < sizeof(d->parser.ref) / sizeof(d->parser.ref[0]);
        i++) {
     d->parser.ref[i].valid = 0;
     d->parser.ref[i].dpb_slot = -1;
   }
-  if (d->hidden) {
-    CVPixelBufferRelease(d->hidden);
-    d->hidden = NULL;
-  }
   d->bsNext = 0;
-  d->needKey = true;
-  d->dropped = 0;
   VcnDriverLib lib;
   if (!vcn_driver_load(&lib, why, whyLen)) return false;
   bool validated = false;
@@ -716,10 +736,59 @@ static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
     return false;
   }
   d->rebuilds++;
-  os_log_error(vlog(),
-               "the system slept since this session opened: driver rebuilt, "
-               "frames are dropped until the next key frame");
   return true;
+}
+
+// Rebuilds now (vp9_rebuild) and leaves the session decoding on the new driver;
+// dropUntilKey: the frames before the next key frame are dropped. False, with
+// the session stopped as a device failure, when the rebuild fails.
+static bool rebuild_now(VcnVP9* d, bool busy, bool dropUntilKey,
+                        const char* cause) {
+  char why[200];
+  unsigned kept = d->keptAfterWake;
+  if (!vp9_rebuild(d, busy, why, sizeof(why))) {
+    d->rebuildAtKey = false;
+    d->broken = true;
+    d->failure = VCNVP9_FAIL_DEVICE;
+    snprintf(d->err, sizeof(d->err),
+             "session stopped: the system slept since it opened and the "
+             "rebuild failed (%s)",
+             why);
+    return false;
+  }
+  // What these said was about the old driver objects.
+  d->rebuildAtKey = false;
+  d->stuck = d->broken = false;
+  d->keptAfterWake = 0;
+  d->needKey = dropUntilKey;
+  d->dropped = 0;
+  if (dropUntilKey)
+    os_log_error(
+        vlog(),
+        "the session from before the sleep failed after the wake "
+        "(%{public}s, %u frames decoded on it before): driver rebuilt, "
+        "frames are dropped until the next key frame",
+        cause, kept);
+  else
+    os_log_error(vlog(),
+                 "driver rebuilt at the first key frame after the sleep (%u "
+                 "frames decoded on the session from before it), no frame "
+                 "dropped",
+                 kept);
+  return true;
+}
+
+// The session from before the sleep failed on the frame being decoded: it is
+// rebuilt at once and this frame is dropped, like the ones after it until a
+// key frame. 0, or -1 when the rebuild fails.
+static int failed_after_wake(VcnVP9* d, bool busy) {
+  char cause[256];
+  snprintf(cause, sizeof(cause), "%s", d->err);
+  if (!rebuild_now(d, busy, true, cause)) return -1;
+  d->err[0] = 0;
+  d->failure = VCNVP9_FAIL_STREAM;
+  d->dropped = 1;
+  return 0;
 }
 
 static void destroy_now(VcnVP9* d) {
@@ -791,16 +860,18 @@ static int submit(VcnVP9* d, VP9Params* prm) {
   }
   uint32_t fw = 0;
   int ds = 0;
-  VcnWaitResult w =
-      vcn_wait_command(FN(QueryAVDCommandStatus), d->s.drv, refcons[0],
-                       VCN_COMMAND_TIMEOUT_MS, &fw, &ds);
+  // Longer on the session from before a sleep: right after a wake the driver
+  // can take seconds before a command runs (vcndriver.h).
+  unsigned limit =
+      d->rebuildAtKey ? vcn_wake_command_timeout_ms : VCN_COMMAND_TIMEOUT_MS;
+  VcnWaitResult w = vcn_wait_command(FN(QueryAVDCommandStatus), d->s.drv,
+                                     refcons[0], limit, &fw, &ds);
   if (w == VCN_WAIT_TIMEOUT) {
     // The GPU still holds this command. Sending more work, or reading the
     // target, could only make things worse: the session stops here.
     d->stuck = d->broken = true;
     snprintf(d->err, sizeof(d->err),
-             "the GPU did not finish a frame in %d ms; session stopped",
-             VCN_COMMAND_TIMEOUT_MS);
+             "the GPU did not finish a frame in %u ms; session stopped", limit);
     return -1;
   }
   if (w != VCN_WAIT_DONE) {
@@ -812,6 +883,7 @@ static int submit(VcnVP9* d, VP9Params* prm) {
   }
   d->failure = VCNVP9_FAIL_STREAM;
   d->done++;
+  d->lastFw = fw;
   // Counted, not refused: the VP9 result goes through the AV1 processor's
   // status reader, and what it reports for VP9 has not been checked on a GPU.
   // The first one of a session is logged at once, the count goes in the stats
@@ -828,15 +900,27 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
                     const uint8_t* data, size_t size) {
   VcnVP9* d = vctx;
   const VP9Frame* h = &p->fh;
-  // After a rebuild nothing from before the sleep can be used: every frame but
-  // a key frame (or an intra-only one, which refreshes every slot) is dropped,
-  // with no picture and no error, and a key frame starts the decoder again.
-  // Bounded: a stream that never sends one is stopped as a device failure,
-  // PR 160's behaviour.
+  // A frame after which nothing decoded before it is used: a key frame
+  // (refreshes every slot and resets the four probability contexts), or an
+  // intra-only frame that does both (all eight slots refreshed, and
+  // error_res or reset_frame_context 3). Another intra-only frame keeps
+  // slots or contexts the frames after it may use, which live in the old
+  // driver's DPB and context.
+  bool restart =
+      kind == VP9_PARSE_DECODE &&
+      (h->frame_type == 0 || (h->intra_only && h->refresh_frame_flags == 0xff &&
+                              (h->error_res || h->reset_frame_context == 3)));
+  // The system slept since the driver side opened, and it kept decoding (a
+  // real sleep on this Mac did not break it): it is replaced at the first such
+  // frame, which then decodes on the new one.
+  if (d->rebuildAtKey && restart && !rebuild_now(d, false, false, NULL))
+    return -1;
+  // After a rebuild that followed a failure nothing from before it can be
+  // used: every frame but such a key frame is dropped, with no picture and no
+  // error, and the key frame starts the decoder again. Bounded: a stream that
+  // never sends one is stopped as a device failure, PR 160's behaviour.
   if (d->needKey) {
-    bool key =
-        kind == VP9_PARSE_DECODE && (h->frame_type == 0 || h->intra_only);
-    if (!key) {
+    if (!restart) {
       if (++d->dropped > REBUILD_MAX_DROPPED) {
         d->broken = true;
         d->failure = VCNVP9_FAIL_DEVICE;
@@ -954,7 +1038,18 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
       "refresh=%02x\n",
       h->frame_type, h->intra_only, h->show_frame, h->width, h->height,
       h->bit_depth, h->base_q_idx, size, slot, h->refresh_frame_flags);
-  if (submit(d, &prm)) return -1;
+  if (submit(d, &prm))
+    // On the session from before a sleep, a driver failure is taken for the
+    // sleep's doing: rebuilt at once, instead of stopping the session.
+    return d->rebuildAtKey && d->broken ? failed_after_wake(d, d->stuck) : -1;
+  if (d->rebuildAtKey) {
+    if (d->lastFw) {
+      // A firmware error on it after the wake: its picture is not trusted.
+      snprintf(d->err, sizeof(d->err), "firmware result %u", d->lastFw);
+      return failed_after_wake(d, false);
+    }
+    d->keptAfterWake++;
+  }
   vp9_frame_done(p, slot);
   recount_refs(d);
   if (h->show_frame) {
@@ -979,17 +1074,14 @@ int vcnvp9_decode(VcnVP9* d, const uint8_t* chunk, size_t size, int64_t tag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
-  if (!d->broken && vcn_session_lost(&d->s)) {
-    char why[200];
-    if (!vp9_rebuild(d, why, sizeof(why))) {
-      d->broken = true;
-      snprintf(d->err, sizeof(d->err),
-               "session stopped: the system slept since it opened and the "
-               "rebuild failed (%s)",
-               why);
-      d->failure = VCNVP9_FAIL_DEVICE;
-      return -1;
-    }
+  // A sleep since the driver side opened: it keeps decoding, and on_frame
+  // rebuilds it at the next key frame (or at once if it fails).
+  if (!d->broken && !d->rebuildAtKey && vcn_session_lost(&d->s)) {
+    d->rebuildAtKey = true;
+    d->keptAfterWake = 0;
+    os_log_error(vlog(),
+                 "VP9 session from before the sleep: it keeps decoding and is "
+                 "rebuilt at the next key frame");
   }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",

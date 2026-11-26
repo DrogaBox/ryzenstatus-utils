@@ -23,9 +23,10 @@ int vcnav1_gpu_armed = 0;
 
 #define VCN_MODE_VCN0 4
 #define NUM_DPB 9
-// A rebuild after a sleep waits for a key frame; at 60 fps this is ten
-// seconds of frames. A stream that does not send one by then is stopped the
-// way PR 160 stopped it, so the host can hand it to another decoder.
+// A session that failed after a sleep is rebuilt and waits for a key frame,
+// dropping the frames before it; at 60 fps this is ten seconds of frames. A
+// stream that does not send one by then is stopped the way PR 160 stopped it,
+// so the host can hand it to another decoder.
 #define REBUILD_MAX_DROPPED 600
 #define NUM_BS VCN_NUM_BS
 #define BS_SIZE VCN_BS_SIZE
@@ -64,11 +65,16 @@ struct VcnAV1 {
       pool;  // decode targets; references live in the driver's internal DPB
   uint32_t poolW, poolH;
   bool poolTen;
-  bool stuck;         // a command never finished: the GPU may still hold it
-  bool broken;        // stuck, or a driver call failed: nothing more goes out
-  bool needKey;       // rebuilt after a sleep: drop frames until a key frame
+  bool stuck;   // a command never finished: the GPU may still hold it
+  bool broken;  // stuck, or a driver call failed: nothing more goes out
+  // The system slept since the driver side opened: frames still go to it, and
+  // it is rebuilt at the next key frame (on_frame).
+  bool rebuildAtKey;
+  unsigned keptAfterWake;  // frames decoded on it since the sleep was seen
+  bool needKey;       // rebuilt after a failure: drop frames until a key frame
   unsigned dropped;   // frames dropped since that rebuild
   unsigned rebuilds;  // driver objects rebuilt in this session (one per sleep)
+  uint32_t lastFw;    // firmware result of the last command that finished
   int failure;        // VCNAV1_FAIL_* of the last error
   bool shown;         // the current decode call output a frame
   CVPixelBufferRef hidden;  // retained: last frame it decoded without showing
@@ -267,32 +273,44 @@ VcnAV1* vcnav1_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
   return d;
 }
 
-// Rebuilds the driver side of a session the system slept through (plan B of
-// the sleep fix, job 178): the objects from before the sleep are dropped
-// without a word to the driver, and a fresh accelerator, driver, context and
-// bitstream pool are opened for the same plug-in session, so the host's decoder
-// object lives on instead of failing frames with kVTVideoDecoderMalfunctionErr.
-// Nothing decoded before the sleep can be referenced after it, so the DPB, the
-// reference slots, the parser and the pictures go, and the next frames are
-// dropped until a key frame (on_frame). False when the rebuild fails: the
+// Rebuilds the driver side of a session the system slept through: the objects
+// from before the sleep are dropped without a word to the driver, and a fresh
+// accelerator, driver, context and bitstream pool are opened for the same
+// plug-in session, so the host's decoder object lives on. The references live
+// in the old driver's DPB, so the DPB pictures and the reference slots go; the
+// parser keeps the sequence header (a key frame does not always repeat it) and
+// the frame header being decoded. busy: the old session's last command may
+// still be on the GPU, so its accelerator is closed on the teardown queue and
+// the pictures are let go only after that. False when the rebuild fails: the
 // caller then stops the session as PR 160 did.
-static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
-  vcn_session_drop(&d->s);
+static bool av1_rebuild(VcnAV1* d, bool busy, char* why, size_t whyLen) {
+  CVPixelBufferRef old[NUM_DPB + 1];
+  int n = 0;
   for (int i = 0; i < NUM_DPB; i++)
     if (d->dpb[i]) {
-      CVPixelBufferRelease(d->dpb[i]);
+      old[n++] = d->dpb[i];
       d->dpb[i] = NULL;
     }
-  memset(d->dpbRefs, 0, sizeof(d->dpbRefs));
-  if (d->hidden) {
-    CVPixelBufferRelease(d->hidden);
+  if (d->hidden) {  // its own reference to one of them
+    old[n++] = d->hidden;
     d->hidden = NULL;
   }
-  av1_parser_free(&d->parser);
-  av1_parser_init(&d->parser);
+  if (busy) {
+    // Without memory for the list the pictures are never let go: a command
+    // still on the GPU may write into them.
+    CVPixelBufferRef* keep = n ? malloc((size_t)n * sizeof(*keep)) : NULL;
+    if (keep) memcpy(keep, old, (size_t)n * sizeof(*keep));
+    int kept = keep ? n : 0;
+    vcn_session_drop_later(&d->s, "AV1 session from before the sleep", ^{
+      for (int i = 0; i < kept; i++) CVPixelBufferRelease(keep[i]);
+      free(keep);
+    });
+  } else {
+    vcn_session_drop(&d->s);
+    for (int i = 0; i < n; i++) CVPixelBufferRelease(old[i]);
+  }
+  vcnav1_flush(d);
   d->bsNext = 0;
-  d->needKey = true;
-  d->dropped = 0;
   VcnDriverLib lib;
   if (!vcn_driver_load(&lib, why, whyLen)) return false;
   if (!av1_driver_allowed(&lib)) {
@@ -313,10 +331,59 @@ static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
     return false;
   }
   d->rebuilds++;
-  os_log_error(vlog(),
-               "the system slept since this session opened: driver rebuilt, "
-               "frames are dropped until the next key frame");
   return true;
+}
+
+// Rebuilds now (av1_rebuild) and leaves the session decoding on the new driver;
+// dropUntilKey: the frames before the next key frame are dropped. False, with
+// the session stopped as a device failure, when the rebuild fails.
+static bool rebuild_now(VcnAV1* d, bool busy, bool dropUntilKey,
+                        const char* cause) {
+  char why[200];
+  unsigned kept = d->keptAfterWake;
+  if (!av1_rebuild(d, busy, why, sizeof(why))) {
+    d->rebuildAtKey = false;
+    d->broken = true;
+    d->failure = VCNAV1_FAIL_DEVICE;
+    snprintf(d->err, sizeof(d->err),
+             "session stopped: the system slept since it opened and the "
+             "rebuild failed (%s)",
+             why);
+    return false;
+  }
+  // What these said was about the old driver objects.
+  d->rebuildAtKey = false;
+  d->stuck = d->broken = false;
+  d->keptAfterWake = 0;
+  d->needKey = dropUntilKey;
+  d->dropped = 0;
+  if (dropUntilKey)
+    os_log_error(
+        vlog(),
+        "the session from before the sleep failed after the wake "
+        "(%{public}s, %u frames decoded on it before): driver rebuilt, "
+        "frames are dropped until the next key frame",
+        cause, kept);
+  else
+    os_log_error(vlog(),
+                 "driver rebuilt at the first key frame after the sleep (%u "
+                 "frames decoded on the session from before it), no frame "
+                 "dropped",
+                 kept);
+  return true;
+}
+
+// The session from before the sleep failed on the frame being decoded: it is
+// rebuilt at once and this frame is dropped, like the ones after it until a
+// key frame. 0, or -1 when the rebuild fails.
+static int failed_after_wake(VcnAV1* d, bool busy) {
+  char cause[256];
+  snprintf(cause, sizeof(cause), "%s", d->err);
+  if (!rebuild_now(d, busy, true, cause)) return -1;
+  d->err[0] = 0;
+  d->failure = VCNAV1_FAIL_STREAM;
+  d->dropped = 1;
+  return 0;
 }
 
 static void destroy_now(VcnAV1* d) {
@@ -607,9 +674,12 @@ static int submit(VcnAV1* d, AV1Params* prm, double* sched, double* wait) {
   }
   uint32_t fw = 0;
   int ds = 0;
-  VcnWaitResult w =
-      vcn_wait_command(FN(QueryAVDCommandStatus), d->s.drv, refcons[0],
-                       VCN_COMMAND_TIMEOUT_MS, &fw, &ds);
+  // Longer on the session from before a sleep: right after a wake the driver
+  // can take seconds before a command runs (vcndriver.h).
+  unsigned limit =
+      d->rebuildAtKey ? vcn_wake_command_timeout_ms : VCN_COMMAND_TIMEOUT_MS;
+  VcnWaitResult w = vcn_wait_command(FN(QueryAVDCommandStatus), d->s.drv,
+                                     refcons[0], limit, &fw, &ds);
   *sched = t1 - t0;
   *wait = tnow_ms() - t1;
   DBG("wait=%d firmware=%u driver=%d\n", (int)w, fw, ds);
@@ -618,8 +688,7 @@ static int submit(VcnAV1* d, AV1Params* prm, double* sched, double* wait) {
     // target, could only make things worse: the session stops here.
     d->stuck = d->broken = true;
     snprintf(d->err, sizeof(d->err),
-             "the GPU did not finish a frame in %d ms; session stopped",
-             VCN_COMMAND_TIMEOUT_MS);
+             "the GPU did not finish a frame in %u ms; session stopped", limit);
     return -1;
   }
   if (w != VCN_WAIT_DONE) {
@@ -631,6 +700,7 @@ static int submit(VcnAV1* d, AV1Params* prm, double* sched, double* wait) {
   }
   d->failure = VCNAV1_FAIL_STREAM;
   d->done++;
+  d->lastFw = fw;
   // Counted, not refused: what each firmware result means for the picture
   // has not been checked on a GPU yet. The first one of a session is logged
   // at once, the count goes in the stats line.
@@ -651,13 +721,25 @@ static bool seq_supported(const AV1Seq* s) {
 static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
   VcnAV1* d = vctx;
   const AV1Frame* h = &p->fh;
-  // After a rebuild nothing from before the sleep can be used: every frame but
-  // a key frame is dropped (no picture for this sample, which is what a hidden
-  // frame looks like to the host, not an error), and a key frame starts the
-  // decoder again. Bounded: a stream that never sends one is stopped as a
-  // device failure, PR 160's behaviour.
+  // A key frame that refreshes every reference slot (a shown key frame always
+  // does): nothing decoded before it is used after it, so the driver objects
+  // can be replaced here without losing a frame. A hidden key frame that keeps
+  // some slots is not one: the frames after it may still use those.
+  bool restart = kind == AV1_PARSE_FRAME_READY &&
+                 h->frame_type == AV1_KEY_FRAME &&
+                 h->refresh_frame_flags == 0xFF;
+  // The system slept since the driver side opened, and it kept decoding (a
+  // real sleep on this Mac did not break it): it is replaced at the first such
+  // key frame, which then decodes on the new one.
+  if (d->rebuildAtKey && restart && !rebuild_now(d, false, false, NULL))
+    return -1;
+  // After a rebuild that followed a failure nothing from before it can be
+  // used: every frame but such a key frame is dropped (no picture for this
+  // sample, which is what a hidden frame looks like to the host, not an
+  // error), and the key frame starts the decoder again. Bounded: a stream that
+  // never sends one is stopped as a device failure, PR 160's behaviour.
   if (d->needKey) {
-    if (kind != AV1_PARSE_FRAME_READY || h->frame_type != AV1_KEY_FRAME) {
+    if (!restart) {
       if (++d->dropped > REBUILD_MAX_DROPPED) {
         d->broken = true;
         d->failure = VCNAV1_FAIL_DEVICE;
@@ -787,7 +869,18 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
       h->TileRows, p->tile_data_size, slot, h->refresh_frame_flags);
   double tf1 = timing ? tnow_ms() : 0;
   double tSched, tWait;
-  if (submit(d, &prm, &tSched, &tWait)) return -1;
+  if (submit(d, &prm, &tSched, &tWait))
+    // On the session from before a sleep, a driver failure is taken for the
+    // sleep's doing: rebuilt at once, instead of stopping the session.
+    return d->rebuildAtKey && d->broken ? failed_after_wake(d, d->stuck) : -1;
+  if (d->rebuildAtKey) {
+    if (d->lastFw) {
+      // A firmware error on it after the wake: its picture is not trusted.
+      snprintf(d->err, sizeof(d->err), "firmware result %u", d->lastFw);
+      return failed_after_wake(d, false);
+    }
+    d->keptAfterWake++;
+  }
   if (timing)
     fprintf(stderr, "timing bytes=%zu prep=%.2f sched=%.2f wait=%.2f\n",
             p->tile_data_size, tf1 - tf0, tSched, tWait);
@@ -841,17 +934,14 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
-  if (!d->broken && vcn_session_lost(&d->s)) {
-    char why[200];
-    if (!av1_rebuild(d, why, sizeof(why))) {
-      d->broken = true;
-      snprintf(d->err, sizeof(d->err),
-               "session stopped: the system slept since it opened and the "
-               "rebuild failed (%s)",
-               why);
-      d->failure = VCNAV1_FAIL_DEVICE;
-      return -1;
-    }
+  // A sleep since the driver side opened: it keeps decoding, and on_frame
+  // rebuilds it at the next key frame (or at once if it fails).
+  if (!d->broken && !d->rebuildAtKey && vcn_session_lost(&d->s)) {
+    d->rebuildAtKey = true;
+    d->keptAfterWake = 0;
+    os_log_error(vlog(),
+                 "AV1 session from before the sleep: it keeps decoding and is "
+                 "rebuilt at the next key frame");
   }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
