@@ -199,9 +199,46 @@ in_place() { # part
                 ${JSON[encoder]} != *'"kext":"outdated"'* && ${JSON[encoder]} != *'"entry":"old"'* ]] ;;
     # working, and the version that runs is the one here (an older one gets updated)
     sensors) [[ $(jfield sensors result) == working* && $(jfield sensors running) == "loaded $(jfield sensors version),"* ]] ;;
-    jpeg)    [[ $(jfield jpeg result) == working* && $(jfield jpeg running) == "loaded $(jfield jpeg version),"* ]] ;;
+    # working, the version here, and listed in the config.plist this run installs to: a
+    # kext started by another config file (one picked in OpenCore for one boot) is not
+    # loaded by the next normal boot
+    jpeg)    [[ $(jfield jpeg result) == working* && $(jfield jpeg running) == "loaded $(jfield jpeg version),"* ]] &&
+               jpeg_listed_on_target ;;
     *) return 1 ;;
   esac
+}
+
+# The EFI partition this run installs to, as far as can be told before the password and
+# without mounting anything: --efi, else the one efi_guess finds (common.zsh). Empty when
+# the install decides it later. The stand-in Mac of the tests says it in $FAKE/efi, as in
+# the plan's EFI line below (disk9s9 when found).
+target_efi() {
+  if [[ -n $EFI_ID ]]; then print -r -- $EFI_ID; return; fi
+  if [[ -n $FAKE ]]; then
+    local g=$(cat "$FAKE/efi" 2>/dev/null)
+    [[ ${g:-found} == found ]] && print -r -- disk9s9
+    return 0
+  fi
+  efi_guess
+  [[ $EFI_GUESS == found ]] && print -r -- $EFI_GUESS_ID
+  return 0
+}
+# True when jpeg.sh check saw that partition mounted, with the kext entry in its
+# config.plist as expected and this build of the kext there. When the partition is not
+# known yet, or not mounted now, that is not known either: the install step looks then (it
+# changes nothing that is already in place).
+jpeg_listed_on_target() {
+  local target=$(target_efi) n i
+  [[ -n $target ]] || return 1
+  n=$(jfield jpeg efis)
+  [[ $n == <-> ]] || return 1
+  for (( i = 0; i < n; i++ )); do
+    [[ $(jfield jpeg efis.$i.id) == $target ]] || continue
+    [[ $(jfield jpeg efis.$i.mounted) == true && $(jfield jpeg efis.$i.entry) == ok &&
+       $(jfield jpeg efis.$i.kext) == current ]]
+    return
+  done
+  return 1
 }
 
 # The commands gpucontrol and gpusensors, when the sensors kext needs nothing: copied when

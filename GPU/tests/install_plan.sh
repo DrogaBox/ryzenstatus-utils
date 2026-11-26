@@ -228,6 +228,31 @@ print -r -- ambiguous > "$WORK/efinotneeded/efi"
 plan efinotneeded
 expect "no kext to put on an EFI: the partition does not matter" $(( RC == 0 && $(lacks "EFI partition") ))
 
+print -r -- "the JPEG kext: skipped only when the config.plist installed to lists it"
+# jpeg.sh check --json of a working kext, with one EFI row: mounted, entry, kext
+jpeg_json() { # mounted entry kext
+  print -r -- '{"canInstall":true,"version":"1.0.0","running":"loaded 1.0.0, ready, 3 pictures decoded since boot","pendingReboot":false,"result":"working: VCNJpeg is ready.","efis":[{"id":"disk9s9","name":"OPENCORE","media":"x","mounted":'$1',"mountPoint":"/Volumes/OPENCORE","openCore":"yes","entry":"'$2'","kext":"'$3'","usable":"yes"}],"checks":[]}'
+}
+for c json in jpegok "$(jpeg_json true ok current)" jpegnoentry "$(jpeg_json true none current)" \
+              jpegunmounted "$(jpeg_json false unknown unknown)" jpegother "$(jpeg_json true ok outdated)"; do
+  fake $c on "$DEC_CURRENT" "" "$LDR_WORKING" "" "$ENC_NONE" "$SNS_CURRENT"
+  print -r -- "$json" > "$WORK/$c/jpeg.json"
+  print -r -- "" > "$WORK/$c/jpeg.txt"
+done
+plan jpegok --with-jpeg
+expect "listed in that config.plist, this build: nothing to install" $(( RC == 0 && $(has "skip jpeg: already installed and running") && $(has "Nothing to install") ))
+plan jpegnoentry --with-jpeg
+expect "running, but started by another config file (no entry in config.plist): the kext is a step" \
+  $(( RC == 0 && $(has "put VCNJpeg.kext on the EFI") && $(lacks "skip jpeg: already") ))
+plan jpegunmounted --with-jpeg
+expect "running, the EFI not mounted (entry not known): the kext is a step, the install looks" \
+  $(( RC == 0 && $(has "put VCNJpeg.kext on the EFI") ))
+plan jpegother --with-jpeg
+expect "running, another build on that EFI: the kext is a step" $(( RC == 0 && $(has "put VCNJpeg.kext on the EFI") ))
+print -r -- open > "$WORK/jpegok/efi"
+plan jpegok --with-jpeg
+expect "the partition is chosen when installing: the kext is a step" $(( RC == 0 && $(has "put VCNJpeg.kext on the EFI") ))
+
 print -r -- "the stand-in is for plan only"
 GPU_INSTALL_PLAN_FAKE=$WORK/fresh /bin/zsh "$INSTALL" > /dev/null 2>&1
 rc=$?
