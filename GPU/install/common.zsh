@@ -119,7 +119,7 @@ stage_package() { # package folder
     print -r -u2 -- "could not copy $src"
     return 1
   fi
-  if ! /usr/bin/chown -R root:wheel "$dst/pkg" || ! /bin/chmod -R go-w "$dst/pkg" ||
+  if ! /usr/sbin/chown -R root:wheel "$dst/pkg" || ! /bin/chmod -R go-w "$dst/pkg" ||
      ! /bin/chmod -R -N "$dst/pkg" 2>/dev/null; then
     /bin/rm -rf "$dst"
     print -r -u2 -- "could not make the copy of $src root-owned"

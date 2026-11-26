@@ -19,6 +19,7 @@ enum GPUInstallerDMGTests {
         let script = text(root, "Tools/make-dmg.sh")
         suite.expect(!script.isEmpty, "Tools/make-dmg.sh is readable from the repository root")
         layout(suite, root, script)
+        toolPaths(suite, root)
         let parts = unpackParts(root)
         defer { if let parts { try? FileManager.default.removeItem(at: parts.deletingLastPathComponent()) } }
         suite.expect(parts != nil, "ReleaseAssets/GPU-Package.zip unpacks to one GPU/ folder")
@@ -26,6 +27,42 @@ enum GPUInstallerDMGTests {
             pinned(suite, root, script, parts)
             installerFinds(suite, root, script, parts)
         }
+    }
+
+    // MARK: The commands the installers run as root
+
+    /// Root runs the installer scripts with PATH set to the system folders, and many
+    /// commands are named by their full path. A wrong folder (/usr/bin/chown: chown is in
+    /// /usr/sbin) stops an install half way, after the password. Every absolute command path
+    /// in the scripts and the installer app must exist on this Mac.
+    private static func toolPaths(_ suite: TestSuite, _ root: URL) {
+        let fm = FileManager.default
+        var files: [String] = ["GPU/installer/main.swift"]
+        for dir in ["GPU/install", "GPU/encode/scripts"] {
+            let names = (try? fm.contentsOfDirectory(atPath: root.appendingPathComponent(dir).path)) ?? []
+            files += names.filter { $0.hasSuffix(".sh") || $0.hasSuffix(".zsh") }.sorted().map { "\(dir)/\($0)" }
+        }
+        suite.expect(files.count > 5, "the installer scripts are found (\(files.count) files)")
+        guard let re = try? NSRegularExpression(
+            pattern: #"(?<![A-Za-z0-9_./$-])(/(?:usr/)?s?bin/[A-Za-z0-9_.+-]+|/usr/libexec/[A-Za-z0-9_.+-]+)"#) else {
+            suite.expect(false, "the command path pattern compiles")
+            return
+        }
+        var missing: [String] = []
+        var seen = 0
+        for file in files {
+            let body = text(root, file)
+            let range = NSRange(body.startIndex..., in: body)
+            for match in re.matches(in: body, range: range) {
+                guard let r = Range(match.range(at: 1), in: body) else { continue }
+                var path = String(body[r])
+                while path.hasSuffix(".") { path.removeLast() }
+                seen += 1
+                if !fm.fileExists(atPath: path) { missing.append("\(file): \(path)") }
+            }
+        }
+        suite.expect(seen > 50, "the installers name their commands by full path (\(seen) found)")
+        suite.expect(missing.isEmpty, "every command path the installers run exists on this Mac (missing: \(missing))")
     }
 
     // MARK: The DMG layout

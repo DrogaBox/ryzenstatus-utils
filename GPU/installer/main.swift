@@ -499,7 +499,7 @@ final class Engine: ObservableObject {
             "stage=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-gpu.XXXXXX) || exit 1",
             "trap '/bin/rm -rf \"$stage\"' EXIT HUP INT TERM",
             "/usr/bin/ditto --norsrc --noextattr \(Self.shq(root.path)) \"$stage/GPU\" || exit 1",
-            "/usr/bin/chown -R root:wheel \"$stage/GPU\" || exit 1",
+            "/usr/sbin/chown -R root:wheel \"$stage/GPU\" || exit 1",
             "/bin/chmod -R go-w \"$stage/GPU\" || exit 1",
             "/bin/chmod -R -N \"$stage/GPU\" 2>/dev/null || exit 1",
             "cd \"$stage/GPU\" || exit 1",
