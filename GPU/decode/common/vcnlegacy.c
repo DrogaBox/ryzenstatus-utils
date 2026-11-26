@@ -210,8 +210,13 @@ uint32_t vcnlegacy_build_message(uint8_t* msg, size_t cap,
   uint8_t* d = msg + decodeOff;
   const uint32_t a = w <= 32 ? 32 : 64;
   U32(d, 0) = m->codecId;
-  U32(d, 8) = m->sizeInMacroblocks ? (w + 15) / 16 : w;
-  U32(d, 12) = m->sizeInMacroblocks ? (h + 15) / 16 : h;
+  // db_pitch and db_aligned_height below come out the same from either size.
+  U32(d, 8) = m->sizeInMacroblocks ? (w + 15) / 16
+              : m->alignSizeTo16   ? al(w, 16)
+                                   : w;
+  U32(d, 12) = m->sizeInMacroblocks ? (h + 15) / 16
+               : m->alignSizeTo16   ? al(h, 16)
+                                    : h;
   U32(d, 16) = m->bitstreamSize;
   U32(d, 20) = m->dpbSize;
   U32(d, 24) = (uint32_t)(((uint64_t)3 * pitch * texh) >> 1);
@@ -351,6 +356,7 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
                         .width = DEC_WIDTH(dec),
                         .height = DEC_HEIGHT(dec),
                         .sizeInMacroblocks = d->cfg.sizeInMacroblocks,
+                        .alignSizeTo16 = d->cfg.alignSizeTo16,
                         .pitch = TEX_PITCH(target),
                         .texHeight = TEX_HEIGHT(target),
                         .bytesPerElement = TEX_BPE(target),
