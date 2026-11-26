@@ -296,6 +296,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
     private var present = false
     private var cached: GPUSensorsReading?
     private var cachedControl: GPUControlStatus?
+    private var cachedVersion: String?
     private var writePath = false
     private var unsupportedCard = false
     private var cachedAt: TimeInterval = -.infinity
@@ -388,12 +389,15 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         let properties = Self.properties(of: entry)
         let nextReading = properties.flatMap { GPUSensorsReading.parse($0, now: now) }
         let nextControl = properties.flatMap(GPUControlStatus.parse)
+        let nextVersion = (properties?["VersionInfo"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         lock.lock()
         readInFlight = false
         // Gone or replaced while reading: that read is not this service's.
         if service == entry {
             cached = nextReading
             cachedControl = nextControl
+            cachedVersion = (nextVersion?.isEmpty == false) ? nextVersion : nil
             cachedAt = now
             let hasWrite = nextControl?.writing != nil
             if hasWrite != writePath {
@@ -417,6 +421,16 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return unsupportedCard
+    }
+
+    /// Thread-safe, no registry access: the version the last read published.
+    var versionNow: String? {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "gpuSensorsOff") { return nil }
+        #endif
+        lock.lock()
+        defer { lock.unlock() }
+        return cachedVersion
     }
 
     /// Thread-safe, no registry access: the last read had `Write`.
@@ -522,6 +536,7 @@ final class GPUSensorsService: ObservableObject, @unchecked Sendable {
                 present = false
                 cached = nil
                 cachedControl = nil
+                cachedVersion = nil
                 if writePath {
                     writePath = false
                     publishWritePath(false)

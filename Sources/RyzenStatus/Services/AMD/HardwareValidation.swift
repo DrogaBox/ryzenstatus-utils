@@ -114,6 +114,9 @@ enum HardwareValidation {
         /// send mailbox commands over each other; the app yields while it is
         /// present and says so instead of writing.
         case smuSharing = "smu-sharing"
+        /// The optional GPU sensor kext, and whether it found a card its
+        /// control path can use. Informational: it never decides a CPU probe.
+        case gpuSensors = "gpu-sensors"
     }
 
     struct GateResult: Equatable {
@@ -201,6 +204,13 @@ enum HardwareValidation {
         /// Third-party drivers attached to the AMD host bridge, by bundle
         /// identifier. Empty when the SMU is ours alone.
         var foreignSmuClients: [String] = []
+        /// GPUSensors.kext is loaded.
+        var gpuSensorsLoaded: Bool = false
+        /// Its `VersionInfo`, empty when the service did not report one.
+        var gpuSensorsVersion: String = ""
+        /// Whether its control found a card it supports; nil when the loaded
+        /// service did not report a control state (or has an older kext).
+        var gpuSensorsCardSupported: Bool? = nil
         /// When the values above were read. The gates read like a live meter,
         /// so the page has to be able to say how stale they are.
         var capturedAt: Date? = nil
@@ -215,7 +225,8 @@ enum HardwareValidation {
 
     static func gates(_ s: Snapshot) -> [GateResult] {
         [kextVersionGate(s), telemetryGate(s), privilegeGate(s),
-         topologyGate(s), tachGate(s), familyGate(s), sharingGate(s)]
+         topologyGate(s), tachGate(s), familyGate(s), sharingGate(s),
+         gpuSensorsGate(s)]
     }
 
     private static func sharingGate(_ s: Snapshot) -> GateResult {
@@ -228,6 +239,31 @@ enum HardwareValidation {
                                 + "(\(s.foreignSmuClients.joined(separator: ", "))). "
                                 + "Changing power limits is paused so the two do not collide; "
                                 + "sensors still work.")
+    }
+
+    /// Informational by design: a missing or cardless GPU kext changes what
+    /// the Sensors page can show, but it says nothing about the CPU probes.
+    private static func gpuSensorsGate(_ s: Snapshot) -> GateResult {
+        guard s.gpuSensorsLoaded else {
+            return GateResult(gate: .gpuSensors, verdict: .unknown,
+                              detail: "GPUSensors.kext is not loaded; GPU readings come from macOS only",
+                              neutral: true)
+        }
+        let version = s.gpuSensorsVersion.isEmpty ? "version not reported" : s.gpuSensorsVersion
+        switch s.gpuSensorsCardSupported {
+        case true?:
+            return GateResult(gate: .gpuSensors, verdict: .pass,
+                              detail: "GPUSensors.kext \(version) loaded; a supported card was found")
+        case false?:
+            return GateResult(gate: .gpuSensors, verdict: .unknown,
+                              detail: "GPUSensors.kext \(version) loaded, but it found no RX 6800 XT or RX 6900 XT; "
+                                    + "GPU readings come from macOS only",
+                              neutral: true)
+        case nil:
+            return GateResult(gate: .gpuSensors, verdict: .unknown,
+                              detail: "GPUSensors.kext \(version) loaded; the card state is not reported",
+                              neutral: true)
+        }
     }
 
     private static func kextVersionGate(_ s: Snapshot) -> GateResult {

@@ -11508,6 +11508,9 @@ struct MetricsTests {
         snapshot.packagePowerW = 37.2
         snapshot.privilegeChecked = true
         snapshot.privilegeReported = true
+        snapshot.gpuSensorsLoaded = true
+        snapshot.gpuSensorsVersion = "0.8.0"
+        snapshot.gpuSensorsCardSupported = true
         snapshot.fans = [
             fan(0, "CPU Fan"), fan(1, "System 1 Fan"), fan(2, "System 2 Fan"),
             fan(3, "PCH Fan"), fan(4, "CPU OPT Fan"), fan(5, "System 3 Fan", pump: true),
@@ -11552,6 +11555,38 @@ struct MetricsTests {
                "a third-party client on the host bridge is a warning, never a pass")
         expect(sharedResults.first { $0.gate == .smuSharing }?.detail.contains("com.example.smudriver") == true,
                "the coexistence row names the driver that shares the SMU")
+
+        // The GPU package row is informational: no kext, a cardless kext and
+        // an old kext that cannot say are UNKNOWN and neutral, never FAIL.
+        var noGPU = snapshot
+        noGPU.gpuSensorsLoaded = false
+        noGPU.gpuSensorsVersion = ""
+        noGPU.gpuSensorsCardSupported = nil
+        let noGPUResult = HardwareValidation.gates(noGPU).first { $0.gate == .gpuSensors }
+        expect(noGPUResult?.verdict == .unknown && noGPUResult?.neutral == true
+               && noGPUResult?.detail == "GPUSensors.kext is not loaded; GPU readings come from macOS only",
+               "without GPUSensors.kext the row says so and stays informational")
+        var cardlessGPU = snapshot
+        cardlessGPU.gpuSensorsCardSupported = false
+        let cardlessResult = HardwareValidation.gates(cardlessGPU).first { $0.gate == .gpuSensors }
+        expect(cardlessResult?.verdict == .unknown && cardlessResult?.neutral == true
+               && cardlessResult?.detail.contains("no RX 6800 XT or RX 6900 XT") == true
+               && cardlessResult?.detail.contains("macOS only") == true,
+               "a loaded GPUSensors.kext with no supported card is UNKNOWN and neutral")
+        var oldGPU = snapshot
+        oldGPU.gpuSensorsVersion = "0.2.0"
+        oldGPU.gpuSensorsCardSupported = nil
+        let oldGPUResult = HardwareValidation.gates(oldGPU).first { $0.gate == .gpuSensors }
+        expect(oldGPUResult?.verdict == .unknown && oldGPUResult?.neutral == true
+               && oldGPUResult?.detail.contains("card state is not reported") == true,
+               "a loaded kext that does not report a card state is UNKNOWN, not a failure")
+        expect(gate(healthy, .gpuSensors) == .pass,
+               "a loaded GPUSensors.kext with a supported card passes the informational row")
+        expect(GPUControlStatus.parse(["Control": "off: no RX 6800 XT or RX 6900 XT (73BF rev C1 or C0) found"])?
+                .hasNoSupportedCard == true,
+               "the no-supported-card prefix is recognised from the Control text")
+        expect(GPUControlStatus.parse(["Control": "off: writing off"])?.hasNoSupportedCard == false,
+               "another off state is not mistaken for no supported card")
 
         // Version pin: a mismatch is a failure, not a warning — a probe run
         // against a binary the runbook was not written for measures nothing.
