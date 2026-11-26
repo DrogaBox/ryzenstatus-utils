@@ -4,6 +4,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 /// Whether the GPU control page and its panel row exist: only with a kext
 /// that has the write path (0.5.0 and later), or with the model in a
@@ -72,11 +73,16 @@ final class GPUControlService: ObservableObject {
         didSet {
             guard overclock != oldValue else { return }
             defaults.set(overclock, forKey: DefaultsKey.gpuControlOverclock)
+            let on = overclock
+            overclockNow.withLock { $0 = on }
             if !overclock { controller?.dropRaises() }
         }
     }
 
     private let defaults: UserDefaults
+    /// The switch for the controller's queue: a remembered raise is checked
+    /// against it right before it goes out.
+    private let overclockNow = OSAllocatedUnfairLock(initialState: false)
     private var controller: GPUControlController?
     private var fake: FakeGPUControlKext?
     private var viewers = 0
@@ -93,7 +99,9 @@ final class GPUControlService: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         remember = defaults.bool(forKey: DefaultsKey.gpuControlRemember)
-        overclock = defaults.bool(forKey: DefaultsKey.gpuControlOverclock)
+        let on = defaults.bool(forKey: DefaultsKey.gpuControlOverclock)
+        overclock = on
+        overclockNow.withLock { $0 = on }
     }
 
     var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control) }
@@ -134,6 +142,7 @@ final class GPUControlService: ObservableObject {
         }
         controller.setReaskAfterWake(rememberActive)
         let model = fake
+        let overclockNow = overclockNow
         controller.setReaskFilter { request in
             let control = model.flatMap(GPUControlService.fakeControl) ?? GPUSensorsService.shared.currentControl()
             let od8Ready = control?.writing?.od8Read == .read
@@ -141,8 +150,12 @@ final class GPUControlService: ObservableObject {
                 request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
                 gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready),
                 volt: GPUControlVoltLogic.limits(writing: control?.writing, od8Ready: od8Ready),
-                overclock: GPUControlOverclockLogic.gfxLimits(writing: control?.writing, od8Ready: od8Ready))
+                overclock: GPUControlOverclockLogic.gfxLimits(writing: control?.writing, od8Ready: od8Ready),
+                overclockAllowed: overclockNow.withLock { $0 })
         }
+        // The kext refuses a curve or a raise while the watchdog's readings
+        // are older than 2 s: one read right before each such change.
+        if mode == .real { controller.setFreshenReadings { GPUControlReadings.freshen() } }
         controller.start()
         self.controller = controller
         if mode == .real { startForeignWatch() }
@@ -447,12 +460,18 @@ final class GPUControlService: ObservableObject {
             GPUControlRemembered.nothing.save(defaults)
             return
         }
+        let writing = control?.writing
         if let request = GPUControlRememberPolicy.request(remembered: remembered, active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped,
-                                                          stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
-                                                          kextVersion: control?.writing?.kextVersion,
+                                                          stockGfxMaxMHz: writing?.od8?.stockGfxMaxMHz,
+                                                          kextVersion: writing?.kextVersion,
                                                           gfxMin: GPUControlClockMinLogic.limits(
-                                                            writing: control?.writing, od8Ready: facts.od8Ready)) {
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          volt: GPUControlVoltLogic.limits(
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          overclock: GPUControlOverclockLogic.gfxLimits(
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          overclockAllowed: overclock) {
             controller.choose(request, origin: .remembered)
         }
     }

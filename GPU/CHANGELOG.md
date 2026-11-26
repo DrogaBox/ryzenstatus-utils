@@ -60,6 +60,8 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   (nothing could be read back). Also not added: the fan minimum speed (id 10) and fan target
   temperature (id 12), which the driver does not offer while the fan curve is offered
   (feature 0, and `PhwComm_OD8_SetGenericSetting` skips a setting whose feature is 0).
+- `gpucontrol status` names a held GFX maximum above stock "GFX max raised" (it said
+  "lowered" for every held maximum) and shows a held voltage as "GFX voltage lowered".
 
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 

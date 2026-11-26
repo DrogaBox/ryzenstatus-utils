@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import IOKit
 
 /// What the app asks GPUSensors.kext to hold.
 enum GPUControlRequest: Equatable, Hashable, Sendable {
@@ -76,6 +77,28 @@ enum GPUControlOrigin: Equatable, Sendable {
     case remembered
 }
 
+/// Which refusals of a remembered request are tried again (at launch and
+/// after a wake). Only the ones that pass by themselves: the fan watchdog's
+/// readings were not fresh yet (an OD8 state with a curve, a raised minimum
+/// or the overclock flag; a raised power limit). "Busy", "not ready", "too
+/// soon" and "sleeping" already wait for every request. Everything else is a
+/// real answer (out of range, writing not allowed, another program holds
+/// the control) and is never sent again by itself.
+enum GPUControlRetryPolicy {
+    static func isTemporary(_ answer: GPUControlAnswer) -> Bool {
+        switch answer.reply {
+        case .noReadings?: return true
+        case .od8Refused?: return answer.check == .noReadings
+        default: return false
+        }
+    }
+
+    /// Still inside the window that started with the first such refusal.
+    static func retries(firstRefusalAt since: UInt64, now: UInt64) -> Bool {
+        now < since + GPUControlEngine.temporaryRetryWindowMs
+    }
+}
+
 /// What the controller knows, for the page. `held` comes from `status`
 /// (mine, and the values match), never from what was asked.
 struct GPUControlSnapshot: Equatable, Sendable {
@@ -147,6 +170,11 @@ final class GPUControlEngine {
     /// After a wake the kext goes back 2 to 12 s later; `mine` is not trusted
     /// and nothing is asked until this much has passed.
     static let wakeSettleMs: UInt64 = 15_000
+    /// A remembered request the kext refused for a reason that passes (the
+    /// watchdog's readings were not fresh yet) is tried again this often...
+    static let temporaryRetryMs: UInt64 = 3_000
+    /// ...for this long after the first such refusal, then the refusal stands.
+    static let temporaryRetryWindowMs: UInt64 = 30_000
 
     private let channel: GPUControlChannel?
     private let clock: () -> UInt64
@@ -163,6 +191,12 @@ final class GPUControlEngine {
     /// right before it goes out (the stock GFX maximum moves across wakes):
     /// the request to send, or nil for nothing.
     var reaskFilter: ((GPUControlRequest) -> GPUControlRequest?)?
+    /// Right before an OD8 state or a raised power limit goes out: makes the
+    /// watchdog's readings fresh (the kext's PMLog copy only moves when
+    /// someone reads the accelerator's `PerformanceStatistics`, and the kext
+    /// refuses a curve, a raised minimum or a raise with readings older than
+    /// 2 s). Nil in tests.
+    var freshenReadings: (() -> Void)?
 
     private(set) var snapshot = GPUControlSnapshot() {
         didSet { if snapshot != oldValue { onSnapshot?(snapshot) } }
@@ -173,6 +207,9 @@ final class GPUControlEngine {
     private var wanted: GPUControlRequest?
     private var wantedOrigin: GPUControlOrigin = .owner
     private var wantedSince: UInt64 = 0
+    /// The first refusal of the waiting remembered request that passes by
+    /// itself (`GPUControlRetryPolicy`), nil before one.
+    private var temporarySince: UInt64?
     private var nextTryAt: UInt64 = 0
     private var nextPollAt: UInt64 = 0
     private var statusRequested = false
@@ -232,6 +269,7 @@ final class GPUControlEngine {
         wanted = request
         wantedOrigin = origin
         wantedSince = now
+        temporarySince = nil
         nextTryAt = Swift.max(now, wokeAt.map { $0 + Self.wakeSettleMs } ?? 0)
         snapshot.outcome = nil
     }
@@ -368,6 +406,7 @@ final class GPUControlEngine {
                 wanted = held
                 wantedOrigin = .remembered
                 wantedSince = now
+                temporarySince = nil
             }
         }
         if wanted != nil {
@@ -652,12 +691,14 @@ final class GPUControlEngine {
             // kext that takes it; an older one refuses the value either way.
             let status = snapshot.status
             let raise = status.map { $0.flags.contains(.raise) && $0.bootW != 0 && UInt64(watts) > $0.bootW } ?? false
+            if raise { freshenReadings?() }
             answer = channel.setPower(watts: watts, raise: raise)
         case .od8(let want):
             guard want.scalars() != nil else {
                 refuse(request, GPUControlAnswer(replyCode: GPUControlReply.badArgs.rawValue))
                 return
             }
+            freshenReadings?()
             answer = channel.setOD8(want)
         case .startUp: return
         }
@@ -721,8 +762,29 @@ final class GPUControlEngine {
         case .notArmed:
             notSent(.closed)
         default:
+            // A remembered request goes through at launch and after a wake
+            // with nobody watching: a refusal that passes by itself is tried
+            // again for a while. The owner's own choice shows it at once.
+            if wantedOrigin == .remembered, GPUControlRetryPolicy.isTemporary(answer) {
+                return retryTemporary(request, answer)
+            }
             refuse(request, answer)
         }
+    }
+
+    /// A remembered request refused for a reason that passes: tried again
+    /// every `temporaryRetryMs` (never closer than the kext's 2 s between
+    /// writes), until `temporaryRetryWindowMs` after the first such refusal;
+    /// then the refusal stands and shows as any other.
+    private func retryTemporary(_ request: GPUControlRequest, _ answer: GPUControlAnswer) {
+        let now = clock()
+        let since = temporarySince ?? now
+        temporarySince = since
+        guard GPUControlRetryPolicy.retries(firstRefusalAt: since, now: now) else {
+            return refuse(request, answer)
+        }
+        snapshot.activity = .retrying(request, .reply(answer.reply ?? .od8Refused))
+        nextTryAt = now + Self.temporaryRetryMs
     }
 
     // MARK: Closing (kext 0.8.0)
@@ -798,6 +860,7 @@ final class GPUControlEngine {
 
     private func finishRequest() {
         wanted = nil
+        temporarySince = nil
         switching = false
         wokeAt = nil
         snapshot.activity = .none
@@ -922,6 +985,13 @@ final class GPUControlController: @unchecked Sendable {
         queue.async { [self] in engine.reaskFilter = filter }
     }
 
+    /// What makes the watchdog's readings fresh right before an OD8 state or
+    /// a raised power limit goes out (`GPUControlReadings.freshen` with the
+    /// real kext).
+    func setFreshenReadings(_ freshen: @escaping @Sendable () -> Void) {
+        queue.async { [self] in engine.freshenReadings = freshen }
+    }
+
     /// `applicationWillTerminate`: `release` at once on a helper thread,
     /// then close; waits `timeout` seconds at most.
     /// `release` answers right away and wins over a `set` already waiting in
@@ -1004,4 +1074,28 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     private static func nowMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
+}
+
+/// The fan watchdog's readings, from the app's side. GPUSensors.kext copies
+/// the PMLog only when the driver reads it, and the driver reads it when
+/// someone reads the accelerator's `PerformanceStatistics` (what
+/// `ioreg -r -c IOAccelerator -l -d1` does too). One read right before a
+/// change makes them fresh, whether or not the app's own GPU readings run
+/// yet (right after launch, right after a wake).
+enum GPUControlReadings {
+    /// Reads `PerformanceStatistics` of the first accelerator that has it.
+    /// The values are not used here; `IOAcceleratorCache` keeps its own.
+    static func freshen() {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"),
+                                           &iterator) == kIOReturnSuccess else { return }
+        defer { IOObjectRelease(iterator) }
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            defer { IOObjectRelease(entry) }
+            if IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
+                                               kCFAllocatorDefault, 0)?.takeRetainedValue() != nil {
+                return
+            }
+        }
+    }
 }

@@ -5,8 +5,9 @@ import Foundation
 
 /// GPUSensors 0.9.0's GFX voltage and raises: the wire forms and numbers,
 /// the rules one step past every limit, the recommended starting point, the
-/// model and the controller, what is never asked for again at launch, the
-/// overclock switch, the gating, the words.
+/// model and the controller, what is asked for again at launch and after a
+/// wake, the retries of a remembered request, the overclock switch, the
+/// gating, the words.
 enum GPUControlOverclockTests {
     static func run(_ suite: TestSuite) {
         wire(suite)
@@ -16,6 +17,7 @@ enum GPUControlOverclockTests {
         model(suite)
         controller(suite)
         remembering(suite)
+        retries(suite)
         gating(suite)
         strings(suite)
     }
@@ -313,26 +315,151 @@ enum GPUControlOverclockTests {
 
         let f = facts()
         let minLimits = GPUControlClockMinLogic.Limits(min: 500, max: 2_800, stock: 500)
-        func atLaunch(_ remembered: GPUControlRemembered) -> GPUControlRequest? {
+        let volt = GPUControlVoltLogic.Limits(min: 881, stock: 1_075)
+        let up = GPUControlOverclockLogic.GfxLimits(stock: 2_359, max: 2_800)
+        func atLaunch(_ remembered: GPUControlRemembered, overclockOn: Bool = true,
+                      takesVolt: Bool = true, takesRaise: Bool = true) -> GPUControlRequest? {
             Policy.request(remembered: remembered, active: true, facts: f, stopped: nil, stockGfxMaxMHz: 2_359,
-                           gfxMin: minLimits)
+                           gfxMin: minLimits, volt: takesVolt ? volt : nil, overclock: takesRaise ? up : nil,
+                           overclockAllowed: overclockOn)
         }
-        suite.expect(atLaunch(.od8(all)) == .od8(Want(gfxMinMHz: 1_500)),
-                     "at launch: no voltage and no raised maximum, the rest still asked for")
-        suite.expect(atLaunch(.od8(Want(gfxMaxMHz: 2_000, voltMV: 1_050))) == .od8(Want(gfxMaxMHz: 2_000)),
-                     "at launch: a lowered maximum stays, the voltage goes")
-        suite.expect(atLaunch(.od8(Want(voltMV: 1_050))) == nil, "a voltage alone: nothing asked for at launch")
+        // The owner's day: a curve, the fan always on, 1000 mV and 2404 MHz
+        // with overclock (stock 2354 that day).
+        let owner = Want(curve: GPUControlFanDraft.testedCurve, zeroRpmOff: true, gfxMaxMHz: 2_404, voltMV: 1_000,
+                         overclock: true)
+        let ownerFacts = Policy.request(remembered: .od8(owner), active: true, facts: f, stopped: nil,
+                                        stockGfxMaxMHz: 2_354, kextVersion: "REL-090-2026-11-25",
+                                        gfxMin: minLimits, volt: volt,
+                                        overclock: GPUControlOverclockLogic.GfxLimits(stock: 2_354, max: 2_800),
+                                        overclockAllowed: true)
+        suite.expect(ownerFacts == .od8(owner), "at launch: the whole remembered state, voltage and raise included")
+        suite.expect(atLaunch(.od8(all)) == .od8(all), "at launch with overclocking allowed: everything as it was")
+        suite.expect(atLaunch(.od8(all), overclockOn: false) == .od8(Want(gfxMinMHz: 1_500, voltMV: 1_050)),
+                     "at launch with overclocking off: no raised maximum and no flag, the voltage and the rest go")
+        suite.expect(atLaunch(.od8(Want(gfxMaxMHz: 2_000, voltMV: 1_050)), overclockOn: false)
+                        == .od8(Want(gfxMaxMHz: 2_000, voltMV: 1_050)),
+                     "at launch: a lowered maximum and the voltage stay, switch or not")
+        suite.expect(atLaunch(.od8(Want(voltMV: 1_050))) == .od8(Want(voltMV: 1_050)),
+                     "a voltage alone is asked for at launch")
+        suite.expect(atLaunch(.od8(Want(voltMV: 1_050)), takesVolt: false) == nil,
+                     "a voltage with a kext that takes none: nothing asked for")
+        suite.expect(atLaunch(.od8(Want(voltMV: 1_060))) == nil && atLaunch(.od8(Want(voltMV: 850))) == nil,
+                     "a voltage off the 25 mV steps or below the card's minimum: left out")
+        suite.expect(atLaunch(.od8(Want(gfxMaxMHz: 2_600, overclock: true)), takesRaise: false) == nil,
+                     "a raised maximum with a kext that takes no raise: nothing asked for")
+        suite.expect(atLaunch(.od8(Want(gfxMaxMHz: 2_900, overclock: true))) == nil,
+                     "a raised maximum past the card's top: left out")
         suite.expect(atLaunch(.power(watts: 250)) == nil && atLaunch(.power(watts: 230)) == .power(watts: 230),
                      "a limit above start-up is never asked for at launch; a lower one is")
         // After a wake, in the same run: they follow the remember switch.
-        let volt = GPUControlVoltLogic.Limits(min: 881, stock: 1_075)
-        let up = GPUControlOverclockLogic.GfxLimits(stock: 2_359, max: 2_800)
         suite.expect(Policy.checkedAgain(.od8(all), stockGfxMaxMHz: 2_359, gfxMin: minLimits, volt: volt, overclock: up)
                         == .od8(all), "after a wake: asked again as it was")
         suite.expect(Policy.checkedAgain(.od8(all), stockGfxMaxMHz: 2_359, gfxMin: minLimits)
                         == .od8(Want(gfxMinMHz: 1_500)), "after a wake with a kext that takes neither: the rest")
+        suite.expect(Policy.checkedAgain(.od8(all), stockGfxMaxMHz: 2_359, gfxMin: minLimits, volt: volt, overclock: up,
+                                         overclockAllowed: false) == .od8(Want(gfxMinMHz: 1_500, voltMV: 1_050)),
+                     "after a wake with overclocking off: no raise, the voltage stays")
         suite.expect(Policy.checkedAgain(.power(watts: 250), stockGfxMaxMHz: 2_359) == .power(watts: 250),
                      "a raised limit after a wake: asked again")
+        // Saved again once held: the voltage and the raise stay remembered.
+        suite.expect(Policy.toSave(held: .od8(owner), ownerChoseStartUp: false, active: true) == .od8(owner),
+                     "a restored state is saved whole")
+    }
+
+    // MARK: Retries of a remembered request
+
+    private static func retries(_ suite: TestSuite) {
+        typealias Retry = GPUControlRetryPolicy
+        func answer(_ reply: GPUControlReply, _ check: GPUControlOD8Check = .ok) -> GPUControlAnswer {
+            GPUControlAnswer(replyCode: reply.rawValue, checkCode: check.rawValue)
+        }
+        suite.expect(Retry.isTemporary(answer(.od8Refused, .noReadings)) && Retry.isTemporary(answer(.noReadings)),
+                     "no fresh watchdog readings (OD8 or a raised limit): passes by itself")
+        let real: [GPUControlAnswer] = [
+            answer(.od8Refused, .voltRange), answer(.od8Refused, .gfxRange), answer(.od8Refused, .curveCooling),
+            answer(.od8Refused, .notRead), answer(.od8Refused, .noFeature), answer(.aboveCeiling),
+            answer(.belowFloor), answer(.notPrivileged), answer(.badArgs), answer(.stillApplied),
+            GPUControlAnswer(replyCode: 99),
+        ]
+        suite.expect(real.allSatisfy { !Retry.isTemporary($0) },
+                     "out of range, not offered, not allowed or unknown: never tried again by itself")
+        suite.expect(Retry.retries(firstRefusalAt: 1_000, now: 30_999) && !Retry.retries(firstRefusalAt: 1_000, now: 31_000),
+                     "tried again for 30 s after the first such refusal")
+        suite.expect(GPUControlEngine.temporaryRetryMs >= GPUControlWire.minChangeGapMs,
+                     "retries are never closer than the kext's 2 s between writes")
+
+        let curve = Want(curve: GPUControlFanDraft.testedCurve, gfxMaxMHz: 2_404, voltMV: 1_000, overclock: true)
+        // At launch the readings are not fresh yet: tried again until they are.
+        do {
+            let h = Harness { $0.takesOverclock = true; $0.dogSees = false }
+            h.engine.choose(.od8(curve), origin: .remembered)
+            h.run(ms: 0)
+            suite.expect(h.replies(.setOD8) == 1 && h.held == nil && h.engine.snapshot.outcome == nil,
+                         "no fresh readings: refused, no refusal shown yet")
+            if case .retrying(.od8(curve), _) = h.engine.snapshot.activity {} else {
+                suite.expect(false, "no fresh readings: the remembered request waits to be tried again")
+            }
+            h.run(ms: 10_000)
+            h.fake.dogSees = true
+            h.run(ms: 5_000)
+            suite.expect(h.held == .od8(curve) && h.engine.snapshot.outcome == nil,
+                         "readings fresh again: the remembered state is held")
+            suite.expect(h.replies(.setOD8) >= 3 && h.gapsKept, "tried again, never closer than 2 s")
+        }
+        // Readings that never come: the refusal stands after 30 s.
+        do {
+            let h = Harness { $0.takesOverclock = true; $0.dogSees = false }
+            h.engine.choose(.od8(curve), origin: .remembered)
+            h.run(ms: 40_000)
+            if case .refused(.od8(curve), let a)? = h.engine.snapshot.outcome {
+                suite.expect(a.check == .noReadings, "after 30 s: the kext's refusal shows")
+            } else {
+                suite.expect(false, "after 30 s: the kext's refusal shows")
+            }
+            let tries = h.replies(.setOD8)
+            suite.expect(tries >= 8 && tries <= 12, "about one try every 3 s for 30 s (\(tries))")
+            h.run(ms: 30_000)
+            suite.expect(h.replies(.setOD8) == tries, "and nothing more")
+        }
+        // The owner's own choice shows the refusal at once.
+        do {
+            let h = Harness { $0.takesOverclock = true; $0.dogSees = false }
+            h.engine.choose(.od8(curve))
+            h.run(ms: 10_000)
+            suite.expect(h.replies(.setOD8) == 1 && h.engine.snapshot.outcome.map { if case .refused = $0 { true } else { false } } == true,
+                         "the owner's choice: refused once, shown at once")
+        }
+        // A real refusal is never tried again, remembered or not.
+        do {
+            let h = Harness { $0.takesOverclock = true }
+            h.engine.choose(.od8(Want(voltMV: 1_060)), origin: .remembered)
+            h.run(ms: 30_000)
+            suite.expect(h.replies(.setOD8) == 1, "a voltage off the steps: one call, never again")
+        }
+        // A raised power limit without readings, remembered after a wake.
+        do {
+            let h = Harness { $0.takesOverclock = true; $0.dogSees = false }
+            h.engine.choose(.power(watts: 250), origin: .remembered)
+            h.run(ms: 6_000)
+            h.fake.dogSees = true
+            h.run(ms: 5_000)
+            suite.expect(h.held == .power(watts: 250) && h.replies(.set) >= 2,
+                         "a raised limit refused for readings: tried again, then held")
+        }
+        // The read that makes the readings fresh comes right before the call.
+        do {
+            let h = Harness { $0.takesOverclock = true; $0.dogSees = false }
+            var reads = 0
+            h.engine.freshenReadings = { [fake = h.fake] in reads += 1; fake.dogSees = true }
+            h.engine.choose(.od8(curve), origin: .remembered)
+            h.run(ms: 0)
+            suite.expect(reads == 1 && h.replies(.setOD8) == 1 && h.held == .od8(curve),
+                         "fresh readings first: taken at the first call")
+            h.run(ms: 3_000)
+            h.engine.choose(.power(watts: 230))
+            h.run(ms: 3_000)
+            suite.expect(reads == 1, "a lower power limit needs no readings: no read")
+        }
     }
 
     // MARK: Gating

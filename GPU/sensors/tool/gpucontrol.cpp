@@ -200,11 +200,15 @@ int doStatus() {
   else if (h == 0)
     printf("  OD8         at stock\n");
   else
-    printf("  OD8         %s%s%s%s%s\n",
+    // 0.9.0: bit 64 says the held GFX maximum is above stock (overclock).
+    printf("  OD8         %s%s%s%s%s%s\n",
            (h & kOd8HeldCurve) ? "fan curve " : "",
            (h & kOd8HeldZeroRpmOff) ? "zero RPM off " : "",
-           (h & kOd8HeldGfx) ? "GFX max lowered " : "",
+           !(h & kOd8HeldGfx)     ? ""
+           : (h & kOd8HeldGfxUp)  ? "GFX max raised "
+                                  : "GFX max lowered ",
            (h & kOd8HeldGfxMin) ? "GFX min raised " : "",
+           (h & kOd8HeldVolt) ? "GFX voltage lowered " : "",
            (h & kOd8HeldUnknown) ? "not confirmed, going back to stock" : "");
   if (f & kFlagOwned) printf("  held by     a program\n");
   if (f & kFlagReverting) printf("  going back  to the start-up limit\n");

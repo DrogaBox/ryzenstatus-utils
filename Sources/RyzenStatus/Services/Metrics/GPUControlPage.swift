@@ -508,14 +508,24 @@ enum GPUControlRememberPolicy {
     /// `gfxMin`: the GFX minimum the kext takes now (`GPUControlClockMinLogic
     /// .limits`), nil when it takes none (a kext before 0.9.0): a remembered
     /// minimum outside it is left out of the request, like the maximum.
-    /// This is the request at launch: a GFX voltage and every raise (a GFX
-    /// maximum above stock, a power limit above the start-up one) are never
-    /// asked for again here. A value that froze the Mac would freeze it again
-    /// at the next launch, and again. The rest of the state still goes.
+    /// `volt`: the card's range for the GFX voltage now
+    /// (`GPUControlVoltLogic.limits`), nil when the kext takes none: a
+    /// remembered voltage outside it is left out of the request.
+    /// `overclock`: the card's range for a raised GFX maximum
+    /// (`GPUControlOverclockLogic.gfxLimits`), and `overclockAllowed`: the
+    /// "Allow overclocking" switch. A remembered raised maximum goes only
+    /// with the switch on and inside that range; otherwise it is left out
+    /// with its flag (a lowered maximum stays). The owner's choice: a
+    /// voltage and a raised maximum come back at launch like the rest.
+    /// A power limit above the start-up one is still never asked for at
+    /// launch. The rest of the state still goes.
     static func request(remembered: GPUControlRemembered, active: Bool,
                         facts: GPUControlFacts?, stopped: GPUControlStop?,
                         stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil,
-                        gfxMin: GPUControlClockMinLogic.Limits? = nil) -> GPUControlRequest? {
+                        gfxMin: GPUControlClockMinLogic.Limits? = nil,
+                        volt: GPUControlVoltLogic.Limits? = nil,
+                        overclock: GPUControlOverclockLogic.GfxLimits? = nil,
+                        overclockAllowed: Bool = false) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         switch remembered {
@@ -527,28 +537,23 @@ enum GPUControlRememberPolicy {
             guard watts > 0, let boot = facts.bootW, watts < boot,
                   GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange).contains(watts) else { return nil }
             return .power(watts: UInt32(watts))
-        case .od8(var want):
+        case .od8(let want):
             // OD8 not read cleanly: the kext could not take it.
             guard facts.od8Ready else { return nil }
             // A fan state and another kext build: the rules were not checked
             // with it, and Apply is off too. Nothing goes, not even the clock:
             // only what was held is asked for again, never a part of it.
             if want.curve != nil || want.zeroRpmOff, !GPUControlCurveRules.isChecked(kextVersion) { return nil }
-            want = strippedAtLaunch(want)
-            if let mhz = want.gfxMaxMHz, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) {
-                want.gfxMaxMHz = nil
-            }
-            want = GPUControlClockMinLogic.checked(want, limits: gfxMin, stockGfxMaxMHz: stockGfxMaxMHz)
-            return want.isStock ? nil : .od8(want)
+            return checkedAgain(.od8(want), stockGfxMaxMHz: stockGfxMaxMHz, gfxMin: gfxMin, volt: volt,
+                                overclock: overclock, overclockAllowed: overclockAllowed)
         }
     }
 
-    /// A remembered OD8 state without what is never asked for at launch: the
-    /// GFX voltage, and the overclock flag with the raised GFX maximum it
-    /// allowed (a lowered maximum stays).
-    static func strippedAtLaunch(_ want: GPUControlOD8Want) -> GPUControlOD8Want {
+    /// An OD8 state without its raise: the overclock flag with the raised
+    /// GFX maximum it allowed (a lowered maximum stays). What is left of a
+    /// remembered state while "Allow overclocking" is off.
+    static func withoutRaise(_ want: GPUControlOD8Want) -> GPUControlOD8Want {
         var want = want
-        want.voltMV = nil
         if want.overclock {
             want.overclock = false
             want.gfxMaxMHz = nil
@@ -699,13 +704,16 @@ extension GPUControlRememberPolicy {
     /// goes), and so is a minimum the kext does not take now (`gfxMin` nil:
     /// a kext before 0.9.0, or no clean OD8 read). The same for a GFX voltage
     /// (`volt`) and a raised GFX maximum (`overclock`, the card's range for
-    /// it): kept only while the kext takes them and inside the card's range.
-    /// Nil when nothing is left to ask.
+    /// it): kept only while the kext takes them and inside the card's range,
+    /// and the raise only while "Allow overclocking" is on
+    /// (`overclockAllowed`). Nil when nothing is left to ask.
     static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?,
                              gfxMin: GPUControlClockMinLogic.Limits? = nil,
                              volt: GPUControlVoltLogic.Limits? = nil,
-                             overclock: GPUControlOverclockLogic.GfxLimits? = nil) -> GPUControlRequest? {
+                             overclock: GPUControlOverclockLogic.GfxLimits? = nil,
+                             overclockAllowed: Bool = true) -> GPUControlRequest? {
         guard case .od8(var want) = request else { return request }
+        if !overclockAllowed { want = withoutRaise(want) }
         if let mhz = want.gfxMaxMHz {
             let raised = want.overclock && GPUControlOverclockLogic.raises(mhz, limits: overclock)
             if !raised, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }

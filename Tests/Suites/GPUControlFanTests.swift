@@ -284,6 +284,35 @@ enum GPUControlFanTests {
         suite.expect(!GPUControlFanDraft(held: held).givesBack(held), "a curve over a curve: Apply")
         suite.expect(!GPUControlFanDraft().givesBack(GPUControlOD8Want(curve: held.curve, gfxMaxMHz: 2_000)),
                      "a clock held too: not the whole way back, so Apply")
+
+        // The zero RPM switch while a curve is held goes out at once with
+        // the held curve (it did nothing until "Apply curve" before, while the
+        // switch already read on).
+        let curveHeld = GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve, gfxMaxMHz: 2_404, voltMV: 1_000,
+                                          overclock: true)
+        let atOnce = GPUControlFanSection.zeroRpmAtOnce(held: curveHeld, zeroRpmOff: true)
+        suite.expect(atOnce?.want == GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve, zeroRpmOff: true),
+                     "zero RPM on over a held curve: the held curve and the fan always on, at once")
+        var curveAndZero = curveHeld
+        curveAndZero.zeroRpmOff = true
+        suite.expect(GPUControlFanSection.zeroRpmAtOnce(held: curveAndZero, zeroRpmOff: false)?.want
+                        == GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve),
+                     "and off again: the held curve alone, at once")
+        suite.expect(GPUControlFanSection.zeroRpmAtOnce(held: curveAndZero, zeroRpmOff: true) == nil,
+                     "no change from what is held: nothing sent")
+        suite.expect(GPUControlFanSection.zeroRpmAtOnce(held: .stock, zeroRpmOff: true) == nil
+                        && GPUControlFanSection.zeroRpmAtOnce(held: GPUControlOD8Want(gfxMaxMHz: 2_000), zeroRpmOff: true) == nil,
+                     "no curve held: the switch is part of the draft for Apply")
+        // Through the controller: the held clocks and voltage go with it.
+        do {
+            let h = Harness { $0.takesOverclock = true }
+            h.engine.choose(.od8(curveHeld))
+            h.run(ms: 3_000)
+            if let send = atOnce { h.engine.chooseFan(curve: send.want.curve, zeroRpmOff: send.want.zeroRpmOff) }
+            h.run(ms: 0)
+            suite.expect(h.engine.snapshot.held == .od8(curveAndZero) && h.replies(.setOD8) == 2,
+                         "zero RPM over a held curve, voltage and raise: one call, all of it held")
+        }
     }
 
     // MARK: The controller against the model

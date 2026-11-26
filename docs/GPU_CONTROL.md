@@ -66,9 +66,9 @@ only filled in, never applied by itself, and it is a value to test, not a promis
 
 What can go wrong: too low a voltage makes the GPU unstable. A game or benchmark freezes,
 the driver resets, or the screen goes black and the Mac has to be restarted. Nothing is
-damaged and nothing is kept: after the restart the card starts at stock, and RyzenStatus
-never sends a voltage again by itself at launch (only after a wake, if Remember is on).
-Every chip is different.
+damaged: after the restart the card starts at stock. With Remember on, RyzenStatus sends
+the same voltage again at launch and after a wake: if a voltage froze the Mac, turn Remember
+off or set the voltage back to stock before you test again. Every chip is different.
 
 How to use it: go down 25 mV at a time, run a game or a benchmark for a while after each
 step, and once you find the lowest value that is stable, go back up 10 to 20 mV and keep
@@ -94,8 +94,9 @@ always inside the card's own OverDrive limits and never past them:
 There are no suggested values here. Inside AMD's limits nothing can burn, but a value can be
 unstable: freezes and driver resets mean the clock is too high for the voltage. Everything
 goes back to stock when you turn the section off, when RyzenStatus quits, on restart and
-after sleep, and raised values are never sent again by themselves at launch. The watchdog
-holds every raise (95 °C).
+after sleep. With Remember on, a raised GFX maximum is sent again at launch and after a
+wake, only while Allow overclocking is on; a raised power limit is sent again after a wake,
+never at launch. The watchdog holds every raise (95 °C).
 
 More clock rarely gains anything without more power, and the two are held separately (see
 above). Raising the clock on a card with a lowered power limit mostly adds heat.
