@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.90.1] — 2026-11-26 — kexts 3.42.0 (No kext changes)
+
+**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.1.
+
+### GPU decoders (0.3.9)
+
+- **A sleep in the middle of a frame**: when the Mac slept while a frame was on the GPU, AV1 and VP9 video stopped with an error right after the wake. That frame is now dropped and the decoder starts over at the next key frame, and the first frame on it gets the longer limit a GPU coming out of a sleep needs.
+- **MPEG-2, VC-1 and MPEG-4 after a sleep**: these decoders now live through a sleep too. The pictures up to the next I picture are dropped without an error and the video carries on from there.
+
+### GPU sensors (0.9.1)
+
+- **Fresh readings while a setting is held**: with a fan curve, a clock or voltage change or a raised power limit held, GPUSensors takes the card's readings itself once a second, so the temperature watchdog keeps working when nothing else is reading the card. Nothing extra is asked of the card while nothing is held.
+- RyzenStatus finds the card's accelerator by the driver's real class name, so the statistics it reads from it refresh again.
+
+### GPU control (needs GPUSensors.kext)
+
+- **Zero RPM**: the switch goes out together with the held fan curve, and it is checked against the whole state the card will get. When that state is refused, the reason shows next to the switch.
+
+### GPU installer
+
+- **AMFI**: the installer also sees AMFI switched off with `amfi=0x80`, and an AMFIPass switched off with `-amfipassoff` or `-liluoff`, before it decides whether the loader is needed.
+- Building the install plan no longer says that a password is coming; only the steps that need one do.
+- The installer carries 1.90.1's install scripts and all the decoders (AV1, VP9, MPEG-2, VC-1, MPEG-4, Motion JPEG).
+- Every command the installers run is now checked before a release, so a tool missing on macOS (1.90.0's `/usr/bin/chown`) cannot ship again.
+
 ## [1.90.0] — 2026-11-26 — kexts 3.42.0 (No kext changes)
 
 **More GPU control (minimum clock, undervolt, overclock and profiles), HDR colour and a fix for decoding after sleep in the GPU decoders, optional MPEG-2, VC-1, MPEG-4 and Motion JPEG decoders, FaceTime and Continuity Camera fixes in the encoding fix, and an AWDL line in the Network card.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.7, the encoding fix to 1.3.0 and GPU sensors to 0.9.0.
