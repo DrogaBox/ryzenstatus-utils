@@ -8,6 +8,7 @@
 
 - **A sleep in the middle of a frame**: when the Mac slept while a frame was on the GPU, AV1 and VP9 video stopped with an error right after the wake. That frame is now dropped and the decoder starts over at the next key frame, and the first frame on it gets the longer limit a GPU coming out of a sleep needs.
 - **MPEG-2, VC-1 and MPEG-4 after a sleep**: these decoders now live through a sleep too. The pictures up to the next I picture are dropped without an error and the video carries on from there.
+- **VP9 with references of another size**: a frame that predicts from a picture more than twice as small (spatial SVC streams) is refused instead of showing a wrong picture, and a frame that fails no longer leaves AV1 or VP9 decoding the next frames against older pictures.
 
 ### GPU sensors (0.9.1)
 

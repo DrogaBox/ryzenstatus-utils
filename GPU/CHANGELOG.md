@@ -18,6 +18,17 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   which the new session never decoded, and are dropped too instead of drawn wrong.
 - A driver call that fails, a command that does not finish and a firmware error are still a
   session stopped, as before: only a system sleep is something to rebuild from.
+- VP9 refuses a frame whose reference picture is more than 2x smaller than the frame. The
+  video engine predicts from such a reference wrong: the 1280x720 layer of the spatial-SVC
+  vector `vp90-2-22-svc_1280x720_3` (320x180 reference, 4x) matched libvpx's per-frame MD5 on
+  0 of 20 pictures, right only in its first 180 rows, while references 1.25x, 1.6x and 2x
+  smaller or larger (`vp90-2-05-resize`, `vp90-2-06-resize`, `vp90-2-13-mv-with-scaling`)
+  matched on 113 of 113. The frame is refused as a stream failure instead of showing a
+  wrong picture; whether VideoToolbox then plays it with another decoder was not checked.
+  Ratios between 2x and 4x were not measured and are refused too. The rule comes from Izzy's 1caa8b41 in vcn-video-decoders.
+- A frame that fails, in VP9 and AV1, empties the reference slots it should have refreshed,
+  so the frames that predict from them are refused ("missing reference") until a frame
+  refreshes those slots, instead of decoding against older pictures.
 
 ## Decoders 0.3.8 (not released; host tests only)
 
