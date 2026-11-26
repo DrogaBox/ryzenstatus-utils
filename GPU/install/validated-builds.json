@@ -1,5 +1,5 @@
 {
-  "_comment": "macOS builds whose AMDRadeonVADriver2 was validated. Installing on an UNLISTED build is blocked by default (GPU-hang risk) and needs the explicit override (install/decoders.sh install --force). Add a build only after checking its driver: the same driverUUID (the LC_UUID of AMDRadeonVADriver2) as a listed build means the same binary; a new UUID needs the decode path compared first, and must also be added to kValidatedDrivers in decode/av1/vcnav1.c and decode/vp9/vcnvp9.c (install/check_lists.sh fails when the lists differ). av1/vp9: true = decoded bit-exact on a GPU, \"untested-on-gpu\" = driver validated but not run yet, false = the plug-in refuses this driver and macOS falls back to software. legacy: the MPEG-2, VC-1 and MPEG-4 plug-ins, which share one list (kValidatedDrivers in decode/common/vcnlegacy.c) and are installed only with install/decoders.sh --legacy; same values as av1/vp9. encode: true = the optional encoding fix (VCNEncodeFix) was validated on this build (its AMDRadeonVADriver2, AppleGVAHEVCEncoder and AMDRadeonX6000HWLibs / AMDRadeonX6800HWLibs match the patched builds); false = it stays off.",
+  "_comment": "macOS builds whose AMDRadeonVADriver2 was validated. Installing on an UNLISTED build is blocked by default (GPU-hang risk) and needs the explicit override (install/decoders.sh install --force). Add a build only after checking its driver: the same driverUUID (the LC_UUID of AMDRadeonVADriver2) as a listed build means the same binary; a new UUID needs the decode path compared first, and must also be added to kValidatedDrivers in decode/av1/vcnav1.c and decode/vp9/vcnvp9.c (install/check_lists.sh fails when the lists differ). av1/vp9: true = decoded bit-exact on a GPU, \"untested-on-gpu\" = driver validated but not run yet, false = the plug-in refuses this driver and macOS falls back to software. legacy: the MPEG-2, VC-1 and MPEG-4 plug-ins, which share one list (kValidatedDrivers in decode/common/vcnlegacy.c) and are installed only with install/decoders.sh --legacy; same values as av1/vp9. encode: true = the optional encoding fix (VCNEncodeFix) was validated on this build (its AMDRadeonVADriver2, AppleGVAHEVCEncoder and AMDRadeonX6000HWLibs / AMDRadeonX6800HWLibs match the patched builds); false = it stays off. jpeg: the JPEG plug-in and the VCNJpeg kext (install/decoders.sh --jpeg, install/jpeg.sh), which does not use AMDRadeonVADriver2 but AMDRadeonX6000HWLibs and AMDRadeonX6000 of one exact build (jpeg/kext/hwlibs_expect.hpp); same values as av1/vp9, and only the build the kext was made for may be other than false.",
   "schema": 1,
   "validated": [
     {
@@ -10,6 +10,7 @@
       "av1": false,
       "vp9": false,
       "legacy": false,
+      "jpeg": false,
       "encode": true
     },
     {
@@ -20,6 +21,7 @@
       "av1": true,
       "vp9": true,
       "legacy": false,
+      "jpeg": false,
       "encode": true
     },
     {
@@ -30,6 +32,7 @@
       "av1": "untested-on-gpu",
       "vp9": "untested-on-gpu",
       "legacy": false,
+      "jpeg": false,
       "encode": true
     },
     {
@@ -40,6 +43,7 @@
       "av1": true,
       "vp9": true,
       "legacy": false,
+      "jpeg": false,
       "encode": false
     },
     {
@@ -50,6 +54,7 @@
       "av1": "untested-on-gpu",
       "vp9": "untested-on-gpu",
       "legacy": "untested-on-gpu",
+      "jpeg": false,
       "encode": false
     },
     {
@@ -60,6 +65,18 @@
       "av1": true,
       "vp9": true,
       "legacy": "untested-on-gpu",
+      "jpeg": "untested-on-gpu",
+      "encode": true
+    },
+    {
+      "build": "25G422",
+      "product": "26.7.4",
+      "name": "Tahoe 26.7.4",
+      "driverUUID": "F7D8F5849EC139DB857C769697294957",
+      "av1": "untested-on-gpu",
+      "vp9": "untested-on-gpu",
+      "legacy": "untested-on-gpu",
+      "jpeg": false,
       "encode": true
     }
   ],

@@ -10,6 +10,7 @@
 #                                             install/sensors.sh uninstall (when the kext is
 #                                             gone already: install/sensors.sh uninstall-tools)
 #   2. VCNVTLoader.kext from the EFI          install/loader.sh uninstall
+#   2b. VCNJpeg.kext from the EFI             install/jpeg.sh uninstall
 #   3. the encoding fix (service, and its kext from the EFI)   install/encoder.sh uninstall --efi
 #   4. the decoder plug-ins from the system volume (a new boot snapshot)   install/decoders.sh uninstall
 # The EFI changes come first: each writes its own backup of config.plist. The decoders come
@@ -63,13 +64,14 @@ state() { # bundle-id kext-name -> yes | maybe | no
 }
 sensors=$(state com.droga.GPUSensors GPUSensors)
 loader=$(state com.droga.VCNVTLoader VCNVTLoader)
+jpeg=$(state com.droga.VCNJpeg VCNJpeg)
 encoder=no
 # the kext can be on a mounted EFI with the service gone and the kext not loaded
 # (an earlier uninstall without --efi, or a boot with -vcnflooroff)
 [[ -e /Library/LaunchDaemons/com.droga.vcnencodefix.plist || -n $(kext_version com.droga.VCNEncodeFloor) ]] ||
   efi_has VCNEncodeFloor && encoder=yes
 decoders=no
-for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES; do
+for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES $JPEG_BUNDLE; do
   [[ -d /System/Library/Video/Plug-Ins/$b ]] && decoders=yes
 done
 # gpucontrol and gpusensors in /usr/local/bin: only ours (signed with our identifiers) are
@@ -82,10 +84,11 @@ print -r -- "Found:"
 print -r -- "  GPU sensors kext   $sensors"
 print -r -- "  GPU commands       $tools${GPU_TOOLS_OURS:+ (${(j:, :)GPU_TOOLS_OURS})}"
 print -r -- "  loader kext        $loader"
+print -r -- "  JPEG kext          $jpeg"
 print -r -- "  encoding fix       $encoder"
 print -r -- "  decoder plug-ins   $decoders"
 for f in $GPU_TOOLS_OTHER; do print -r -- "  (left alone: $f is not ours)"; done
-[[ $sensors == no && $tools == no && $loader == no && $encoder == no && $decoders == no ]] && { print -r -- "Nothing to remove."; exit 0; }
+[[ $sensors == no && $tools == no && $loader == no && $jpeg == no && $encoder == no && $decoders == no ]] && { print -r -- "Nothing to remove."; exit 0; }
 
 efi_args=()
 [[ -n $EFI_ID ]] && efi_args=(--efi $EFI_ID)
@@ -94,6 +97,7 @@ steps=()
 if [[ $sensors != no ]]; then steps+=("install/sensors.sh uninstall${efi_args:+ ${efi_args[*]}}")
 elif [[ $tools == yes ]]; then steps+=("install/sensors.sh uninstall-tools"); fi
 [[ $loader != no ]] && steps+=("install/loader.sh uninstall${efi_args:+ ${efi_args[*]}}")
+[[ $jpeg != no ]] && steps+=("install/jpeg.sh uninstall${efi_args:+ ${efi_args[*]}}")
 if [[ $encoder == yes ]]; then
   # The partition for the encoding fix's kext: the one given, the one OpenCore started from,
   # or the mounted EFI that holds VCNEncodeFloor.kext.

@@ -4,6 +4,8 @@
 #   VP9VCNDecoder.bundle   vp09 on the same block
 #   MPEG2VCNDecoder.bundle mp2v, VC1VCNDecoder.bundle vc-1/WVC1/WMV3 and
 #   MPEG4VCNDecoder.bundle mp4v on the same block (common/vcnlegacy.c)
+#   JPEGVCNDecoder.bundle  jpeg and dmb1 on the JPEG block of the VCN, through the VCNJpeg kext
+#                          (jpeg/); installed only on request (install/decoders.sh --jpeg)
 #   lvprobe                the installer's helper that asks macOS whether it would accept them
 #   kextentry              the installers' helper that edits OpenCore's config.plist for the
 #                          loader kext and the sensors kext
@@ -57,6 +59,7 @@ LEGACY=(common/vcnlegacy.c common/vcndriver.c common/vcnsession.c)
 build_bundle MPEG2VCNDecoder mpeg2 mpeg2/MPEG2VCNDecoder.c mpeg2/vcnmpeg2.c mpeg2/mpeg2parse.c $LEGACY
 build_bundle VC1VCNDecoder vc1 vc1/VC1VCNDecoder.c vc1/vcnvc1.c vc1/vc1parse.c $LEGACY
 build_bundle MPEG4VCNDecoder mpeg4 mpeg4/MPEG4VCNDecoder.c mpeg4/vcnmpeg4.c mpeg4/mpeg4parse.c $LEGACY
+build_bundle JPEGVCNDecoder jpeg jpeg/JPEGVCNDecoder.c jpeg/vcnjpeg.c jpeg/jpegprep.c
 
 # lvprobe (install/lvprobe.c) asks macOS whether it would accept a plug-in; the installer
 # runs it. It must carry the library-validation flag, or the kernel says yes to everything.
@@ -84,8 +87,8 @@ if [[ ${1:-} == tests ]]; then
   xcrun clang $TFLAGS -Iav1 -Ivp9 -Icommon tests/colortest.c av1/av1parse.c vp9/vp9parse.c \
     -framework CoreFoundation -framework CoreMedia -framework CoreVideo -o $T/colortest
   xcrun clang $TFLAGS -Ivp9 tests/vp9state.c vp9/vp9parse.c -o $T/vp9state
-  for c in AV1 VP9; do
-    xcrun clang $TFLAGS -DTEST_$c -Icommon tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
+  for c in AV1 VP9 JPEG; do
+    xcrun clang $TFLAGS -DTEST_$c -Icommon -Ijpeg tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
       -framework CoreVideo -framework VideoToolbox -o $T/plugintest-${(L)c}
   done
   for c in MPEG2 VC1 MPEG4; do
@@ -98,10 +101,11 @@ if [[ ${1:-} == tests ]]; then
     vc1/vc1parse.c vc1/vcnvc1.c mpeg4/mpeg4parse.c mpeg4/vcnmpeg4.c common/vcnlegacy.c common/vcndriver.c \
     common/vcnsession.c -framework CoreFoundation -framework CoreVideo -framework IOKit -framework IOSurface \
     -o $T/legacyparse
-  # The MPEG-2 and VC-1 codec layers on a stand-in for the session: what each stream sends to the
+  # The MPEG-2, VC-1 and MPEG-4 codec layers on a stand-in for the session: what each stream sends to the
   # firmware and which picture comes back.
-  xcrun clang $TFLAGS -Icommon -Impeg2 -Ivc1 tests/layertest.c mpeg2/mpeg2parse.c mpeg2/vcnmpeg2.c \
-    vc1/vc1parse.c vc1/vcnvc1.c -framework CoreFoundation -framework CoreVideo -o $T/layertest
+  xcrun clang $TFLAGS -Icommon -Impeg2 -Ivc1 -Impeg4 tests/layertest.c mpeg2/mpeg2parse.c mpeg2/vcnmpeg2.c \
+    vc1/vc1parse.c vc1/vcnvc1.c mpeg4/mpeg4parse.c mpeg4/vcnmpeg4.c \
+    -framework CoreFoundation -framework CoreVideo -o $T/layertest
   # Which decoder VideoToolbox gives an MPEG-4 stream, the MPEG-4 plug-in (on a stand-in
   # session) next to Apple's AppleMP4V.
   xcrun clang $TFLAGS -Icommon -Impeg4 tests/legacypick.c mpeg4/vcnmpeg4.c mpeg4/mpeg4parse.c \
@@ -109,14 +113,26 @@ if [[ ${1:-} == tests ]]; then
     -o $T/legacypick 2>&1 | { grep -v -E "pointer not aligned in '_k(Base|Decoder)Class'|disabling chained fixups" || true; }
   xcrun clang $TFLAGS -Icommon tests/acceltest.c common/vcndriver.c -framework CoreFoundation -framework IOKit \
     -o $T/acceltest
-  xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c -framework CoreFoundation -framework IOKit \
+  # vcndriver.c for vcn_sleep_mark, which vcnsession.c reads when a session opens or closes
+  xcrun clang $TFLAGS -Icommon tests/waittest.c common/vcnsession.c common/vcndriver.c -framework CoreFoundation \
+    -framework IOKit \
     -o $T/waittest
+  # Two plug-ins in one process, each with its own copy of the session code (stalelib.c built
+  # twice), and a made-up sleep: the other sees a session from before the sleep and opens anyway.
+  for l in a b; do
+    xcrun clang $TFLAGS -dynamiclib -fvisibility=hidden -Icommon tests/stalelib.c common/vcnsession.c \
+      -framework CoreFoundation -framework IOKit -install_name @rpath/libstale-$l.dylib -o $T/libstale-$l.dylib
+  done
+  xcrun clang $TFLAGS -Icommon tests/staletest.c -o $T/staletest
   # The decoder sessions against a made-up driver: sessiontest.c stands in for common/vcndriver.c.
   for c in av1 vp9; do
     xcrun clang $TFLAGS -DTEST_${(U)c} -Icommon -I$c tests/sessiontest.c $c/vcn$c.c $c/${c}parse.c \
       common/vcnsession.c -framework CoreFoundation -framework CoreVideo -framework IOKit \
       -framework IOSurface -o $T/sessiontest-$c
   done
+  # The JPEG plug-in's preparer and session against a made-up kext (it is tested also when it is not built).
+  xcrun clang $TFLAGS -Ijpeg tests/jpegtest.c jpeg/vcnjpeg.c jpeg/jpegprep.c -framework CoreFoundation \
+    -framework CoreVideo -framework CoreGraphics -framework ImageIO -framework IOKit -o $T/jpegtest
   xcrun clang++ -std=c++17 $TFLAGS -Iloader tests/loadertest.cpp -o $T/loadertest
   print "built the test programs in decode/$T"
 fi

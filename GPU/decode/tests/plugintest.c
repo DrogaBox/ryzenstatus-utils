@@ -1,8 +1,9 @@
 // plugintest: the VideoToolbox side of a decoder plug-in, with the decoder
 // session replaced by a stand-in (nothing opens the GPU or the driver). Built
-// once for each plug-in, with -DTEST_AV1, -DTEST_VP9, -DTEST_MPEG2, -DTEST_VC1
-// or -DTEST_MPEG4 (the last three share common/vtlegacy.h and have no hidden
-// frames: their sample 6 is one more shown frame). It checks:
+// once for each plug-in, with -DTEST_AV1, -DTEST_VP9, -DTEST_JPEG,
+// -DTEST_MPEG2, -DTEST_VC1 or -DTEST_MPEG4 (the last three share
+// common/vtlegacy.h and have no hidden frames: their sample 6 is one more shown
+// frame). It checks:
 //
 //   1. the factory refuses a NULL result pointer;
 //   2. a second session start replaces the decoder of the first;
@@ -76,6 +77,12 @@ typedef VcnAV1OutputFn OutputFn;
 #define CREATE VP9VCN_VTDecoder_CreateInstance
 typedef VcnVP9 Vcn;
 typedef VcnVP9OutputFn OutputFn;
+#elif defined(TEST_JPEG)
+#include "../jpeg/JPEGVCNDecoder.c"
+#define CODEC kCMVideoCodecType_JPEG
+#define CREATE JPEGVCN_VTDecoder_CreateInstance
+typedef VcnJpeg Vcn;
+typedef VcnJpegOutputFn OutputFn;
 #elif defined(TEST_MPEG2) || defined(TEST_VC1) || defined(TEST_MPEG4)
 #define TEST_LEGACY 1
 #if defined(TEST_MPEG2)
@@ -98,7 +105,7 @@ typedef void Vcn;
 typedef VcnLegacyOutputFn OutputFn;
 #else
 #error \
-    "build with -DTEST_AV1, -DTEST_VP9, -DTEST_MPEG2, -DTEST_VC1 or -DTEST_MPEG4"
+    "build with -DTEST_AV1, -DTEST_VP9, -DTEST_JPEG, -DTEST_MPEG2, -DTEST_VC1 or -DTEST_MPEG4"
 #endif
 #undef dispatch_semaphore_wait
 #undef dispatch_sync
@@ -333,7 +340,7 @@ const VcnLegacyCodec FAKE_CODEC = {.name = "stand-in",
                                    .last_error = legacy_last_error,
                                    .failure = legacy_failure,
                                    .firmware_errors = legacy_firmware_errors};
-#else
+#elif defined(TEST_VP9)
 int vcnvp9_gpu_armed;
 VcnVP9* vcnvp9_create(uint32_t w, uint32_t h, char* err, size_t n) {
   (void)w, (void)h, (void)err, (void)n;
@@ -378,6 +385,50 @@ void vcnvp9_color(VcnVP9* d, VcnColor* c) {
   (void)d;
   *c = streamColor;
 }
+#else
+int vcnjpeg_gpu_armed;
+VcnJpeg* vcnjpeg_create(uint32_t w, uint32_t h, char* err, size_t n) {
+  (void)w, (void)h, (void)err, (void)n;
+  return fake_create();
+}
+void vcnjpeg_destroy(VcnJpeg* d) { fake_destroy(d); }
+bool vcnjpeg_fits(VcnJpeg* d, uint32_t w, uint32_t h) {
+  (void)d, (void)w, (void)h;
+  return true;
+}
+const char* vcnjpeg_last_error(VcnJpeg* d) {
+  (void)d;
+  return "stand-in";
+}
+unsigned vcnjpeg_firmware_errors(VcnJpeg* d) {
+  (void)d;
+  return 0;
+}
+CFDictionaryRef vcnjpeg_copy_pixel_buffer_attributes(uint32_t w, uint32_t h,
+                                                     bool t) {
+  (void)w, (void)h, (void)t;
+  return CFDictionaryCreate(NULL, NULL, NULL, 0, NULL, NULL);
+}
+int vcnjpeg_decode(VcnJpeg* d, const uint8_t* chunk, size_t size, int64_t tag,
+                   VcnJpegOutputFn fn, void* ctx) {
+  (void)size;
+  fake_decode_begin(d);
+  if (chunk[0] == 5) slow_decode();
+  if (chunk[0] == 1 || chunk[0] == 2 || chunk[0] == 5)
+    fn(ctx, picture, NULL, 16, 16, tag);
+  hiddenOnly = chunk[0] == 6;
+  lastFailure = fake_failure(chunk[0]);
+  fake_decode_end();
+  return (chunk[0] >= 2 && chunk[0] <= 4) || chunk[0] == 7 ? -1 : 0;
+}
+int vcnjpeg_failure(VcnJpeg* d) {
+  (void)d;
+  return lastFailure;
+}
+CVPixelBufferRef vcnjpeg_hidden_picture(VcnJpeg* d) {
+  (void)d;
+  return hiddenOnly ? picture : NULL;
+}
 #endif
 
 #if defined(TEST_AV1)
@@ -394,12 +445,19 @@ static int fake_failure(uint8_t what) {
          : what == 7 ? VCNLEGACY_FAIL_REFERENCE
                      : VCNLEGACY_FAIL_STREAM;
 }
-#else
+#elif defined(TEST_VP9)
 static int fake_failure(uint8_t what) {
   return what == 3   ? VCNVP9_FAIL_DEVICE
          : what == 4 ? VCNVP9_FAIL_MEMORY
          : what == 7 ? VCNVP9_FAIL_REFERENCE
                      : VCNVP9_FAIL_STREAM;
+}
+#else
+static int fake_failure(uint8_t what) {
+  return what == 3   ? VCNJPEG_FAIL_DEVICE
+         : what == 4 ? VCNJPEG_FAIL_MEMORY
+         : what == 7 ? VCNJPEG_FAIL_REFERENCE
+                     : VCNJPEG_FAIL_STREAM;
 }
 #endif
 
@@ -445,7 +503,7 @@ static CMVideoFormatDescriptionRef format(CMVideoCodecType codec,
   return f;
 }
 
-#if !defined(TEST_LEGACY)
+#if defined(TEST_AV1) || defined(TEST_VP9)
 static VTVideoDecoderRef dec;
 // Test 16: a format description with colour extensions; NULL values are left
 // out.
@@ -757,7 +815,7 @@ int main(void) {
   CFRelease(nomem);
   expect("a new start takes the format again",
          !dec_start_session(dec, NULL, fmt) && dec_can_accept_format(dec, fmt));
-#if !defined(TEST_LEGACY)
+#if defined(TEST_AV1) || defined(TEST_VP9)
   color_tests();
   expect("the session takes the first format again",
          !dec_start_session(dec, NULL, fmt) && dec_can_accept_format(dec, fmt));

@@ -19,6 +19,7 @@ enum GPUInstallerDMGTests {
         let script = text(root, "Tools/make-dmg.sh")
         suite.expect(!script.isEmpty, "Tools/make-dmg.sh is readable from the repository root")
         layout(suite, root, script)
+        toolPaths(suite, root)
         let parts = unpackParts(root)
         defer { if let parts { try? FileManager.default.removeItem(at: parts.deletingLastPathComponent()) } }
         suite.expect(parts != nil, "ReleaseAssets/GPU-Package.zip unpacks to one GPU/ folder")
@@ -26,6 +27,42 @@ enum GPUInstallerDMGTests {
             pinned(suite, root, script, parts)
             installerFinds(suite, root, script, parts)
         }
+    }
+
+    // MARK: The commands the installers run as root
+
+    /// Root runs the installer scripts with PATH set to the system folders, and many
+    /// commands are named by their full path. A wrong folder (/usr/bin/chown: chown is in
+    /// /usr/sbin) stops an install half way, after the password. Every absolute command path
+    /// in the scripts and the installer app must exist on this Mac.
+    private static func toolPaths(_ suite: TestSuite, _ root: URL) {
+        let fm = FileManager.default
+        var files: [String] = ["GPU/installer/main.swift"]
+        for dir in ["GPU/install", "GPU/encode/scripts"] {
+            let names = (try? fm.contentsOfDirectory(atPath: root.appendingPathComponent(dir).path)) ?? []
+            files += names.filter { $0.hasSuffix(".sh") || $0.hasSuffix(".zsh") }.sorted().map { "\(dir)/\($0)" }
+        }
+        suite.expect(files.count > 5, "the installer scripts are found (\(files.count) files)")
+        guard let re = try? NSRegularExpression(
+            pattern: #"(?<![A-Za-z0-9_./$-])(/(?:usr/)?s?bin/[A-Za-z0-9_.+-]+|/usr/libexec/[A-Za-z0-9_.+-]+)"#) else {
+            suite.expect(false, "the command path pattern compiles")
+            return
+        }
+        var missing: [String] = []
+        var seen = 0
+        for file in files {
+            let body = text(root, file)
+            let range = NSRange(body.startIndex..., in: body)
+            for match in re.matches(in: body, range: range) {
+                guard let r = Range(match.range(at: 1), in: body) else { continue }
+                var path = String(body[r])
+                while path.hasSuffix(".") { path.removeLast() }
+                seen += 1
+                if !fm.fileExists(atPath: path) { missing.append("\(file): \(path)") }
+            }
+        }
+        suite.expect(seen > 50, "the installers name their commands by full path (\(seen) found)")
+        suite.expect(missing.isEmpty, "every command path the installers run exists on this Mac (missing: \(missing))")
     }
 
     // MARK: The DMG layout
@@ -188,6 +225,67 @@ enum GPUInstallerDMGTests {
         toolsOffered(suite, root, main)
         scriptCalls(suite, main, parts)
         windowStates(suite, main, parts)
+        installerCopies(suite, root, main)
+    }
+
+    /// Root runs a verified copy of the parts, not the app bundle the user owns.
+    private static func installerCopies(_ suite: TestSuite, _ root: URL, _ main: String) {
+        let build = text(root, "GPU/installer/build.sh")
+        let script = text(root, "Tools/make-dmg.sh")
+        suite.expect(main.contains("static func stagedCommand(root: URL, script: String, args: [String]) -> String")
+                         && main.contains("let inner = Self.stagedCommand(root: root, script: script, args: args)"),
+                     "runAction runs the staged copy, not the script in the selected folder")
+        suite.expect(main.contains("mktemp -d /private/tmp/ryzenstatus-gpu")
+                         && main.contains("ditto --norsrc --noextattr")
+                         && main.contains("chown -R root:wheel") && main.contains("chmod -R go-w"),
+                     "the installer copies the parts into a fresh root-only folder")
+        suite.expect(main.contains("shasum -a 256 -c -s SHA256SUMS")
+                         && main.contains("SHA256SUMS does not list exactly the files of the parts")
+                         && main.contains("find . -type l"),
+                     "the installer checks every copied file against SHA256SUMS before it runs one")
+        if let mktemp = main.range(of: "mktemp -d /private/tmp/ryzenstatus-gpu"),
+           let sums = main.range(of: "shasum -a 256 -c -s SHA256SUMS"),
+           let run = main.range(of: "/bin/zsh \\\"$stage/GPU/") {
+            suite.expect(mktemp.lowerBound < sums.lowerBound && sums.lowerBound < run.lowerBound,
+                         "the copy and its SHA256SUMS check come before the zsh run")
+        } else {
+            suite.expect(false, "stagedCommand has a copy, a SHA256SUMS check and a zsh run")
+        }
+        let encode = text(root, "GPU/encode/scripts/install.sh")
+        suite.expect(encode.contains("libexec_unsafe /usr/local/libexec")
+                         && encode.contains("mkdir -p -m 755 /usr/local/libexec")
+                         && encode.contains("chown root:wheel /usr/local/libexec"),
+                     "the encoding fix creates or checks a root-owned /usr/local/libexec")
+        let encoder = text(root, "GPU/install/encoder.sh")
+        suite.expect(encoder.contains("stage_package \"$PKG\"")
+                         && encoder.contains("$STAGE_PKG/install.sh")
+                         && encoder.contains("$STAGE_PKG/uninstall.sh"),
+                     "the encoding fix runs its package from a verified root-owned copy")
+        let common = text(root, "GPU/install/common.zsh")
+        let sensors = text(root, "GPU/install/sensors.sh")
+        suite.expect(common.contains("gpu_dir_unsafe()")
+                         && sensors.contains("tool_dir_unsafe() { gpu_dir_unsafe \"$TOOL_DIR\"; }"),
+                     "sensors.sh uses the shared folder rule without changing what it refuses")
+
+        // The root shell must compare the list itself with the pin compiled
+        // into this build, before it trusts any file the list names.
+        if let start = main.range(of: "static func stagedCommand"),
+           let end = main.range(of: "static func asq") {
+            let body = String(main[start.lowerBound..<end.lowerBound])
+            suite.expect(body.contains("InstallerPin.payloadSumsSHA256")
+                             && body.contains("shasum -a 256 SHA256SUMS")
+                             && body.contains("SHA256SUMS is not the pinned list")
+                             && body.contains("the list is not pinned"),
+                         "the staged command checks SHA256SUMS against the compiled pin before running a part")
+        } else {
+            suite.expect(false, "stagedCommand has a SHA256SUMS pin check")
+        }
+        suite.expect(build.contains("PIN_FILE=\"build/PayloadPin.swift\"")
+                         && build.contains("GPU_PAYLOAD_SUMS_SHA256")
+                         && build.contains("main.swift \"$PIN_FILE\""),
+                     "the installer build compiles the release pin into the app")
+        suite.expect(script.contains("GPU_PAYLOAD_SUMS_SHA256=\"$GPU_PAYLOAD_SUMS_SHA256\" zsh GPU/installer/build.sh"),
+                     "make-dmg.sh passes its existing payload pin to the installer build")
     }
 
     /// Every script the installer runs, with every literal argument it passes, is in the
@@ -212,12 +310,12 @@ enum GPUInstallerDMGTests {
         }
         // The guided install: install.sh plan, and the two flags the boxes add.
         let install = (try? String(contentsOf: parts.appendingPathComponent("install/install.sh"), encoding: .utf8)) ?? ""
-        for flag in ["plan"] + Set(all("append\\(\"(--with-[a-z]+)\"\\)", in: main)).sorted()
+        for flag in ["plan"] + Set(all("append\\(\"(--with-[a-z-]+)\"\\)", in: main)).sorted()
         where !takes(install, flag, after: nil) {
             missing.append("install/install.sh \(flag)")
         }
-        suite.expect(main.contains("var args = [\"plan\"]") && main.components(separatedBy: "append(\"--with-").count == 5,
-                     "the guided install passes plan, --with-encoder and --with-sensors to install/install.sh")
+        suite.expect(main.contains("var args = [\"plan\"]") && main.components(separatedBy: "append(\"--with-").count == 9,
+                     "the guided install passes plan, --with-encoder, --with-sensors, --with-jpeg and --with-legacy-decoders to install/install.sh")
         suite.expect(missing.isEmpty, "every argument the installer passes is one its script takes: \(missing)")
     }
 
@@ -269,7 +367,7 @@ enum GPUInstallerDMGTests {
         suite.expect(main.contains("if let sns = sensors, sns.toolsOnly == true {"),
                      "the guided install ticks GPU sensors when only the commands need copying")
         suite.expect(install.contains("tools)    /bin/zsh \"$SELF_DIR/sensors.sh\" tools ;;")
-                         && install.contains("for part in loader decoders encoder sensors tools; do"),
+                         && install.contains("for part in loader decoders encoder sensors jpeg tools; do"),
                      "install.sh copies just the commands, last, when the sensors kext is in place")
     }
 

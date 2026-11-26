@@ -66,7 +66,7 @@ for (( i = 0; i < count; i++ )); do
   (( ${builds[(Ie)$build]} )) && problem "$where: build $build is listed twice"
   [[ $uuid =~ '^[0-9A-F]{32}$' ]] || problem "$where: driverUUID '$uuid' is not 32 uppercase hexadecimal digits"
   [[ $encode == (true|false) ]] || problem "$where: \"encode\" is '$encode', expected true or false"
-  for codec in av1 vp9 legacy; do
+  for codec in av1 vp9 legacy jpeg; do
     v=$(plx validated.$i.$codec)
     [[ $v == (true|false|untested-on-gpu) ]] ||
       problem "$where: \"$codec\" is '$v', expected true, false or \"untested-on-gpu\""
@@ -76,6 +76,19 @@ for (( i = 0; i < count; i++ )); do
   uuids+=("$uuid")
   print -r -- "  $build  $uuid  av1=${value[$((i + 1)):av1]}  vp9=${value[$((i + 1)):vp9]}  legacy=${value[$((i + 1)):legacy]}  encode=$encode"
 done
+
+# ---- the JPEG kext: only the build its table was made from may be other than false -----------
+jbuild=$(sed -n 's/.*kBuild = "[^"]*(\([0-9A-Z]*\))".*/\1/p' jpeg/kext/hwlibs_expect.hpp 2>/dev/null)
+[[ -n $jbuild ]] || die "jpeg/kext/hwlibs_expect.hpp has no kBuild"
+for (( i = 1; i <= count; i++ )); do
+  v=${value[$i:jpeg]}
+  if [[ ${builds[$i]} == $jbuild ]]; then
+    [[ $v != false ]] || problem "jpeg: ${builds[$i]} is the build of jpeg/kext/hwlibs_expect.hpp but is false in the JSON"
+  elif [[ $v != false ]]; then
+    problem "jpeg: ${builds[$i]} is '$v' in the JSON, but the VCNJpeg kext only knows $jbuild"
+  fi
+done
+print "== jpeg: the VCNJpeg kext knows $jbuild"
 
 # ---- compare, one codec at a time ------------------------------------------------------------
 for codec in av1 vp9 legacy; do

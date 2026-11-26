@@ -15,29 +15,37 @@ arrive signed (`PowerPercent.Min` = -6, `NotAllowed` = -212750), not as the
 
 ## curve-cases.jsonl
 
-100 OD8 states and what the kext's own `gpuctl::od8CheckWant` answers for
-each, from GPUSensors.kext's `control_logic.hpp` at GPUSensors 0.7.2
-(`GPU/sensors/kext/control_logic.hpp` in this repository holds the kext's
-source). The app's copy of the rules (`GPUControlCurveRules.swift`) must give
-the same answer for every line (`GPUControlFanTests`).
+149 OD8 states and what the kext's own `gpuctl::od8CheckWant` answers for
+each, from GPUSensors.kext's `control_logic.hpp` (`GPU/sensors/kext/control_logic.hpp`
+in this repository holds the kext's source; the generator is
+`GPU/sensors/tests/curve_fixturegen.cpp`). The app's copy of the rules
+(`GPUControlCurveRules.swift`) must give the same answer for every line
+(`GPUControlFanTests`). Lines 1 to 100 come from GPUSensors 0.7.2, lines 101
+to 120 are 0.9.0's GFX minimum cases and lines 121 to 149 its GFX voltage and
+overclock cases; each later group left the lines before it byte for byte as
+they were.
 
 Each line is `{"want": {...}, "muts": [...], "check": N}`:
 
-- `want`: `curve`, `temp[5]`, `speed[5]`, `zeroRpmOff`, `gfx` (0 = stock).
+- `want`: `curve`, `temp[5]`, `speed[5]`, `zeroRpmOff`, `gfx` (0 = stock),
+  and since 0.9.0, each written only when it is not stock: `gfxMin` (MHz),
+  `volt` (the GFX voltage in mV) and `overclock: true` (the overclock flag,
+  which lets `gfx` go above stock up to the card's own maximum).
 - `muts`: changes to the card's real state before the check, by entry id
   (`od8Name` order): `freshCaps` / `firstCaps` (value), `freshEntry` /
   `firstEntry` / `bothEntry` (id, field `feature`/`min`/`max`/`def`, value),
-  `cur` (id, value). They reach the codes the real table alone cannot:
-  Drifted, MemoryMoved and NoFeature.
-- `check`: the `Od8Check` number (33 Ok, 14 Drifted, 5 MemoryMoved,
-  12 NoFeature, 9 CurveRange, 4 CurveOrder, 3 CurveFirst, 6 CurveLast,
-  6 CurveCooling, 8 GfxRange). NotRead and NoReadings never come from
-  `od8CheckWant`.
+  `cur` (id, value), and since 0.9.0 `notAllowed` (value: the current read's
+  NotAllowed mask, as 32 bits). They reach the codes the real table alone
+  cannot: Drifted, MemoryMoved and NoFeature.
+- `check`: the `Od8Check` number (55 Ok, 15 Drifted, 5 MemoryMoved,
+  15 NoFeature, 9 CurveRange, 4 CurveOrder, 3 CurveFirst, 6 CurveLast,
+  6 CurveCooling, 14 GfxRange, 10 GfxMinRange, 7 VoltRange). NotRead and
+  NoReadings never come from `od8CheckWant`.
 
 The base state is the card's real OD8 table as `gpucontrol check` maps it
 (Stock = first read, Default = fresh read, Current = current values,
-Caps 212749); the same values as `ioreg-0.7.2-2026-11-20.plist`, which the
-test builds the state from.
+Caps 212749, NotAllowed 0xfffcc0f2); the same values as
+`ioreg-0.7.2-2026-11-20.plist`, which the test builds the state from.
 
 To regenerate after a kext change, from the root of this repository:
 

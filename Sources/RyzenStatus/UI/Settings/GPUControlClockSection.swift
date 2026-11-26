@@ -32,8 +32,10 @@ struct GPUControlClockSection: View {
         _draft = State(initialValue: held ?? input.writing?.od8?.stockGfxMaxMHz ?? GPUControlWire.gfxFloorMHz)
     }
 
+    /// A lowered maximum the app holds; a raised one (the overclock flag,
+    /// GPUSensors 0.9.0) belongs to the Overclock section.
     private static func heldMHz(_ input: GPUControlPageInput) -> Int? {
-        if case .heldByApp(.od8(let want))? = input.state { return want.gfxMaxMHz }
+        if case .heldByApp(.od8(let want))? = input.state, !want.overclock { return want.gfxMaxMHz }
         return nil
     }
 
@@ -239,6 +241,12 @@ struct GPUControlClockSection: View {
 enum GPUControlOD8Source: Equatable {
     case fan
     case clock
+    /// The GFX minimum (GPUSensors 0.9.0).
+    case clockMin
+    /// The GFX voltage (GPUSensors 0.9.0).
+    case volt
+    /// The raised GFX maximum of the Overclock section (GPUSensors 0.9.0).
+    case overclock
 }
 
 /// A native slider with tick marks (SwiftUI's has none on macOS) that

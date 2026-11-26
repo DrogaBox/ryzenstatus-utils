@@ -24,6 +24,10 @@
 //  37 GfxVoltOffset 131072/881/1075/1075/1075
 //  All other ids (2-7, 13, 29-34): unpublished, zero.
 // Prints one JSON line per case: {"want":{...},"check":<Od8Check number>}.
+// A GFX minimum (0.9.0) is written as "gfxMin" only when it is not stock, so
+// the 100 lines from before it stay byte for byte as they were; the same for
+// the GFX voltage ("volt") and the overclock flag ("overclock": true), added
+// later in 0.9.0, so the first 120 lines stay as they were too.
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -48,9 +52,10 @@ static void loadReal() {
   first.count = fresh.count = cur.count = kOd8Count;
   first.caps = fresh.caps = caps;
   // cur.notAllowed: doCheck does (uint32)cfInt(d,"NotAllowed"); the dump
-  // prints 18446744073709338866, which cfInt (SInt32) reads as -22750.
-  // od8CheckWant never reads notAllowed, so the value cannot affect output.
-  cur.notAllowed = static_cast<uint32_t>(-22750);
+  // prints 18446744073709338866 = 2^64 - 212750, which is 0xfffcc0f2 as 32
+  // bits (the app's bits("NotAllowed") reads the same). od8CheckWant reads it
+  // only for a GFX voltage, so the first 120 lines do not depend on it.
+  cur.notAllowed = 0xfffcc0f2u;
   setEntry(kOd8GfxMax, 1, 500, 2800, 2359, 2359, 2359);
   setEntry(kOd8GfxMin, 1, 500, 2800, 500, 500, 500);
   setEntry(kOd8MemMax, 4, 2000, 2150, 2000, 2000, 2000);
@@ -78,7 +83,8 @@ static void loadReal() {
 // A state mutation, so cases can exercise Drifted / MemoryMoved / NoFeature
 // which the real dump (first == fresh == cur, all features present) cannot
 // reach. Serialised into the JSONL so main.swift replays the same mutation.
-// kind: freshCaps | firstCaps | freshEntry | firstEntry | bothEntry | cur
+// kind: freshCaps | firstCaps | freshEntry | firstEntry | bothEntry | cur |
+// notAllowed (the 0xa0 mask, value only)
 // (bothEntry = same field on first and fresh, so od8SameLayout still passes).
 struct Mut {
   const char* kind;
@@ -111,6 +117,8 @@ static void applyMut(Od8InitialOut& F, Od8InitialOut& R, Od8CurrentOut& C,
   } else if (std::strcmp(m.kind, "bothEntry") == 0) {
     applyEntry(F.e[m.id], m.field, m.value);
     applyEntry(R.e[m.id], m.field, m.value);
+  } else if (std::strcmp(m.kind, "notAllowed") == 0) {
+    C.notAllowed = static_cast<uint32_t>(m.value);
   } else {  // cur
     C.cur[m.id] = static_cast<int32_t>(m.value);
   }
@@ -123,11 +131,14 @@ static void emit(const Od8Want& w, std::initializer_list<Mut> muts = {}) {
   Od8Check c = od8CheckWant(w, F, R, C);
   printf(
       "{\"want\":{\"curve\":%s,\"temp\":[%d,%d,%d,%d,%d],"
-      "\"speed\":[%d,%d,%d,%d,%d],\"zeroRpmOff\":%s,\"gfx\":%d},"
-      "\"muts\":[",
+      "\"speed\":[%d,%d,%d,%d,%d],\"zeroRpmOff\":%s,\"gfx\":%d",
       w.curve ? "true" : "false", w.temp[0], w.temp[1], w.temp[2], w.temp[3],
       w.temp[4], w.speed[0], w.speed[1], w.speed[2], w.speed[3], w.speed[4],
       w.zeroRpmOff ? "true" : "false", w.gfxMaxMHz);
+  if (w.gfxMinMHz != 0) printf(",\"gfxMin\":%d", w.gfxMinMHz);
+  if (w.voltMV != 0) printf(",\"volt\":%d", w.voltMV);
+  if (w.overclock) printf(",\"overclock\":true");
+  printf("},\"muts\":[");
   bool sep = false;
   for (const Mut& m : muts) {
     if (sep) printf(",");
@@ -135,7 +146,7 @@ static void emit(const Od8Want& w, std::initializer_list<Mut> muts = {}) {
     if (m.field != nullptr)
       printf("{\"kind\":\"%s\",\"id\":%u,\"field\":\"%s\",\"value\":%lld}",
              m.kind, m.id, m.field, static_cast<long long>(m.value));
-    else if (m.kind[0] == 'f')  // freshCaps / firstCaps
+    else if (m.kind[0] == 'f' || m.kind[0] == 'n')  // caps, notAllowed
       printf("{\"kind\":\"%s\",\"value\":%lld}", m.kind,
              static_cast<long long>(m.value));
     else  // cur
@@ -360,6 +371,90 @@ int main() {
        {{"bothEntry", kOd8GfxMax, "feature", 0}});
   emit(stock, {{"firstEntry", kOd8GfxMax, "feature",
                 0}});  // layout differs -> Drifted
+
+  // 0.9.0: the GFX minimum (id 1), in the card's range for it (500-2800)
+  // and never above the GFX maximum of the same state (2359 stock here).
+  for (int32_t g : {500, 501, 1500, 2000, 2358, 2359}) {
+    Od8Want w{};
+    w.gfxMinMHz = g;
+    emit(w);  // Ok
+  }
+  for (int32_t g : {499, 2360, 2800, 2801}) {
+    Od8Want w{};
+    w.gfxMinMHz = g;
+    emit(w);  // GfxMinRange
+  }
+  {
+    Od8Want w{};
+    w.gfxMaxMHz = 2000;
+    w.gfxMinMHz = 2000;
+    emit(w);  // Ok: equal to the max asked
+    w.gfxMinMHz = 2001;
+    emit(w);  // GfxMinRange: above the max asked
+    w.gfxMaxMHz = 1400;
+    w.gfxMinMHz = 1000;
+    emit(w);  // GfxRange: the max's own refusal comes first
+  }
+  {
+    Od8Want w = curve(new int32_t[5]{30, 40, 44, 46, 48},
+                      new int32_t[5]{20, 36, 52, 68, 100}, true, 2300);
+    w.gfxMinMHz = 1800;
+    emit(w);  // Ok: everything at once
+    w.gfxMinMHz = 2301;
+    emit(w);  // GfxMinRange
+  }
+  {
+    Od8Want w{};
+    w.gfxMinMHz = 2350;
+    emit(w, {{"freshEntry", kOd8GfxMax, "def", 2340}});  // GfxMinRange
+    w.gfxMinMHz = 2340;
+    emit(w, {{"freshEntry", kOd8GfxMax, "def", 2340}});  // Ok (lower read)
+    w.gfxMinMHz = 550;
+    emit(w, {{"bothEntry", kOd8GfxMin, "min", 600}});    // GfxMinRange
+    emit(w, {{"bothEntry", kOd8GfxMin, "max", 540}});    // GfxMinRange
+    emit(w, {{"bothEntry", kOd8GfxMin, "feature", 8}});  // NoFeature first
+  }
+  // 0.9.0, the GFX voltage (id 37): lower only, 25 mV steps from stock.
+  {
+    Od8Want w{};
+    for (int32_t mv :
+         {1075, 1050, 1025, 1000, 900, 1076, 1100, 880, 875, 1060, 1049})
+      w.voltMV = mv, emit(w);
+    w.voltMV = 1050;
+    emit(w, {{"bothEntry", kOd8GfxVolt, "feature", 0}});  // NoFeature
+    emit(w, {{"notAllowed", 0, nullptr, 0xfffec0f2}});    // NoFeature
+    emit(w, {{"bothEntry", kOd8GfxVolt, "def", 1100},
+             {"bothEntry", kOd8GfxVolt, "max", 1150}});  // Ok
+    w.voltMV = 1125;
+    emit(w, {{"bothEntry", kOd8GfxVolt, "def", 1100},
+             {"bothEntry", kOd8GfxVolt, "max", 1150}});  // VoltRange
+    w.voltMV = 1050;
+    emit(w, {{"freshEntry", kOd8GfxVolt, "def", 1050}});  // Drifted
+    Od8Want c = curve(new int32_t[5]{30, 40, 44, 46, 48},
+                      new int32_t[5]{20, 36, 52, 68, 100}, true, 2300);
+    c.gfxMinMHz = 1800;
+    c.voltMV = 1050;
+    emit(c);  // Ok: everything at once
+  }
+  // 0.9.0, the overclock flag: the GFX maximum up to the card's 2800.
+  {
+    Od8Want w{};
+    w.overclock = true;
+    emit(w);  // Ok: the flag alone is stock
+    for (int32_t mhz : {2359, 2360, 2500, 2800, 2801, 2825, 1400})
+      w.gfxMaxMHz = mhz, emit(w);
+    w.gfxMaxMHz = 2600;
+    w.gfxMinMHz = 2600;
+    emit(w);  // Ok: FMIN <= FMAX with a raised max
+    w.gfxMinMHz = 2601;
+    emit(w);  // GfxMinRange
+    w.gfxMinMHz = 0;
+    w.gfxMaxMHz = 2700;
+    emit(w, {{"bothEntry", kOd8GfxMax, "max", 2600}});  // GfxRange: its own max
+    w.overclock = false;
+    w.gfxMaxMHz = 2500;
+    emit(w);  // GfxRange: no flag
+  }
 
   return 0;
 }

@@ -2,6 +2,177 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## JPEG decoder 1.0.0 (RyzenStatus 1.90.0)
+
+- New, optional, macOS 26.7.3 only: `VCNJpeg.kext` (`jpeg/`) and the VideoToolbox plug-in
+  `JPEGVCNDecoder.bundle` (`decode/jpeg/`) decode JPEG and Motion JPEG (`jpeg`, `dmb1`) on
+  the JPEG block of the VCN, which Apple's driver carries but never starts. Baseline 4:2:0
+  and 4:2:2; anything else goes to Apple's software decoder.
+- The kext creates the JPEG queue and a 128 MiB block of buffers (`vcnjpegpool=<MiB>`, 8 to
+  128) when the driver starts its video queues, and powers the block only while pictures
+  arrive: PowerPlay client 21 and the queue start with the first picture, both are given
+  back two seconds after the last one.
+- Off by default: `install/install.sh --with-jpeg`, or `install/jpeg.sh install` and
+  `install/decoders.sh install --jpeg`. The package carries them only when built with
+  `VCNVT_JPEG_DECODER=1`. The loader kext lists the JPEG plug-in too.
+- It comes from the test kext that decoded through the same plug-in on an RX 6800 XT
+  (4:2:0, 4:2:2 and `dmb1` at 1280x720, under 5 ms a frame, within 1 of FFmpeg). The
+  product kext ran once on an RX 6800 XT with 26.7.3 (2026-11-25, started from a separate
+  OpenCore config): four VideoToolbox cases decoded on the GPU at 74 to 75 dB against the
+  reference, 90 frames through `avconvert`, and the block powered off two seconds after the
+  last picture.
+- `install.sh --with-jpeg` takes the kext as installed only when the config.plist it installs
+  to lists it: a kext started from another config file (one picked in OpenCore for one boot)
+  was skipped before, though the next normal boot would not load it.
+
+## GPU sensors 0.9.0 (RyzenStatus 1.90.0; host tests only)
+
+- A program may now hold a raised GFX minimum clock (OD8 id 1) with the rest of the OD8
+  state: `gpucontrol hold gfxmin 1500 -- <command>`, `gpucontrol check gfxmin 1500`. It is
+  taken only inside the card's own range for it (the 0x9f entry: 500 to 2800 MHz on the test
+  RX 6800 XT, stock 500) and never above the GFX maximum of the same state (the stock one, or
+  the lowered one held with it): the driver's own rule (`PhwComm_OD8_SetGfxClockLimits`: both
+  requested, each in its range, minimum at most the maximum). Anything else is refused with
+  the new reason `GfxMinRange` (12), never clamped. It goes back to stock in the same cases
+  as the rest of OD8 (release, close, 30 s of silence, a wake), through the same stock pair.
+- It is the first setting that can make the card warmer at idle, so it is taken only while
+  the fan watchdog has fresh readings, and the watchdog runs while it is held: 95 C, or no
+  readings for 10 s, puts stock back and turns writing off. The "too hot with the fan under
+  90 %" rule stays with a held curve, because the stock fan climbs slowly by design.
+- The read-back allows the minimum to read up to 25 MHz lower than sent, never higher, as
+  for the maximum. Whether the firmware ever rounds it is not known yet.
+- The channel stays version 2: `setOd8` takes 14 scalars (the 14th is the minimum) as well as
+  the 0.7.0 form of 13, `status` sets flag 512 (`kFlagGfxMin`), `OD8WriteState` gains `Held`
+  bit 16, `GfxMinHeld` and `Takes` (23: what `setOd8` takes). An older kext refuses the
+  14-scalar form with a wrong-count error; `gpucontrol` and the app send it only with a
+  minimum.
+- A lower GFX voltage (OD8 id 37, the firmware's `VddGfxOffset`): `gpucontrol hold volt 1050
+  -- <command>`. Read end to end in HWLibs 25G342: the driver offers it with
+  `PP_OD8VoltageSliderSupport` (the Navi 21 default, 1) as a range from swsmu+328 to swsmu+332
+  (881 to 1075 mV on the test card, stock 1075), stages value minus the top as the OD table's
+  `VddGfxOffset` (int16 mV, written whole to the firmware) and reads it back as top plus
+  offset. So it is a millivolt cap that moves the whole voltage curve down, and it cannot go
+  above the top. Linux writes the same field and needs SMU firmware 58.41.0 or later (the
+  test card: 58.76.0). The kext takes it lower only (at or below stock, at or above the card's
+  minimum) in 25 mV steps from stock, reads it back exactly, and sends the stock value in
+  every other call so a way back never leaves an offset behind. Refused: `VoltRange` (13);
+  not offered or not allowed now: `NoFeature`.
+- Raises, only when the request asks for them and only inside the card's own OverDrive
+  range: a GFX maximum above stock up to the 0x9f maximum (2800 MHz here) with `setOd8` flag
+  4, `gpucontrol hold gfxmax 2500 overclock -- <command>`; and a power limit above the
+  start-up one with `set`'s new 3-scalar form (flag 1), `gpucontrol hold power 260 raise --
+  <command>`, up to `PowerRange.CeilW` = start-up limit x (100 + the 0x9f power percent) /
+  100, the way Linux takes `power1_cap_max`, the percent cut at +15 (261 W on the test card,
+  +9 %). The driver's 0x6e path has no ceiling of its own (it sends SMU message 0x32 with the
+  watts as given), so this is the only one. One step past either maximum is refused
+  (`GfxRange`; the new reply 21 `AboveCeiling`). Each raise is taken only while the watchdog
+  has fresh readings (new reply 22 `NoReadings` for `set`) and is held under it: 95 C or no
+  readings for 10 s puts stock back and turns writing off (new `WriteOff` 16
+  `PowerWatchdog` for the power limit).
+- The channel stays version 2: `setOd8` also takes 15 scalars (the 15th is the voltage),
+  `set` also takes 3, `status` sets flags 1024 (`kFlagVolt`) and 2048 (`kFlagRaise`),
+  `OD8WriteState` gains `Held` bits 32 (voltage) and 64 (GFX maximum above stock), `VoltHeld`,
+  and `Takes` 119; `PowerRange` gains `CeilW`. An older kext refuses the new counts.
+- Not added, and why (read in the 25G342 driver, 2026-11-25): the memory maximum (id 8) and
+  fast memory timings (id 14, AC timing). Both start with `PhwComm_OD8_StartMemoryOverclock`
+  -> `PECI_StartGPUMemoryOverclock`, an IRI call 0x110018 to the display driver, and on macOS
+  that interface is `AtiAppleDalServices::dalIriFunction`, which has no case for 0x110018 (nor
+  0x110019, the end) and answers status 1, so the start fails. A memory maximum then makes
+  `PhwComm_OD8_ApplySettings` return before the OD table is written (the whole call fails
+  and the new clock stays staged), and fast timings are recorded but never programmed
+  (nothing could be read back). Also not added: the fan minimum speed (id 10) and fan target
+  temperature (id 12), which the driver does not offer while the fan curve is offered
+  (feature 0, and `PhwComm_OD8_SetGenericSetting` skips a setting whose feature is 0).
+- `gpucontrol status` names a held GFX maximum above stock "GFX max raised" (it said
+  "lowered" for every held maximum) and shows a held voltage as "GFX voltage lowered".
+
+## Decoders 0.3.7 (RyzenStatus 1.90.0)
+
+Everything since 0.3.5, the last release. The sleep part was host-tested only; the rest as
+said in each item.
+
+- Colour and HDR metadata: every AV1 and VP9 picture now carries its colour primaries,
+  transfer function and matrix, plus the mastering display colour volume and content light
+  level when the stream or the container has them. Before, BT.2020 PQ video was shown as
+  untagged video (washed out, no HDR). AV1 takes them from the sequence header first and the
+  container where the header says nothing, and keeps the `HDR_MDCV` and `HDR_CLL` metadata
+  OBUs (a cut or unknown one changes nothing); VP9 takes the container first, then the
+  bitstream's `color_space` (VP9 has no transfer function of its own). Host tests only; not
+  run on the GPU yet.
+- New, optional, macOS 26.7.2 and 26.7.3 (and 26.7.4, same driver code): MPEG-2, VC-1 and
+  MPEG-4 part 2 decoders (`decode/mpeg2/`, `decode/vc1/`, `decode/mpeg4/`), installed only
+  with `install/decoders.sh install --legacy` or `install/install.sh --with-legacy-decoders`;
+  installed, they replace Apple's decoders for these formats. Run on an RX 6800 XT with 26.7.3
+  through VideoToolbox: VC-1 bit-exact (advanced profile I/P/B, WMV3 main, 1080i frame and
+  field interlaced), MPEG-2 frame pictures 58.8 dB or better, MPEG-4 I/P 59 to 67 dB.
+  Refused before the GPU: MPEG-4 B-VOPs (they stall the firmware, on Linux as well) and MPEG-2
+  field pictures (the firmware writes their chroma as zeros; Mesa does not decode them on this
+  card either).
+- MPEG-4: a B-VOP whose TRD is 0 is never sent (direct mode divides by it), the size goes to
+  the firmware aligned to 16 as Mesa does (1920x1080 as 1920x1088; the pictures keep the real
+  size), and the quantizer matrices always go in stream order.
+
+- A system sleep. 0.3.6 made things worse in the first real sleep test on this Mac (RX 6800 XT, Tahoe
+  26.7.3): it noticed the sleep (132 s asleep), but every session from before it then
+  failed all its frames with -12911, and the new sessions after the wake lost their first
+  frames to the refusal below. The same test with 0.3.5, which knows nothing of sleeps,
+  kept decoding on the old sessions after the wake with every frame matching its reference.
+- So an AV1 or VP9 session from before a sleep now keeps decoding, as 0.3.5 did, and at its
+  next key frame (AV1: a key frame that refreshes every reference slot; VP9: a key frame, or
+  an intra-only frame that refreshes every slot and resets every probability context) its
+  driver objects are replaced inside the same decoder: the old accelerator is closed without
+  the driver's own teardown and a new accelerator, driver, context and bitstream pool are
+  opened, and the key frame decodes on them. No frame is dropped and the host sees no error.
+- Only when the old session fails after the wake (a driver call, a command that does not
+  finish, a firmware error) is it replaced at once; that frame and the ones up to the next
+  key frame are then dropped (no picture, no error), at most 600 of them. A command that did
+  not finish has its accelerator closed on the background thread. Right after a wake a
+  command on the old session may take up to 15 s instead of 1 s (in the test one frame of
+  each decode took about 10 s and then decoded correctly).
+- -12911 is left for a replacement that fails, or no key frame within those 600 frames.
+- A new session no longer refuses to open while one from before a sleep is still open.
+- The MPEG-2, VC-1 and MPEG-4 decoders are unchanged: their sessions from before a sleep
+  still stop as in 0.3.6.
+- Each replacement leaves the old driver handle and its bitstream pool (up to 96 MiB) in the
+  process, as the quiet close already did.
+
+## Decoders 0.3.6 (not released; replaced by 0.3.7)
+
+- A decode session from before a system sleep is no longer used after it. A user reported
+  that with the AV1 and VP9 decoders a wake from sleep hung the Mac a while later, with
+  glitches before it, and that a VP9 video came out red and broken in Chrome right after a
+  wake while Safari played it fine. Apple's kernel driver keeps a decoder's video context
+  across a sleep but restarts the video engine under it, and nothing tells the program
+  (see "A system sleep" in `docs/how-it-works.md`). The plug-ins now notice a sleep from the
+  time the Mac spent asleep or the time of its last wake, with no notification. A session
+  opened before it writes and sends nothing more: its frames fail as a malfunction
+  (-12911), so VideoToolbox makes a new session, and the host gets a working decoder again
+  or falls back to software. Closing such a session leaves out the driver's own teardown,
+  which would send the restarted engine a command for the lost session and wait for it
+  with no time limit; only the accelerator's connections are closed, on a background
+  thread. The MPEG-2, VC-1 and MPEG-4 decoders share the code and get the same.
+- While such a session is still open in a process, no new session opens there, in any of
+  the plug-ins: VideoToolbox decodes the new stream in software until the old sessions are
+  closed. The reporter's log showed why: a browser's decoder process kept two VP9 sessions
+  open across a sleep, the AV1 session it opened after the wake never decoded a frame, and
+  the Mac hung after the next wake.
+- `vtvp9test` has `-renew` (a new session for every `-loop` pass, in the same process) and
+  prints a line per pass with the time; `vtav1test` gets `-loop` and `-renew` too. They are
+  for the sleep test in `docs/testing.md`.
+- Not run across a real sleep yet.
+
+## macOS 26.7.4 (25G422) (RyzenStatus 1.90.0)
+
+- Decoders: `AMDRadeonVADriver2` of 26.7.4 has a new UUID,
+  `F7D8F5849EC139DB857C769697294957`, added to `kValidatedDrivers` in `decode/av1/vcnav1.c`,
+  `decode/vp9/vcnvp9.c` and `decode/common/vcnlegacy.c` (MPEG-2, VC-1, MPEG-4), and 25G422 to
+  `install/validated-builds.json` with `av1`, `vp9` and `legacy` set to `"untested-on-gpu"`
+  and `jpeg` false (the VCNJpeg kext knows only 26.7.3's HWLibs and AMDRadeonX6000). Checked from the installer before updating (its cryptex
+  rebuilt with `rawpatch`): the driver's 2760 functions are identical to 26.7.3's and every
+  section is the same except one Apple build path in `__cstring`. Not decoded on a card on
+  26.7.4 yet. New plug-ins mean new code directory hashes, so the loader kext must ship with
+  them.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

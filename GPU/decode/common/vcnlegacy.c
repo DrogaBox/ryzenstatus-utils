@@ -94,6 +94,9 @@ static bool mapped(const void* p, size_t n, vm_prot_t prot);
 static const char* const kValidatedDrivers[] = {
     "1181E2CA31B33DF090E23AE70552D753",  // macOS 26.7.2 (25G332) and 26.7.3
                                          // (25G342, same binary)
+    "F7D8F5849EC139DB857C769697294957",  // macOS 26.7.4 (25G422): same code
+                                         // as 26.7.3 (2760/2760 functions
+                                         // identical, only a build path)
 };
 
 // ---------------------------------------------------------------------------
@@ -210,8 +213,13 @@ uint32_t vcnlegacy_build_message(uint8_t* msg, size_t cap,
   uint8_t* d = msg + decodeOff;
   const uint32_t a = w <= 32 ? 32 : 64;
   U32(d, 0) = m->codecId;
-  U32(d, 8) = m->sizeInMacroblocks ? (w + 15) / 16 : w;
-  U32(d, 12) = m->sizeInMacroblocks ? (h + 15) / 16 : h;
+  // db_pitch and db_aligned_height below come out the same from either size.
+  U32(d, 8) = m->sizeInMacroblocks ? (w + 15) / 16
+              : m->alignSizeTo16   ? al(w, 16)
+                                   : w;
+  U32(d, 12) = m->sizeInMacroblocks ? (h + 15) / 16
+               : m->alignSizeTo16   ? al(h, 16)
+                                    : h;
   U32(d, 16) = m->bitstreamSize;
   U32(d, 20) = m->dpbSize;
   U32(d, 24) = (uint32_t)(((uint64_t)3 * pitch * texh) >> 1);
@@ -351,6 +359,7 @@ static int hook_set_message(uint8_t* proc, const LegacyParams* prm,
                         .width = DEC_WIDTH(dec),
                         .height = DEC_HEIGHT(dec),
                         .sizeInMacroblocks = d->cfg.sizeInMacroblocks,
+                        .alignSizeTo16 = d->cfg.alignSizeTo16,
                         .pitch = TEX_PITCH(target),
                         .texHeight = TEX_HEIGHT(target),
                         .bytesPerElement = TEX_BPE(target),
@@ -660,9 +669,10 @@ static void destroy_now(VcnLegacy* d) {
 
 void vcnlegacy_destroy(VcnLegacy* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, d->log, "legacy codec session", ^{
-    destroy_now(d);
-  });
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), d->log,
+               "legacy codec session", ^{
+                 destroy_now(d);
+               });
 }
 
 static bool driver_validated(const VcnDriverLib* lib) {
@@ -846,10 +856,14 @@ int vcnlegacy_decode(VcnLegacy* d, const void* block, uint32_t blockSize,
   d->err[0] = 0;
   d->failure = VCNLEGACY_FAIL_STREAM;
   d->haveStatus = false;
+  // Nothing goes into the pool or to the engine for a session from before a
+  // system sleep (vcndriver.h).
+  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck ? "the GPU did not finish an earlier picture"
-                      : "an earlier driver call failed");
+             d->stuck    ? "the GPU did not finish an earlier picture"
+             : d->s.lost ? "the system slept since it opened"
+                         : "an earlier driver call failed");
     d->failure = VCNLEGACY_FAIL_DEVICE;
     return -1;
   }

@@ -8,6 +8,9 @@
 #   sudo install/install.sh [--with-encoder] [--with-sensors] [--efi diskNsM]
 #   install/install.sh --help
 #
+#   --with-jpeg             the JPEG decoder: VCNJpeg.kext on the EFI and the JPEG plug-in with
+#                           the decoders (the same as VCNVT_JPEG_DECODER=1 for decoders.sh).
+#                           Off by default; macOS 26.7.3 (25G342) only.
 #   --with-legacy-decoders  the MPEG-2, VC-1 and MPEG-4 plug-ins too, with AV1 and VP9 (the
 #                           same as VCNVT_LEGACY_DECODERS=1). Off by default: they have not
 #                           run through VideoToolbox on a GPU yet. Without it, the three
@@ -20,6 +23,7 @@
 #   loader     VCNVTLoader.kext on the EFI, only when nothing else lets the plug-ins in:
 #              not with AMFI switched off or AMFIPass running
 #   encoder    the encoding fix (service and kext), only with --with-encoder
+#   jpeg       VCNJpeg.kext, only with --with-jpeg (the decoders then take the JPEG plug-in)
 #   sensors    GPUSensors.kext, only with --with-sensors; when the kext that runs is already
 #              this one, only the commands gpucontrol and gpusensors are copied to
 #              /usr/local/bin, if they are missing there or differ from these
@@ -55,19 +59,22 @@ source $SELF_DIR/common.zsh
 
 usage_error() {
   print -r -u2 -- "install.sh: $1"
-  print -r -u2 -- "usage: install.sh [plan] [--with-encoder] [--with-sensors] [--with-legacy-decoders] [--efi diskNsM]"
+  print -r -u2 -- "usage: install.sh [plan] [--with-encoder] [--with-sensors] [--with-jpeg] [--with-legacy-decoders] [--efi diskNsM]"
   exit 64
 }
 
 PLAN=0
 WITH_ENCODER=0
 WITH_SENSORS=0
+WITH_JPEG=0
 EFI_ID=""
 while (( $# )); do
   case $1 in
     plan) PLAN=1 ;;
     --with-encoder) WITH_ENCODER=1 ;;
     --with-sensors) WITH_SENSORS=1 ;;
+    # decoders.sh and loader.sh read VCNVT_JPEG_DECODER (common.zsh, jpeg_on)
+    --with-jpeg) WITH_JPEG=1; export VCNVT_JPEG_DECODER=1 ;;
     # decoders.sh and loader.sh read it (common.zsh, legacy_on)
     --with-legacy-decoders) export VCNVT_LEGACY_DECODERS=1 ;;
     --efi)
@@ -192,8 +199,46 @@ in_place() { # part
                 ${JSON[encoder]} != *'"kext":"outdated"'* && ${JSON[encoder]} != *'"entry":"old"'* ]] ;;
     # working, and the version that runs is the one here (an older one gets updated)
     sensors) [[ $(jfield sensors result) == working* && $(jfield sensors running) == "loaded $(jfield sensors version),"* ]] ;;
+    # working, the version here, and listed in the config.plist this run installs to: a
+    # kext started by another config file (one picked in OpenCore for one boot) is not
+    # loaded by the next normal boot
+    jpeg)    [[ $(jfield jpeg result) == working* && $(jfield jpeg running) == "loaded $(jfield jpeg version),"* ]] &&
+               jpeg_listed_on_target ;;
     *) return 1 ;;
   esac
+}
+
+# The EFI partition this run installs to, as far as can be told before the password and
+# without mounting anything: --efi, else the one efi_guess finds (common.zsh). Empty when
+# the install decides it later. The stand-in Mac of the tests says it in $FAKE/efi, as in
+# the plan's EFI line below (disk9s9 when found).
+target_efi() {
+  if [[ -n $EFI_ID ]]; then print -r -- $EFI_ID; return; fi
+  if [[ -n $FAKE ]]; then
+    local g=$(cat "$FAKE/efi" 2>/dev/null)
+    [[ ${g:-found} == found ]] && print -r -- disk9s9
+    return 0
+  fi
+  efi_guess
+  [[ $EFI_GUESS == found ]] && print -r -- $EFI_GUESS_ID
+  return 0
+}
+# True when jpeg.sh check saw that partition mounted, with the kext entry in its
+# config.plist as expected and this build of the kext there. When the partition is not
+# known yet, or not mounted now, that is not known either: the install step looks then (it
+# changes nothing that is already in place).
+jpeg_listed_on_target() {
+  local target=$(target_efi) n i
+  [[ -n $target ]] || return 1
+  n=$(jfield jpeg efis)
+  [[ $n == <-> ]] || return 1
+  for (( i = 0; i < n; i++ )); do
+    [[ $(jfield jpeg efis.$i.id) == $target ]] || continue
+    [[ $(jfield jpeg efis.$i.mounted) == true && $(jfield jpeg efis.$i.entry) == ok &&
+       $(jfield jpeg efis.$i.kext) == current ]]
+    return
+  done
+  return 1
 }
 
 # The commands gpucontrol and gpusensors, when the sensors kext needs nothing: copied when
@@ -207,7 +252,7 @@ plan_tools() {
 }
 
 # the optional parts, only when asked for
-for part flag in encoder $WITH_ENCODER sensors $WITH_SENSORS; do
+for part flag in encoder $WITH_ENCODER sensors $WITH_SENSORS jpeg $WITH_JPEG; do
   (( flag )) || { SKIPS+=("$part: not asked for (--with-$part)"); continue; }
   if ! look $part; then
     block $part "its check did not answer"
@@ -217,6 +262,8 @@ for part flag in encoder $WITH_ENCODER sensors $WITH_SENSORS; do
   elif [[ $part == sensors && $(jfield sensors pendingReboot) == true ]]; then
     # this version is on the EFI; the commands are copied after the reboot, when it runs
     SKIPS+=("sensors: this version is on the EFI already; it loads at the next boot")
+  elif [[ $part == jpeg && $(jfield jpeg pendingReboot) == true ]]; then
+    SKIPS+=("jpeg: this version is on the EFI already; it loads at the next boot")
   elif [[ $(jfield $part canInstall) != true ]]; then
     block $part "it cannot be installed on this Mac:"$'\n'"$(failed_checks $part)"
   else
@@ -226,7 +273,7 @@ done
 
 # the loader goes first, so the plug-ins it lists are on disk only when it is
 typeset -a ORDER=()
-for part in loader decoders encoder sensors tools; do
+for part in loader decoders encoder sensors jpeg tools; do
   (( ${STEPS[(Ie)$part]} )) && ORDER+=($part)
 done
 # how a step is named in the closing lines
@@ -235,7 +282,8 @@ step_name() { [[ $1 == tools ]] && print -rn -- "gpucontrol and gpusensors" || p
 RUN_FLAGS=install.sh
 (( WITH_ENCODER )) && RUN_FLAGS+=" --with-encoder"
 (( WITH_SENSORS )) && RUN_FLAGS+=" --with-sensors"
-needs_efi() { (( ${ORDER[(Ie)loader]} || ${ORDER[(Ie)encoder]} || ${ORDER[(Ie)sensors]} )); }
+(( WITH_JPEG )) && RUN_FLAGS+=" --with-jpeg"
+needs_efi() { (( ${ORDER[(Ie)loader]} || ${ORDER[(Ie)encoder]} || ${ORDER[(Ie)sensors]} || ${ORDER[(Ie)jpeg]} )); }
 
 # The EFI partition the kexts go on, as far as a plan can tell without the password (it
 # mounts nothing; see efi_guess in common.zsh). When an install would stop at it, the plan
@@ -277,6 +325,7 @@ for part in $ORDER; do
     loader)   print -r -- "  put VCNVTLoader.kext on the EFI: no AMFIPass here and AMFI is on, so it lets the plug-ins in" ;;
     encoder)  print -r -- "  install the encoding fix: the service now, its kext on the EFI" ;;
     sensors)  print -r -- "  put GPUSensors.kext on the EFI (it copies gpucontrol and gpusensors to /usr/local/bin too)" ;;
+    jpeg)     print -r -- "  put VCNJpeg.kext on the EFI: JPEG and Motion JPEG on the GPU (needs a reboot)" ;;
     tools)    print -r -- "  copy gpucontrol and gpusensors to /usr/local/bin: the GPU sensors kext is already this one (no reboot needed)" ;;
   esac
 done
@@ -315,6 +364,7 @@ for part in $ORDER; do
                 /bin/zsh "$SELF_DIR/loader.sh" install --efi "$EFI_ID" ;;
     encoder)  /bin/zsh "$SELF_DIR/encoder.sh" install --efi "$EFI_ID" ;;
     sensors)  /bin/zsh "$SELF_DIR/sensors.sh" install --efi "$EFI_ID" ;;
+    jpeg)     /bin/zsh "$SELF_DIR/jpeg.sh" install --efi "$EFI_ID" ;;
     tools)    /bin/zsh "$SELF_DIR/sensors.sh" tools ;;
   esac
   rc=$?

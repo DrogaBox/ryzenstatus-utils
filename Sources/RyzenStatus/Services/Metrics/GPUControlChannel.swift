@@ -49,8 +49,12 @@ extension GPUControlChannel {
     }
 
     /// Asks for a power limit in watts. The start-up value is the way back.
-    func setPower(watts: UInt32) -> GPUControlAnswer? {
-        answer(.set, input: [GPUControlWire.channelVersion, UInt64(watts)])
+    /// `raise` (kext 0.9.0): the 3-scalar form with the raise flag, for a
+    /// limit above the start-up one; an older kext refuses that count.
+    func setPower(watts: UInt32, raise: Bool = false) -> GPUControlAnswer? {
+        let input = raise ? [GPUControlWire.channelVersion, UInt64(watts), GPUControlWire.setWantRaise]
+            : [GPUControlWire.channelVersion, UInt64(watts)]
+        return answer(.set, input: input)
     }
 
     /// Asks for a whole OD8 state. Nil also when the state cannot be written
@@ -117,7 +121,7 @@ final class KextGPUControlChannel: GPUControlChannel, @unchecked Sendable {
     func call(_ selector: GPUControlWire.Selector, input: [UInt64], outputCount: Int) -> [UInt64]? {
         // The kext refuses a wrong count anyway; refusing it here keeps a
         // mistake in this app from reaching the kernel at all.
-        guard input.count == selector.inputCount else { return nil }
+        guard selector.takes(inputCount: input.count) else { return nil }
         state.lock()
         guard connection != 0, outputCount > 0 else {
             state.unlock()

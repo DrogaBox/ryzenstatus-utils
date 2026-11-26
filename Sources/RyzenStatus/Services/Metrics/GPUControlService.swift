@@ -4,6 +4,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 /// Whether the GPU control page and its panel row exist: only with a kext
 /// that has the write path (0.5.0 and later), or with the model in a
@@ -66,7 +67,32 @@ final class GPUControlService: ObservableObject {
         }
     }
 
+    /// The "Allow overclocking" switch (GPUSensors 0.9.0; off by default).
+    /// Turning it off gives back every raise the app holds or asks for.
+    @Published var overclock: Bool {
+        didSet {
+            guard overclock != oldValue else { return }
+            defaults.set(overclock, forKey: DefaultsKey.gpuControlOverclock)
+            let on = overclock
+            overclockNow.withLock { $0 = on }
+            if !overclock { controller?.dropRaises() }
+        }
+    }
+
+    /// The owner's GPU profiles, as saved in the app's defaults.
+    @Published private(set) var profiles: [GPUControlProfile] = []
+    /// What the last profile loaded came to: the section under the list says
+    /// what went out and what this card did not take.
+    @Published private(set) var profileLoad: GPUControlProfileLoad?
+    /// The display card's PCI device id, read once: a profile records the
+    /// card it was made on with it.
+    private let cardDeviceID: UInt32? = GPUControlCardDevice.displayDeviceID()
+    private var profileStore = GPUControlProfileStore()
+
     private let defaults: UserDefaults
+    /// The switch for the controller's queue: a remembered raise is checked
+    /// against it right before it goes out.
+    private let overclockNow = OSAllocatedUnfairLock(initialState: false)
     private var controller: GPUControlController?
     private var fake: FakeGPUControlKext?
     private var viewers = 0
@@ -83,9 +109,25 @@ final class GPUControlService: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         remember = defaults.bool(forKey: DefaultsKey.gpuControlRemember)
+        let on = defaults.bool(forKey: DefaultsKey.gpuControlOverclock)
+        overclock = on
+        overclockNow.withLock { $0 = on }
+        profileStore = GPUControlProfileStore.load(defaults)
+        profiles = profileStore.profiles
     }
 
-    var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control) }
+    var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control).map(withHolder) }
+
+    /// Who else holds the control, asked only while the kext says a program
+    /// does and it is not this one (GPUControlHolder): `gpucontrol hold`
+    /// keeping the OD8 table is our own tool, not another program. The probe
+    /// walks IOKit and is cached for three seconds, so a redraw is free.
+    private func withHolder(_ facts: GPUControlFacts) -> GPUControlFacts {
+        guard facts.owned, !facts.mine else { return facts }
+        var facts = facts
+        facts.holder = GPUControlHolderProbe.current(mine: facts.mine, owned: facts.owned)
+        return facts
+    }
 
     var state: GPUControlPageState? {
         facts.map { GPUControlPageLogic.state(facts: $0, snapshot: snapshot) }
@@ -123,10 +165,21 @@ final class GPUControlService: ObservableObject {
         }
         controller.setReaskAfterWake(rememberActive)
         let model = fake
+        let overclockNow = overclockNow
         controller.setReaskFilter { request in
             let control = model.flatMap(GPUControlService.fakeControl) ?? GPUSensorsService.shared.currentControl()
-            return GPUControlRememberPolicy.checkedAgain(request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz)
+            let od8Ready = control?.writing?.od8Read == .read
+            return GPUControlRememberPolicy.checkedAgain(
+                request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
+                gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready),
+                volt: GPUControlVoltLogic.limits(writing: control?.writing, od8Ready: od8Ready),
+                overclock: GPUControlOverclockLogic.gfxLimits(writing: control?.writing, od8Ready: od8Ready),
+                overclockAllowed: overclockNow.withLock { $0 },
+                bootW: control?.powerWatch?.bootW)
         }
+        // The kext refuses a curve or a raise while the watchdog's readings
+        // are older than 2 s: one read right before each such change.
+        if mode == .real { controller.setFreshenReadings { GPUControlReadings.freshen() } }
         controller.start()
         self.controller = controller
         if mode == .real { startForeignWatch() }
@@ -169,6 +222,24 @@ final class GPUControlService: ObservableObject {
     /// back first.
     func chooseGfxMax(_ mhz: Int?) {
         controller?.chooseGfxMax(mhz)
+    }
+
+    /// The minimum clock control (GPUSensors 0.9.0): a raised GFX minimum,
+    /// or nil for the stock one. The rest of a held OD8 state goes with it.
+    func chooseGfxMin(_ mhz: Int?) {
+        controller?.chooseGfxMin(mhz)
+    }
+
+    /// The overclock control (GPUSensors 0.9.0): a GFX maximum above stock,
+    /// sent with the overclock flag, or nil for the stock maximum.
+    func chooseGfxMaxRaised(_ mhz: Int?) {
+        controller?.chooseGfxMaxRaised(mhz)
+    }
+
+    /// The voltage control (GPUSensors 0.9.0): a lower GFX voltage in mV, or
+    /// nil for stock. The rest of a held OD8 state goes with it.
+    func chooseVolt(_ mv: Int?) {
+        controller?.chooseVolt(mv)
     }
 
     func backToStartUp() {
@@ -319,6 +390,82 @@ final class GPUControlService: ObservableObject {
             }
         }
         if next.stopped != nil { pendingRemembered = false }
+        // The sentence about the last profile loaded is about the state it
+        // put on the card: another change of what is held makes it old news
+        // (the readings in the status move every second and do not count).
+        if let load = profileLoad, next.held != previous?.held, next.outcome == nil,
+           next.activity == .none, next.held != load.request {
+            profileLoad = nil
+        }
+    }
+
+    // MARK: Profiles
+
+    /// The card as the kext and the registry describe it now.
+    private var cardNow: GPUControlProfileCard {
+        GPUControlProfileCard.current(facts: facts, writing: control?.writing, deviceID: cardDeviceID)
+    }
+
+    /// The saved profile that is exactly what the card holds now, if any.
+    var matchingProfile: String? {
+        GPUControlProfiles.match(profiles, held: snapshot?.held)
+    }
+
+    /// What the card holds now goes into a profile under `raw`. Only what
+    /// the kext confirmed is saved, as Remembering does; a name is trimmed,
+    /// may not be empty and may not repeat another profile's.
+    @discardableResult
+    func saveProfile(named raw: String) -> GPUControlProfileSave {
+        guard !profileStore.isNewerVersion else { return .newerVersion }
+        guard let held = snapshot?.held, held != .startUp else { return .nothingToSave }
+        guard let name = GPUControlProfileStore.clean(raw) else { return .emptyName }
+        guard !profileStore.isTaken(name) else { return .duplicateName(name) }
+        guard let profile = GPUControlProfiles.profile(named: name, held: held, card: cardNow) else {
+            return .nothingToSave
+        }
+        profileStore.add(profile)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+        return .saved(name: name)
+    }
+
+    @discardableResult
+    func renameProfile(named name: String, to raw: String) -> GPUControlProfileSave {
+        guard !profileStore.isNewerVersion else { return .newerVersion }
+        guard let clean = GPUControlProfileStore.clean(raw) else { return .emptyName }
+        guard profileStore.profile(named: name) != nil else { return .nothingToSave }
+        guard !profileStore.isTaken(clean, excluding: name) else { return .duplicateName(clean) }
+        profileStore.rename(name, to: clean)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+        return .saved(name: clean)
+    }
+
+    func deleteProfile(named name: String) {
+        guard !profileStore.isNewerVersion else { return }
+        profileStore.remove(named: name)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+    }
+
+    /// A profile goes out through the controller's own path, exactly as a
+    /// value the owner changes by hand does: the same checks, the same
+    /// waiting, the same refusal on screen. What this card does not take now
+    /// is left out, and the section says which part. With Remember on, a
+    /// profile the kext confirms becomes the remembered state like any other
+    /// change (`received`).
+    func loadProfile(_ profile: GPUControlProfile) {
+        let writing = control?.writing
+        let od8Ready = facts?.od8Ready ?? false
+        let load = GPUControlProfiles.load(
+            profile, card: cardNow, facts: facts, stockGfxMaxMHz: writing?.od8?.stockGfxMaxMHz,
+            od8Ready: od8Ready, kextVersion: writing?.kextVersion,
+            gfxMin: GPUControlClockMinLogic.limits(writing: writing, od8Ready: od8Ready),
+            volt: GPUControlVoltLogic.limits(writing: writing, od8Ready: od8Ready),
+            overclock: GPUControlOverclockLogic.gfxLimits(writing: writing, od8Ready: od8Ready),
+            overclockAllowed: overclock)
+        profileLoad = load
+        if let request = load.request { controller?.choose(request) }
     }
 
     // MARK: Another program (security review S-5, S-9)
@@ -338,7 +485,8 @@ final class GPUControlService: ObservableObject {
     private func checkForeign() {
         guard mode == .real, GPUSensorsService.shared.hasWritePathNow else { return }
         let current = viewers > 0 ? control : GPUSensorsService.shared.currentControl()
-        guard let current, let facts = GPUControlFacts(control: current) else { return }
+        guard let current, let read = GPUControlFacts(control: current) else { return }
+        let facts = withHolder(read)
         let appHolds = snapshot?.held != nil || GPUControlPageLogic.pending(snapshot) != nil
         // The app's own close: its answer and the next read may cross.
         let appClosing = closeAskedAt.map { ProcessInfo.processInfo.systemUptime - $0 < 90 } ?? false
@@ -413,10 +561,18 @@ final class GPUControlService: ObservableObject {
             GPUControlRemembered.nothing.save(defaults)
             return
         }
+        let writing = control?.writing
         if let request = GPUControlRememberPolicy.request(remembered: remembered, active: rememberActive,
                                                           facts: facts, stopped: snapshot?.stopped,
-                                                          stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
-                                                          kextVersion: control?.writing?.kextVersion) {
+                                                          stockGfxMaxMHz: writing?.od8?.stockGfxMaxMHz,
+                                                          kextVersion: writing?.kextVersion,
+                                                          gfxMin: GPUControlClockMinLogic.limits(
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          volt: GPUControlVoltLogic.limits(
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          overclock: GPUControlOverclockLogic.gfxLimits(
+                                                            writing: writing, od8Ready: facts.od8Ready),
+                                                          overclockAllowed: overclock) {
             controller.choose(request, origin: .remembered)
         }
     }

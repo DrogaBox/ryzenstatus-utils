@@ -371,6 +371,26 @@ static void test_mpeg2(void) {
   lm.blockSize = 160;
   expect("message: a message that does not fit is refused",
          vcnlegacy_build_message(msg, 403, &lm) == 0);
+  // MPEG-4: the size in whole macroblocks, the rest as before.
+  lm.width = 1918;
+  lm.height = 1080;
+  lm.pitch = 1920;
+  lm.texHeight = 1080;
+  uint8_t plain[1024];
+  uint32_t plainSize = vcnlegacy_build_message(plain, sizeof(plain), &lm);
+  lm.alignSizeTo16 = true;
+  uint32_t alignedSize = vcnlegacy_build_message(msg, sizeof(msg), &lm);
+  expect("message: alignSizeTo16 sends 1918x1080 as 1920x1088",
+         plainSize == 404 && alignedSize == 404 &&
+             *(const uint32_t*)(plain + 56 + 8) == 1918 &&
+             *(const uint32_t*)(plain + 56 + 12) == 1080 && D32(8) == 1920 &&
+             D32(12) == 1088);
+  // Every other byte the same: db_pitch, db_aligned_height and the target
+  // offsets come from the real size and give the same values.
+  memcpy(plain + 56 + 8, msg + 56 + 8, 8);
+  expect("message: alignSizeTo16 changes nothing else",
+         !memcmp(plain, msg, 404) && D32(72) == 1920 && D32(76) == 1088);
+  lm.alignSizeTo16 = false;
 #undef D32
   expect("dpb: six pictures and room for the firmware's side buffers",
          vcnlegacy_dpb_size(VCN_CODEC_MPEG2_VLD, 720, 576) >= 0x3a4000 &&
@@ -817,17 +837,34 @@ static void test_mpeg4(void) {
                   VCN_MPEG4_RESYNC_MARKER_DISABLE) &&
              b.quant_type == 1 && b.intra_quant_mat[0] == 9 &&
              b.vop.vop_data_present == 0);
-  // intra matrix in zigzag order: 9, 10, 11, 11, ... The transposed one in
-  // zigzag order swaps the 2nd and 3rd entries (raster 1 and 8).
-  vcnmpeg4_matrix_mode = 1;
-  VcnMpeg4Msg t;
-  vcnmpeg4_fill_block(&t, &p, &m.pic[2], 3, 1, 2);
-  vcnmpeg4_matrix_mode = 0;
-  expect("mpeg4: matrices go in stream order; mode 1 sends the transposed one",
+  // intra matrix in zigzag order: 9, 10, 11, 11, ...
+  expect("mpeg4: matrices go in stream order",
          b.intra_quant_mat[1] == 10 && b.intra_quant_mat[2] == 11 &&
-             t.intra_quant_mat[0] == 9 && t.intra_quant_mat[1] == 11 &&
-             t.intra_quant_mat[2] == 10 && t.intra_quant_mat[63] == 11 &&
-             t.nonintra_quant_mat[63] == 33);
+             b.intra_quant_mat[63] == 11 && b.nonintra_quant_mat[63] == 33 &&
+             !memcmp(b.intra_quant_mat, p.intra_matrix, 64) &&
+             !memcmp(b.nonintra_quant_mat, p.nonintra_matrix, 64));
+  // The size in whole macroblocks, as Mesa's dec->base for this codec.
+  Mpeg4Parser big = p;
+  big.width = 1918;
+  big.height = 1080;
+  VcnMpeg4Msg a;
+  vcnmpeg4_fill_block(&a, &big, &m.pic[2], 3, 1, 2);
+  expect("mpeg4: the VOL size goes aligned to 16 (1918x1080 as 1920x1088)",
+         a.video_object_layer_width == 1920 &&
+             a.video_object_layer_height == 1088);
+  vcnmpeg4_block_mode = 3;
+  vcnmpeg4_fill_block(&a, &p, &m.pic[2], 3, 1, 2);
+  expect("mpeg4: block mode 3 is Mesa's block with the whole VOP part",
+         a.vop.vop_data_present == 1 && a.vop.vop_coding_type == MPEG4_B &&
+             a.vop.vop_quant == 12 && a.vop.vop_coded == 1 &&
+             a.vop.intra_dc_vlc_thr == 5 && a.vop.top_field_first == 1 &&
+             a.vop.vop_fcode_forward == 3 && a.vop.vop_fcode_backward == 4 &&
+             a.vop.TRB[0] == 1 && a.vop.TRB[1] == 1 && a.vop.TRD[0] == 3 &&
+             a.vop.TRD[1] == 3 && a.profile_and_level_indication == 0xF0 &&
+             a.video_object_layer_verid == 5 &&
+             !memcmp(a.intra_quant_mat, b.intra_quant_mat, 64) &&
+             a.decoded_pic_idx == 3 && a.forward_ref_pic_idx == 1 &&
+             a.backward_ref_pic_idx == 2);
   vcnmpeg4_block_mode = 1;
   vcnmpeg4_fill_block(&b, &p, &m.pic[2], 3, 1, 2);
   expect("mpeg4: block with the VOP part filled",

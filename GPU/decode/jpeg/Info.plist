@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>JPEGVCNDecoder</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.droga.videodecoder.jpeg.vcn</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>JPEGVCNDecoder</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>CMClassImplementations</key>
+	<array>
+		<dict>
+			<key>CMClassID</key>
+			<string>com.apple.videotoolbox.videodecoder</string>
+			<key>CMClassImplementationID</key>
+			<string>com.droga.videodecoder.jpeg.vcn</string>
+			<key>CMClassImplementationName</key>
+			<string>AMD VCN JPEG Decoder</string>
+			<key>CMClassImplementationVersion</key>
+			<integer>1</integer>
+			<key>CMExecutableArchitectures</key>
+			<array>
+				<string>x86_64</string>
+			</array>
+			<key>CMFactoryFunction</key>
+			<string>JPEGVCN_VTDecoder_CreateInstance</string>
+			<key>CMManufacturer</key>
+			<string>droga</string>
+			<key>CMMatchingInfo</key>
+			<dict>
+				<key>VTCodecType</key>
+				<string>jpeg</string>
+				<key>VTIsHardwareAccelerated</key>
+				<true/>
+				<key>VTRating</key>
+				<integer>400</integer>
+			</dict>
+		</dict>
+		<dict>
+			<key>CMClassID</key>
+			<string>com.apple.videotoolbox.videodecoder</string>
+			<key>CMClassImplementationID</key>
+			<string>com.droga.videodecoder.dmb1.vcn</string>
+			<key>CMClassImplementationName</key>
+			<string>AMD VCN Motion JPEG (OpenDML) Decoder</string>
+			<key>CMClassImplementationVersion</key>
+			<integer>1</integer>
+			<key>CMExecutableArchitectures</key>
+			<array>
+				<string>x86_64</string>
+			</array>
+			<key>CMFactoryFunction</key>
+			<string>JPEGVCN_VTDecoder_CreateInstance</string>
+			<key>CMManufacturer</key>
+			<string>droga</string>
+			<key>CMMatchingInfo</key>
+			<dict>
+				<key>VTCodecType</key>
+				<string>dmb1</string>
+				<key>VTIsHardwareAccelerated</key>
+				<true/>
+				<key>VTRating</key>
+				<integer>400</integer>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

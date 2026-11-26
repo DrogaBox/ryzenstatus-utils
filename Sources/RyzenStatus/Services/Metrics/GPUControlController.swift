@@ -3,12 +3,15 @@
 
 import AppKit
 import Foundation
+import IOKit
 
 /// What the app asks GPUSensors.kext to hold.
 enum GPUControlRequest: Equatable, Hashable, Sendable {
-    /// A lower power limit in watts.
+    /// A lower power limit in watts, or (kext 0.9.0) a higher one, sent with
+    /// `set`'s raise form.
     case power(watts: UInt32)
-    /// The whole OD8 state: fan curve, zero RPM and GFX maximum together.
+    /// The whole OD8 state: fan curve, zero RPM, the GFX clocks and the GFX
+    /// voltage together.
     case od8(GPUControlOD8Want)
     /// Back to the start-up values: `release`, never a change.
     case startUp
@@ -72,6 +75,28 @@ enum GPUControlClosing: Equatable, Sendable {
 enum GPUControlOrigin: Equatable, Sendable {
     case owner
     case remembered
+}
+
+/// Which refusals of a remembered request are tried again (at launch and
+/// after a wake). Only the ones that pass by themselves: the fan watchdog's
+/// readings were not fresh yet (an OD8 state with a curve, a raised minimum
+/// or the overclock flag; a raised power limit). "Busy", "not ready", "too
+/// soon" and "sleeping" already wait for every request. Everything else is a
+/// real answer (out of range, writing not allowed, another program holds
+/// the control) and is never sent again by itself.
+enum GPUControlRetryPolicy {
+    static func isTemporary(_ answer: GPUControlAnswer) -> Bool {
+        switch answer.reply {
+        case .noReadings?: return true
+        case .od8Refused?: return answer.check == .noReadings
+        default: return false
+        }
+    }
+
+    /// Still inside the window that started with the first such refusal.
+    static func retries(firstRefusalAt since: UInt64, now: UInt64) -> Bool {
+        now < since + GPUControlEngine.temporaryRetryWindowMs
+    }
 }
 
 /// What the controller knows, for the page. `held` comes from `status`
@@ -145,6 +170,11 @@ final class GPUControlEngine {
     /// After a wake the kext goes back 2 to 12 s later; `mine` is not trusted
     /// and nothing is asked until this much has passed.
     static let wakeSettleMs: UInt64 = 15_000
+    /// A remembered request the kext refused for a reason that passes (the
+    /// watchdog's readings were not fresh yet) is tried again this often...
+    static let temporaryRetryMs: UInt64 = 3_000
+    /// ...for this long after the first such refusal, then the refusal stands.
+    static let temporaryRetryWindowMs: UInt64 = 30_000
 
     private let channel: GPUControlChannel?
     private let clock: () -> UInt64
@@ -161,6 +191,12 @@ final class GPUControlEngine {
     /// right before it goes out (the stock GFX maximum moves across wakes):
     /// the request to send, or nil for nothing.
     var reaskFilter: ((GPUControlRequest) -> GPUControlRequest?)?
+    /// Right before an OD8 state or a raised power limit goes out: makes the
+    /// watchdog's readings fresh (the kext's PMLog copy only moves when
+    /// someone reads the accelerator's `PerformanceStatistics`, and the kext
+    /// refuses a curve, a raised minimum or a raise with readings older than
+    /// 2 s). Nil in tests.
+    var freshenReadings: (() -> Void)?
 
     private(set) var snapshot = GPUControlSnapshot() {
         didSet { if snapshot != oldValue { onSnapshot?(snapshot) } }
@@ -171,6 +207,9 @@ final class GPUControlEngine {
     private var wanted: GPUControlRequest?
     private var wantedOrigin: GPUControlOrigin = .owner
     private var wantedSince: UInt64 = 0
+    /// The first refusal of the waiting remembered request that passes by
+    /// itself (`GPUControlRetryPolicy`), nil before one.
+    private var temporarySince: UInt64?
     private var nextTryAt: UInt64 = 0
     private var nextPollAt: UInt64 = 0
     private var statusRequested = false
@@ -212,7 +251,14 @@ final class GPUControlEngine {
         let request = request.normalized
         let now = clock()
         if request == wanted {
-            // Asked for already: it goes out as planned.
+            // Asked for already: it goes out as planned. When the owner picks
+            // the very value a remembered retry is asking for, it is the
+            // owner's from now on (their refusal shows, no remembered filter).
+            if origin == .owner, wantedOrigin != .owner {
+                wantedOrigin = .owner
+                temporarySince = nil
+                snapshot.ownerReleased = false
+            }
             snapshot.outcome = nil
             return
         }
@@ -230,20 +276,72 @@ final class GPUControlEngine {
         wanted = request
         wantedOrigin = origin
         wantedSince = now
+        temporarySince = nil
         nextTryAt = Swift.max(now, wokeAt.map { $0 + Self.wakeSettleMs } ?? 0)
         snapshot.outcome = nil
     }
 
-    /// The whole OD8 state with the GFX maximum changed: the curve and zero
-    /// RPM that are held or asked for go with it.
+    /// The whole OD8 state with the GFX maximum lowered: the curve, zero RPM
+    /// and the rest that are held or asked for go with it. The stock maximum
+    /// (nil) gives back a lowered one only: a raised maximum belongs to the
+    /// overclock control, and stays.
     func chooseGfxMax(_ mhz: Int?) {
         var want = od8Basis
+        if mhz == nil, want.overclock { return chooseOD8(want) }
         want.gfxMaxMHz = mhz
+        want.overclock = false
         chooseOD8(want)
     }
 
-    /// The whole OD8 state with the fan changed: the GFX maximum that is held
-    /// or asked for goes with it.
+    /// The whole OD8 state with a GFX maximum above stock (GPUSensors 0.9.0,
+    /// the overclock flag), or nil for the stock maximum: nil gives back a
+    /// raised maximum only, and keeps a lowered one.
+    func chooseGfxMaxRaised(_ mhz: Int?) {
+        var want = od8Basis
+        if let mhz {
+            want.gfxMaxMHz = mhz
+            want.overclock = true
+        } else if want.overclock {
+            want.gfxMaxMHz = nil
+            want.overclock = false
+        }
+        chooseOD8(want)
+    }
+
+    /// The whole OD8 state with the GFX voltage changed (GPUSensors 0.9.0):
+    /// a lower one in mV, or nil for stock. The rest goes with it.
+    func chooseVolt(_ mv: Int?) {
+        var want = od8Basis
+        want.voltMV = mv
+        chooseOD8(want)
+    }
+
+    /// The overclock switch went off: every raise the app holds or asks for
+    /// goes back to stock (a power limit above the start-up one, a GFX
+    /// maximum above stock). Nothing else changes.
+    func dropRaises() {
+        let current = wanted ?? snapshot.held
+        switch current {
+        case .power(let watts)?:
+            if let boot = snapshot.status?.bootW, boot != 0, UInt64(watts) > boot { choose(.startUp) }
+        case .od8(let want)? where want.overclock:
+            chooseGfxMaxRaised(nil)
+        default:
+            break
+        }
+    }
+
+    /// The whole OD8 state with the GFX minimum changed (GPUSensors 0.9.0):
+    /// the fan state and the GFX maximum that are held or asked for go with
+    /// it.
+    func chooseGfxMin(_ mhz: Int?) {
+        var want = od8Basis
+        want.gfxMinMHz = mhz
+        chooseOD8(want)
+    }
+
+    /// The whole OD8 state with the fan changed: the GFX clocks that are held
+    /// or asked for go with it.
     func chooseFan(curve: [GPUControlFanPoint]?, zeroRpmOff: Bool) {
         var want = od8Basis
         want.curve = curve
@@ -315,9 +413,13 @@ final class GPUControlEngine {
                 wanted = held
                 wantedOrigin = .remembered
                 wantedSince = now
+                temporarySince = nil
             }
         }
         if wanted != nil {
+            // A retry the sleep cut short gets its whole window again after
+            // the wake, counted from the next refusal.
+            temporarySince = nil
             nextTryAt = Swift.max(nextTryAt, now + Self.wakeSettleMs)
             if let wanted { snapshot.activity = .afterWake(wanted) }
         }
@@ -483,7 +585,7 @@ final class GPUControlEngine {
     static func matches(_ request: GPUControlRequest, _ status: GPUControlChannelStatus) -> Bool {
         switch request {
         case .power(let watts): return status.heldW == UInt64(watts) && !status.holdsOD8
-        case .od8(let want): return status.od8Held == want.heldFlags && !status.holdsPower
+        case .od8(let want): return want.matches(held: status.od8Held) && !status.holdsPower
         case .startUp: return !status.holdsPower && !status.holdsOD8
         }
     }
@@ -594,12 +696,19 @@ final class GPUControlEngine {
         quietSince = nil
         let answer: GPUControlAnswer?
         switch request {
-        case .power(let watts): answer = channel.setPower(watts: watts)
+        case .power(let watts):
+            // Above the start-up limit only in the raise form, and only to a
+            // kext that takes it; an older one refuses the value either way.
+            let status = snapshot.status
+            let raise = status.map { $0.flags.contains(.raise) && $0.bootW != 0 && UInt64(watts) > $0.bootW } ?? false
+            if raise { freshenReadings?() }
+            answer = channel.setPower(watts: watts, raise: raise)
         case .od8(let want):
             guard want.scalars() != nil else {
                 refuse(request, GPUControlAnswer(replyCode: GPUControlReply.badArgs.rawValue))
                 return
             }
+            freshenReadings?()
             answer = channel.setOD8(want)
         case .startUp: return
         }
@@ -663,8 +772,29 @@ final class GPUControlEngine {
         case .notArmed:
             notSent(.closed)
         default:
+            // A remembered request goes through at launch and after a wake
+            // with nobody watching: a refusal that passes by itself is tried
+            // again for a while. The owner's own choice shows it at once.
+            if wantedOrigin == .remembered, GPUControlRetryPolicy.isTemporary(answer) {
+                return retryTemporary(request, answer)
+            }
             refuse(request, answer)
         }
+    }
+
+    /// A remembered request refused for a reason that passes: tried again
+    /// every `temporaryRetryMs` (never closer than the kext's 2 s between
+    /// writes), until `temporaryRetryWindowMs` after the first such refusal;
+    /// then the refusal stands and shows as any other.
+    private func retryTemporary(_ request: GPUControlRequest, _ answer: GPUControlAnswer) {
+        let now = clock()
+        let since = temporarySince ?? now
+        temporarySince = since
+        guard GPUControlRetryPolicy.retries(firstRefusalAt: since, now: now) else {
+            return refuse(request, answer)
+        }
+        snapshot.activity = .retrying(request, .reply(answer.reply ?? .od8Refused))
+        nextTryAt = now + Self.temporaryRetryMs
     }
 
     // MARK: Closing (kext 0.8.0)
@@ -740,6 +870,7 @@ final class GPUControlEngine {
 
     private func finishRequest() {
         wanted = nil
+        temporarySince = nil
         switching = false
         wokeAt = nil
         snapshot.activity = .none
@@ -839,6 +970,14 @@ final class GPUControlController: @unchecked Sendable {
 
     func chooseGfxMax(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMax(mhz); run() } }
 
+    func chooseGfxMin(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMin(mhz); run() } }
+
+    func chooseGfxMaxRaised(_ mhz: Int?) { queue.async { [self] in engine.chooseGfxMaxRaised(mhz); run() } }
+
+    func chooseVolt(_ mv: Int?) { queue.async { [self] in engine.chooseVolt(mv); run() } }
+
+    func dropRaises() { queue.async { [self] in engine.dropRaises(); run() } }
+
     func chooseFan(curve: [GPUControlFanPoint]?, zeroRpmOff: Bool) {
         queue.async { [self] in engine.chooseFan(curve: curve, zeroRpmOff: zeroRpmOff); run() }
     }
@@ -854,6 +993,13 @@ final class GPUControlController: @unchecked Sendable {
     /// See `GPUControlEngine.reaskFilter`. Called on the controller's queue.
     func setReaskFilter(_ filter: @escaping @Sendable (GPUControlRequest) -> GPUControlRequest?) {
         queue.async { [self] in engine.reaskFilter = filter }
+    }
+
+    /// What makes the watchdog's readings fresh right before an OD8 state or
+    /// a raised power limit goes out (`GPUControlReadings.freshen` with the
+    /// real kext).
+    func setFreshenReadings(_ freshen: @escaping @Sendable () -> Void) {
+        queue.async { [self] in engine.freshenReadings = freshen }
     }
 
     /// `applicationWillTerminate`: `release` at once on a helper thread,
@@ -938,4 +1084,41 @@ final class GPUControlController: @unchecked Sendable {
     }
 
     private static func nowMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
+}
+
+/// The fan watchdog's readings, from the app's side. GPUSensors.kext copies
+/// the PMLog only when the driver reads it, and the driver reads it when
+/// someone reads the accelerator's `PerformanceStatistics` (what
+/// `ioreg -r -c IOAccelerator -l -d1` does too). One read right before a
+/// change makes them fresh, whether or not the app's own GPU readings run
+/// yet (right after launch, right after a wake).
+enum GPUControlReadings {
+    /// The AMD accelerator classes, most specific first, so an Intel iGPU or
+    /// another card that enumerates first is never the one read.
+    private static let amdClasses = [
+        "AMDRadeonX6000_AMDAcceleratedVKDriver",
+        "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
+        "AMDGPUAccelerator"
+    ]
+
+    /// Reads `PerformanceStatistics` of the AMD accelerator. The values are
+    /// not used here; `IOAcceleratorCache` keeps its own.
+    static func freshen() {
+        for cls in amdClasses where read(matching: cls) { return }
+    }
+
+    private static func read(matching cls: String) -> Bool {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls),
+                                           &iterator) == kIOReturnSuccess else { return false }
+        defer { IOObjectRelease(iterator) }
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            defer { IOObjectRelease(entry) }
+            if IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
+                                               kCFAllocatorDefault, 0)?.takeRetainedValue() != nil {
+                return true
+            }
+        }
+        return false
+    }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import IOKit
 
 // MARK: - Model
 
@@ -91,6 +92,8 @@ struct PlanResult: Identifiable {
     let exitCode: Int32
     let withEncoder: Bool
     let withSensors: Bool
+    let withJpeg: Bool
+    let withLegacy: Bool
     // install.sh plan ends with this line when every part asked for is in place.
     var nothingToDo: Bool {
         exitCode == 0 && output.split(separator: "\n").contains { $0.hasPrefix("Nothing to install") }
@@ -105,6 +108,103 @@ struct PlanResult: Identifiable {
             if inPlan, line.hasPrefix("  "), !line.hasPrefix("  skip ") { steps.append(line) }
         }
         return steps.count == 1 && steps[0].hasPrefix("  copy gpucontrol and gpusensors")
+    }
+
+    /// The decoders this install puts in, in plain words.
+    var decoderList: String {
+        var names = ["AV1", "VP9"]
+        if withLegacy { names += ["MPEG-2", "VC-1", "MPEG-4"] }
+        if withJpeg { names.append("JPEG") }
+        return names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
+    /// The plan's steps in plain words, one per part, in the order install.sh runs them.
+    var plainSteps: [String] {
+        var out: [String] = []
+        var inPlan = false
+        for raw in output.split(separator: "\n") {
+            let line = String(raw)
+            if line == "Plan:" { inPlan = true; continue }
+            guard inPlan, line.hasPrefix("  "), !line.hasPrefix("  skip ") else { continue }
+            let step = line.trimmingCharacters(in: .whitespaces)
+            if step.hasPrefix("put VCNVTLoader.kext") { out.append("Install the decoder loader") }
+            else if step.hasPrefix("install the decoder plug-ins") { out.append("Install the GPU video decoders (\(decoderList))") }
+            else if step.hasPrefix("install the encoding fix") { out.append("Install the encoding fix") }
+            else if step.hasPrefix("put GPUSensors.kext") { out.append("Install GPU sensors") }
+            else if step.hasPrefix("put VCNJpeg.kext") { out.append("Install the JPEG decoder") }
+            else if step.hasPrefix("copy gpucontrol and gpusensors") { out.append("Update the GPU sensors' Terminal commands") }
+            else if !step.hasPrefix("EFI partition") { out.append(step) }
+        }
+        return out
+    }
+
+    /// The parts the plan keeps as they are, because they are installed and current.
+    var plainKept: [String] {
+        let names = ["decoders": "GPU video decoders", "loader kext": "Decoder loader", "encoder": "Encoding fix",
+                     "sensors": "GPU sensors", "jpeg": "JPEG decoder",
+                     "gpucontrol and gpusensors": "GPU sensors' Terminal commands"]
+        var out: [String] = []
+        for raw in output.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("skip "), let colon = line.firstIndex(of: ":") else { continue }
+            let part = String(line[line.index(line.startIndex, offsetBy: 5)..<colon])
+            let why = line[colon...]
+            guard let name = names[part], why.contains("already") || why.contains("next boot") else { continue }
+            out.append(why.contains("next boot") ? "\(name): installed, loads at the next restart" : "\(name): already up to date")
+        }
+        return out
+    }
+
+    /// What stops the install, by part, in plain words (the full reasons are in Details).
+    var plainBlocks: [String] {
+        let names = ["decoders": "The GPU video decoders", "loader": "The decoder loader", "encoder": "The encoding fix",
+                     "sensors": "GPU sensors", "jpeg": "The JPEG decoder", "EFI partition": "The startup disk (EFI)"]
+        var out: [String] = []
+        var inBlocks = false
+        for raw in output.split(separator: "\n") {
+            let line = String(raw)
+            if line.hasPrefix("Nothing was installed.") { inBlocks = true; continue }
+            if line == "Also:" { break }
+            guard inBlocks, line.hasPrefix("  "), !line.hasPrefix("    "), let colon = line.firstIndex(of: ":") else { continue }
+            let part = line.trimmingCharacters(in: .whitespaces).prefix { $0 != ":" }
+            if let name = names[String(part)] {
+                out.append(part == "EFI partition" ? "\(name): it is not clear which one to use"
+                                                   : "\(name) can't be installed on this Mac")
+            } else {
+                out.append(String(line[..<colon]).trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return out
+    }
+}
+
+/// The two optional groups of decoders the guided install can keep: the JPEG decoder (its
+/// plug-in, or its kext running) and the MPEG-2, VC-1 and MPEG-4 plug-ins. A box starts
+/// ticked when its part is on this Mac, so an update keeps what is there.
+struct OptionalDecoders: Equatable {
+    let jpeg: Bool
+    let legacy: Bool
+
+    static let pluginFolder = "/System/Library/Video/Plug-Ins/"
+    static let legacyBundles = ["MPEG2VCNDecoder.bundle", "VC1VCNDecoder.bundle", "MPEG4VCNDecoder.bundle"]
+
+    static func look() -> OptionalDecoders {
+        if let fake = Engine.fakeDir {
+            let s = (try? String(contentsOfFile: fake + "/installed", encoding: .utf8)) ?? ""
+            return OptionalDecoders(jpeg: s.contains("jpeg"), legacy: s.contains("legacy"))
+        }
+        let fm = FileManager.default
+        let legacy = legacyBundles.contains { fm.fileExists(atPath: pluginFolder + $0) }
+        let jpeg = fm.fileExists(atPath: pluginFolder + "JPEGVCNDecoder.bundle") || jpegKextRuns()
+        return OptionalDecoders(jpeg: jpeg, legacy: legacy)
+    }
+
+    /// The JPEG kext publishes its state on IOResources while it runs.
+    static func jpegKextRuns() -> Bool {
+        let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/IOResources")
+        guard entry != 0 else { return false }
+        defer { IOObjectRelease(entry) }
+        return IORegistryEntryCreateCFProperty(entry, "VCNJpeg" as CFString, kCFAllocatorDefault, 0) != nil
     }
 }
 
@@ -234,6 +334,22 @@ final class Engine: ObservableObject {
     @Published var rootInBundle = false
     /// Set after every check that read all parts; the guided install takes it once.
     @Published var suggestion: OptionalSuggestion? = nil
+    /// The optional decoders the person keeps (the JPEG and the MPEG-2, VC-1 and MPEG-4
+    /// boxes). Checks, the guided install and the decoder and loader buttons all follow
+    /// them, so a part that is kept is never called left over and an install keeps it.
+    var withJpeg = false
+    var withLegacy = false
+    var optionalEnv: [String: String] {
+        var env: [String: String] = [:]
+        if withJpeg { env["VCNVT_JPEG_DECODER"] = "1" }
+        if withLegacy { env["VCNVT_LEGACY_DECODERS"] = "1" }
+        return env
+    }
+    /// For pictures and tests of the window only: a folder that stands in for this Mac,
+    /// with check.sh's summary (summary.txt), the parts' JSON answers (<part>.json), and
+    /// what install.sh plan reads with GPU_INSTALL_PLAN_FAKE (<part>.txt, amfi, efi).
+    /// Nothing is ever run as root in this mode.
+    static let fakeDir: String? = ProcessInfo.processInfo.environment["RYZENSTATUS_GPU_FAKE_DIR"]
 
     private static let rootDefaultsKey = "GPUToolsRoot"
     /// The folder the DMG build puts the parts in, inside Contents/Resources.
@@ -246,6 +362,9 @@ final class Engine: ObservableObject {
         } else {
             rootURL = Self.findRootNearBundle()
         }
+        let kept = OptionalDecoders.look()
+        withJpeg = kept.jpeg
+        withLegacy = kept.legacy
     }
 
     /// The parts inside this app: Contents/Resources/GPU, with install/ in it. Found from
@@ -317,9 +436,15 @@ final class Engine: ObservableObject {
                 .appendingPathComponent("gpu-check-\(UUID().uuidString)", isDirectory: true)
             var sumOut = ""
             var answers: [String: Data] = [:]
-            if (try? fm.createDirectory(at: dir, withIntermediateDirectories: false,
+            if let fake = Self.fakeDir {
+                sumOut = (try? String(contentsOfFile: fake + "/summary.txt", encoding: .utf8)) ?? ""
+                for part in Self.checkParts {
+                    answers[part] = try? Data(contentsOf: URL(fileURLWithPath: fake + "/\(part).json"))
+                }
+            } else if (try? fm.createDirectory(at: dir, withIntermediateDirectories: false,
                                         attributes: [.posixPermissions: 0o700])) != nil {
-                sumOut = self.runUser(root: root, script: "install/check.sh", args: ["--json-dir", dir.path])
+                sumOut = self.runUser(root: root, script: "install/check.sh", args: ["--json-dir", dir.path],
+                                      env: self.optionalEnv)
                 for part in Self.checkParts {
                     answers[part] = try? Data(contentsOf: dir.appendingPathComponent("\(part).json"))
                 }
@@ -375,7 +500,7 @@ final class Engine: ObservableObject {
         return (overall, leftovers)
     }
 
-    func planInstall(withEncoder: Bool, withSensors: Bool) {
+    func planInstall(withEncoder: Bool, withSensors: Bool, withJpeg: Bool, withLegacy: Bool) {
         guard let root = rootURL else {
             phase = .failed("GPU tools folder is not selected.")
             return
@@ -384,9 +509,13 @@ final class Engine: ObservableObject {
         var args = ["plan"]
         if withEncoder { args.append("--with-encoder") }
         if withSensors { args.append("--with-sensors") }
+        if withJpeg { args.append("--with-jpeg") }
+        if withLegacy { args.append("--with-legacy-decoders") }
+        var env: [String: String] = [:]
+        if let fake = Self.fakeDir { env["GPU_INSTALL_PLAN_FAKE"] = fake }
 
         DispatchQueue.global().async {
-            let (code, output) = self.runUserStatus(root: root, script: "install/install.sh", args: args)
+            let (code, output) = self.runUserStatus(root: root, script: "install/install.sh", args: args, env: env)
             DispatchQueue.main.async {
                 self.phase = .idle
                 let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -394,7 +523,9 @@ final class Engine: ObservableObject {
                     output: trimmed.isEmpty ? "No output from install/install.sh plan (exit \(code))." : trimmed,
                     exitCode: code,
                     withEncoder: withEncoder,
-                    withSensors: withSensors
+                    withSensors: withSensors,
+                    withJpeg: withJpeg,
+                    withLegacy: withLegacy
                 )
             }
         }
@@ -405,15 +536,19 @@ final class Engine: ObservableObject {
             phase = .failed("GPU tools folder is not selected.")
             return
         }
+        if Self.fakeDir != nil {
+            phase = .failed("This window shows a made-up Mac (RYZENSTATUS_GPU_FAKE_DIR): nothing is installed.")
+            return
+        }
         phase = .running(title)
         lastActionTitle = title
         lastOutput = ""
-        let scriptPath = root.appendingPathComponent(script).path
-        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
-        let inner = "/bin/zsh \(Self.shq(scriptPath))\(argStr.isEmpty ? "" : " " + argStr) 2>&1"
+        let inner = Self.stagedCommand(root: root, script: script, args: args)
+        // The decoders and the loader take the kept optional decoders from these.
+        let exports = optionalEnv.keys.sorted().map { "export \($0)=1; " }.joined()
 
         DispatchQueue.global().async {
-            let result = self.runPrivileged(inner)
+            let result = self.runPrivileged(exports + inner)
             DispatchQueue.main.async {
                 switch result {
                 case .cancelled:
@@ -458,15 +593,20 @@ final class Engine: ObservableObject {
         }
     }
 
-    private func runUser(root: URL, script: String, args: [String]) -> String {
-        runUserStatus(root: root, script: script, args: args).1
+    private func runUser(root: URL, script: String, args: [String], env: [String: String] = [:]) -> String {
+        runUserStatus(root: root, script: script, args: args, env: env).1
     }
 
-    private func runUserStatus(root: URL, script: String, args: [String]) -> (Int32, String) {
+    private func runUserStatus(root: URL, script: String, args: [String],
+                               env extra: [String: String] = [:]) -> (Int32, String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         let scriptPath = root.appendingPathComponent(script).path
         p.arguments = [scriptPath] + args
+        var env = ProcessInfo.processInfo.environment
+        for key in ["VCNVT_JPEG_DECODER", "VCNVT_LEGACY_DECODERS", "GPU_INSTALL_PLAN_FAKE"] { env.removeValue(forKey: key) }
+        env.merge(extra) { $1 }
+        p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -478,6 +618,44 @@ final class Engine: ObservableObject {
 
     static func shq(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Copies the parts into a root-only folder, checks every copied file against the
+    /// package's SHA256SUMS, and runs the copy. The app bundle belongs to the user, so
+    /// root must not run a script from it.
+    ///
+    /// The SHA256SUMS file itself is pinned by the build: Tools/make-dmg.sh
+    /// passes GPU_PAYLOAD_SUMS_SHA256 to build.sh, which writes InstallerPin.swift.
+    /// A development build has no pin and says so instead of checking one.
+    static func stagedCommand(root: URL, script: String, args: [String]) -> String {
+        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
+        let pin = InstallerPin.payloadSumsSHA256
+        let pinCheck: String
+        if pin.isEmpty {
+            pinCheck = "echo 'the parts have no pinned SHA256SUMS (development build); the list is not pinned'"
+        } else {
+            pinCheck = "actual=$(/usr/bin/shasum -a 256 SHA256SUMS | /usr/bin/awk '{print $1}') || exit 1; "
+                + "[ \"$actual\" = \(Self.shq(pin)) ] || { echo 'SHA256SUMS is not the pinned list'; exit 1; }"
+        }
+        let lines = [
+            "stage=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-gpu.XXXXXX) || exit 1",
+            "trap '/bin/rm -rf \"$stage\"' EXIT HUP INT TERM",
+            "/usr/bin/ditto --norsrc --noextattr \(Self.shq(root.path)) \"$stage/GPU\" || exit 1",
+            "/usr/sbin/chown -R root:wheel \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R go-w \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R -N \"$stage/GPU\" 2>/dev/null || exit 1",
+            "cd \"$stage/GPU\" || exit 1",
+            "[ -f SHA256SUMS ] && [ ! -L SHA256SUMS ] || { echo 'the parts have no SHA256SUMS'; exit 1; }",
+            pinCheck,
+            "/usr/bin/shasum -a 256 -c -s SHA256SUMS || exit 1",
+            "listed=$(/usr/bin/awk '{ sub(/^[0-9a-f]+  /, \"\"); print }' SHA256SUMS | LC_ALL=C /usr/bin/sort) || exit 1",
+            "present=$(/usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort) || exit 1",
+            "[ \"$listed\" = \"$present\" ] || { echo 'SHA256SUMS does not list exactly the files of the parts'; exit 1; }",
+            "[ -z $(/usr/bin/find . -type l -print -quit) ] || { echo 'the parts hold a link'; exit 1; }",
+            "export GPU_APP_ROOT=\(Self.shq(root.path))",
+            "/bin/zsh \"$stage/GPU/\(script)\"\(argStr.isEmpty ? "" : " " + argStr) 2>&1",
+        ]
+        return "/bin/zsh -c \(Self.shq(lines.joined(separator: "; ")))"
     }
 
     static func asq(_ s: String) -> String {
@@ -529,6 +707,7 @@ struct StatusDot: View {
             switch status {
             case "ok":   return ("checkmark.circle.fill", .green)
             case "warn": return ("exclamationmark.triangle.fill", .orange)
+            case "update": return ("arrow.down.circle.fill", .blue)
             default:     return ("xmark.octagon.fill", .red)
             }
         }()
@@ -544,6 +723,7 @@ struct StatusDot: View {
         switch status {
         case "ok":   return "OK"
         case "warn": return "Warning"
+        case "update": return "Update ready"
         default:     return "Problem"
         }
     }
@@ -656,9 +836,12 @@ struct ComponentSection<Content: View>: View {
 struct ContentView: View {
     @StateObject var engine = Engine()
     @State private var confirm: ConfirmAction? = nil
-    @State private var expanded: Set<ComponentID> = [.decoders]
+    @State private var expanded: Set<ComponentID> = []
     @State private var withEncoder = false
     @State private var withSensors = false
+    /// The optional decoders: ticked when they are on this Mac (Engine.withJpeg/withLegacy).
+    @State private var withJpeg = false
+    @State private var withLegacy = false
     /// The first complete check ticks the optional parts that are installed in an older
     /// version (OptionalSuggestion); after that the boxes are the user's.
     @State private var suggestionTaken = false
@@ -695,6 +878,8 @@ struct ContentView: View {
         // A minimum, not a fixed size: the window can grow when the text does.
         .frame(minWidth: 600, idealWidth: 600, minHeight: 740, idealHeight: 740)
         .onAppear {
+            withJpeg = engine.withJpeg
+            withLegacy = engine.withLegacy
             if engine.rootURL != nil {
                 engine.recheck()
             }
@@ -714,12 +899,14 @@ struct ContentView: View {
                 var flags: [String] = []
                 if plan.withEncoder { flags.append("--with-encoder") }
                 if plan.withSensors { flags.append("--with-sensors") }
+                if plan.withJpeg { flags.append("--with-jpeg") }
+                if plan.withLegacy { flags.append("--with-legacy-decoders") }
                 engine.runAction(
                     title: "Install what this Mac needs",
                     script: "install/install.sh",
                     args: flags,
                     setsReboot: !plan.onlyTools,
-                    doneMessage: plan.onlyTools ? "Installed. No reboot needed." : "Installed. Reboot to apply."
+                    doneMessage: plan.onlyTools ? "Installed. No restart needed." : "Installed. Restart your Mac once to finish."
                 )
             }
         }
@@ -750,15 +937,23 @@ struct ContentView: View {
     var mainScrollView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                if !engine.overallLine.isEmpty && !engine.needReboot {
+                if engine.decoders != nil && engine.loader != nil && !engine.needReboot {
                     overallBanner
                 }
                 if !engine.leftovers.isEmpty {
-                    banner(
-                        icon: "tray.full.fill",
-                        color: .orange,
-                        text: "Leftovers found:\n" + engine.leftovers.map { "• " + $0 }.joined(separator: "\n")
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        banner(icon: "info.circle", color: .secondary,
+                               text: "Some files from earlier versions are still on this Mac.")
+                        DisclosureGroup("Details") {
+                            Text(engine.leftovers.map { "• " + $0 }.joined(separator: "\n"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.system(size: 11))
+                        .padding(.horizontal, 10)
+                    }
                 }
 
                 if engine.decoders == nil {
@@ -799,7 +994,8 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button {
-                    engine.planInstall(withEncoder: withEncoder, withSensors: withSensors)
+                    engine.planInstall(withEncoder: withEncoder, withSensors: withSensors,
+                                       withJpeg: withJpeg, withLegacy: withLegacy)
                 } label: {
                     Text("Install what this Mac needs").bold()
                 }
@@ -813,6 +1009,22 @@ struct ContentView: View {
                 Toggle("GPU sensors", isOn: $withSensors)
                     .toggleStyle(.checkbox)
                     .help("Temperatures, clocks and fan speed in RyzenStatus")
+                Toggle("JPEG", isOn: $withJpeg)
+                    .toggleStyle(.checkbox)
+                    .help("JPEG and Motion JPEG video decoded by the GPU (macOS 26.7.3)")
+                Toggle("MPEG-2, VC-1 and MPEG-4", isOn: $withLegacy)
+                    .toggleStyle(.checkbox)
+                    .help("Older video formats decoded by the GPU, in place of Apple's decoders")
+            }
+            .onChange(of: withJpeg) { _, on in
+                guard engine.withJpeg != on else { return }
+                engine.withJpeg = on
+                engine.recheck()
+            }
+            .onChange(of: withLegacy) { _, on in
+                guard engine.withLegacy != on else { return }
+                engine.withLegacy = on
+                engine.recheck()
             }
             .font(.system(size: 12))
             .disabled(busy)
@@ -831,24 +1043,28 @@ struct ContentView: View {
             let pendingRemove = dec.pending == "remove"
             // What the next boot has: plug-ins removed in this boot count as none.
             let installed = pendingRemove ? "none" : dec.installed
+            // Waits only for the loader that the guided install puts in.
+            let waitsForLoader = !dec.canInstall && decoderBlockers.isEmpty
             let status: String = {
                 if pendingInstall { return "ok" }
                 if dec.repairable { return "warn" }
                 if installed == "current" { return "ok" }
-                if dec.canInstall { return dec.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
+                if dec.canInstall || waitsForLoader { return "update" }
                 return dec.overridable ? "warn" : "fail"
             }()
             let subtitle: String = {
-                if pendingInstall { return "Installed — loads at the next reboot" }
-                if pendingRemove { return "Removed — finishes at the next reboot" }
-                if dec.repairable { return "Apple's system video plug-ins need repair" }
+                if pendingInstall { return "Installed — starts after the next restart" }
+                if pendingRemove { return "Removed — finished after the next restart" }
+                if dec.repairable { return "Apple's own video decoders need a repair" }
                 switch installed {
                 case "current":  return "Installed and up to date"
-                case "outdated": return "Outdated version installed — click Update"
+                case "outdated":
+                    return waitsForLoader ? "Update ready — click Install what this Mac needs" : "Update ready"
                 default:
-                    if dec.canInstall { return "Ready to install (requires reboot)" }
-                    if dec.overridable { return "Unvalidated macOS build" }
-                    return "Not ready — expand for details"
+                    if dec.canInstall { return "Ready to install (needs a restart)" }
+                    if waitsForLoader { return "Ready to install — click Install what this Mac needs" }
+                    if dec.overridable { return "Not checked on this macOS version" }
+                    return "Can't be installed on this Mac — open for details"
                 }
             }()
             let installTitle: String = {
@@ -866,7 +1082,7 @@ struct ContentView: View {
                 || (!dec.repairable && (installed == "current" || (!dec.canInstall && !dec.overridable)))
 
             ComponentSection(
-                title: "Decoder plug-ins (AV1 + VP9)",
+                title: "GPU video decoders",
                 subtitle: subtitle,
                 badgeStatus: status,
                 isExpanded: binding(for: .decoders),
@@ -883,7 +1099,9 @@ struct ContentView: View {
                 },
                 onRemove: { confirm = .removeDecoders }
             ) {
-                checkRows(dec.checks)
+                // A check the guided install's loader takes care of is part of the update.
+                checkRows(dec.checks.map { loaderFixes($0)
+                    ? CheckItem(id: $0.id, label: $0.label, status: "update", detail: $0.detail) : $0 })
             }
         }
     }
@@ -899,16 +1117,19 @@ struct ContentView: View {
                 || ldr.pendingReboot == true
             let status: String = {
                 if !needed { return "ok" }
-                if ldr.result.hasPrefix("working:") || ldr.result.hasPrefix("installed") { return "ok" }
-                return ldr.canInstall ? "warn" : "fail"
+                if upToDate { return "ok" }
+                return ldr.canInstall ? "update" : "fail"
             }()
             let subtitle: String = {
-                if !needed { return "Not needed on this Mac (\(ldr.checks.first(where: { $0.id == "loader-need" })?.detail ?? "other loader active"))" }
-                return ldr.result
+                if !needed { return "Not needed on this Mac" }
+                if ldr.pendingReboot == true { return "Installed — starts after the next restart" }
+                if upToDate { return "Installed and up to date" }
+                if onEfi || loaded { return "Update ready" }
+                return ldr.canInstall ? "Needed on this Mac — ready to install" : "Can't be installed on this Mac — open for details"
             }()
 
             ComponentSection(
-                title: "Loader kext (VCNVTLoader)",
+                title: "Decoder loader",
                 subtitle: subtitle,
                 badgeStatus: status,
                 isExpanded: binding(for: .loader),
@@ -933,11 +1154,17 @@ struct ContentView: View {
                 if enc.canInstall { return enc.checks.contains(where: { $0.status == "warn" }) ? "warn" : "ok" }
                 return "fail"
             }()
-            let subtitle = "Optional — Service: \(enc.service) · Kext: \(enc.kext)"
+            let subtitle: String = {
+                if enc.installed == "none" && !installedAny { return "Optional — not installed" }
+                if engine.suggestion?.encoder == true || enc.installed == "outdated" { return "Optional — update ready" }
+                if enc.pendingReboot == true { return "Optional — installed, starts after the next restart" }
+                if enc.installed == "current" && enc.service == "running" { return "Optional — installed and up to date" }
+                return "Optional — installed; open for details"
+            }()
             let installTitle = enc.installed == "outdated" ? "Update" : (enc.installed == "current" ? "Reinstall" : "Install")
 
             ComponentSection(
-                title: "Encoding fix (VCNEncodeFix)",
+                title: "Encoding fix",
                 subtitle: subtitle,
                 badgeStatus: status,
                 isExpanded: binding(for: .encoder),
@@ -977,8 +1204,14 @@ struct ContentView: View {
             }()
 
             ComponentSection(
-                title: "GPU sensors (GPUSensors)",
-                subtitle: "Optional — " + sns.result,
+                title: "GPU sensors",
+                subtitle: {
+                    if !kextThere && !toolsInstalled { return "Optional — not installed" }
+                    if sns.pendingReboot == true { return "Optional — installed, starts after the next restart" }
+                    if toolsOnly || engine.suggestion?.sensors == true { return "Optional — update ready" }
+                    if upToDate { return "Optional — installed and up to date" }
+                    return "Optional — installed; open for details"
+                }(),
                 badgeStatus: status,
                 isExpanded: binding(for: .sensors),
                 installTitle: installTitle,
@@ -1038,15 +1271,57 @@ struct ContentView: View {
         .padding(18)
     }
 
+    /// A decoder check that fails only because the loader on the EFI lists other plug-ins
+    /// (or none): the guided install puts the right loader in, so it is part of an update,
+    /// not a problem.
+    private func loaderFixes(_ c: CheckItem) -> Bool {
+        c.status == "fail" && c.id == "loading" && (engine.loader?.canInstall ?? false)
+    }
+
+    /// The decoders' failed checks that the person has to deal with.
+    private var decoderBlockers: [CheckItem] {
+        (engine.decoders?.checks ?? []).filter { $0.status == "fail" && !loaderFixes($0) }
+    }
+
+    private var loaderUpToDate: Bool {
+        guard let ldr = engine.loader else { return true }
+        let needed = ldr.checks.first(where: { $0.id == "loader-need" })?.detail.hasPrefix("yes:") ?? true
+        return !needed || ldr.pendingReboot == true
+            || (ldr.efis.contains(where: { $0.kext == "current" }) && ldr.result.hasPrefix("working:"))
+    }
+
+    /// One line for the whole Mac, in plain words, with the next step.
     @ViewBuilder var overallBanner: some View {
-        let lower = engine.overallLine.lowercased()
-        let (icon, color): (String, Color) = {
-            if lower.contains("overall: working") { return ("checkmark.seal.fill", .green) }
-            if lower.contains("overall: ready") || lower.contains("overall: installed") { return ("info.circle.fill", .blue) }
-            if lower.contains("needs the loader") { return ("exclamationmark.triangle.fill", .orange) }
-            return ("xmark.octagon.fill", .red)
-        }()
-        banner(icon: icon, color: color, text: engine.overallLine)
+        if let dec = engine.decoders {
+            let blockers = decoderBlockers
+            let installedSomething = dec.installed != "none"
+                || (engine.loader.map { $0.running.hasPrefix("loaded") || $0.efis.contains { $0.kext != "none" && $0.kext != "unknown" } } ?? false)
+            let optionalUpdate = engine.suggestion.map { $0.encoder || $0.sensors } ?? false
+            let restartPending = dec.pending == "install" || engine.loader?.pendingReboot == true
+            let decodersDone = dec.installed == "current" || dec.pending == "install"
+            if !blockers.isEmpty {
+                let lines = blockers.map { c -> String in
+                    if c.id == "jpeg" { return "• The JPEG decoder doesn't work with this macOS version. Untick JPEG to go on." }
+                    if c.id == "legacy" { return "• The MPEG-2, VC-1 and MPEG-4 decoders don't work with this macOS version. Untick them to go on." }
+                    return "• " + c.label
+                }
+                banner(icon: "xmark.octagon.fill", color: .red,
+                       text: "The GPU video decoders can't be installed on this Mac yet:\n" + lines.joined(separator: "\n")
+                           + "\nOpen GPU video decoders below for details.")
+            } else if decodersDone && loaderUpToDate && !optionalUpdate {
+                if restartPending {
+                    banner(icon: "arrow.clockwise.circle.fill", color: .blue, text: "Installed. Restart your Mac once to finish.")
+                } else {
+                    banner(icon: "checkmark.seal.fill", color: .green, text: "Everything is installed and up to date.")
+                }
+            } else if installedSomething {
+                banner(icon: "arrow.down.circle.fill", color: .blue,
+                       text: "An update is ready. Click Install what this Mac needs, then restart your Mac once.")
+            } else {
+                banner(icon: "arrow.down.circle.fill", color: .blue,
+                       text: "Ready to install. Click Install what this Mac needs, then restart your Mac once.")
+            }
+        }
     }
 
     @ViewBuilder var phaseBanner: some View {
@@ -1123,7 +1398,7 @@ struct ContentView: View {
 
             if engine.needReboot {
                 Button { confirm = .reboot } label: {
-                    Text("Reboot now").bold()
+                    Text("Restart Now").bold()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
@@ -1346,9 +1621,9 @@ struct ContentView: View {
             )
         case .reboot:
             return Alert(
-                title: Text("Reboot now?"),
+                title: Text("Restart now?"),
                 message: Text("Save your work first. Other apps will be asked to quit."),
-                primaryButton: .default(Text("Reboot")) { engine.reboot() },
+                primaryButton: .default(Text("Restart")) { engine.reboot() },
                 secondaryButton: .cancel(Text("Later"))
             )
         }
@@ -1386,19 +1661,49 @@ struct PlanSheetView: View {
                 Spacer()
             }
 
-            ScrollView {
-                Text(plan.output)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(10)
+            // The plan in plain words; what install.sh printed is under Details.
+            VStack(alignment: .leading, spacing: 6) {
+                if plan.canInstall {
+                    ForEach(Array(plan.plainSteps.enumerated()), id: \.offset) { i, step in
+                        Label("\(i + 1). \(step)", systemImage: "arrow.down.circle")
+                            .font(.system(size: 12))
+                    }
+                    ForEach(plan.plainKept, id: \.self) { kept in
+                        Label(kept, systemImage: "checkmark.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(plan.onlyTools ? "No restart needed." : "When it finishes, restart your Mac once.")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.top, 4)
+                } else if plan.nothingToDo {
+                    ForEach(plan.plainKept, id: \.self) { kept in
+                        Label(kept, systemImage: "checkmark.circle").font(.system(size: 12))
+                    }
+                } else {
+                    ForEach(plan.plainBlocks, id: \.self) { block in
+                        Label(block, systemImage: "xmark.octagon").font(.system(size: 12))
+                    }
+                }
             }
-            .frame(minHeight: 200, maxHeight: 320)
-            .background(Color(NSColor.textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            DisclosureGroup("Details") {
+                ScrollView {
+                    Text(plan.output)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(10)
+                }
+                .frame(minHeight: 120, maxHeight: 240)
+                .background(Color(NSColor.textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                )
+            }
+            .font(.system(size: 11))
 
             HStack {
                 Spacer()

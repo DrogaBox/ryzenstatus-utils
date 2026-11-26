@@ -5,10 +5,10 @@
 #   install/check.sh                 the summary
 #   install/check.sh --full          also every check of every part
 #   install/check.sh --json-dir DIR  also each part's 'check --json' answer, written to
-#                                    DIR/<part>.json (decoders, loader, sensors, encoder)
+#                                    DIR/<part>.json (decoders, loader, sensors, encoder, jpeg)
 #
 # The parts are checked by their own tools (decoders.sh, loader.sh, sensors.sh,
-# encoder.sh check); this script only runs them and puts their results together. Each part
+# encoder.sh, jpeg.sh check); this script only runs them and puts their results together. Each part
 # is looked at once: with --json-dir its JSON answer comes from the same look as its text
 # (the RyzenStatus GPU app reads both), and the three that ask system_profiler for the
 # graphics cards share one answer. The loader kext is only counted when this Mac needs it:
@@ -63,6 +63,12 @@ run decoders decoders.sh
 run loader loader.sh
 run sensors sensors.sh
 run encoder encoder.sh
+# The JPEG kext is shown only where it can be: built here (or in the package), or running.
+JPEG_SHOWN=0
+if [[ -d $SELF_DIR/../jpeg/build/VCNJpeg.kext || -n $(kext_version com.droga.VCNJpeg) ]]; then
+  JPEG_SHOWN=1
+  run jpeg jpeg.sh
+fi
 
 # The loader kext is not needed when something else lets the plug-ins in: AMFI off,
 # AMFIPass, or plug-ins signed by a certificate authority this Mac trusts,
@@ -83,6 +89,7 @@ else
 fi
 print -r -- "GPU sensors:  ${RESULT[sensors]}   (optional)"
 print -r -- "Encoding fix: ${RESULT[encoder]}   (optional)"
+(( JPEG_SHOWN )) && print -r -- "JPEG kext:    ${RESULT[jpeg]}   (optional)"
 
 # Left over from older installers and test builds. None of them stops anything here; they
 # are listed so they can be removed on purpose.
@@ -93,7 +100,7 @@ for oc in /Volumes/*/EFI/OC(N); do
 done
 [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] &&
   left+=("com.droga.vcnpreset, the encoder service's test version ($(pick "'sudo install/encoder.sh install'" "installing the encoding fix in this window") replaces it)")
-for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES; do
+for b in AV1VCNDecoder.bundle VP9VCNDecoder.bundle $LEGACY_BUNDLES $JPEG_BUNDLE; do
   [[ -d /Library/Video/Plug-Ins/$b ]] &&
     left+=("/Library/Video/Plug-Ins/$b, which macOS ignores there ($(pick "'sudo install/decoders.sh install'" "installing the decoder plug-ins in this window") removes it)")
 done
@@ -104,6 +111,10 @@ if ! legacy_on; then
     [[ -e /System/Library/Video/Plug-Ins/$b ]] &&
       left+=("/System/Library/Video/Plug-Ins/$b, from an earlier install with --legacy ($(pick "'sudo install/decoders.sh install' without --legacy" "installing the decoder plug-ins again in this window") removes it)")
   done
+fi
+# The JPEG plug-in of an earlier install with --jpeg, when this check is without it.
+if ! jpeg_on && [[ -e /System/Library/Video/Plug-Ins/$JPEG_BUNDLE ]]; then
+  left+=("/System/Library/Video/Plug-Ins/$JPEG_BUNDLE, from an earlier install with --jpeg ($(pick "'sudo install/decoders.sh install' without --jpeg" "installing the decoder plug-ins again in this window") removes it; with --jpeg it stays)")
 fi
 # The GPU sensors' commands, once the kext they go with is gone: not loaded and on no EFI
 # partition. Said only when every EFI partition is mounted, so all of them were looked into

@@ -256,6 +256,7 @@ struct AmdValidationSettingsView: View {
         case .tachValidity: return s.gateTachValidity
         case .superIOFamily: return s.gateSuperIOFamily
         case .smuSharing: return s.gateSmuSharing
+        case .gpuSensors: return s.gateGpuSensors
         }
     }
 
@@ -268,6 +269,7 @@ struct AmdValidationSettingsView: View {
         case .tachValidity: return s.hintTachValidity
         case .superIOFamily: return s.hintSuperIOFamily
         case .smuSharing: return s.hintSmuSharing
+        case .gpuSensors: return s.hintGpuSensors
         }
     }
 
@@ -433,6 +435,13 @@ extension HardwareValidation {
         snapshot.smuLines = controls.smuStateLines()
         snapshot.pmTableLine = controls.pmTableSummaryLine()
         snapshot.foreignSmuClients = AMDSmuCoexistence.foreignDriverNames()
+        let gpuSensors = GPUSensorsService.shared
+        let gpuControl = gpuSensors.currentControl()
+        snapshot.gpuSensorsLoaded = gpuSensors.isPresentNow
+        snapshot.gpuSensorsVersion = gpuSensors.versionNow ?? ""
+        if snapshot.gpuSensorsLoaded, let gpuControl {
+            snapshot.gpuSensorsCardSupported = !gpuControl.hasNoSupportedCard
+        }
         snapshot.capturedAt = Date()
         return snapshot
     }

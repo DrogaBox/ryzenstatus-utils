@@ -19,6 +19,9 @@ struct GPUControlPageStrings {
     let reverting: String
     let sleeping: String
     let heldByOther: String
+    /// Held by the gpucontrol this app installs, not by another program
+    /// (GPUControlHolder, S-5 corrected).
+    let heldByTool: String
     let applying: String
     /// %d = watts.
     let heldPowerFormat: String
@@ -105,6 +108,9 @@ struct GPUControlPageStrings {
     let offChangeUnconfirmed: String
     let offDriverStopped: String
     let offWatchdog: String
+    /// Off: the watchdog put the start-up power limit back over a raised one
+    /// (GPUSensors 0.9.0).
+    let offPowerWatchdog: String
     /// %@ = the group's sentence.
     let gaveUpFormat: String
     let timedOut: String
@@ -129,6 +135,10 @@ struct GPUControlPageStrings {
     let zeroRpmItem: String
     /// %d = MHz.
     let gfxItemFormat: String
+    /// A raised GFX minimum in the held sentence (GPUSensors 0.9.0); %d = MHz.
+    let gfxMinItemFormat: String
+    /// A lowered GFX voltage in the held sentence (GPUSensors 0.9.0); %d = mV.
+    let voltItemFormat: String
     /// Between the held settings, and before the last one: "a, b and c".
     let listSeparator: String
     let listLastSeparator: String
@@ -161,18 +171,31 @@ struct GPUControlPageStrings {
 
     /// What an OD8 hold is, in words: "a fan curve and a GFX maximum of 2300 MHz".
     func od8Held(_ want: GPUControlOD8Want) -> String {
+        guard let text = od8List(want) else { return heldOD8Short }
+        return String(format: heldOD8Format, text)
+    }
+
+    /// What an OD8 state holds, as a list that starts with a capital: a
+    /// saved profile's line, where "RyzenStatus is holding" would be wrong.
+    func od8Items(_ want: GPUControlOD8Want) -> String {
+        guard let text = od8List(want) else { return heldOD8Short }
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    private func od8List(_ want: GPUControlOD8Want) -> String? {
         var items: [String] = []
         if want.curve != nil { items.append(fanCurveItem) }
         if want.zeroRpmOff { items.append(zeroRpmItem) }
         if let mhz = want.gfxMaxMHz { items.append(String(format: gfxItemFormat, mhz)) }
+        if let mhz = want.gfxMinMHz { items.append(String(format: gfxMinItemFormat, mhz)) }
+        if let mv = want.voltMV { items.append(String(format: voltItemFormat, mv)) }
         // An empty hold would leave "RyzenStatus is holding " with nothing
-        // after it: say the short form instead.
-        guard !items.isEmpty else { return heldOD8Short }
+        // after it: the callers say the short form instead.
+        guard !items.isEmpty else { return nil }
         // One sentence in every language: the last item joins with the
         // language's "and".
-        let text = items.count < 2 ? items.joined()
+        return items.count < 2 ? items.joined()
             : items.dropLast().joined(separator: listSeparator) + listLastSeparator + items[items.count - 1]
-        return String(format: heldOD8Format, text)
     }
 
     /// The translated sentence of one group.
@@ -192,6 +215,7 @@ struct GPUControlPageStrings {
         case .offChangeUnconfirmed: return offChangeUnconfirmed
         case .offDriverStopped: return offDriverStopped
         case .offWatchdog: return offWatchdog
+        case .offPowerWatchdog: return offPowerWatchdog
         case .stillApplied: return closeRefused
         case .noFloor: return floorUnknown
         case .readOnlyCard: return readOnlyDetail
@@ -201,14 +225,14 @@ struct GPUControlPageStrings {
     /// Every text, for the tests.
     var all: [String] {
         [stateSection, powerSection, detailsSection, ready, closed, writingOff, waitingForDriver, reverting,
-         sleeping, heldByOther, applying, heldPowerFormat, reaskingFormat, otherVersionFormat, connectionLost,
+         sleeping, heldByOther, heldByTool, applying, heldPowerFormat, reaskingFormat, otherVersionFormat, connectionLost,
          readyWarning, restartMac, lost, backAfterWake, od8NotRead, liveLabel, liveFormat, powerLabel, bootFormat,
          wattsFormat, backToBoot, exclusiveNote, powerFooter, armClosed, openWriting, armPrompt, runInTerminal,
          copy, copied, notInstalled, unsafeToolFormat, armFailed, rememberToggle, rememberFooter, changes, reverts,
          kextVersion, channel, panelLabel, notAllowed, busy, notReady, off, closedGroup, needsAdministrator,
          otherVersion, unconfirmed, notOwner, settingMissing, offNotAsExpected, offChangeUnconfirmed,
-         offDriverStopped, offWatchdog, gaveUpFormat, timedOut, notConfirmed, backToStartUp, alreadyAtStartUp,
-         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat,
+         offDriverStopped, offWatchdog, offPowerWatchdog, gaveUpFormat, timedOut, notConfirmed, backToStartUp, alreadyAtStartUp,
+         unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat, gfxMinItemFormat, voltItemFormat,
          listSeparator, listLastSeparator, unsafeSetID, heldOD8Short, closeChanges, closeChangesHelp, closedAgain,
          closeRefused, closeNotSupported, closedByOther, readOnlyTitle, readOnlyDetail, cardRangeFormat, floorUnknown,
          nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading]
@@ -248,6 +272,7 @@ extension GPUControlPageStrings {
         reverting: "Returning to the start-up values",
         sleeping: "Waiting for the Mac to finish waking",
         heldByOther: "Another program has the control",
+        heldByTool: "gpucontrol, RyzenStatus's own tool, has the control",
         applying: "Applying…",
         heldPowerFormat: "RyzenStatus is holding %d W",
         reaskingFormat: "Back at the start-up values; asking for %d W again…",
@@ -308,6 +333,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Off: a change could not be confirmed. Restart the Mac.",
         offDriverStopped: "The GPU driver stopped or the Mac is shutting down.",
         offWatchdog: "Off: the fan watchdog put the stock fan back.",
+        offPowerWatchdog: "Off: the watchdog put the start-up power limit back.",
         gaveUpFormat: "Not taken after a minute. %@",
         timedOut: "No answer in 5 s; nothing is held.",
         notConfirmed: "The kext did not confirm the change; nothing is held.",
@@ -325,6 +351,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "a fan curve",
         zeroRpmItem: "the fan always running",
         gfxItemFormat: "a GFX maximum of %d MHz",
+        gfxMinItemFormat: "a GFX minimum of %d MHz",
+        voltItemFormat: "a GFX voltage of %d mV",
         listSeparator: ", ",
         listLastSeparator: " and ",
         heldOD8Short: "RyzenStatus is holding OD8 settings",
@@ -344,6 +372,7 @@ extension GPUControlPageStrings {
         reverting: "Volviendo a los valores de arranque",
         sleeping: "Esperando a que el Mac termine de despertar",
         heldByOther: "Otro programa tiene el control",
+        heldByTool: "gpucontrol, la herramienta de RyzenStatus, tiene el control",
         applying: "Aplicando…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Volvió a los valores de arranque; pidiendo %d W de nuevo…",
@@ -404,6 +433,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Apagada: un cambio no se pudo confirmar. Reinicia el Mac.",
         offDriverStopped: "El controlador de la GPU se detuvo o el Mac se está apagando.",
         offWatchdog: "Apagada: el vigilante del ventilador volvió al ventilador de fábrica.",
+        offPowerWatchdog: "Apagada: el vigilante volvió al límite de potencia de arranque.",
         gaveUpFormat: "No se aceptó en un minuto. %@",
         timedOut: "Sin respuesta en 5 s; no se mantiene nada.",
         notConfirmed: "El kext no confirmó el cambio; no se mantiene nada.",
@@ -421,6 +451,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "una curva de ventilador",
         zeroRpmItem: "el ventilador siempre girando",
         gfxItemFormat: "un reloj máximo de GFX de %d MHz",
+        gfxMinItemFormat: "un reloj mínimo de GFX de %d MHz",
+        voltItemFormat: "un voltaje de GFX de %d mV",
         listSeparator: ", ",
         listLastSeparator: " y ",
         heldOD8Short: "RyzenStatus mantiene ajustes OD8",
@@ -440,6 +472,7 @@ extension GPUControlPageStrings {
         reverting: "Voltando aos valores de inicialização",
         sleeping: "Aguardando o Mac terminar de despertar",
         heldByOther: "Outro programa tem o controle",
+        heldByTool: "O gpucontrol, a ferramenta do RyzenStatus, tem o controle",
         applying: "Aplicando…",
         heldPowerFormat: "O RyzenStatus está mantendo %d W",
         reaskingFormat: "De volta aos valores de inicialização; pedindo %d W de novo…",
@@ -500,6 +533,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Desativada: uma alteração não pôde ser confirmada. Reinicie o Mac.",
         offDriverStopped: "O driver da GPU parou ou o Mac está desligando.",
         offWatchdog: "Desativada: o vigilante da ventoinha restaurou a ventoinha de fábrica.",
+        offPowerWatchdog: "Desativada: o vigilante restaurou o limite de energia de inicialização.",
         gaveUpFormat: "Não aceito em um minuto. %@",
         timedOut: "Sem resposta em 5 s; nada é mantido.",
         notConfirmed: "O kext não confirmou a alteração; nada é mantido.",
@@ -517,6 +551,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "uma curva de ventoinha",
         zeroRpmItem: "a ventoinha sempre girando",
         gfxItemFormat: "um clock GFX máximo de %d MHz",
+        gfxMinItemFormat: "um clock GFX mínimo de %d MHz",
+        voltItemFormat: "uma tensão da GFX de %d mV",
         listSeparator: ", ",
         listLastSeparator: " e ",
         heldOD8Short: "O RyzenStatus está mantendo ajustes OD8",
@@ -536,6 +572,7 @@ extension GPUControlPageStrings {
         reverting: "Başlangıç değerlerine dönülüyor",
         sleeping: "Mac'in uyanması bekleniyor",
         heldByOther: "Denetim başka bir programda",
+        heldByTool: "RyzenStatus'un kendi aracı gpucontrol denetimi tutuyor",
         applying: "Uygulanıyor…",
         heldPowerFormat: "RyzenStatus %d W tutuyor",
         reaskingFormat: "Başlangıç değerlerine dönüldü; %d W yeniden isteniyor…",
@@ -596,6 +633,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Kapalı: bir değişiklik doğrulanamadı. Mac'i yeniden başlatın.",
         offDriverStopped: "GPU sürücüsü durdu veya Mac kapanıyor.",
         offWatchdog: "Kapalı: fan bekçisi fabrika fanını geri getirdi.",
+        offPowerWatchdog: "Kapalı: bekçi başlangıç güç sınırını geri getirdi.",
         gaveUpFormat: "Bir dakikada kabul edilmedi. %@",
         timedOut: "5 sn içinde yanıt yok; hiçbir şey tutulmuyor.",
         notConfirmed: "Kext değişikliği doğrulamadı; hiçbir şey tutulmuyor.",
@@ -613,6 +651,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "bir fan eğrisi",
         zeroRpmItem: "her zaman dönen fan",
         gfxItemFormat: "maks. GFX saat hızı %d MHz",
+        gfxMinItemFormat: "min. GFX saat hızı %d MHz",
+        voltItemFormat: "GFX gerilimi %d mV",
         listSeparator: ", ",
         listLastSeparator: " ve ",
         heldOD8Short: "RyzenStatus OD8 ayarlarını tutuyor",
@@ -632,6 +672,7 @@ extension GPUControlPageStrings {
         reverting: "Возврат к значениям загрузки",
         sleeping: "Ожидание полного пробуждения Mac",
         heldByOther: "Управляет другая программа",
+        heldByTool: "Управление у gpucontrol, собственного инструмента RyzenStatus",
         applying: "Применение…",
         heldPowerFormat: "RyzenStatus удерживает %d Вт",
         reaskingFormat: "Вернулись к значениям загрузки; снова запрашиваем %d Вт…",
@@ -692,6 +733,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Выключено: изменение не удалось подтвердить. Перезапустите Mac.",
         offDriverStopped: "Драйвер GPU остановился или Mac выключается.",
         offWatchdog: "Выключено: сторож вентилятора вернул заводской вентилятор.",
+        offPowerWatchdog: "Выключено: сторож вернул лимит мощности при загрузке.",
         gaveUpFormat: "Не принято за минуту. %@",
         timedOut: "Нет ответа в течение 5 с; ничего не удерживается.",
         notConfirmed: "Kext не подтвердил изменение; ничего не удерживается.",
@@ -709,6 +751,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "кривую вентилятора",
         zeroRpmItem: "постоянное вращение вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
+        gfxMinItemFormat: "мин. частоту GFX %d МГц",
+        voltItemFormat: "напряжение GFX %d мВ",
         listSeparator: ", ",
         listLastSeparator: " и ",
         heldOD8Short: "RyzenStatus удерживает настройки OD8",
@@ -728,6 +772,7 @@ extension GPUControlPageStrings {
         reverting: "Návrat na štartovacie hodnoty",
         sleeping: "Čaká sa, kým sa Mac úplne prebudí",
         heldByOther: "Riadenie má iný program",
+        heldByTool: "Riadenie drží gpucontrol, vlastný nástroj RyzenStatus",
         applying: "Používa sa…",
         heldPowerFormat: "RyzenStatus drží %d W",
         reaskingFormat: "Späť na štartovacích hodnotách; znova sa žiada %d W…",
@@ -788,6 +833,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Vypnuté: zmenu sa nepodarilo potvrdiť. Reštartujte Mac.",
         offDriverStopped: "Ovládač GPU sa zastavil alebo sa Mac vypína.",
         offWatchdog: "Vypnuté: strážca ventilátora vrátil továrenský ventilátor.",
+        offPowerWatchdog: "Vypnuté: strážca vrátil štartovací limit príkonu.",
         gaveUpFormat: "Neprijaté do minúty. %@",
         timedOut: "Žiadna odpoveď do 5 s; nič sa nedrží.",
         notConfirmed: "Kext zmenu nepotvrdil; nič sa nedrží.",
@@ -805,6 +851,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "krivku ventilátora",
         zeroRpmItem: "ventilátor stále v chode",
         gfxItemFormat: "maximálny takt GFX %d MHz",
+        gfxMinItemFormat: "minimálny takt GFX %d MHz",
+        voltItemFormat: "napätie GFX %d mV",
         listSeparator: ", ",
         listLastSeparator: " a ",
         heldOD8Short: "RyzenStatus drží nastavenia OD8",
@@ -824,6 +872,7 @@ extension GPUControlPageStrings {
         reverting: "Zurück zu den Startwerten",
         sleeping: "Warten, bis der Mac ganz aufgewacht ist",
         heldByOther: "Ein anderes Programm hat die Steuerung",
+        heldByTool: "gpucontrol, das eigene Werkzeug von RyzenStatus, hält die Steuerung",
         applying: "Wird angewendet…",
         heldPowerFormat: "RyzenStatus hält %d W",
         reaskingFormat: "Zurück bei den Startwerten; %d W werden erneut angefragt…",
@@ -884,6 +933,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Aus: Eine Änderung konnte nicht bestätigt werden. Starten Sie den Mac neu.",
         offDriverStopped: "Der GPU-Treiber ist gestoppt oder der Mac fährt herunter.",
         offWatchdog: "Aus: Der Lüfterwächter hat den Werkslüfter zurückgebracht.",
+        offPowerWatchdog: "Aus: Der Wächter hat das Leistungslimit auf den Startwert zurückgesetzt.",
         gaveUpFormat: "In einer Minute nicht angenommen. %@",
         timedOut: "Keine Antwort in 5 s; nichts wird gehalten.",
         notConfirmed: "Der Kext hat die Änderung nicht bestätigt; nichts wird gehalten.",
@@ -901,6 +951,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "eine Lüfterkurve",
         zeroRpmItem: "den Lüfter im Dauerbetrieb",
         gfxItemFormat: "einen maximalen GFX-Takt von %d MHz",
+        gfxMinItemFormat: "einen minimalen GFX-Takt von %d MHz",
+        voltItemFormat: "eine GFX-Spannung von %d mV",
         listSeparator: ", ",
         listLastSeparator: " und ",
         heldOD8Short: "RyzenStatus hält OD8-Einstellungen",
@@ -920,6 +972,7 @@ extension GPUControlPageStrings {
         reverting: "Retour aux valeurs de démarrage",
         sleeping: "En attente de la fin du réveil du Mac",
         heldByOther: "Un autre programme a le contrôle",
+        heldByTool: "gpucontrol, l’outil de RyzenStatus, a le contrôle",
         applying: "Application…",
         heldPowerFormat: "RyzenStatus maintient %d W",
         reaskingFormat: "Retour aux valeurs de démarrage ; %d W redemandés…",
@@ -980,6 +1033,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Désactivée : un changement n’a pas pu être confirmé. Redémarrez le Mac.",
         offDriverStopped: "Le pilote GPU s’est arrêté ou le Mac s’éteint.",
         offWatchdog: "Désactivée : le gardien du ventilateur a remis le ventilateur d’usine.",
+        offPowerWatchdog: "Désactivée : le gardien a remis la limite de puissance de démarrage.",
         gaveUpFormat: "Non accepté en une minute. %@",
         timedOut: "Pas de réponse en 5 s ; rien n’est maintenu.",
         notConfirmed: "Le kext n’a pas confirmé le changement ; rien n’est maintenu.",
@@ -997,6 +1051,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "une courbe de ventilateur",
         zeroRpmItem: "le ventilateur toujours en marche",
         gfxItemFormat: "une fréquence GFX max de %d MHz",
+        gfxMinItemFormat: "une fréquence GFX min de %d MHz",
+        voltItemFormat: "une tension GFX de %d mV",
         listSeparator: ", ",
         listLastSeparator: " et ",
         heldOD8Short: "RyzenStatus maintient des réglages OD8",
@@ -1016,6 +1072,7 @@ extension GPUControlPageStrings {
         reverting: "Ritorno ai valori di avvio",
         sleeping: "In attesa che il Mac finisca di svegliarsi",
         heldByOther: "Un altro programma ha il controllo",
+        heldByTool: "gpucontrol, lo strumento di RyzenStatus, ha il controllo",
         applying: "Applicazione…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Di nuovo ai valori di avvio; %d W richiesti di nuovo…",
@@ -1076,6 +1133,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Disattivata: una modifica non è stata confermata. Riavvia il Mac.",
         offDriverStopped: "Il driver GPU si è fermato o il Mac si sta spegnendo.",
         offWatchdog: "Disattivata: il supervisore della ventola ha rimesso la ventola di fabbrica.",
+        offPowerWatchdog: "Disattivata: il supervisore ha rimesso il limite di potenza all’avvio.",
         gaveUpFormat: "Non accettato in un minuto. %@",
         timedOut: "Nessuna risposta in 5 s; non viene mantenuto nulla.",
         notConfirmed: "Il kext non ha confermato la modifica; non viene mantenuto nulla.",
@@ -1093,6 +1151,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "una curva della ventola",
         zeroRpmItem: "la ventola sempre in rotazione",
         gfxItemFormat: "un clock GFX massimo di %d MHz",
+        gfxMinItemFormat: "un clock GFX minimo di %d MHz",
+        voltItemFormat: "una tensione GFX di %d mV",
         listSeparator: ", ",
         listLastSeparator: " e ",
         heldOD8Short: "RyzenStatus mantiene impostazioni OD8",
@@ -1112,6 +1172,7 @@ extension GPUControlPageStrings {
         reverting: "起動時の値に戻しています",
         sleeping: "Mac のスリープ解除の完了待ち",
         heldByOther: "別のプログラムが制御しています",
+        heldByTool: "RyzenStatus 自身のツール gpucontrol が制御しています",
         applying: "適用中…",
         heldPowerFormat: "RyzenStatus が %d W を保持中",
         reaskingFormat: "起動時の値に戻りました。%d W を再度要求中…",
@@ -1172,6 +1233,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "オフ: 変更を確認できませんでした。Mac を再起動してください。",
         offDriverStopped: "GPU ドライバーが停止したか、Mac がシステム終了中です。",
         offWatchdog: "オフ: ファン監視が純正ファンに戻しました。",
+        offPowerWatchdog: "オフ: 監視が電力制限を起動時の値に戻しました。",
         gaveUpFormat: "1分以内に受け付けられませんでした。%@",
         timedOut: "5 秒以内に応答がありません。何も保持していません。",
         notConfirmed: "kext は変更を確認しませんでした。何も保持していません。",
@@ -1189,6 +1251,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "ファンカーブ",
         zeroRpmItem: "常に回るファン",
         gfxItemFormat: "GFX 最大クロック %d MHz",
+        gfxMinItemFormat: "GFX 最小クロック %d MHz",
+        voltItemFormat: "GFX 電圧 %d mV",
         listSeparator: "、",
         listLastSeparator: "と",
         heldOD8Short: "RyzenStatus が OD8 設定を保持中",
@@ -1208,6 +1272,7 @@ extension GPUControlPageStrings {
         reverting: "시동 값으로 돌아가는 중",
         sleeping: "Mac이 완전히 깨어날 때까지 대기 중",
         heldByOther: "다른 프로그램이 제어 중",
+        heldByTool: "RyzenStatus 자체 도구인 gpucontrol이 제어하고 있습니다",
         applying: "적용 중…",
         heldPowerFormat: "RyzenStatus가 %d W를 유지 중",
         reaskingFormat: "시동 값으로 돌아갔습니다. %d W를 다시 요청하는 중…",
@@ -1268,6 +1333,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "꺼짐: 변경 사항을 확인할 수 없습니다. Mac을 재시동하십시오.",
         offDriverStopped: "GPU 드라이버가 멈췄거나 Mac이 종료 중입니다.",
         offWatchdog: "꺼짐: 팬 감시가 기본 팬으로 되돌렸습니다.",
+        offPowerWatchdog: "꺼짐: 감시가 전력 한도를 시동 값으로 되돌렸습니다.",
         gaveUpFormat: "1분 안에 받아들여지지 않았습니다. %@",
         timedOut: "5초 안에 응답이 없습니다. 아무것도 유지하지 않습니다.",
         notConfirmed: "kext가 변경을 확인하지 않았습니다. 아무것도 유지하지 않습니다.",
@@ -1285,6 +1351,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "팬 곡선",
         zeroRpmItem: "항상 도는 팬",
         gfxItemFormat: "최대 GFX 클록 %d MHz",
+        gfxMinItemFormat: "최소 GFX 클록 %d MHz",
+        voltItemFormat: "GFX 전압 %d mV",
         listSeparator: ", ",
         listLastSeparator: " 및 ",
         heldOD8Short: "RyzenStatus가 OD8 설정을 유지 중",
@@ -1304,6 +1372,7 @@ extension GPUControlPageStrings {
         reverting: "正在返回启动值",
         sleeping: "正在等待 Mac 完全唤醒",
         heldByOther: "另一个程序正在控制",
+        heldByTool: "RyzenStatus 自带的工具 gpucontrol 正在控制",
         applying: "正在应用…",
         heldPowerFormat: "RyzenStatus 正在限制 %d W",
         reaskingFormat: "已回到启动值；正在再次请求 %d W…",
@@ -1364,6 +1433,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "关闭：无法确认更改。请重新启动 Mac。",
         offDriverStopped: "GPU 驱动程序已停止，或 Mac 正在关机。",
         offWatchdog: "关闭：风扇监控已恢复出厂风扇。",
+        offPowerWatchdog: "关闭：监控已将功率上限恢复为启动值。",
         gaveUpFormat: "一分钟内未被接受。%@",
         timedOut: "5 秒内无响应；未持有任何项目。",
         notConfirmed: "kext 未确认更改；未持有任何项目。",
@@ -1381,6 +1451,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "风扇曲线",
         zeroRpmItem: "始终转动的风扇",
         gfxItemFormat: "GFX 最大时钟频率 %d MHz",
+        gfxMinItemFormat: "GFX 最小时钟频率 %d MHz",
+        voltItemFormat: "GFX 电压 %d mV",
         listSeparator: "、",
         listLastSeparator: "和",
         heldOD8Short: "RyzenStatus 正在维持 OD8 设置",
@@ -1400,6 +1472,7 @@ extension GPUControlPageStrings {
         reverting: "正在返回啟動值",
         sleeping: "正在等待 Mac 完全喚醒",
         heldByOther: "另一個程式正在控制",
+        heldByTool: "RyzenStatus 內建工具 gpucontrol 正在控制",
         applying: "正在套用…",
         heldPowerFormat: "RyzenStatus 正在限制 %d W",
         reaskingFormat: "已回到啟動值；正在再次要求 %d W…",
@@ -1460,6 +1533,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "關閉：無法確認變更。請重新啟動 Mac。",
         offDriverStopped: "GPU 驅動程式已停止，或 Mac 正在關機。",
         offWatchdog: "關閉：風扇監控已恢復原廠風扇。",
+        offPowerWatchdog: "關閉：監控已將功率上限恢復為啟動值。",
         gaveUpFormat: "一分鐘內未被接受。%@",
         timedOut: "5 秒內沒有回應；未持有任何項目。",
         notConfirmed: "kext 未確認變更；未持有任何項目。",
@@ -1477,6 +1551,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "風扇曲線",
         zeroRpmItem: "始終轉動的風扇",
         gfxItemFormat: "GFX 最大時脈 %d MHz",
+        gfxMinItemFormat: "GFX 最小時脈 %d MHz",
+        voltItemFormat: "GFX 電壓 %d mV",
         listSeparator: "、",
         listLastSeparator: "和",
         heldOD8Short: "RyzenStatus 正在維持 OD8 設定",
@@ -1496,6 +1572,7 @@ extension GPUControlPageStrings {
         reverting: "Повернення до значень завантаження",
         sleeping: "Очікування повного пробудження Mac",
         heldByOther: "Керує інша програма",
+        heldByTool: "Керування в gpucontrol, власного інструмента RyzenStatus",
         applying: "Застосування…",
         heldPowerFormat: "RyzenStatus утримує %d Вт",
         reaskingFormat: "Повернулися до значень завантаження; знову запитуємо %d Вт…",
@@ -1556,6 +1633,7 @@ extension GPUControlPageStrings {
         offChangeUnconfirmed: "Вимкнено: зміну не вдалося підтвердити. Перезапустіть Mac.",
         offDriverStopped: "Драйвер GPU зупинився або Mac вимикається.",
         offWatchdog: "Вимкнено: сторож вентилятора повернув заводський вентилятор.",
+        offPowerWatchdog: "Вимкнено: сторож повернув ліміт потужності під час завантаження.",
         gaveUpFormat: "Не прийнято за хвилину. %@",
         timedOut: "Немає відповіді за 5 с; нічого не утримується.",
         notConfirmed: "Kext не підтвердив зміну; нічого не утримується.",
@@ -1573,6 +1651,8 @@ extension GPUControlPageStrings {
         fanCurveItem: "криву вентилятора",
         zeroRpmItem: "постійне обертання вентилятора",
         gfxItemFormat: "макс. частоту GFX %d МГц",
+        gfxMinItemFormat: "мін. частоту GFX %d МГц",
+        voltItemFormat: "напругу GFX %d мВ",
         listSeparator: ", ",
         listLastSeparator: " і ",
         heldOD8Short: "RyzenStatus утримує налаштування OD8",

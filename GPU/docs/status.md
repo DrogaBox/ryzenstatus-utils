@@ -15,6 +15,7 @@ running on a GPU: compared in a disassembler, run on the CPU, or tested with fil
 | AV1 vectors and playback | pass | 0.1 | RX 6900 XT, Sequoia 15.8.2 (Izzy) |
 | VP9 check clip (640x360, 30 frames) | 0 mismatches | 0.2 | RX 6900 XT, Sequoia 15.8.2 (Izzy) |
 | Driver of 15.8.3 and 26.7.3 | same binary (same UUID) as 15.8.2 and 26.7.2 | static | |
+| Driver of 26.7.4 (25G422) | new UUID `F7D8F5849EC139DB857C769697294957`, read from the installer's cryptex (`rawpatch`) before updating: all 2760 functions identical to 26.7.3 (`dscdiff.py diff`), every section identical except one Apple build path in `__cstring`; listed as `untested-on-gpu` | static | macOS 26.7.4 RC, 2026-11-24 |
 | Parser reads the public test streams as 0.2 did | identical digests | 0.3.0 | static, `tests/run.sh` |
 | Parser on damaged input, under sanitizers | no finding in 14100 damaged copies of 47 local streams, and 4500 of the 15 public ones in `tests/run.sh` | 0.3.0 | static |
 | Only AMD's accelerator is taken | rule tested; on a Mac with no iGPU the choice is the same as 0.2 | 0.3.0 | static, RX 6800 XT |

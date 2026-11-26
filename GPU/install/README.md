@@ -48,6 +48,7 @@ when they fail: it lets in only these plug-ins and the next run needs it.
 | `decoders.sh` | Installs, repairs or removes the AV1 and VP9 decoder plug-ins |
 | `loader.sh` | Puts VCNVTLoader, the kext the plug-ins need on a Mac without AMFIPass, on your EFI, or takes it off |
 | `sensors.sh` | Puts GPUSensors, the optional kext that shows the GPU readings macOS hides, on your EFI, or takes it off |
+| `jpeg.sh` | Puts VCNJpeg, the optional kext that decodes JPEG on the GPU (macOS 26.7.3 only), on your EFI, or takes it off. The plug-in that uses it goes in with `decoders.sh install --jpeg`; see [jpeg/README.md](../jpeg/README.md) |
 | `encoder.sh` | Installs or removes the optional encoding fix |
 | `validated-builds.json` | The list of macOS builds that were checked. Both tools read it |
 | `check_lists.sh` | Checks that this list agrees with the lists compiled into the decoders |
@@ -70,6 +71,7 @@ Or remove individual parts (then reboot after any EFI or system-volume change):
 - Decoders: `sudo install/decoders.sh uninstall`
 - Loader kext: `sudo install/loader.sh uninstall [--efi diskNsM]`
 - GPU sensors kext: `sudo install/sensors.sh uninstall [--efi diskNsM]`
+- JPEG kext: `sudo install/jpeg.sh uninstall [--efi diskNsM]`
 - Encoding fix: `sudo install/encoder.sh uninstall [--efi diskNsM|auto]`
 
 If the Mac does not boot after a change:
@@ -77,7 +79,7 @@ If the Mac does not boot after a change:
 - Boot your rescue USB EFI and copy the backup (`config.plist.backup-<date>-<time>-pre-*`,
   saved next to `EFI/OC/config.plist` before each EFI edit) back over `EFI/OC/config.plist`.
 - Or add the kext off switches to OpenCore `boot-args`: `-vcnflooroff` (encoding kext),
-  `-vcnvtoff` (loader kext), `-gpusensoff` (GPU sensors kext).
+  `-vcnvtoff` (loader kext), `-gpusensoff` (GPU sensors kext), `-vcnjpegoff` (JPEG kext).
 - To revert the system volume to Apple's original snapshot:
   `sudo bless --mount / --last-sealed-snapshot`, then reboot. **Warning:** this drops
   every other change made to the system volume, not only the decoder plug-ins.
@@ -100,6 +102,12 @@ the three if an earlier install with `--legacy` left them, and `check` reports t
 and `installed` is `outdated`, so `install.sh` does not skip the decoders). `uninstall` always
 removes all five. The DMG
 carries the three only when it is built with `VCNVT_LEGACY_DECODERS=1`.
+
+The JPEG plug-in works the same way with `--jpeg` (or `VCNVT_JPEG_DECODER=1`; `install.sh
+--with-jpeg` passes it on and puts `VCNJpeg.kext` on the EFI too). It decodes through that
+kext, not through Apple's video driver, so `check` looks at the `jpeg` column of
+`validated-builds.json` for it. The DMG carries both only when it is built with
+`VCNVT_JPEG_DECODER=1`.
 
 ### What `check` looks at
 

@@ -63,6 +63,10 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
 
 - Decoding against references, in a test process, without installing anything: see
   `decode/tests/gpu/README.md`.
+- JPEG, after the reboot that starts `VCNJpeg.kext`: `install/jpeg.sh check` must end in
+  "working"; `decode/tests/gpu/vtjpegtest` on 4:2:0, 4:2:2 and `dmb1` clips must match
+  FFmpeg within 2; `ioreg -rd1 -c IOResources | grep VCNJpeg` must show `Powered` = Yes
+  while it decodes and No two seconds later, and `Jobs` going up.
 - Encoding: `test.sh` (two short encodes with reference numbers, three with `--wide`) and
   `doctor.sh`, run from the built package folder `encode/dist/VCNEncodeFix-<version>`
   (the copies in `encode/scripts` look for `bin/vtenc` next to themselves). Close any video
@@ -109,4 +113,14 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
   leaves no context to delete, and `QueryAVDCommandStatus` with `.wait = 0` returns at
   once (status 1 done, 2 running). Still open: how long the kernel's own wait can last
   after a GPU restart.
+- Decoders 0.3.7, a system sleep during a decode: `vtvp9test` and `vtav1test` with
+  `-loop N -pace 30` keep one session going across `pmset sleepnow`, and `-renew` makes a
+  new session for every pass in the same process. No pass may have errors or frames that
+  differ from the reference, before or after the wake, and the kernel log must show no GPU
+  restart and no hang. The plug-ins log "the system slept since this session opened", then
+  "keeps decoding and is rebuilt at the next key frame" and "driver rebuilt at the first key
+  frame after the sleep"; "failed after the wake" means the old session failed and frames
+  were dropped up to a key frame. A first real run of 0.3.6 on this Mac (2026-11-25) failed
+  every frame of the old sessions; 0.3.5 passed. Only `sessiontest` and `staletest` (made-up
+  driver and sleep) have run for 0.3.7.
 - Everything at once: `install/check.sh` ends in one line.

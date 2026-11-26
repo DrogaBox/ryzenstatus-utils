@@ -1,6 +1,18 @@
 # Changelog
 
-## 1.3.0 (not released)
+## macOS 26.7.4 (25G422) (RyzenStatus 1.90.0)
+
+- Kext: 26.7.4 added to `kX6000Builds` (`F8070234-57B0-3107-AC79-F3AA1C816072`) and
+  `kX6800Builds` (`C3C1D191-CC3D-38F3-BBBE-2F99B74FE0F1`), routed by symbol:
+  `_PEM_CWDDEPM_PMRequest` is still exported, and its Hex-Rays output is identical to 26.7.3's.
+- Service: 26.7.4 added to `kPresetBuilds` and `kHevc10Builds` (`AMDRadeonVADriver2`
+  `F7D8F584-9EC1-39DB-857C-769697294957`, same code as 26.7.3; each site found once) and to
+  `kWideBuilds` (`AppleGVAHEVCEncoder` `01F6B94A-A77D-3549-B18B-CBA81F4630B3`: `__TEXT` and
+  `__DATA` byte-identical to 26.7.3, site `0x13601`, cave `0xE78`). The wide patch's CPU test
+  now runs at the 26.7.4 site too.
+- Checked from the 26.7.4 installer (release candidate) only; not run on a card on 26.7.4.
+
+## 1.3.0 (RyzenStatus 1.90.0)
 
 - New service fix, *cc* (on by default; `--no-cc` turns it off), in every `ContinuityCaptureAgent` and
   `avconferenced`, the processes that handle Continuity Camera and FaceTime calls. Three changes in VideoProcessing:

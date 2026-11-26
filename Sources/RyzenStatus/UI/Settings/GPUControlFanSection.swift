@@ -54,7 +54,7 @@ struct GPUControlFanSection: View {
             // "Toggles": the label says what turning it on does ("Writing").
             // The regular size, not mini: "Accessibility" asks for at least
             // 20 x 20 pt on macOS (a11y A8).
-            Toggle(fan.zeroRpmToggle, isOn: $draft.zeroRpmOff)
+            Toggle(fan.zeroRpmToggle, isOn: Binding(get: { draft.zeroRpmOff }, set: { zeroRpmSwitched($0) }))
                 .toggleStyle(.switch)
                 .controlSize(.regular)
                 .disabled(!enabled)
@@ -134,6 +134,28 @@ struct GPUControlFanSection: View {
 
     /// How far the curve editor sits in from its switch.
     static let editorIndent: CGFloat = 20
+
+    /// The zero RPM switch. While a curve is held it goes out at once with
+    /// that curve, as the clock and voltage controls do; otherwise it is part
+    /// of the draft "Apply curve" sends. Point edits not applied yet stay in
+    /// the editor and are not sent with it.
+    private func zeroRpmSwitched(_ on: Bool) {
+        let otherEdits = draft.want.curve != heldOD8.curve
+        draft.zeroRpmOff = on
+        guard enabled, let send = Self.zeroRpmAtOnce(held: heldOD8, zeroRpmOff: on),
+              GPUControlCurvePreview.make(want: send.want, writing: input.writing).allowsApply else { return }
+        lastOD8Source = .fan
+        apply(send)
+        if !otherEdits { draft = draft.applied }
+    }
+
+    /// What the zero RPM switch sends by itself: the held curve with the new
+    /// zero RPM state, only while a curve is held and the state changes. Nil
+    /// otherwise (the switch then only edits the draft).
+    static func zeroRpmAtOnce(held: GPUControlOD8Want, zeroRpmOff: Bool) -> GPUControlFanDraft? {
+        guard let curve = held.curve, held.zeroRpmOff != zeroRpmOff else { return nil }
+        return GPUControlFanDraft(held: GPUControlOD8Want(curve: curve, zeroRpmOff: zeroRpmOff))
+    }
 
     private func applyDraft() {
         lastOD8Source = .fan

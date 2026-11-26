@@ -1,6 +1,6 @@
 # AMDRyzenCPUPowerManagement & SMCAMDProcessor
 
-The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen processors (Zen 1 through Zen 5) on macOS 13 Ventura through macOS 26 Tahoe. Current version: **3.42.0**, shipped with RyzenStatus 1.89.0.
+The two kernel extensions behind RyzenStatus's AMD features, for AMD Zen processors (Zen 1 through Zen 5) on macOS 13 Ventura through macOS 26 Tahoe. Current version: **3.42.0**, shipped with RyzenStatus 1.90.0.
 
 - **`AMDRyzenCPUPowerManagement.kext`** is the core driver: it reads the CPU's sensors, owns the idle loop, talks to the SMU, writes energy preference through CPPC, drives the Super I/O fan controllers and serves all of it to user space through an IOKit UserClient.
 - **`SMCAMDProcessor.kext`** is a VirtualSMC plugin that publishes those readings as SMC keys, so any app that reads the SMC (iStat Menus, TG Pro, HWMonitor) sees CPU temperature, power, clocks and fans.

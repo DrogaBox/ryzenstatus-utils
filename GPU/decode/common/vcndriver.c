@@ -3,8 +3,11 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <mach/mach_time.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
 
 bool vcn_codec_is_amd(CFTypeRef codec) {
   return codec && CFGetTypeID(codec) == CFStringGetTypeID() &&
@@ -74,4 +77,50 @@ bool vcn_driver_load(VcnDriverLib* lib, char* err, size_t errLen) {
     return false;
   }
   return true;
+}
+
+void vcn_sleep_mark(VcnSleepMark* m) {
+  static mach_timebase_info_data_t tb;
+  if (!tb.denom) mach_timebase_info(&tb);
+  // mach_continuous_time is mach_absolute_time plus the time spent asleep. The
+  // two are read apart: a reading whose two absolute times are more than 10 us
+  // apart (the thread was preempted between them) is taken again.
+  uint64_t asleep = 0, mono = 0;
+  for (int i = 0; i < 8; i++) {
+    uint64_t a = mach_absolute_time(), c = mach_continuous_time(),
+             b = mach_absolute_time();
+    asleep = c > b ? c - b : 0;
+    mono = b;
+    if ((b - a) * tb.numer / tb.denom < 10000) break;
+  }
+  m->asleepNs = asleep * tb.numer / tb.denom;
+  m->monoNs = mono * tb.numer / tb.denom;
+  struct timeval wall;
+  gettimeofday(&wall, NULL);
+  m->wallUs = (int64_t)wall.tv_sec * 1000000 + wall.tv_usec;
+  // kern.waketime changes once per sleep and costs a sysctl; the codecs ask for
+  // a mark on every frame (60 to 120 times a second at 4K60), so the value is
+  // read again at most every 100 ms of mach_absolute_time. Time spent asleep
+  // does not advance that clock, so a waketime read a moment before a sleep can
+  // be reused for a moment after the wake; the time asleep is read every time
+  // and is what notices the sleep. Relaxed reads and writes: a value read twice
+  // by two threads is the same one.
+  static uint64_t wakeReadAtNs;
+  static int64_t wakeUs;
+  static bool wakeKnown;
+  if (!__atomic_load_n(&wakeReadAtNs, __ATOMIC_RELAXED) ||
+      m->monoNs - __atomic_load_n(&wakeReadAtNs, __ATOMIC_RELAXED) >=
+          100000000ull) {
+    struct timeval wake = {0};
+    size_t len = sizeof(wake);
+    bool failed = sysctlbyname("kern.waketime", &wake, &len, NULL, 0) ||
+                  len != sizeof(wake);
+    __atomic_store_n(&wakeUs,
+                     failed ? 0 : (int64_t)wake.tv_sec * 1000000 + wake.tv_usec,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&wakeKnown, !failed, __ATOMIC_RELAXED);
+    __atomic_store_n(&wakeReadAtNs, m->monoNs, __ATOMIC_RELAXED);
+  }
+  m->wakeUs = __atomic_load_n(&wakeUs, __ATOMIC_RELAXED);
+  m->wakeKnown = __atomic_load_n(&wakeKnown, __ATOMIC_RELAXED);
 }

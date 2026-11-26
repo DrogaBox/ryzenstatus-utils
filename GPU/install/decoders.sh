@@ -1,6 +1,7 @@
 #!/bin/zsh
 # decoders.sh - installs, repairs or removes the decoder plug-ins (AV1 and VP9; with --legacy
-# also MPEG-2, VC-1 and MPEG-4) in the system folder /System/Library/Video/Plug-Ins, and checks
+# also MPEG-2, VC-1 and MPEG-4; with --jpeg also JPEG) in the system folder
+# /System/Library/Video/Plug-Ins, and checks
 # whether this Mac is ready for them.
 #
 #   install/decoders.sh check [--json]           run the checks; changes nothing, no sudo needed
@@ -21,6 +22,11 @@
 #                   repair take off the three if an earlier install with --legacy left
 #                   them, and check reports them. uninstall always removes them with the
 #                   other two.
+#   --jpeg          with check, install and repair: the JPEG and Motion JPEG plug-in too (the
+#                   same as VCNVT_JPEG_DECODER=1). It decodes through the VCNJpeg kext
+#                   (install/jpeg.sh), which must be installed as well. Without it, install
+#                   and repair take it off if an earlier install with --jpeg left it, and
+#                   check reports it. uninstall always removes it.
 #   --json          with check: print the result as one JSON object (for a front end)
 #
 # install, repair and uninstall change a mounted copy of the system volume and then create a
@@ -64,7 +70,7 @@ LIBPLUG=/Library/Video/Plug-Ins
 show_help() { help_of "$SELF_DIR/decoders.sh"; }
 usage_error() {
   print -r -u2 -- "decoders.sh: $1"
-  print -r -u2 -- "usage: decoders.sh {check [--json] | install [--force] | repair [--force] | uninstall} [--bundles DIR] [--legacy]"
+  print -r -u2 -- "usage: decoders.sh {check [--json] | install [--force] | repair [--force] | uninstall} [--bundles DIR] [--legacy] [--jpeg]"
   exit 64
 }
 
@@ -81,6 +87,7 @@ while (( $# )); do
       BUNDLES=${2:A}
       shift ;;
     --legacy) export VCNVT_LEGACY_DECODERS=1 ;;
+    --jpeg) export VCNVT_JPEG_DECODER=1 ;;
     -h|--help) show_help; exit 0 ;;
     *) usage_error "unknown option '$1'" ;;
   esac
@@ -89,7 +96,8 @@ done
 # The plug-ins this run installs and checks; uninstall takes off all of ALL.
 WANT=($AV1 $VP9)
 legacy_on && WANT+=($LEGACY_BUNDLES)
-ALL=($AV1 $VP9 $LEGACY_BUNDLES)
+jpeg_on && WANT+=($JPEG_BUNDLE)
+ALL=($AV1 $VP9 $LEGACY_BUNDLES $JPEG_BUNDLE)
 all_built() { local b; for b in $WANT; do [[ -d $BUNDLES/$b ]] || return 1; done; }
 # The MPEG-2, VC-1 and MPEG-4 plug-ins in a plug-in folder when this run leaves them out (no
 # --legacy): an earlier install with --legacy put them there. One name per line.
@@ -97,6 +105,12 @@ stale_legacy() { # folder
   legacy_on && return 0
   local b
   for b in $LEGACY_BUNDLES; do [[ -e $1/$b || -L $1/$b ]] && print -r -- $b; done
+  return 0
+}
+# The JPEG plug-in in a plug-in folder when this run leaves it out (no --jpeg).
+stale_jpeg() { # folder
+  jpeg_on && return 0
+  [[ -e $1/$JPEG_BUNDLE || -L $1/$JPEG_BUNDLE ]] && print -r -- $JPEG_BUNDLE
   return 0
 }
 [[ $JSON -eq 1 && $CMD != check ]] && usage_error "--json goes with check only"
@@ -260,6 +274,18 @@ preflight() {
       add_check legacy "MPEG-2, VC-1 and MPEG-4 on this driver" ok "$name ($build)"
     fi
   fi
+  # The JPEG plug-in works through the VCNJpeg kext, which was checked on one build ("jpeg").
+  if jpeg_on && [[ $hit -eq 1 ]]; then
+    local jpv=$(plx validated.$i.jpeg)
+    if [[ $jpv == false || -z $jpv ]]; then
+      add_check jpeg "JPEG on this macOS build" fail "the VCNJpeg kext was not checked on $name ($build), so the JPEG plug-in would find no decoder; install without --jpeg"
+      HARD_FAIL=1; HARD_OTHER=1
+    elif [[ $jpv == untested-on-gpu ]]; then
+      add_check jpeg "JPEG on this macOS build" warn "$name ($build): the VCNJpeg kext was checked, but this version has not decoded on a GPU yet"
+    else
+      add_check jpeg "JPEG on this macOS build" ok "$name ($build)"
+    fi
+  fi
 
   # 3. authenticated-root disabled (required to write the sealed system volume)
   if authroot_disabled; then
@@ -359,6 +385,15 @@ preflight() {
   elif (( ${#stale} )); then
     add_check legacy-left "MPEG-2, VC-1 and MPEG-4 left over" warn "${(j:, :)stale} in $LIVE, from an earlier install with --legacy. $(pick "'sudo install/decoders.sh install' without --legacy takes them off (with --legacy it keeps them)" "Installing the decoder plug-ins again in this window takes them off")."
   fi
+  # 8b. the JPEG plug-in left by an earlier install with --jpeg (not blocking either)
+  if [[ -n $(stale_jpeg $LIVE) ]]; then
+    look_installed
+    if [[ $PENDING == install ]]; then
+      add_check jpeg-left "JPEG plug-in left over" ok "$JPEG_BUNDLE still runs now; the install of this boot took it off the next boot's snapshot"
+    else
+      add_check jpeg-left "JPEG plug-in left over" warn "$JPEG_BUNDLE in $LIVE, from an earlier install with --jpeg. $(pick "'sudo install/decoders.sh install' without --jpeg takes it off (with --jpeg it keeps it)" "Installing the decoder plug-ins again in this window takes it off")."
+    fi
+  fi
 
   BLOCK_OVERRIDABLE=0
   if [[ $HARD_FAIL -eq 1 ]]; then CAN_INSTALL=0
@@ -385,7 +420,7 @@ installed_state() {
     fi
   done
   # left over from an install with --legacy, which this one would take off
-  [[ -n $(stale_legacy "$LIVE") ]] && { any=1; same=0; }
+  [[ -n $(stale_legacy "$LIVE") || -n $(stale_jpeg "$LIVE") ]] && { any=1; same=0; }
   if [[ $any -eq 0 ]]; then echo none
   elif ! all_built; then echo unknown
   elif [[ $same -eq 1 ]]; then echo current
@@ -403,7 +438,8 @@ installed_state() {
 # owned by root, mode 644, one "key=value" per line: boot (kern.bootsessionuuid of the boot
 # the change ran in), action (install or remove), av1 and vp9 (the cdhashes put in place;
 # empty for remove), and legacy (the cdhashes of the MPEG-2, VC-1 and MPEG-4 plug-ins put in
-# place, comma-separated, empty without --legacy). A check takes it only from the same boot
+# place, comma-separated, empty without --legacy) and jpeg (the cdhash of the JPEG plug-in, empty
+# without --jpeg). A check takes it only from the same boot
 # session, and an install only when the cdhashes are the plug-ins to install now.
 DEC_RECORD=decoders
 legacy_hashes() { # folder
@@ -411,15 +447,20 @@ legacy_hashes() { # folder
   if legacy_on; then for b in $LEGACY_BUNDLES; do h+=("$(cdhash_of "$1/$b")"); done; fi
   print -r -- "${(j:,:)h}"
 }
+jpeg_hash() { # folder
+  jpeg_on && cdhash_of "$1/$JPEG_BUNDLE"
+  return 0
+}
 dec_record_write() { # install | remove
-  local av1="" vp9="" legacy=""
+  local av1="" vp9="" legacy="" jpeg=""
   if [[ $1 == install ]]; then
     av1=$(cdhash_of "$MNT/$PLUGDIR/$AV1")
     vp9=$(cdhash_of "$MNT/$PLUGDIR/$VP9")
     legacy=$(legacy_hashes "$MNT/$PLUGDIR")
+    jpeg=$(jpeg_hash "$MNT/$PLUGDIR")
   fi
   # a record that cannot be written must not leave an older one saying something else
-  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" "legacy=$legacy" || record_drop $DEC_RECORD
+  record_put $DEC_RECORD "boot=$(boot_session)" "action=$1" "av1=$av1" "vp9=$vp9" "legacy=$legacy" "jpeg=$jpeg" || record_drop $DEC_RECORD
   return 0
 }
 
@@ -432,7 +473,7 @@ look_installed() {
   [[ -n $INSTALLED ]] && return 0
   INSTALLED=$(installed_state)
   PENDING=none
-  local file line boot="" action="" av1="" vp9="" legacy=""
+  local file line boot="" action="" av1="" vp9="" legacy="" jpeg=""
   local now=$(boot_session)
   file=$(record_file $DEC_RECORD) || return 0
   while IFS= read -r line; do
@@ -442,6 +483,7 @@ look_installed() {
       av1=*)    av1=${line#*=} ;;
       vp9=*)    vp9=${line#*=} ;;
       legacy=*) legacy=${line#*=} ;;
+      jpeg=*)   jpeg=${line#*=} ;;
     esac
   done < "$file"
   [[ -n $now && $boot == $now ]] || return 0
@@ -449,7 +491,7 @@ look_installed() {
     install)
       [[ $INSTALLED != current && -n $av1 && -n $vp9 &&
          $av1 == "$(cdhash_of "$BUNDLES/$AV1")" && $vp9 == "$(cdhash_of "$BUNDLES/$VP9")" &&
-         $legacy == "$(legacy_hashes "$BUNDLES")" ]] && PENDING=install ;;
+         $legacy == "$(legacy_hashes "$BUNDLES")" && $jpeg == "$(jpeg_hash "$BUNDLES")" ]] && PENDING=install ;;
     remove)
       [[ $INSTALLED != none ]] && PENDING=remove ;;
   esac
@@ -489,6 +531,7 @@ emit_check_text() {
   esac
   local -a stale=( ${(f)"$(stale_legacy "$LIVE")"} )
   (( ${#stale} )) && now+=", and ${(j:, :)stale} from an earlier install with --legacy"
+  [[ -n $(stale_jpeg "$LIVE") ]] && now+=", and $JPEG_BUNDLE from an earlier install with --jpeg"
   case $PENDING in
     install) now+="; the new ones are in the next boot's snapshot and load at the next boot" ;;
     remove)  now+="; they are gone from the next boot's snapshot and stop at the next boot" ;;
@@ -622,6 +665,7 @@ safe_rm_bundle() { # path
     */Video/Plug-Ins/MPEG4VCNDecoder.bundle) ;;
     */Video/Plug-Ins/MPEG2VCNDecoder.bundle.new|*/Video/Plug-Ins/VC1VCNDecoder.bundle.new) ;;
     */Video/Plug-Ins/MPEG4VCNDecoder.bundle.new) ;;
+    */Video/Plug-Ins/JPEGVCNDecoder.bundle|*/Video/Plug-Ins/JPEGVCNDecoder.bundle.new) ;;
     *) echo "REFUSING to delete unexpected path: '$p'" >&2; return 1 ;;
   esac
   rm -rf -- "$p"
@@ -684,13 +728,26 @@ drop_stale_legacy() {
   done
   return 0
 }
+# The same for the JPEG plug-in without --jpeg.
+drop_stale_jpeg() {
+  jpeg_on && return 0
+  local d b=$JPEG_BUNDLE
+  for d in "$MNT/$PLUGDIR/$b" "$MNT/$PLUGDIR/$b.new"; do
+    [[ -e $d || -L $d ]] || continue
+    safe_rm_bundle "$d" || return 1
+    echo "removed $d (an earlier install with --jpeg put it there)"
+  done
+  if [[ -e $LIBPLUG/$b || -L $LIBPLUG/$b ]]; then safe_rm_bundle "$LIBPLUG/$b" || return 1; fi
+  return 0
+}
 
 # The plug-ins of this run onto the mounted system volume, and the legacy ones it leaves out
 # off it.
 put_decoders() {
   local b
   for b in $WANT; do install_one "$BUNDLES/$b" "$b" || return 1; done
-  drop_stale_legacy
+  drop_stale_legacy || return 1
+  drop_stale_jpeg
 }
 
 # Creates the boot snapshot that makes the changes take effect at the next boot.

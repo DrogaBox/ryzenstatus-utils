@@ -60,9 +60,14 @@ plugins=(AV1VCNDecoder.bundle VP9VCNDecoder.bundle)
 # The MPEG-2, VC-1 and MPEG-4 plug-ins go in the package only with VCNVT_LEGACY_DECODERS=1,
 # until they have run through VideoToolbox on a GPU (install/common.zsh, LEGACY_BUNDLES).
 [[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]] && plugins+=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
+# The JPEG plug-in and its kext go in only with VCNVT_JPEG_DECODER=1: the kext is for one macOS
+# build (26.7.3) and is installed only on request (install/jpeg.sh, decoders.sh --jpeg).
+jpeg=0
+[[ ${VCNVT_JPEG_DECODER:-0} == 1 ]] && { jpeg=1; plugins+=(JPEGVCNDecoder.bundle); }
 needed=(decode/build/${^plugins} decode/build/lvprobe
         decode/build/kextentry decode/build/VCNVTLoader.kext sensors/build/GPUSensors.kext
         sensors/build/gpusensors sensors/build/gpucontrol $ENC)
+(( jpeg )) && needed+=(jpeg/build/VCNJpeg.kext)
 [[ $MODE == payload ]] || needed+=("installer/build/$APP_NAME")
 for f in $needed; do
   [[ -e $f ]] || { print "missing $f: build it first (./build.sh)"; exit 1; }
@@ -91,9 +96,15 @@ cp README.md LICENSE NOTICE.md CHANGELOG.md $OUT/
 cp docs/status.md docs/how-it-works.md docs/macos-updates.md $OUT/docs/
 cp decode/loader/README.md $OUT/decode/loader/
 cp sensors/README.md $OUT/sensors/
+if (( jpeg )); then
+  mkdir -p $OUT/jpeg/build
+  ditto --norsrc --noextattr jpeg/build/VCNJpeg.kext $OUT/jpeg/build/VCNJpeg.kext
+  cp jpeg/README.md $OUT/jpeg/
+fi
 bins=($OUT/decode/build/*.bundle/Contents/MacOS/* $OUT/decode/build/{lvprobe,kextentry}
       $OUT/decode/build/VCNVTLoader.kext/Contents/MacOS/* $OUT/sensors/build/GPUSensors.kext/Contents/MacOS/*
       $OUT/sensors/build/{gpusensors,gpucontrol} $OUT/$ENC/bin/* $OUT/$ENC/Kexts/*.kext/Contents/MacOS/*)
+(( jpeg )) && bins+=($OUT/jpeg/build/VCNJpeg.kext/Contents/MacOS/*)
 if [[ $MODE != payload ]]; then
   # The app looks for install/ in the folders above it, so it sits at the top of the package.
   ditto --norsrc --noextattr "installer/build/$APP_NAME" "$OUT/$APP_NAME"

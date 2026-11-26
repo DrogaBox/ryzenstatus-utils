@@ -14,6 +14,7 @@ enum GPUControlClockTests {
         controller(suite)
         strings(suite)
         reviewFixes(suite)
+        gfxMin(suite)
     }
 
     private typealias Logic = GPUControlClockLogic
@@ -193,7 +194,7 @@ enum GPUControlClockTests {
                 .filter { $0 != "%%" } ?? []
         }
         let english = GPUControlClockStrings.enUS.all
-        suite.expect(english.count == 11, "11 texts")
+        suite.expect(english.count == 17, "17 texts (6 for the GFX minimum)")
         for language in AppLanguage.allCases {
             let clock = FeatureStrings.gpuControlClock(language)
             let table = clock.all
@@ -205,6 +206,10 @@ enum GPUControlClockTests {
             suite.expect(Set([names.slider, names.field, names.stepper]).count == 3
                             && names.stepper.contains("\(GPUControlClockLogic.step)"),
                          "\(language.rawValue): the clock row's three controls have their own names")
+            let low = GPUControlClockMinSection.accessibilityNames(clock)
+            suite.expect(Set([low.slider, low.field, low.stepper, names.slider, names.field, names.stepper]).count == 6
+                            && low.stepper.contains("\(GPUControlClockMinLogic.step)"),
+                         "\(language.rawValue): the minimum's three controls have their own names, not the maximum's")
             // No watts written into a text (S-2): the clock footer's 200 W is gone.
             suite.expect(!table.contains { $0.contains("200 W") || $0.contains("200 Вт") || $0.contains("200 W'") },
                          "\(language.rawValue): no fixed watts in the clock texts")
@@ -222,6 +227,150 @@ enum GPUControlClockTests {
         suite.expect(GPUControlPageStrings.enUS.od8Held(GPUControlOD8Want(curve: GPUControlFanDraft.testedCurve, gfxMaxMHz: 2_300))
                         == "RyzenStatus is holding a fan curve and a GFX maximum of 2300 MHz", "a curve and a clock held, in one sentence")
         suite.expect(GPUControlClockSection.sliderMinWidth > 0, "the row keeps the slider at least this wide on one line")
+    }
+
+    /// The GFX minimum clock (GPUSensors 0.9.0): its range from the card's
+    /// table up to the maximum in force, the 14 scalars, `Takes`, the
+    /// controller against the model, remembering it, its words.
+    private static func gfxMin(_ suite: TestSuite) {
+        typealias Min = GPUControlClockMinLogic
+        let limits = Min.Limits(min: 500, max: 2_800, stock: 500)
+        suite.expect(Min.range(limits: limits, gfxMaxMHz: 2_359) == 500...2_359,
+                     "the minimum: from the stock 500 MHz to the stock maximum")
+        suite.expect(Min.range(limits: limits, gfxMaxMHz: 2_000) == 500...2_000, "up to a lowered maximum")
+        suite.expect(Min.range(limits: nil, gfxMaxMHz: 2_359) == nil && Min.range(limits: limits, gfxMaxMHz: nil) == nil
+                        && Min.range(limits: limits, gfxMaxMHz: 500) == nil,
+                     "no minimum taken, no maximum known, or nothing above stock: no control")
+        suite.expect(Min.range(limits: Min.Limits(min: 500, max: 2_000, stock: 500), gfxMaxMHz: 2_359) == 500...2_000,
+                     "never past the card's own top for the minimum")
+        let r = 500...2_359
+        suite.expect(Min.raises(1_500, range: r) && Min.raises(2_359, range: r),
+                     "1500 MHz and the maximum itself raise the minimum")
+        suite.expect(!Min.raises(500, range: r) && !Min.raises(2_360, range: r) && !Min.raises(1_500, range: nil),
+                     "stock, above the maximum, or no range: never a hold")
+        suite.expect(Min.request(500, stockMHz: 500) == nil && Min.request(1_500, stockMHz: 500) == 1_500,
+                     "choosing the stock minimum is the way back; a higher value is asked for")
+        suite.expect(Min.snapped(1_504, range: r) == 1_500 && Min.snapped(2_356, range: r) == 2_359
+                        && Min.snapped(400, range: r) == 500, "10 MHz steps, the top on its own, never below stock")
+        suite.expect(Min.tickCount(range: r) == 19, "a tick every 100 MHz: 500 to 2300")
+        let low = GPUControlOD8Want(gfxMinMHz: 2_100)
+        suite.expect(Min.checked(low, limits: limits, stockGfxMaxMHz: 2_359) == low, "2100 MHz is kept")
+        suite.expect(Min.checked(low, limits: nil, stockGfxMaxMHz: 2_359).gfxMinMHz == nil,
+                     "a kext that takes no minimum: left out")
+        suite.expect(Min.checked(GPUControlOD8Want(gfxMaxMHz: 2_000, gfxMinMHz: 2_100), limits: limits, stockGfxMaxMHz: 2_359)
+                        == GPUControlOD8Want(gfxMaxMHz: 2_000), "above the lowered maximum: left out, the maximum stays")
+
+        // The scalars.
+        suite.expect(GPUControlOD8Want(gfxMinMHz: 1_500).scalars() == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1_500],
+                     "a minimum: 14 scalars, the 14th in MHz")
+        suite.expect(GPUControlOD8Want(gfxMaxMHz: 2_300).scalars()?.count == 13,
+                     "no minimum: the 13 every kext since 0.7.0 takes")
+        suite.expect(GPUControlOD8Want(gfxMinMHz: 0).scalars() == nil, "a minimum of 0 would read as stock: not sent")
+        suite.expect(!GPUControlOD8Want(gfxMinMHz: 1_500).isStock && GPUControlOD8Want(gfxMinMHz: 1_500).heldFlags == .gfxMin,
+                     "a raised minimum is a hold, held bit 16")
+
+        // The table, and whether the kext takes it.
+        let path = FileManager.default.currentDirectoryPath + "/Tests/Fixtures/GPUSensors/ioreg-0.7.2-2026-11-20.plist"
+        if let data = FileManager.default.contents(atPath: path),
+           let dict = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+           var writing = GPUControlStatus.parse(dict)?.writing {
+            suite.expect(writing.od8?.gfxMin.map { [$0.min, $0.max, $0.stock] } == [500, 2_800, 500],
+                         "the card's minimum: 500 to 2800 MHz, stock 500")
+            suite.expect(Min.limits(writing: writing, od8Ready: true) == nil,
+                         "0.7.2 publishes no Takes: no minimum control")
+            writing.od8State?.takes = [.curve, .zeroRpmOff, .gfxMax, .gfxMin]
+            suite.expect(Min.limits(writing: writing, od8Ready: true) == limits
+                            && Min.limits(writing: writing, od8Ready: false) == nil,
+                         "with Takes 23 and a clean read: the card's limits")
+        } else {
+            suite.expect(false, "the 0.7.2 fixture loads")
+        }
+        do {
+            let fake = FakeGPUControlKext()
+            fake.takesGfxMin = true
+            fake.arm()
+            let c = fake.connection()
+            _ = c.open()
+            let answer = c.setOD8(GPUControlOD8Want(gfxMinMHz: 1_500))
+            let writing = GPUControlService.fakeControl(fake)?.writing
+            suite.expect(answer?.reply == .ok && writing?.od8State?.gfxMinHeld == 1_500
+                            && writing?.od8State?.held == .gfxMin && writing?.od8State?.takesGfxMin == true
+                            && c.status()?.flags.contains(.gfxMin) == true,
+                         "0.9.0 model: GfxMinHeld 1500, Takes, the status flag")
+        }
+
+        // The controller against the 0.9.0 model.
+        do {
+            let h = Harness { $0.takesGfxMin = true }
+            h.engine.chooseGfxMax(2_000)
+            h.run(ms: 3_000)
+            h.engine.chooseGfxMin(1_500)
+            h.run(ms: 0)
+            suite.expect(h.calls(.setOD8).last?.input == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2_000, 1_500]
+                            && h.engine.snapshot.held == .od8(GPUControlOD8Want(gfxMaxMHz: 2_000, gfxMinMHz: 1_500)),
+                         "the minimum goes with the held maximum, and is held")
+            h.run(ms: 3_000)
+            h.engine.chooseGfxMin(nil)
+            h.run(ms: 0)
+            suite.expect(h.calls(.setOD8).last?.input == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2_000]
+                            && h.engine.snapshot.held == .od8(GPUControlOD8Want(gfxMaxMHz: 2_000)),
+                         "turning the minimum off keeps the maximum, in the 13-scalar form")
+        }
+        do {
+            let h = Harness { $0.takesGfxMin = true }
+            h.engine.chooseGfxMin(2_400)
+            h.run(ms: 0)
+            if case .refused(_, let answer)? = h.engine.snapshot.outcome {
+                suite.expect(answer.check == .gfxMinRange && h.calls(.setOD8).last?.input[13] == 2_400
+                                && h.engine.snapshot.held == nil
+                                && GPUControlTextGroup.forReply(answer.replyCode, check: answer.checkCode) == .notAllowed,
+                             "above the stock maximum: sent unchanged, refused (GFX min range), nothing held")
+            } else {
+                suite.expect(false, "a minimum above the maximum: refused")
+            }
+        }
+        do {
+            let h = Harness { $0.takesGfxMin = true }
+            h.engine.chooseGfxMin(1_500)
+            h.run(ms: 0)
+            h.fake.tripFanWatchdog()
+            h.run(ms: 5_000)
+            suite.expect(h.engine.snapshot.stopped == .writingOff(GPUControlWriteOff.od8Watchdog.rawValue),
+                         "a raised minimum is watched: the watchdog stops it")
+        }
+
+        // Remembering it.
+        let suiteName = "ryzenstatus.tests.gpucontrol.clockmin.\(getpid())"
+        if let defaults = UserDefaults(suiteName: suiteName) {
+            let both = GPUControlOD8Want(gfxMaxMHz: 2_000, gfxMinMHz: 1_500)
+            GPUControlRemembered.od8(both).save(defaults)
+            suite.expect(defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz) == 1_500
+                            && GPUControlRemembered.load(defaults) == .od8(both), "a minimum round-trips with the maximum")
+            GPUControlRemembered.power(watts: 220).save(defaults)
+            suite.expect(defaults.object(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz) == nil,
+                         "saving power clears the minimum")
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        var facts = GPUControlFacts(source: .properties)
+        facts.ready = true
+        facts.armed = true
+        facts.bootW = 240
+        facts.od8Ready = true
+        typealias Policy = GPUControlRememberPolicy
+        let both = GPUControlOD8Want(gfxMaxMHz: 2_000, gfxMinMHz: 1_500)
+        suite.expect(Policy.request(remembered: .od8(both), active: true, facts: facts, stopped: nil,
+                                    stockGfxMaxMHz: 2_359, gfxMin: limits) == .od8(both),
+                     "a remembered minimum is asked for again with a kext that takes it")
+        suite.expect(Policy.request(remembered: .od8(both), active: true, facts: facts, stopped: nil,
+                                    stockGfxMaxMHz: 2_359) == .od8(GPUControlOD8Want(gfxMaxMHz: 2_000)),
+                     "a kext that takes no minimum: only the maximum is asked for")
+        suite.expect(Policy.checkedAgain(.od8(GPUControlOD8Want(gfxMinMHz: 1_500)), stockGfxMaxMHz: 2_359) == nil,
+                     "after a wake, no minimum taken: nothing left to ask")
+        suite.expect(Policy.checkedAgain(.od8(GPUControlOD8Want(gfxMinMHz: 1_500)), stockGfxMaxMHz: 2_359, gfxMin: limits)
+                        == .od8(GPUControlOD8Want(gfxMinMHz: 1_500)), "and with it: asked again")
+        suite.expect(GPUControlPageStrings.enUS.od8Held(both)
+                        == "RyzenStatus is holding a GFX maximum of 2000 MHz and a GFX minimum of 1500 MHz",
+                     "both clocks held, in one sentence")
     }
 
     /// The review of phases 3 and 4 (F1 to F6).

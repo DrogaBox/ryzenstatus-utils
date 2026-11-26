@@ -77,6 +77,25 @@ final class FakeGPUControlKext: @unchecked Sendable {
     var od8Ready = true
     var stockGfxMaxMHz = 2_359
     var gfxMinMHz = 500
+    /// GPUSensors 0.9.0: `setOD8` also takes 14 scalars with a GFX minimum,
+    /// `OD8WriteState` has `Takes`, and `status` the `gfxMin` flag. The
+    /// minimum's range is `gfxMinMHz...gfxMinTopMHz` (500-2800 on the card).
+    var takesGfxMin = false
+    var gfxMinTopMHz = 2_800
+    /// GPUSensors 0.9.0, the rest of it: `setOD8` also takes 15 scalars with
+    /// a GFX voltage and the overclock flag (4), `set` its 3-scalar raise
+    /// form, `status` the `volt` and `raise` flags, `OD8WriteState` has
+    /// `Takes` 119 and `VoltHeld`, `PowerRange` has `CeilW`. Implies
+    /// `takesGfxMin`. The test card's numbers: voltage 881 to 1075 mV (stock
+    /// 1075), GFX maximum up to 2800 MHz, power up to the start-up limit
+    /// plus its +9 % (261 W at 240 W).
+    var takesOverclock = false {
+        didSet { if takesOverclock { takesGfxMin = true } }
+    }
+    var voltMinMV = 881
+    var voltStockMV = 1_075
+    /// The card's own top for the GFX maximum (`GfxMaxMHz.Max`).
+    var gfxMaxTopMHz = 2_800
     /// The stock fan target; the last curve point must be at 100 % at or
     /// below this minus 22 C.
     var fanTargetC = 70
@@ -147,6 +166,8 @@ final class FakeGPUControlKext: @unchecked Sendable {
     private var offBackAt: UInt64?
     private var offBackLeft = 0
     private var od8OffAfterWayBack = false
+    /// 0.9.0: the watchdog took a raised limit back; off once it is back.
+    private var powerOffAfterWayBack = false
     private var tornDown = false
     // Sleep and wake, as the worker sees them.
     private var inSleep = false
@@ -230,10 +251,20 @@ final class FakeGPUControlKext: @unchecked Sendable {
 
     /// The fan watchdog trips (95 C, or 75 C with the fan under 90 % for 5 s,
     /// or 10 s without readings): stock fan once, writing off until restart.
+    /// Since 0.9.0 it also watches a raised GFX minimum and a GFX maximum
+    /// above stock (95 C or no readings), and a power limit above the
+    /// start-up one: the start-up limit goes back through the ordinary way
+    /// back, and writing goes off once it is confirmed (`PowerWatchdog`).
     func tripFanWatchdog() {
         locked {
-            let curve = (od8Held & (GPUControlOD8Held.curve.rawValue | GPUControlOD8Held.unknown.rawValue)) != 0
-            guard curve, od8Dirty, !tornDown, !owner.isOff else { return }
+            if !od8Dirty, heldW > bootW, !tornDown, !owner.isOff, !powerOffAfterWayBack {
+                powerOffAfterWayBack = true
+                startRevert(owner.release(owner.owner))
+                return
+            }
+            let watched = GPUControlOD8Held.curve.rawValue | GPUControlOD8Held.unknown.rawValue
+                | GPUControlOD8Held.gfxMin.rawValue | GPUControlOD8Held.gfxMaxUp.rawValue
+            guard od8Held & watched != 0, od8Dirty, !tornDown, !owner.isOff else { return }
             if inSleep {
                 // After the wake Owner goes back, and writing goes off then.
                 od8OffAfterWayBack = true
@@ -279,6 +310,13 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 od8State["FanCurveHeld"] = curve.map { NSNumber(value: $0.temperatureC * 1_000 + $0.speedPercent) }
             }
             if od8Dirty, let gfx = od8HeldWant.gfxMaxMHz { od8State["GfxMaxHeld"] = NSNumber(value: gfx) }
+            if takesGfxMin {
+                if od8Dirty, let low = od8HeldWant.gfxMinMHz { od8State["GfxMinHeld"] = NSNumber(value: low) }
+                var takes: GPUControlOD8Held = [.curve, .zeroRpmOff, .gfxMax, .gfxMin]
+                if takesOverclock { takes.formUnion([.volt, .gfxMaxUp]) }
+                od8State["Takes"] = NSNumber(value: takes.rawValue)
+            }
+            if takesOverclock, od8Dirty, let mv = od8HeldWant.voltMV { od8State["VoltHeld"] = NSNumber(value: mv) }
             var all: [String: Any] = [
                 "Write": writeText(),
                 "WriteState": [
@@ -299,6 +337,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 if floor != 0 {
                     range["FloorW"] = NSNumber(value: floor)
                     range["MaxW"] = NSNumber(value: bootW)
+                    if takesOverclock { range["CeilW"] = NSNumber(value: Swift.max(ceilLocked, bootW)) }
                 }
                 if od8Ready, Self.bootPlausible(bootW) {
                     // Signed 32-bit, as the kext publishes them.
@@ -358,7 +397,19 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 out[0] = GPUControlReply.badVersion.rawValue
                 return out
             }
-            guard input.count == selector.inputCount, outputCount >= selector.outputCount else { return nil }
+            // 0.9.0 takes the longer forms; an older kext only its own counts
+            // (the 14-scalar setOD8 since the GFX minimum).
+            let countTaken: Bool
+            switch selector {
+            case .setOD8 where takesOverclock, .set where takesOverclock:
+                countTaken = selector.takes(inputCount: input.count)
+            case .setOD8 where takesGfxMin:
+                countTaken = input.count == GPUControlWire.setOD8InputCount
+                    || input.count == GPUControlWire.setOD8InputCountGfxMin
+            default:
+                countTaken = input.count == selector.inputCount
+            }
+            guard countTaken, outputCount >= selector.outputCount else { return nil }
             if var forced = forcedReplies[selector], !forced.isEmpty {
                 let reply = forced.removeFirst()
                 forcedReplies[selector] = forced
@@ -380,8 +431,11 @@ final class FakeGPUControlKext: @unchecked Sendable {
             case .set:
                 // 0.8.0: off and not armed come before any value (`valueGate`).
                 if generation == .v08, let gate = valueGate() { return [record(gate).rawValue] }
+                // 0.9.0's raise form: a flag the kext does not know is malformed.
+                let flags = input.count > 2 ? input[2] : 0
+                if flags & ~GPUControlWire.setWantRaise != 0 { return [record(.badArgs).rawValue] }
                 let reply: GPUControlReply = input[1] > 0xFFFF_FFFF
-                    ? .aboveBoot : set(client: client, watts: UInt32(input[1]))
+                    ? .aboveBoot : set(client: client, watts: UInt32(input[1]), raise: flags != 0)
                 return [reply.rawValue]
             case .alive:
                 return [(owner.alive(client, nowMs) ? GPUControlReply.ok : .notOwner).rawValue]
@@ -390,7 +444,8 @@ final class FakeGPUControlKext: @unchecked Sendable {
                 return [GPUControlReply.ok.rawValue]
             case .setOD8:
                 if generation == .v08, let gate = valueGate() { return [record(gate).rawValue, 0] }
-                guard let want = Self.want(from: input, maxGfxMHz: generation == .v08 ? 0x7FFF_FFFF : 5_000) else {
+                guard let want = Self.want(from: input, maxGfxMHz: generation == .v08 ? 0x7FFF_FFFF : 5_000,
+                                           overclock: takesOverclock) else {
                     return [GPUControlReply.badArgs.rawValue, 0]
                 }
                 let (reply, check) = setOD8(client: client, want: want)
@@ -399,11 +454,16 @@ final class FakeGPUControlKext: @unchecked Sendable {
         }
     }
 
-    /// The dispatcher's reading of `setOD8`'s 13 scalars; nil is malformed.
-    /// The clock's wire bound: 5000 MHz in 0.7.2, the 32-bit field in 0.8.0.
-    private static func want(from input: [UInt64], maxGfxMHz: UInt64) -> GPUControlOD8Want? {
+    /// The dispatcher's reading of `setOD8`'s 13 scalars (or 14 with a GFX
+    /// minimum, 15 with a GFX voltage, 0.9.0); nil is malformed. The clock's
+    /// wire bound: 5000 MHz in 0.7.2, the 32-bit field in 0.8.0. `overclock`:
+    /// the kext knows flag 4 (0.9.0).
+    private static func want(from input: [UInt64], maxGfxMHz: UInt64, overclock: Bool = false) -> GPUControlOD8Want? {
         let flags = input[1]
-        guard flags & ~(GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff) == 0, input[12] <= maxGfxMHz else {
+        let low = input.count > 13 ? input[13] : 0
+        let mv = input.count > 14 ? input[14] : 0
+        let known = GPUControlWire.wantCurve | GPUControlWire.wantZeroRpmOff | (overclock ? GPUControlWire.wantOverclock : 0)
+        guard flags & ~known == 0, input[12] <= maxGfxMHz, low <= 0x7FFF_FFFF, mv <= 0x7FFF_FFFF else {
             return nil
         }
         let curve = flags & GPUControlWire.wantCurve != 0
@@ -415,7 +475,10 @@ final class FakeGPUControlKext: @unchecked Sendable {
         }
         return GPUControlOD8Want(curve: curve ? points : nil,
                                  zeroRpmOff: flags & GPUControlWire.wantZeroRpmOff != 0,
-                                 gfxMaxMHz: input[12] == 0 ? nil : Int(input[12]))
+                                 gfxMaxMHz: input[12] == 0 ? nil : Int(input[12]),
+                                 gfxMinMHz: low == 0 ? nil : Int(low),
+                                 voltMV: mv == 0 ? nil : Int(mv),
+                                 overclock: flags & GPUControlWire.wantOverclock != 0)
     }
 
     // MARK: The kext's calls
@@ -457,12 +520,22 @@ final class FakeGPUControlKext: @unchecked Sendable {
         return bootW * UInt32(100 + powerPercentMin) / 100
     }
 
-    // `GPUControl::set` and the worker's `runSet`.
-    private func set(client: UInt64, watts: UInt32) -> GPUControlReply {
+    // `powerCeiling` (0.9.0): the start-up limit plus the card's power
+    // percent, cut at +15; 0 while the floor is not known.
+    private var ceilLocked: UInt32 {
+        guard floorLocked != 0, powerPercentFeature == 0x8 else { return floorLocked == 0 ? 0 : bootW }
+        guard powerPercentMax > 0 else { return bootW }
+        return bootW * UInt32(100 + Swift.min(powerPercentMax, 15)) / 100
+    }
+
+    // `GPUControl::set` and the worker's `runSet`. `raise`: the 3-scalar
+    // form's flag (0.9.0).
+    private func set(client: UInt64, watts: UInt32, raise: Bool = false) -> GPUControlReply {
         startRevert(owner.expired(nowMs))
         if owner.isOff || owner.isReadOnly { return record(.off) }
         let reply: GPUControlReply
-        switch Self.routeSet(boot: bootW, floor: floorLocked, watts: watts) {
+        let ceil = raise ? ceilLocked : 0
+        switch Self.routeSet(boot: bootW, floor: floorLocked, watts: watts, ceil: ceil) {
         case .refuse(let refusal):
             reply = refusal
         case .release:
@@ -475,6 +548,9 @@ final class FakeGPUControlKext: @unchecked Sendable {
             if pre == .ok, od8Dirty { pre = .busy }
             guard pre == .ok else { return record(pre) }
             if workerStalled { return record(timeout(client: client)) }
+            // A raised limit is held under the watchdog: never one it cannot
+            // watch (runSet, 0.9.0).
+            if raise, watts > bootW, !dogSees { return record(.noReadings) }
             reply = runSet(client: client, watts: watts)
         }
         return record(reply)
@@ -536,7 +612,9 @@ final class FakeGPUControlKext: @unchecked Sendable {
         if sleepingLocked { return (.sleeping, .ok) }
         if heldW != 0 || limitUnknown { return (.busy, .ok) }
         var check = GPUControlOD8Check.ok
-        if want.curve != nil, !dogSees { check = .noReadings }
+        // Never a curve, a raised GFX minimum or (0.9.0) an overclock the
+        // watchdog cannot watch.
+        if want.curve != nil || want.gfxMinMHz != nil || want.overclock, !dogSees { check = .noReadings }
         if check == .ok, !gpuAnswers { return (.notReady, .ok) }
         if check == .ok { check = checkOD8(want) }
         if check != .ok {
@@ -566,7 +644,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
             turnOffLocked(.od8Failed)
             return (.failed, .ok)
         }
-        od8Held = want.heldFlags.rawValue
+        od8Held = want.heldFlags(stockGfxMaxMHz: stockGfxMaxMHz).rawValue
         od8HeldWant = want
         od8Changes += 1
         od8LastCheck = 0
@@ -594,8 +672,18 @@ final class FakeGPUControlKext: @unchecked Sendable {
             if curve[0].temperatureC > 30 { return .curveFirst }
             if let last = curve.last, last.speedPercent != 100 || last.temperatureC > fanTargetC - 22 { return .curveLast }
         }
-        if let gfx = want.gfxMaxMHz, gfx < GPUControlWire.gfxFloorMHz || gfx > stockGfxMaxMHz || gfx < gfxMinMHz {
+        let top = want.overclock ? gfxMaxTopMHz : stockGfxMaxMHz
+        if let gfx = want.gfxMaxMHz, gfx < GPUControlWire.gfxFloorMHz || gfx > top || gfx < gfxMinMHz {
             return .gfxRange
+        }
+        if let low = want.gfxMinMHz, low < gfxMinMHz || low > gfxMinTopMHz || low > (want.gfxMaxMHz ?? stockGfxMaxMHz) {
+            return .gfxMinRange
+        }
+        if let mv = want.voltMV {
+            guard takesOverclock else { return .noFeature }
+            if mv < voltMinMV || mv > voltStockMV || (voltStockMV - mv) % GPUControlWire.voltStepMV != 0 {
+                return .voltRange
+            }
         }
         return .ok
     }
@@ -618,6 +706,8 @@ final class FakeGPUControlKext: @unchecked Sendable {
     private func statusScalars(client: UInt64) -> [UInt64] {
         var flags: GPUControlFlags = []
         if od8Ready { flags.insert(.od8Ready) }
+        if takesGfxMin { flags.insert(.gfxMin) }
+        if takesOverclock { flags.formUnion([.volt, .raise]) }
         if owner.isArmed { flags.insert(.armed) }
         if owner.isOff || owner.isReadOnly { flags.insert(.off) }
         if sleepingLocked { flags.insert(.sleeping) }
@@ -642,6 +732,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
         if !owner.isArmed { return "closed: sudo gpucontrol arm opens it until restart" }
         if sleepingLocked { return "armed: the Mac is between sleep and wake" }
         if owner.isReverting || pendingRevert != 0 { return "armed: going back to the start-up limit" }
+        if owner.owner != 0, owner.isChanged, heldW > bootW { return "armed: a program holds a raised limit (watchdog on)" }
         if owner.owner != 0, owner.isChanged { return "armed: a program holds a lower limit" }
         return "armed: nothing held"
     }
@@ -654,7 +745,7 @@ final class FakeGPUControlKext: @unchecked Sendable {
         if od8Held & GPUControlOD8Held.unknown.rawValue != 0 {
             return "armed: the last OD8 call was not taken; going back to stock"
         }
-        if od8Dirty, od8Held != 0 { return "armed: a program holds a fan or clock change" }
+        if od8Dirty, od8Held != 0 { return "armed: a program holds a fan, clock or voltage change" }
         if od8Dirty { return "armed: going back to stock" }
         return "armed: OD8 at stock"
     }
@@ -752,6 +843,10 @@ final class FakeGPUControlKext: @unchecked Sendable {
         } else {
             if !owner.isChanged { heldW = 0 }
             reverts += 1
+            if powerOffAfterWayBack {
+                powerOffAfterWayBack = false
+                turnOffLocked(.powerWatchdog)
+            }
         }
     }
 
@@ -786,11 +881,18 @@ final class FakeGPUControlKext: @unchecked Sendable {
     private enum Route { case refuse(GPUControlReply), release, change }
 
     // `checkPower` and `routeSet`. `floor` 0: not known (0.8.0), only the
-    // start-up value is taken.
-    private static func routeSet(boot: UInt32, floor: UInt32, watts: UInt32) -> Route {
+    // start-up value is taken. `ceil` (0.9.0): the card's ceiling, given only
+    // for a request with the raise flag; 0, or not above the start-up value,
+    // refuses anything above it as before.
+    private static func routeSet(boot: UInt32, floor: UInt32, watts: UInt32, ceil: UInt32 = 0) -> Route {
         if !bootPlausible(boot) { return .refuse(.noBootValue) }
         if watts == boot { return .release }
-        if watts > boot { return .refuse(.aboveBoot) }
+        if watts > boot {
+            if ceil <= boot { return .refuse(.aboveBoot) }
+            if watts > ceil { return .refuse(.aboveCeiling) }
+            if watts != ceil, watts % UInt32(GPUControlWire.powerStepW) != 0 { return .refuse(.notAStep) }
+            return .change
+        }
         if floor == 0 || floor > boot { return .refuse(.noFloor) }
         if watts < floor { return .refuse(.belowFloor) }
         if watts % UInt32(GPUControlWire.powerStepW) != 0 { return .refuse(.notAStep) }

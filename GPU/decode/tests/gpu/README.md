@@ -24,6 +24,8 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `vtlegacytest` | yes, through VideoToolbox | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` (without it, it only cuts the stream into samples) |
 | `vtav1test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtvp9test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
+| `vtjpegtest` | yes, through VideoToolbox and the VCNJpeg kext | **yes** | none: a decode run is armed (`-apple` runs on the CPU only) |
+| `mkmjpeg422` | no | no | none |
 | `vtchurn` | yes, through VideoToolbox | **yes** | none: every session decodes |
 | `probe_ctx` | yes | low risk: it opens a session, it decodes nothing | none |
 | `tools/driver/dryrun.py`, `dryrun_vp9.py` | yes, under lldb | the driver's own setup goes out; our commands do not | the scripts arm the program themselves |
@@ -147,6 +149,23 @@ VCNVP9_SESSION=vp9 VCNVP9_ALLOW_GPU=yes-i-know-it-can-hang \
 
 A pass: one line per frame ending in `OK`, then `N frames, 0 mismatches`, and exit status 0.
 
+## vtjpegtest
+
+Motion JPEG through VideoToolbox, every frame compared with FFmpeg's decode (within 2: the
+block's IDCT rounds a little differently). It needs `VCNJpeg.kext` running
+([jpeg/README.md](../../../jpeg/README.md)).
+
+```bash
+ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -frames:v 30 -pix_fmt yuvj420p -c:v mjpeg -q:v 3 -f mjpeg c420.mjpeg
+ffmpeg -i c420.mjpeg -f rawvideo -pix_fmt yuvj420p r420.yuv
+decode/build/gpu/vtjpegtest -apple c420.mjpeg r420.yuv 1280 720 420            # CPU only: checks the clip
+decode/build/gpu/vtjpegtest -load decode/build/JPEGVCNDecoder.bundle c420.mjpeg r420.yuv 1280 720 420
+decode/build/gpu/vtjpegtest -system c420.mjpeg r420.yuv 1280 720 420           # the installed plug-in
+```
+
+`-dmb1` sends the same pictures as OpenDML. `mkmjpeg422` writes the 4:2:2 sampling webcams
+use (luma 2x1), which FFmpeg does not write.
+
 ## vtav1test and vtvp9test
 
 They decode through the public VideoToolbox API, the way Safari does. They test the plug-in
@@ -165,8 +184,11 @@ decode/build/gpu/vtvp9test -load decode/build/VP9VCNDecoder.bundle v.ivf v.ivf.m
   bundle cannot be registered. Pass `-id` with the decoder ID that `list` prints for it,
   or VideoToolbox may pick the installed decoder instead of the one you loaded.
 - `-n` reads no pixels. `-a` decodes asynchronously. `-pace fps` feeds frames at a fixed
-  rate and reports how late they come out. `vtvp9test` also has `-loop N` (the file N times
-  in one session), `-frames N` and `-sw` (does not ask for hardware). `vtav1test -sw` decodes
+  rate and reports how late they come out. `-loop N` feeds the file N times in one session
+  and prints a line with the time after each pass; `-renew` makes a new session for every
+  pass, in the same process. Together they make the sleep test: `-loop 100 -pace 30` across
+  `pmset sleepnow` (`docs/testing.md`). `vtvp9test` also has `-frames N` and `-sw` (does
+  not ask for hardware). `vtav1test -sw` decodes
   in software only: it turns hardware decoders off and stops before the first frame if
   VideoToolbox gives one anyway. (Apple's software AV1 decoder refused every stream here on
   macOS 26.7.3, 8-bit too: -12906.)

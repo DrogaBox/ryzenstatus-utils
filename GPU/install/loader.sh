@@ -113,16 +113,20 @@ USABLE_UNKNOWN="not known whether it lists the plug-ins (none built in ${BUNDLES
 source $SELF_DIR/efikext.zsh
 
 # 0 the kext lists both plug-ins, 1 it does not, 2 there are no built plug-ins to compare with.
-# With VCNVT_LEGACY_DECODERS=1 the MPEG-2, VC-1 and MPEG-4 plug-ins count too.
+# With VCNVT_LEGACY_DECODERS=1 the MPEG-2, VC-1 and MPEG-4 plug-ins count too, and with
+# VCNVT_JPEG_DECODER=1 the JPEG one.
 lists_both() { # kext-dir
   [[ -d $BUNDLES/$AV1 && -d $BUNDLES/$VP9 ]] || return 2
   kext_lists "$1" "$BUNDLES/$AV1" && kext_lists "$1" "$BUNDLES/$VP9" || return 1
-  legacy_on || return 0
   local b
-  for b in $LEGACY_BUNDLES; do
+  local -a more=()
+  legacy_on && more+=($LEGACY_BUNDLES)
+  jpeg_on && more+=($JPEG_BUNDLE)
+  for b in $more; do
     [[ -d $BUNDLES/$b ]] || return 2
     kext_lists "$1" "$BUNDLES/$b" || return 1
   done
+  return 0
 }
 # ---- preflight -----------------------------------------------------------------------------
 CAN_INSTALL=0
@@ -149,7 +153,7 @@ preflight() {
   elif [[ ! -f $KEXT/Contents/MacOS/VCNVTLoader ]]; then
     add_check loader-match "The kext lists the plug-ins" fail "there is no kext to look into"
   elif lists_both "$KEXT"; then
-    add_check loader-match "The kext lists the plug-ins" ok "$(legacy_on && print "all five plug-ins (with MPEG-2, VC-1 and MPEG-4)" || print "both plug-ins") $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
+    add_check loader-match "The kext lists the plug-ins" ok "$(legacy_on && print "the AV1, VP9, MPEG-2, VC-1 and MPEG-4 plug-ins" || print "both plug-ins")$(jpeg_on && print " and the JPEG one") $(pick "in $BUNDLES" "inside RyzenStatus GPU.app")"
   else
     add_check loader-match "The kext lists the plug-ins" fail "this kext was built for other plug-ins than the ones $(pick "in $BUNDLES" "inside RyzenStatus GPU.app"), so it would refuse them. $(pick "Build both again with ./build.sh: the kext and the plug-ins must come from the same build." "$APP_DAMAGED.")"
     CAN_INSTALL=0
@@ -218,6 +222,7 @@ look_accepted() {
   fi
   local -a exes=("$(plugin_exe $BUNDLES $AV1)" "$(plugin_exe $BUNDLES $VP9)") b
   if legacy_on; then for b in $LEGACY_BUNDLES; do exes+=("$(plugin_exe $BUNDLES $b)"); done; fi
+  jpeg_on && exes+=("$(plugin_exe $BUNDLES $JPEG_BUNDLE)")
   lv_accepts "$PROBE" "${exes[@]}"
   case $? in
     0) ACCEPT_WHY="asked the kernel"; ACCEPTED=yes ;;
