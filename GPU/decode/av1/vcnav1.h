@@ -35,20 +35,14 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
 void vcnav1_flush(VcnAV1* d);
 
 // True when a parsed frame is a place a session can start over: nothing decoded
-// before it is used after it. An intra frame reads no reference, so the only
-// thing a later frame could need from before it is a slot it did not replace:
-// a key frame, or an intra-only frame whose refresh_frame_flags is 0xFF.
-// (AV1 spec 7.2.2: FrameIsIntra is 1 for KEY_FRAME and INTRA_ONLY_FRAME and
-// refresh_frame_flags is read for both; 7.20, reference frame update: every
-// slot whose bit is set is replaced by this frame, so 0xFF leaves none.)
-// Chromecast-style and screen-share streams send long runs of intra-only frames
-// and no key frame at all; 0.3.7 accepted key frames only, so their rebuild
-// waited for ever.
+// before it is used after it, which in AV1 is a key frame that refreshes all
+// eight slots. An intra-only frame cannot be one: the spec makes
+// refresh_frame_flags 0xFF on an intra-only frame a conformance error (dav1d
+// refuses it in strict mode, src/obu.c), so such a frame always keeps a slot a
+// later frame may read.
 #define VCN_AV1_RESTART_PREDICATE 1
 static inline bool vcnav1_is_restart(const AV1Frame* h, AV1ParseResult kind) {
-  return kind == AV1_PARSE_FRAME_READY &&
-         (h->frame_type == AV1_KEY_FRAME ||
-          h->frame_type == AV1_INTRA_ONLY_FRAME) &&
+  return kind == AV1_PARSE_FRAME_READY && h->frame_type == AV1_KEY_FRAME &&
          h->refresh_frame_flags == 0xFF;
 }
 const char* vcnav1_last_error(VcnAV1* d);

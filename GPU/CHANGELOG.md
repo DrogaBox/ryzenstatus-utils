@@ -28,13 +28,10 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   -12911. The session is now rebuilt the way any other failure after a wake is: the frame is
   dropped with no error, the frames up to the next key frame too, and the key frame decodes
   on the new driver (AV1 and VP9).
-- Two more restart points are accepted, both of which a stream may send without ever sending
-  a key frame: an AV1 intra-only frame that refreshes all eight reference slots, and a VP9
-  intra-only frame that refreshes all eight and resets all four probability contexts with
-  `reset_frame_context` 2 (0.3.7 accepted only the error-resilient form and 3). A stream of
-  intra-only frames could otherwise wait for a key frame for ever, and after a failure it was
-  stopped at the 600-frame limit although every one of those frames was a place to start
-  over.
+- The rule for where a session can start over is in one place per codec, with a test:
+  an AV1 key frame that refreshes all eight slots; a VP9 key frame, or a VP9 intra-only
+  frame that refreshes all eight and resets all four probability contexts
+  (error-resilient mode or `reset_frame_context` 3), as in 0.3.7.
 - The 15 s limit now also covers the first command on the rebuilt session. Right after a wake
   the engine can still take seconds, and 0.3.7 gave the fresh context the usual 1 s, which
   could stop a healthy session on its first frame.

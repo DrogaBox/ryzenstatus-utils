@@ -165,10 +165,10 @@ So an AV1 or VP9 session from before a sleep keeps decoding (`vcn_session_lost` 
 `decode/common/vcnsession.c` only notices the sleep), and its driver objects are replaced at
 its next restart point, where nothing decoded before is needed any more (`rebuild_now` in
 `vcnav1.c` and `vcnvp9.c`, and the rule itself in `vcnav1_is_restart` / `vcnvp9_is_restart`):
-an AV1 key frame or intra-only frame that refreshes all eight reference slots (spec 7.2.2,
-7.20), a VP9 key frame, or a VP9 intra-only frame that refreshes all eight slots and resets
-all four probability contexts (`reset_frame_context` 2, 3 or error-resilient mode; bitstream
-spec 6.2). The old accelerator is closed with `AVD_DestroyAVDAccelerator` only, on the
+an AV1 key frame that refreshes all eight reference slots (an intra-only frame never may),
+a VP9 key frame, or a VP9 intra-only frame that refreshes all eight slots and resets all
+four probability contexts (`reset_frame_context` 3 or error-resilient mode; 2 resets only
+one). The old accelerator is closed with `AVD_DestroyAVDAccelerator` only, on the
 teardown queue and never on the decoding thread, a new accelerator, driver, context and
 bitstream pool are opened in the same plug-in session, and the frame decodes on them; no
 frame is dropped. If the old session fails after the wake (a driver call fails, a command

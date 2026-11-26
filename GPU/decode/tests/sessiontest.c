@@ -1186,12 +1186,11 @@ int main(int argc, char** argv) {
     bool inter = vcnav1_is_restart(&f, AV1_PARSE_FRAME_READY);
     bool other = vcnav1_is_restart(&f, AV1_PARSE_SHOW_EXISTING);
     expect("AV1 restarts at a key frame", key);
-    expect("and at an intra-only frame that refreshes all eight slots",
-           intraAll);
     expect(
-        "not at one that keeps a slot, nor at an inter frame, nor at "
-        "show_existing",
-        !intraHalf && !inter && !other);
+        "not at an intra-only frame, which the spec never lets refresh all "
+        "eight slots",
+        !intraAll && !intraHalf);
+    expect("nor at an inter frame, nor at show_existing", !inter && !other);
 #else
     VP9Frame f;
     memset(&f, 0, sizeof(f));
@@ -1207,11 +1206,13 @@ int main(int argc, char** argv) {
     bool errRes = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
     f.frame_type = 0;
     bool key = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
-    expect("VP9 restarts at an intra-only frame that resets all four contexts",
-           ctxAll);
+    expect(
+        "VP9 does not restart at an intra-only frame with "
+        "reset_frame_context 2, which resets one context",
+        !ctxAll);
     expect("and at one with error_resilient mode and reset_frame_context 3",
            errRes);
-    expect("not at one that resets a single context", !ctxOne);
+    expect("not at one that resets no context", !ctxOne);
     expect("and at a key frame", key);
 #endif
   }

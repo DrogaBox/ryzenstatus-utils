@@ -754,10 +754,9 @@ static bool seq_supported(const AV1Seq* s) {
 static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
   VcnAV1* d = vctx;
   const AV1Frame* h = &p->fh;
-  // A frame nothing decoded before it is used after: a key frame, or an
-  // intra-only frame that refreshes all eight slots (vcnav1_is_restart, with
-  // the spec sections). A hidden frame that keeps some slots is not one: the
-  // frames after it may still use those.
+  // A frame nothing decoded before it is used after: a key frame that
+  // refreshes all eight slots (vcnav1_is_restart). A hidden key frame that
+  // keeps some slots is not one: the frames after it may still use those.
   bool restart = vcnav1_is_restart(h, kind);
   // The system slept since the driver side opened, and it kept decoding (a
   // real sleep on this Mac did not break it): it is replaced at the first such

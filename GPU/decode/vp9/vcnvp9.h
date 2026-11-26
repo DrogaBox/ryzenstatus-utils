@@ -59,18 +59,16 @@ unsigned vcnvp9_firmware_errors(VcnVP9* d);
 
 // True when a parsed frame is a place a session can start over: nothing decoded
 // before it is used after it. A key frame, or an intra-only frame that replaces
-// all eight slots and resets all four probability contexts. (VP9 bitstream
-// spec 6.2: refresh_frame_flags is read for intra-only frames too, and 0xFF
-// refreshes every slot; reset_frame_context 2 means "reset all four contexts",
-// 3 means "reset all four if error_resilient_mode", and error_resilient_mode
-// itself already makes the frame independent of the ones before it. 0.3.7
-// accepted 3 and error_resilient_mode only, so a stream whose intra-only
-// frames reset the contexts with 2 never had a place to rebuild at.)
+// all eight slots and resets all four probability contexts:
+// error_resilient_mode or reset_frame_context 3. reset_frame_context 2 resets
+// only the context frame_context_idx names (libvpx
+// vp9_setup_past_independence), and the other three live in the old driver's
+// buffers: a later frame that reads one of them would decode with the new
+// session's default probabilities.
 #define VCN_VP9_RESTART_PREDICATE 1
 static inline bool vcnvp9_is_restart(const VP9Frame* h, VP9ParseResult kind) {
   if (kind != VP9_PARSE_DECODE) return false;
   if (h->frame_type == 0) return true;
   return h->intra_only && h->refresh_frame_flags == 0xff &&
-         (h->error_res || h->reset_frame_context == 2 ||
-          h->reset_frame_context == 3);
+         (h->error_res || h->reset_frame_context == 3);
 }
