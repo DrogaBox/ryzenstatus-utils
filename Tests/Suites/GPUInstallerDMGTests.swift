@@ -310,12 +310,12 @@ enum GPUInstallerDMGTests {
         }
         // The guided install: install.sh plan, and the two flags the boxes add.
         let install = (try? String(contentsOf: parts.appendingPathComponent("install/install.sh"), encoding: .utf8)) ?? ""
-        for flag in ["plan"] + Set(all("append\\(\"(--with-[a-z]+)\"\\)", in: main)).sorted()
+        for flag in ["plan"] + Set(all("append\\(\"(--with-[a-z-]+)\"\\)", in: main)).sorted()
         where !takes(install, flag, after: nil) {
             missing.append("install/install.sh \(flag)")
         }
-        suite.expect(main.contains("var args = [\"plan\"]") && main.components(separatedBy: "append(\"--with-").count == 5,
-                     "the guided install passes plan, --with-encoder and --with-sensors to install/install.sh")
+        suite.expect(main.contains("var args = [\"plan\"]") && main.components(separatedBy: "append(\"--with-").count == 9,
+                     "the guided install passes plan, --with-encoder, --with-sensors, --with-jpeg and --with-legacy-decoders to install/install.sh")
         suite.expect(missing.isEmpty, "every argument the installer passes is one its script takes: \(missing)")
     }
 
