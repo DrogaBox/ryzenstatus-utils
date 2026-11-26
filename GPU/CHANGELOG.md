@@ -2,6 +2,39 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Decoders 0.3.8 (not released; host tests only)
+
+- A review of 0.3.7 found five things to fix in the sleep work; this release is those fixes.
+- A sleep that lands inside a decode call is no longer taken for a broken GPU. The clock the
+  1 s timeout is measured on stops while the Mac is asleep, so the frame that was on the GPU
+  when it slept times out right after the wake, and 0.3.7 stopped the session there with
+  -12911. The session is now rebuilt the way any other failure after a wake is: the frame is
+  dropped with no error, the frames up to the next key frame too, and the key frame decodes
+  on the new driver (AV1 and VP9).
+- Two more restart points are accepted, both of which a stream may send without ever sending
+  a key frame: an AV1 intra-only frame that refreshes all eight reference slots, and a VP9
+  intra-only frame that refreshes all eight and resets all four probability contexts with
+  `reset_frame_context` 2 (0.3.7 accepted only the error-resilient form and 3). A stream of
+  intra-only frames could otherwise wait for a key frame for ever, and after a failure it was
+  stopped at the 600-frame limit although every one of those frames was a place to start
+  over.
+- The 15 s limit now also covers the first command on the rebuilt session. Right after a wake
+  the engine can still take seconds, and 0.3.7 gave the fresh context the usual 1 s, which
+  could stop a healthy session on its first frame.
+- The old accelerator is now always closed on the background queue, not on the thread that
+  decoded the key frame. The quiet path (the last command had finished) closed it inline,
+  where the kernel's close of a video context can still wait after a wake.
+- The replacement log line now says what the old driver objects cost (up to 96 MiB per
+  replacement, not returned until the process ends), so the log accounts for them where they
+  are left behind, not only when such a session is closed.
+- A dead counter (`rebuilds`) is gone.
+- The firmware-result rule of 0.3.7 is unchanged: a nonzero result on a session from before a
+  sleep still forces the replacement. What each value means has not been checked on a GPU,
+  so reacting to all of them is the safe side; the real sleep test measures whether a
+  healthy wake ever reports one.
+
+## Decoders 0.3.7 (not released; host tests only)
+
 ## GPU sensors 0.9.1 (host tests only, not booted)
 
 - The readings keep up when nothing outside polls them. The driver reads the PMLog only when

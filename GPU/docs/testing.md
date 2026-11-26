@@ -113,7 +113,7 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
   leaves no context to delete, and `QueryAVDCommandStatus` with `.wait = 0` returns at
   once (status 1 done, 2 running). Still open: how long the kernel's own wait can last
   after a GPU restart.
-- Decoders 0.3.7, a system sleep during a decode: `vtvp9test` and `vtav1test` with
+- Decoders 0.3.8, a system sleep during a decode: `vtvp9test` and `vtav1test` with
   `-loop N -pace 30` keep one session going across `pmset sleepnow`, and `-renew` makes a
   new session for every pass in the same process. No pass may have errors or frames that
   differ from the reference, before or after the wake, and the kernel log must show no GPU
@@ -121,6 +121,9 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
   "keeps decoding and is rebuilt at the next key frame" and "driver rebuilt at the first key
   frame after the sleep"; "failed after the wake" means the old session failed and frames
   were dropped up to a key frame. A first real run of 0.3.6 on this Mac (2026-11-25) failed
-  every frame of the old sessions; 0.3.5 passed. Only `sessiontest` and `staletest` (made-up
-  driver and sleep) have run for 0.3.7.
+  every frame of the old sessions; 0.3.5 passed. For 0.3.8, also count "the system slept
+  while a frame was on the GPU" (a sleep that landed inside a decode call; it must be
+  followed by a replacement line, not by -12911) and any malfunction in the first frame
+  after a replacement (the 15 s limit must cover it). Only `sessiontest` and `staletest`
+  (made-up driver and sleep) have run for 0.3.8.
 - Everything at once: `install/check.sh` ends in one line.

@@ -145,7 +145,7 @@ ends. A failed driver call or a stuck command is reported to VideoToolbox as a m
 `canAcceptFormatDescription` says no from then on. It reads the format under a lock of its
 own, so it never waits for a frame the GPU is decoding.
 
-### A system sleep (0.3.7)
+### A system sleep (0.3.8)
 
 Apple's kernel driver keeps a decoder's video context across a sleep, but restarts the
 video engine under it. Read in IDA (AMDRadeonX6000, 26.7.3 KDK): `systemWillSleep` calls
@@ -163,19 +163,27 @@ a hang after a wake, which was not reproduced here.
 
 So an AV1 or VP9 session from before a sleep keeps decoding (`vcn_session_lost` in
 `decode/common/vcnsession.c` only notices the sleep), and its driver objects are replaced at
-its next key frame, where nothing decoded before is needed any more (`rebuild_now` in
-`vcnav1.c` and `vcnvp9.c`): an AV1 key frame that refreshes all eight reference slots, a VP9
-key frame, or a VP9 intra-only frame that refreshes all eight and resets all four
-probability contexts. The old accelerator is closed with `AVD_DestroyAVDAccelerator` only,
-a new accelerator, driver, context and bitstream pool are opened in the same plug-in
-session, and the key frame decodes on them; no frame is dropped. If the old session fails
-after the wake (a driver call fails, a command does not finish, or the firmware reports an
-error), it is replaced at once and the frames up to the next such key frame are dropped:
-noErr with no picture, as for a hidden frame, at most 600 of them, then a malfunction
-(-12911). A command that did not finish has its accelerator closed on the background
-queue, and its pictures are let go after that. Until the replacement, a command on the old
-session may take 15 s instead of 1 s. A replacement that fails stops the session with
--12911, and VideoToolbox makes a new decoder.
+its next restart point, where nothing decoded before is needed any more (`rebuild_now` in
+`vcnav1.c` and `vcnvp9.c`, and the rule itself in `vcnav1_is_restart` / `vcnvp9_is_restart`):
+an AV1 key frame or intra-only frame that refreshes all eight reference slots (spec 7.2.2,
+7.20), a VP9 key frame, or a VP9 intra-only frame that refreshes all eight slots and resets
+all four probability contexts (`reset_frame_context` 2, 3 or error-resilient mode; bitstream
+spec 6.2). The old accelerator is closed with `AVD_DestroyAVDAccelerator` only, on the
+teardown queue and never on the decoding thread, a new accelerator, driver, context and
+bitstream pool are opened in the same plug-in session, and the frame decodes on them; no
+frame is dropped. If the old session fails after the wake (a driver call fails, a command
+does not finish, the firmware reports an error, or the machine slept while a frame was on the
+GPU), it is replaced at once and the frames up to the next restart point are dropped: noErr
+with no picture, as for a hidden frame, at most 600 of them, then a malfunction (-12911). A
+command that did not finish has its accelerator closed on the background queue, and its
+pictures are let go after that. Until the replacement, and for the first command that
+finishes on the new session, a command may take 15 s instead of 1 s: right after a wake a
+fresh context can still be slow, and 0.3.7 dropped that protection at the replacement itself.
+A replacement that fails stops the session with -12911, and VideoToolbox makes a new decoder.
+
+The sleep may also land inside a decode call: the frame is on the GPU, the 1 s timeout is
+measured on a clock that stops while the machine is asleep, so the wait expires right after
+the wake. That case now reaches the same replacement instead of stopping the session.
 
 A sleep is seen without any notification: the time the Mac has spent asleep
 (`mach_continuous_time` minus `mach_absolute_time`), the time of the last wake
