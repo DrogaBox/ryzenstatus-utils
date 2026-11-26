@@ -74,6 +74,13 @@ jobs:
       - name: AMD concurrency gate
         run: ./Tools/concurrency-gate.sh
 
+      # 1.90.0 shipped an installer that called /usr/bin/chown, which is not there on macOS;
+      # every install stopped after the password. This reads what the root installers and the
+      # installer window name and fails on a path this runner does not have, before any disk
+      # image is built.
+      - name: Installer command paths
+        run: zsh GPU/tests/command_paths.sh
+
   # Build and packaging are independent of the tests. Running them in parallel
   # keeps the PR's wall clock near the longer half instead of their sum; a
   # failed test job still fails the workflow and release.yml only reuses a run
