@@ -28,6 +28,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # folders of a checkout, which the person in front of the app does not have.
 IN_APP=0
 [[ ${${(%):-%x}:A:h:h} == *.app/Contents/Resources/GPU ]] && IN_APP=1
+# The app runs a root-owned copy of these files from /private/tmp, and says where it came from.
+[[ ${GPU_APP_ROOT:-} == *.app/Contents/Resources/GPU ]] && IN_APP=1
 # pick <text for a checkout> <text for the app>
 pick() { if (( IN_APP )); then print -rn -- "$2"; else print -rn -- "$1"; fi; }
 # What a missing or broken file of the package means in the app.
@@ -78,6 +80,69 @@ displays_report() {
     return 0
   fi
   /usr/sbin/system_profiler SPDisplaysDataType 2>/dev/null
+}
+
+# ---- root-owned folders and packages --------------------------------------------------------
+# A root script may only run from, or write to, a folder no other user can change. This is the
+# rule for /usr/local/bin and /usr/local/libexec: every part of the path must be a real folder
+# owned by root, writable by root only, with no ACL.
+gpu_dir_unsafe() { # folder
+  local d=$1 owner mode
+  while [[ $d != / ]]; do
+    if [[ -e $d || -L $d ]]; then
+      [[ -d $d && ! -L $d ]] || { print -r -- "$d is not a folder"; return 0; }
+      owner=$(/usr/bin/stat -f '%Su' "$d")
+      mode=$(/usr/bin/stat -f '%Lp' "$d")
+      [[ $owner == root ]] || { print -r -- "$d belongs to $owner, not root"; return 0; }
+      (( (8#$mode & 8#022) == 0 )) || { print -r -- "$d can be written by others than root (mode $mode)"; return 0; }
+      [[ $(/bin/ls -lde "$d" 2>/dev/null | head -1 | cut -c11) == "+" ]] &&
+        { print -r -- "$d has an access control list"; return 0; }
+    fi
+    d=${d:h}
+  done
+  return 1
+}
+
+# Copies a package into a new root-only folder, makes the copy root-owned and checks every
+# file against its SHA256SUMS. Sets STAGE_PKG to the copy; stage_cleanup removes it.
+STAGE_PKG=""
+stage_package() { # package folder
+  local src=$1 dst listed present
+  STAGE_PKG=""
+  [[ $EUID -eq 0 ]] || { print -r -u2 -- "only root can stage a package"; return 1; }
+  [[ -f $src/SHA256SUMS && ! -L $src/SHA256SUMS ]] ||
+    { print -r -u2 -- "$src has no SHA256SUMS"; return 1; }
+  dst=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-pkg.XXXXXX) || return 1
+  /bin/chmod 700 "$dst" || { /bin/rm -rf "$dst"; return 1; }
+  if ! /usr/bin/ditto --norsrc --noextattr "$src" "$dst/pkg"; then
+    /bin/rm -rf "$dst"
+    print -r -u2 -- "could not copy $src"
+    return 1
+  fi
+  if ! /usr/bin/chown -R root:wheel "$dst/pkg" || ! /bin/chmod -R go-w "$dst/pkg" ||
+     ! /bin/chmod -R -N "$dst/pkg" 2>/dev/null; then
+    /bin/rm -rf "$dst"
+    print -r -u2 -- "could not make the copy of $src root-owned"
+    return 1
+  fi
+  if ! (cd "$dst/pkg" && /usr/bin/shasum -a 256 -c -s SHA256SUMS) ||
+     [[ -n $(/usr/bin/find "$dst/pkg" -type l -print -quit) ]]; then
+    /bin/rm -rf "$dst"
+    print -r -u2 -- "the copy of $src does not match its SHA256SUMS"
+    return 1
+  fi
+  listed=$(cd "$dst/pkg" && /usr/bin/awk '{ sub(/^[0-9a-f]+  /, ""); print }' SHA256SUMS | LC_ALL=C /usr/bin/sort)
+  present=$(cd "$dst/pkg" && /usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort)
+  if [[ $listed != "$present" ]]; then
+    /bin/rm -rf "$dst"
+    print -r -u2 -- "SHA256SUMS does not list exactly the files of $src"
+    return 1
+  fi
+  STAGE_PKG=$dst/pkg
+}
+stage_cleanup() {
+  [[ -n $STAGE_PKG ]] && /bin/rm -rf "${STAGE_PKG:h}"
+  STAGE_PKG=""
 }
 
 # ---- the GPU sensors' commands in /usr/local/bin ---------------------------------------------
@@ -339,7 +404,8 @@ efi_choice_help() { # kind "script [options]"
   [[ $2 == *" "* ]] && opts=" ${2#* }"
   local term
   if (( IN_APP )); then
-    term="name the partition in Terminal: sudo '$SELF_DIR/$script'$opts --efi diskNsM (diskutil list shows them)"
+    local dir=${GPU_APP_ROOT:+$GPU_APP_ROOT/install}
+    term="name the partition in Terminal: sudo '${dir:-$SELF_DIR}/$script'$opts --efi diskNsM (diskutil list shows them)"
   else
     term="name it: sudo install/$script$opts --efi diskNsM (diskutil list shows them)"
   fi

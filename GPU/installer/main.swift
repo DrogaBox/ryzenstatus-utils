@@ -408,9 +408,7 @@ final class Engine: ObservableObject {
         phase = .running(title)
         lastActionTitle = title
         lastOutput = ""
-        let scriptPath = root.appendingPathComponent(script).path
-        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
-        let inner = "/bin/zsh \(Self.shq(scriptPath))\(argStr.isEmpty ? "" : " " + argStr) 2>&1"
+        let inner = Self.stagedCommand(root: root, script: script, args: args)
 
         DispatchQueue.global().async {
             let result = self.runPrivileged(inner)
@@ -478,6 +476,44 @@ final class Engine: ObservableObject {
 
     static func shq(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Copies the parts into a root-only folder, checks every copied file against the
+    /// package's SHA256SUMS, and runs the copy. The app bundle belongs to the user, so
+    /// root must not run a script from it.
+    ///
+    /// The SHA256SUMS file itself is pinned by the build: Tools/make-dmg.sh
+    /// passes GPU_PAYLOAD_SUMS_SHA256 to build.sh, which writes InstallerPin.swift.
+    /// A development build has no pin and says so instead of checking one.
+    static func stagedCommand(root: URL, script: String, args: [String]) -> String {
+        let argStr = args.map { Self.shq($0) }.joined(separator: " ")
+        let pin = InstallerPin.payloadSumsSHA256
+        let pinCheck: String
+        if pin.isEmpty {
+            pinCheck = "echo 'the parts have no pinned SHA256SUMS (development build); the list is not pinned'"
+        } else {
+            pinCheck = "actual=$(/usr/bin/shasum -a 256 SHA256SUMS | /usr/bin/awk '{print $1}') || exit 1; "
+                + "[ \"$actual\" = \(Self.shq(pin)) ] || { echo 'SHA256SUMS is not the pinned list'; exit 1; }"
+        }
+        let lines = [
+            "stage=$(/usr/bin/mktemp -d /private/tmp/ryzenstatus-gpu.XXXXXX) || exit 1",
+            "trap '/bin/rm -rf \"$stage\"' EXIT HUP INT TERM",
+            "/usr/bin/ditto --norsrc --noextattr \(Self.shq(root.path)) \"$stage/GPU\" || exit 1",
+            "/usr/bin/chown -R root:wheel \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R go-w \"$stage/GPU\" || exit 1",
+            "/bin/chmod -R -N \"$stage/GPU\" 2>/dev/null || exit 1",
+            "cd \"$stage/GPU\" || exit 1",
+            "[ -f SHA256SUMS ] && [ ! -L SHA256SUMS ] || { echo 'the parts have no SHA256SUMS'; exit 1; }",
+            pinCheck,
+            "/usr/bin/shasum -a 256 -c -s SHA256SUMS || exit 1",
+            "listed=$(/usr/bin/awk '{ sub(/^[0-9a-f]+  /, \"\"); print }' SHA256SUMS | LC_ALL=C /usr/bin/sort) || exit 1",
+            "present=$(/usr/bin/find . -type f ! -path ./SHA256SUMS -print | LC_ALL=C /usr/bin/sort) || exit 1",
+            "[ \"$listed\" = \"$present\" ] || { echo 'SHA256SUMS does not list exactly the files of the parts'; exit 1; }",
+            "[ -z $(/usr/bin/find . -type l -print -quit) ] || { echo 'the parts hold a link'; exit 1; }",
+            "export GPU_APP_ROOT=\(Self.shq(root.path))",
+            "/bin/zsh \"$stage/GPU/\(script)\"\(argStr.isEmpty ? "" : " " + argStr) 2>&1",
+        ]
+        return "/bin/zsh -c \(Self.shq(lines.joined(separator: "; ")))"
     }
 
     static func asq(_ s: String) -> String {
