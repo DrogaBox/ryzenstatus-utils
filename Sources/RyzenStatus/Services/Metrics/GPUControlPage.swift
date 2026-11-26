@@ -52,6 +52,10 @@ struct GPUControlFacts: Equatable, Sendable {
     /// raise form of `set` (status flag 2048; from the properties, `Takes`
     /// with the bit for a GFX maximum above stock).
     var takesRaise = false
+    /// Who holds the control while `owned` and not `mine` (GPUControlHolder):
+    /// `.other` until the probe says the gpucontrol this app installs does,
+    /// which is the only answer the app can give without it. Read only then.
+    var holder: GPUControlHolder = .other
 
     var writeOff: GPUControlWriteOff? { GPUControlWriteOff(rawValue: writeOffCode) }
     /// The read-only card (kext 0.8.0): read, never controlled.
@@ -948,7 +952,9 @@ struct GPUControlForeignWatch: Equatable, Sendable {
     /// `appHolds`: the app holds or asks for something; `appClosing`: the
     /// app asked to close a short while ago.
     mutating func next(facts: GPUControlFacts, appHolds: Bool, appClosing: Bool) -> Notice? {
-        let foreign = facts.owned && !facts.mine && !appHolds
+        // Our own gpucontrol holding the OD8 table is not a stranger: the
+        // owner ran it, and the page says so (GPUControlHolder).
+        let foreign = facts.owned && !facts.mine && !facts.holder.isOwnTool && !appHolds
         defer { foreignHeld = foreign }
         if facts.off || facts.isReadOnlyCard {
             wasArmed = nil

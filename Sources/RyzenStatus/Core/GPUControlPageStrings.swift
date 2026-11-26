@@ -19,6 +19,9 @@ struct GPUControlPageStrings {
     let reverting: String
     let sleeping: String
     let heldByOther: String
+    /// Held by the gpucontrol this app installs, not by another program
+    /// (GPUControlHolder, S-5 corrected).
+    let heldByTool: String
     let applying: String
     /// %d = watts.
     let heldPowerFormat: String
@@ -222,7 +225,7 @@ struct GPUControlPageStrings {
     /// Every text, for the tests.
     var all: [String] {
         [stateSection, powerSection, detailsSection, ready, closed, writingOff, waitingForDriver, reverting,
-         sleeping, heldByOther, applying, heldPowerFormat, reaskingFormat, otherVersionFormat, connectionLost,
+         sleeping, heldByOther, heldByTool, applying, heldPowerFormat, reaskingFormat, otherVersionFormat, connectionLost,
          readyWarning, restartMac, lost, backAfterWake, od8NotRead, liveLabel, liveFormat, powerLabel, bootFormat,
          wattsFormat, backToBoot, exclusiveNote, powerFooter, armClosed, openWriting, armPrompt, runInTerminal,
          copy, copied, notInstalled, unsafeToolFormat, armFailed, rememberToggle, rememberFooter, changes, reverts,
@@ -269,6 +272,7 @@ extension GPUControlPageStrings {
         reverting: "Returning to the start-up values",
         sleeping: "Waiting for the Mac to finish waking",
         heldByOther: "Another program has the control",
+        heldByTool: "gpucontrol, RyzenStatus's own tool, has the control",
         applying: "Applying…",
         heldPowerFormat: "RyzenStatus is holding %d W",
         reaskingFormat: "Back at the start-up values; asking for %d W again…",
@@ -368,6 +372,7 @@ extension GPUControlPageStrings {
         reverting: "Volviendo a los valores de arranque",
         sleeping: "Esperando a que el Mac termine de despertar",
         heldByOther: "Otro programa tiene el control",
+        heldByTool: "gpucontrol, la herramienta de RyzenStatus, tiene el control",
         applying: "Aplicando…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Volvió a los valores de arranque; pidiendo %d W de nuevo…",
@@ -467,6 +472,7 @@ extension GPUControlPageStrings {
         reverting: "Voltando aos valores de inicialização",
         sleeping: "Aguardando o Mac terminar de despertar",
         heldByOther: "Outro programa tem o controle",
+        heldByTool: "O gpucontrol, a ferramenta do RyzenStatus, tem o controle",
         applying: "Aplicando…",
         heldPowerFormat: "O RyzenStatus está mantendo %d W",
         reaskingFormat: "De volta aos valores de inicialização; pedindo %d W de novo…",
@@ -566,6 +572,7 @@ extension GPUControlPageStrings {
         reverting: "Başlangıç değerlerine dönülüyor",
         sleeping: "Mac'in uyanması bekleniyor",
         heldByOther: "Denetim başka bir programda",
+        heldByTool: "RyzenStatus'un kendi aracı gpucontrol denetimi tutuyor",
         applying: "Uygulanıyor…",
         heldPowerFormat: "RyzenStatus %d W tutuyor",
         reaskingFormat: "Başlangıç değerlerine dönüldü; %d W yeniden isteniyor…",
@@ -665,6 +672,7 @@ extension GPUControlPageStrings {
         reverting: "Возврат к значениям загрузки",
         sleeping: "Ожидание полного пробуждения Mac",
         heldByOther: "Управляет другая программа",
+        heldByTool: "Управление у gpucontrol, собственного инструмента RyzenStatus",
         applying: "Применение…",
         heldPowerFormat: "RyzenStatus удерживает %d Вт",
         reaskingFormat: "Вернулись к значениям загрузки; снова запрашиваем %d Вт…",
@@ -764,6 +772,7 @@ extension GPUControlPageStrings {
         reverting: "Návrat na štartovacie hodnoty",
         sleeping: "Čaká sa, kým sa Mac úplne prebudí",
         heldByOther: "Riadenie má iný program",
+        heldByTool: "Riadenie drží gpucontrol, vlastný nástroj RyzenStatus",
         applying: "Používa sa…",
         heldPowerFormat: "RyzenStatus drží %d W",
         reaskingFormat: "Späť na štartovacích hodnotách; znova sa žiada %d W…",
@@ -863,6 +872,7 @@ extension GPUControlPageStrings {
         reverting: "Zurück zu den Startwerten",
         sleeping: "Warten, bis der Mac ganz aufgewacht ist",
         heldByOther: "Ein anderes Programm hat die Steuerung",
+        heldByTool: "gpucontrol, das eigene Werkzeug von RyzenStatus, hält die Steuerung",
         applying: "Wird angewendet…",
         heldPowerFormat: "RyzenStatus hält %d W",
         reaskingFormat: "Zurück bei den Startwerten; %d W werden erneut angefragt…",
@@ -962,6 +972,7 @@ extension GPUControlPageStrings {
         reverting: "Retour aux valeurs de démarrage",
         sleeping: "En attente de la fin du réveil du Mac",
         heldByOther: "Un autre programme a le contrôle",
+        heldByTool: "gpucontrol, l’outil de RyzenStatus, a le contrôle",
         applying: "Application…",
         heldPowerFormat: "RyzenStatus maintient %d W",
         reaskingFormat: "Retour aux valeurs de démarrage ; %d W redemandés…",
@@ -1061,6 +1072,7 @@ extension GPUControlPageStrings {
         reverting: "Ritorno ai valori di avvio",
         sleeping: "In attesa che il Mac finisca di svegliarsi",
         heldByOther: "Un altro programma ha il controllo",
+        heldByTool: "gpucontrol, lo strumento di RyzenStatus, ha il controllo",
         applying: "Applicazione…",
         heldPowerFormat: "RyzenStatus mantiene %d W",
         reaskingFormat: "Di nuovo ai valori di avvio; %d W richiesti di nuovo…",
@@ -1160,6 +1172,7 @@ extension GPUControlPageStrings {
         reverting: "起動時の値に戻しています",
         sleeping: "Mac のスリープ解除の完了待ち",
         heldByOther: "別のプログラムが制御しています",
+        heldByTool: "RyzenStatus 自身のツール gpucontrol が制御しています",
         applying: "適用中…",
         heldPowerFormat: "RyzenStatus が %d W を保持中",
         reaskingFormat: "起動時の値に戻りました。%d W を再度要求中…",
@@ -1259,6 +1272,7 @@ extension GPUControlPageStrings {
         reverting: "시동 값으로 돌아가는 중",
         sleeping: "Mac이 완전히 깨어날 때까지 대기 중",
         heldByOther: "다른 프로그램이 제어 중",
+        heldByTool: "RyzenStatus 자체 도구인 gpucontrol이 제어하고 있습니다",
         applying: "적용 중…",
         heldPowerFormat: "RyzenStatus가 %d W를 유지 중",
         reaskingFormat: "시동 값으로 돌아갔습니다. %d W를 다시 요청하는 중…",
@@ -1358,6 +1372,7 @@ extension GPUControlPageStrings {
         reverting: "正在返回启动值",
         sleeping: "正在等待 Mac 完全唤醒",
         heldByOther: "另一个程序正在控制",
+        heldByTool: "RyzenStatus 自带的工具 gpucontrol 正在控制",
         applying: "正在应用…",
         heldPowerFormat: "RyzenStatus 正在限制 %d W",
         reaskingFormat: "已回到启动值；正在再次请求 %d W…",
@@ -1457,6 +1472,7 @@ extension GPUControlPageStrings {
         reverting: "正在返回啟動值",
         sleeping: "正在等待 Mac 完全喚醒",
         heldByOther: "另一個程式正在控制",
+        heldByTool: "RyzenStatus 內建工具 gpucontrol 正在控制",
         applying: "正在套用…",
         heldPowerFormat: "RyzenStatus 正在限制 %d W",
         reaskingFormat: "已回到啟動值；正在再次要求 %d W…",
@@ -1556,6 +1572,7 @@ extension GPUControlPageStrings {
         reverting: "Повернення до значень завантаження",
         sleeping: "Очікування повного пробудження Mac",
         heldByOther: "Керує інша програма",
+        heldByTool: "Керування в gpucontrol, власного інструмента RyzenStatus",
         applying: "Застосування…",
         heldPowerFormat: "RyzenStatus утримує %d Вт",
         reaskingFormat: "Повернулися до значень завантаження; знову запитуємо %d Вт…",

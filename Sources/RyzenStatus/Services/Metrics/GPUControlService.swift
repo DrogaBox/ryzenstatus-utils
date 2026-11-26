@@ -116,7 +116,18 @@ final class GPUControlService: ObservableObject {
         profiles = profileStore.profiles
     }
 
-    var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control) }
+    var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control).map(withHolder) }
+
+    /// Who else holds the control, asked only while the kext says a program
+    /// does and it is not this one (GPUControlHolder): `gpucontrol hold`
+    /// keeping the OD8 table is our own tool, not another program. The probe
+    /// walks IOKit and is cached for three seconds, so a redraw is free.
+    private func withHolder(_ facts: GPUControlFacts) -> GPUControlFacts {
+        guard facts.owned, !facts.mine else { return facts }
+        var facts = facts
+        facts.holder = GPUControlHolderProbe.current(mine: facts.mine, owned: facts.owned)
+        return facts
+    }
 
     var state: GPUControlPageState? {
         facts.map { GPUControlPageLogic.state(facts: $0, snapshot: snapshot) }
@@ -474,7 +485,8 @@ final class GPUControlService: ObservableObject {
     private func checkForeign() {
         guard mode == .real, GPUSensorsService.shared.hasWritePathNow else { return }
         let current = viewers > 0 ? control : GPUSensorsService.shared.currentControl()
-        guard let current, let facts = GPUControlFacts(control: current) else { return }
+        guard let current, let read = GPUControlFacts(control: current) else { return }
+        let facts = withHolder(read)
         let appHolds = snapshot?.held != nil || GPUControlPageLogic.pending(snapshot) != nil
         // The app's own close: its answer and the next read may cross.
         let appClosing = closeAskedAt.map { ProcessInfo.processInfo.systemUptime - $0 < 90 } ?? false

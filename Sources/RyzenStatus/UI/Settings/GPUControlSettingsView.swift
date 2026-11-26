@@ -132,6 +132,10 @@ extension GPUControlPageInput {
     /// A request is out, or waits to be tried again: the kext has not taken it.
     var isPending: Bool { GPUControlPageLogic.pending(snapshot) != nil }
 
+    /// The hold is the gpucontrol this app installs, not another program
+    /// (GPUControlHolder): the page says so, and it is no problem to report.
+    var holderIsOwnTool: Bool { facts?.holder.isOwnTool ?? false }
+
     /// The state in words, for the page and (`short`) the panel row.
     func stateTitle(_ s: GPUControlPageStrings, short: Bool) -> String {
         if isPending { return s.applying }
@@ -142,7 +146,7 @@ extension GPUControlPageInput {
         case .waitingForDriver?, nil: return s.waitingForDriver
         case .reverting?: return s.reverting
         case .sleeping?: return s.sleeping
-        case .heldByOther?: return s.heldByOther
+        case .heldByOther?: return holderIsOwnTool ? s.heldByTool : s.heldByOther
         case .heldByApp(.power(let watts))?: return String(format: s.heldPowerFormat, Int(watts))
         // The whole list does not fit the panel row's two lines.
         case .heldByApp(.od8(let want))?: return short ? s.heldOD8Short : s.od8Held(want)
@@ -370,7 +374,9 @@ struct GPUControlPageContent: View {
         case .heldByApp?: return ("gauge.with.dots.needle.33percent", .accentColor)
         case .closed?: return ("lock", .secondary)
         case .readOnlyCard?: return ("eye", .secondary)
-        case .heldByOther?: return ("person.crop.circle.badge.exclamationmark", .orange)
+        case .heldByOther?: return input.holderIsOwnTool
+            ? ("gauge.with.dots.needle.33percent", .secondary)
+            : ("person.crop.circle.badge.exclamationmark", .orange)
         case .reverting?, .sleeping?, .waitingForDriver?: return ("clock", .secondary)
         case .writingOff?, .connectionLost?, .otherVersion?: return ("exclamationmark.triangle", .orange)
         case nil: return ("questionmark.circle", .secondary)
@@ -385,7 +391,8 @@ struct GPUControlPageContent: View {
     /// the GPU (security review S-5).
     private var stateDetail: String? {
         if case .readOnlyCard? = input.state { return s.readOnlyDetail }
-        if case .heldByOther? = input.state { return s.otherProgramChanged }
+        // Our own gpucontrol holding a curve is not news, and not a problem.
+        if case .heldByOther? = input.state { return input.holderIsOwnTool ? nil : s.otherProgramChanged }
         guard case .writingOff(let reason, let text, let restart)? = input.state else { return nil }
         let group = reason.flatMap { GPUControlTextGroup.forWriteOff($0.rawValue) }
         var lines: [String] = []
