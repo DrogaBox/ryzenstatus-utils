@@ -604,8 +604,63 @@ static void hidden_frames(const char* path) {
   expect("a frame whose reference was never decoded is a reference failure",
          d && rm != 0 && FAILURE(d) == FAIL_REFERENCE);
   if (d) DESTROY(d);
-  for (int i = 0; i < clipCount; i++) free(clip[i].data);
+  clip_clear();
 }
+
+#if defined(TEST_VP9)
+// The video engine predicts bit-exactly from a reference up to 2x smaller than
+// the frame and not from a smaller one: vp90-2-22-svc_1280x720_3's 1280x720
+// layer predicts from a 320x180 reference (4x) and differed from libvpx in
+// more than half the picture, while its 640x360 layer (a 2x smaller reference)
+// was identical. A frame it cannot do is refused, and the slots it should have
+// refreshed are emptied, so the frames that read them are refused too instead
+// of decoding against older pictures.
+static void scaled_references(const char* svc, const char* scaled) {
+  clip_clear();
+  expect("the clip that predicts from a 2x smaller reference reads",
+         read_clip(scaled));
+  reset();
+  Vcn* d = make();
+  int shown = 0, bad = d ? 0 : -1;
+  for (int i = 0; d && i < clipCount; i++)
+    if (DECODE(d, clip[i].data, clip[i].size, i, on_out, &shown)) {
+      printf("     sample %d: %s\n", i, LASTERR(d));
+      bad++;
+    }
+  expect("references up to 2x smaller are not refused (mv-with-scaling)",
+         d && bad == 0 && shown > 0);
+  if (d) DESTROY(d);
+  expect("and that session closes fully", all_released());
+
+  clip_clear();
+  expect("the spatial-SVC clip reads", read_clip(svc) && clipCount >= 3);
+  if (clipCount < 3) return;
+  reset();
+  d = make();
+  shown = 0;
+  int r0 = d ? DECODE(d, clip[0].data, clip[0].size, 0, on_out, &shown) : 0;
+  if (r0) printf("     chunk 0: %s\n", d ? LASTERR(d) : "");
+  expect("a frame whose reference is 4x smaller is refused as a stream failure",
+         d && r0 != 0 && FAILURE(d) == FAIL_STREAM &&
+             strstr(LASTERR(d), "2x smaller"));
+  expect("the two layers before it were sent to the engine, it was not",
+         st.schedules == 2);
+  int sent = st.schedules;
+  int r1 = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shown) : 0;
+  expect(
+      "a frame predicted from what it should have refreshed is a reference "
+      "failure and sends nothing",
+      d && r1 != 0 && FAILURE(d) == FAIL_REFERENCE && st.schedules == sent);
+  int r2 = d ? DECODE(d, clip[2].data, clip[2].size, 2, on_out, &shown) : 0;
+  expect("and so is the next one", d && r2 != 0 && st.schedules == sent);
+  int rk = d ? DECODE(d, frame0, frame0Size, 3, on_out, &shown) : -1;
+  expect("a key frame refreshes every slot and decodes again",
+         d && rk == 0 && st.schedules > sent);
+  if (d) DESTROY(d);
+  expect("and that session closes fully", all_released());
+  clip_clear();
+}
+#endif
 
 static void hung(int sig) {
   (void)sig;
@@ -615,10 +670,11 @@ static void hung(int sig) {
 }
 
 int main(int argc, char** argv) {
-  if ((argc != 2 && argc != 3) || !read_first_frame(argv[1])) {
+  if (argc < 2 || argc > 5 || !read_first_frame(argv[1])) {
     fprintf(stderr,
             "usage: sessiontest <small IVF clip of the codec> [clip with "
-            "hidden frames]\n");
+            "hidden frames [VP9: spatial-SVC clip, clip with 2x scaled "
+            "references]]\n");
     return 1;
   }
   signal(SIGALRM, hung);
@@ -1223,7 +1279,10 @@ int main(int argc, char** argv) {
 #endif
 
   clip_clear();
-  if (argc == 3) hidden_frames(argv[2]);
+  if (argc >= 3) hidden_frames(argv[2]);
+#if defined(TEST_VP9)
+  if (argc == 5) scaled_references(argv[3], argv[4]);
+#endif
 
   free(frame0);
   return failures ? 1 : 0;

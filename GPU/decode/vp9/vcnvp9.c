@@ -929,8 +929,8 @@ static int submit(VcnVP9* d, VP9Params* prm) {
   return 0;
 }
 
-static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
-                    const uint8_t* data, size_t size) {
+static int decode_one(void* vctx, VP9Parser* p, VP9ParseResult kind,
+                      const uint8_t* data, size_t size) {
   VcnVP9* d = vctx;
   const VP9Frame* h = &p->fh;
   // A frame after which nothing decoded before it is used: a key frame, or an
@@ -1000,6 +1000,28 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
       if (r->bit_depth != h->bit_depth) {
         snprintf(d->err, sizeof(d->err), "%d-bit reference for a %d-bit frame",
                  r->bit_depth, h->bit_depth);
+        return -1;
+      }
+      // The video engine predicts from a reference up to twice as small as the
+      // frame bit-exactly (vp90-2-22-svc_1280x720_3, 640x360 layer: 320x180
+      // reference, identical to libvpx). From one smaller than that (its
+      // 1280x720 layer: 320x180 reference, 4x) the picture matches libvpx only
+      // in its first 180 rows, the reference's height, and is wrong below them
+      // (mean PSNR Y 7.9 dB over the 20 pictures), and the error carries into
+      // every frame predicted from it. A wrong picture is worse than no picture: refuse
+      // the frame, and VideoToolbox falls back to another decoder. Which of
+      // the three references a block predicts from is known only to the
+      // engine, so any reference out of range refuses the frame. The limit
+      // came from comparing pictures, not from the firmware; ratios between 2x
+      // and 4x were not tried and are refused too. A reference larger than the
+      // frame is not refused: the resize vectors predict from one up to 2x
+      // larger bit-exactly.
+      if (2 * r->width < h->width || 2 * r->height < h->height) {
+        snprintf(
+            d->err, sizeof(d->err),
+            "reference %ux%u is more than 2x smaller than the %ux%u frame: "
+            "the video engine does not scale it bit-exactly",
+            r->width, r->height, h->width, h->height);
         return -1;
       }
     }
@@ -1088,6 +1110,22 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
     d->hidden = CVPixelBufferRetain(target);
   }
   return 0;
+}
+
+// A frame that was not decoded leaves the reference slots it should have
+// refreshed holding older pictures. Frames that predict from them would decode
+// without an error and show a wrong picture, so those slots are emptied: the
+// frames that read them are refused ("missing reference") until a frame
+// refreshes them again, which is how libvpx treats a frame it could not decode.
+static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
+                    const uint8_t* data, size_t size) {
+  int r = decode_one(vctx, p, kind, data, size);
+  if (r && kind == VP9_PARSE_DECODE) {
+    for (int i = 0; i < 8; i++)
+      if (p->fh.refresh_frame_flags & (1u << i)) p->ref[i].valid = false;
+    recount_refs((VcnVP9*)vctx);
+  }
+  return r;
 }
 
 int vcnvp9_decode(VcnVP9* d, const uint8_t* chunk, size_t size, int64_t tag,

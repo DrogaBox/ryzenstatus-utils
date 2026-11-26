@@ -170,10 +170,14 @@ check "two plug-ins of one process: a session from before a sleep is seen, new o
 sessions() {
   decode/build/tests/sessiontest-av1 tests/media/av1/av1-1-b8-01-size-16x16.ivf tests/media/av1/av1-1-b8-05-mv.ivf > decode/build/tests/sessiontest-av1.txt &&
     decode/build/tests/sessiontest-vp9 tests/media/vp9/vp90-2-12-droppable_1.ivf \
-      tests/media/vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf > decode/build/tests/sessiontest-vp9.txt ||
+      tests/media/vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf \
+      tests/media/vp9/vp90-2-22-svc_1280x720_3.ivf \
+      tests/media/vp9/vp90-2-13-mv-with-scaling.ivf \
+      > decode/build/tests/sessiontest-vp9.txt ||
     { cat decode/build/tests/sessiontest-av1.txt decode/build/tests/sessiontest-vp9.txt 2>/dev/null | grep -v ^PASS; return 1; }
 }
-check "decoder sessions release the driver once, also after failures and a stuck GPU; a sleep: decode on, rebuild at a key frame; hidden frames keep their picture (made-up driver)" sessions
+check "decoder sessions release the driver once, also after failures and a stuck GPU; a sleep: decode on, rebuild at a key frame; hidden frames keep their picture; a VP9 reference more than 2x smaller is refused and such a frame empties its slots (made-up driver)" sessions
+check "sessiontest-vp9 notices when those two rules are broken (3 damaged builds)" ./decode/tests/mutants.sh
 
 step "decoders: loader kext"
 check "the kext's decisions" decode/build/tests/loadertest
