@@ -5,20 +5,23 @@
 //       shows the av01 decoders VideoToolbox knows about (LIST_ALL=1: all of
 //       them)
 //   vtav1test [-load bundle] file.ivf [file.md5] [-n] [-a] [-pace fps]
-//             [-id decoder] [-sw] [-attach]
+//             [-loop N] [-renew] [-id decoder] [-sw] [-attach]
 //       decodes the file with a VTDecompressionSession that requires
 //       hardware, compares the MD5 of every frame as I420 with the reference,
 //       and reports timing
 //
 // -load registers the bundle in this process only, nothing is installed on the
 // system. -n reads no pixels, -a decodes asynchronously, -pace feeds at a fixed
-// rate and reports lateness, -id picks one decoder when several handle av01
-// (the installed one and a -load'ed build). -sw decodes in software only:
-// with -id com.apple.videotoolbox.videodecoder.av1.sw, Apple's decoder; a
-// session VideoToolbox gives a hardware decoder anyway decodes nothing. -attach
-// prints the colour attachments of the first picture, and again whenever they
-// change. VTAV1_DUMP_Y=<file> appends the 8-bit luma of every frame to that
-// file.
+// rate and reports lateness, -loop feeds the file N times in one session (the
+// reference starts again each time), -renew makes that a new session for every
+// pass, in this same process; with -loop a line per pass says when it ended and
+// how it went (for a run across a system sleep). -id picks one decoder when
+// several handle av01 (the installed one and a -load'ed build). -sw decodes in
+// software only: with -id com.apple.videotoolbox.videodecoder.av1.sw, Apple's
+// decoder; a session VideoToolbox gives a hardware decoder anyway decodes
+// nothing. -attach prints the colour attachments of the first picture, and
+// again whenever they change. VTAV1_DUMP_Y=<file> appends the 8-bit luma of
+// every frame to that file.
 //
 // There is no switch to arm here: a decode run goes to the GPU as soon as an
 // AV1 hardware decoder is installed or loaded.
@@ -29,10 +32,12 @@
 #include <CoreMedia/CoreMedia.h>
 #include <VideoToolbox/VideoToolbox.h>
 #include <dlfcn.h>
+#include <limits.h>
 #include <mach/mach_time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "av1parse.h"
@@ -247,7 +252,7 @@ static int usage(void) {
   fprintf(stderr,
           "usage: vtav1test [-load bundle] list\n"
           "       vtav1test [-load bundle] file.ivf [file.md5] [-n] [-a] "
-          "[-pace fps] [-id decoder] [-sw] [-attach]\n"
+          "[-pace fps] [-loop N] [-renew] [-id decoder] [-sw] [-attach]\n"
           "A decode run goes to the GPU: there is no switch to arm.\n");
   return 1;
 }
@@ -268,7 +273,7 @@ int main(int argc, char** argv) {
   if (!strcmp(argv[1], "list")) return list();
   if (argv[1][0] == '-') return usage();
   Ctx c = {0};
-  int async = 0, require_hw = 1;
+  int async = 0, require_hw = 1, loops = 1, renew = 0;
   double pace = 0;  // feed frames at this rate (fps) and report output latency
   const char *decoderID = NULL, *md5Path = NULL;
   for (int i = 2; i < argc; i++) {
@@ -286,6 +291,14 @@ int main(int argc, char** argv) {
       double v = strtod(s, &end);
       if (!end || end == s || *end || !(v >= 0)) return fail("invalid -pace");
       pace = v;
+    } else if (!strcmp(argv[i], "-loop") && i + 1 < argc) {
+      char* end = NULL;
+      long v = strtol(argv[++i], &end, 10);
+      if (!end || *end || v < 1 || v > INT_MAX / 2)
+        return fail("invalid -loop");
+      loops = (int)v;
+    } else if (!strcmp(argv[i], "-renew")) {
+      renew = 1;
     } else if (!strcmp(argv[i], "-id") && i + 1 < argc) {
       decoderID = argv[++i];
     } else if (argv[i][0] == '-' || md5Path) {
@@ -393,9 +406,10 @@ int main(int argc, char** argv) {
     CFDictionarySetValue(spec, CFSTR("DecoderID"), id);
     CFRelease(id);
   }
+  size_t total = cnt * (size_t)loops;
   if (pace > 0) {
-    c.fed = calloc(cnt, sizeof(double));
-    c.lat = calloc(cnt, sizeof(double));
+    c.fed = calloc(total, sizeof(double));
+    c.lat = calloc(total, sizeof(double));
     if (!c.fed || !c.lat) return fail("out of memory");
   }
   VTDecompressionOutputCallbackRecord cb = {out_cb, &c};
@@ -416,7 +430,37 @@ int main(int argc, char** argv) {
     return fail("-sw: VideoToolbox gave a hardware decoder; nothing decoded");
 
   double t0 = now_ms();
-  for (size_t i = 0; i < cnt; i++) {
+  int passFrames = 0, passMismatches = 0, passErrors = 0;
+  for (size_t i = 0; i < total; i++) {
+    size_t k = i % cnt;  // the temporal unit of the file
+    if (k == 0 && i > 0) {
+      // The pass before is all out: say how it went, with the wall clock, so
+      // that a pass across a sleep can be told from the ones before and after.
+      VTDecompressionSessionWaitForAsynchronousFrames(sess);
+      time_t now = time(NULL);
+      char when[32];
+      strftime(when, sizeof(when), "%H:%M:%S", localtime(&now));
+      printf("pass %zu ended %s: %d frames, %d mismatches, %d errors\n",
+             i / cnt, when, c.frames - passFrames,
+             c.mismatches - passMismatches, c.errors - passErrors);
+      fflush(stdout);
+      passFrames = c.frames;
+      passMismatches = c.mismatches;
+      passErrors = c.errors;
+      if (c.md5) rewind(c.md5);
+      if (renew) {
+        VTDecompressionSessionInvalidate(sess);
+        CFRelease(sess);
+        sess = NULL;
+        st = VTDecompressionSessionCreate(NULL, fmt, spec, NULL, &cb, &sess);
+        if (st) {
+          printf("pass %zu: VTDecompressionSessionCreate = %d\n", i / cnt + 1,
+                 (int)st);
+          c.errors++;
+          break;
+        }
+      }
+    }
     if (pace > 0) {
       double due = t0 + i * 1000.0 / pace;
       while (now_ms() < due) usleep(200);
@@ -425,12 +469,12 @@ int main(int argc, char** argv) {
       c.fed[i] = due;
     }
     CMBlockBufferRef bb = NULL;
-    CMBlockBufferCreateWithMemoryBlock(NULL, tus[i], sizes[i], kCFAllocatorNull,
-                                       NULL, 0, sizes[i], 0, &bb);
+    CMBlockBufferCreateWithMemoryBlock(NULL, tus[k], sizes[k], kCFAllocatorNull,
+                                       NULL, 0, sizes[k], 0, &bb);
     CMSampleBufferRef sb = NULL;
     CMSampleTimingInfo ti = {CMTimeMake(1, 30), CMTimeMake((int64_t)i, 30),
                              kCMTimeInvalid};
-    size_t ss = sizes[i];
+    size_t ss = sizes[k];
     if (bb) CMSampleBufferCreateReady(NULL, bb, fmt, 1, 1, &ti, 1, &ss, &sb);
     if (!sb) {
       printf("frame %zu: no sample buffer\n", i);
@@ -446,15 +490,23 @@ int main(int argc, char** argv) {
     CFRelease(sb);
     CFRelease(bb);
   }
-  VTDecompressionSessionWaitForAsynchronousFrames(sess);
+  if (sess) VTDecompressionSessionWaitForAsynchronousFrames(sess);
   double t = now_ms() - t0;
+  if (loops > 1) {
+    time_t now = time(NULL);
+    char when[32];
+    strftime(when, sizeof(when), "%H:%M:%S", localtime(&now));
+    printf("last pass ended %s: %d frames, %d mismatches, %d errors\n", when,
+           c.frames - passFrames, c.mismatches - passMismatches,
+           c.errors - passErrors);
+  }
   printf("%s: %d frames, %d mismatches, %d errors, %.1f ms (%.1f fps%s)\n",
          argv[1], c.frames, c.mismatches, c.errors, t, c.frames * 1000.0 / t,
          c.nohash ? (async ? ", async" : "") : ", incl. CPU hashing");
   if (pace > 0) {
     int late33 = 0, late50 = 0;
     double mx = 0, sum = 0;
-    for (size_t i = 0; i < cnt; i++) {
+    for (size_t i = 0; i < total; i++) {
       double l = c.lat[i];
       sum += l;
       if (l > mx) mx = l;
@@ -464,9 +516,11 @@ int main(int argc, char** argv) {
     printf(
         "paced %.0f fps: latency avg %.1f ms, max %.1f ms, >2 frames late %d, "
         ">3 frames late %d (of %zu)\n",
-        pace, sum / cnt, mx, late33, late50, cnt);
+        pace, sum / total, mx, late33, late50, total);
   }
-  VTDecompressionSessionInvalidate(sess);
-  CFRelease(sess);
-  return c.mismatches || c.errors || c.frames != (int)cnt ? 2 : 0;
+  if (sess) {
+    VTDecompressionSessionInvalidate(sess);
+    CFRelease(sess);
+  }
+  return c.mismatches || c.errors || c.frames != (int)total ? 2 : 0;
 }

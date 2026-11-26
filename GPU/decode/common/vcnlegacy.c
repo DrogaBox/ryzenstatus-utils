@@ -666,9 +666,10 @@ static void destroy_now(VcnLegacy* d) {
 
 void vcnlegacy_destroy(VcnLegacy* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, d->log, "legacy codec session", ^{
-    destroy_now(d);
-  });
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), d->log,
+               "legacy codec session", ^{
+                 destroy_now(d);
+               });
 }
 
 static bool driver_validated(const VcnDriverLib* lib) {
@@ -852,10 +853,14 @@ int vcnlegacy_decode(VcnLegacy* d, const void* block, uint32_t blockSize,
   d->err[0] = 0;
   d->failure = VCNLEGACY_FAIL_STREAM;
   d->haveStatus = false;
+  // Nothing goes into the pool or to the engine for a session from before a
+  // system sleep (vcndriver.h).
+  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck ? "the GPU did not finish an earlier picture"
-                      : "an earlier driver call failed");
+             d->stuck    ? "the GPU did not finish an earlier picture"
+             : d->s.lost ? "the system slept since it opened"
+                         : "an earlier driver call failed");
     d->failure = VCNLEGACY_FAIL_DEVICE;
     return -1;
   }

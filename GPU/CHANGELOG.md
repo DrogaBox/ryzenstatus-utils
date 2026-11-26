@@ -80,6 +80,57 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 - `gpucontrol status` names a held GFX maximum above stock "GFX max raised" (it said
   "lowered" for every held maximum) and shows a held voltage as "GFX voltage lowered".
 
+## Decoders 0.3.7 (not released; host tests only)
+
+- 0.3.6 made things worse in the first real sleep test on this Mac (RX 6800 XT, Tahoe
+  26.7.3): it noticed the sleep (132 s asleep), but every session from before it then
+  failed all its frames with -12911, and the new sessions after the wake lost their first
+  frames to the refusal below. The same test with 0.3.5, which knows nothing of sleeps,
+  kept decoding on the old sessions after the wake with every frame matching its reference.
+- So an AV1 or VP9 session from before a sleep now keeps decoding, as 0.3.5 did, and at its
+  next key frame (AV1: a key frame that refreshes every reference slot; VP9: a key frame, or
+  an intra-only frame that refreshes every slot and resets every probability context) its
+  driver objects are replaced inside the same decoder: the old accelerator is closed without
+  the driver's own teardown and a new accelerator, driver, context and bitstream pool are
+  opened, and the key frame decodes on them. No frame is dropped and the host sees no error.
+- Only when the old session fails after the wake (a driver call, a command that does not
+  finish, a firmware error) is it replaced at once; that frame and the ones up to the next
+  key frame are then dropped (no picture, no error), at most 600 of them. A command that did
+  not finish has its accelerator closed on the background thread. Right after a wake a
+  command on the old session may take up to 15 s instead of 1 s (in the test one frame of
+  each decode took about 10 s and then decoded correctly).
+- -12911 is left for a replacement that fails, or no key frame within those 600 frames.
+- A new session no longer refuses to open while one from before a sleep is still open.
+- The MPEG-2, VC-1 and MPEG-4 decoders are unchanged: their sessions from before a sleep
+  still stop as in 0.3.6.
+- Each replacement leaves the old driver handle and its bitstream pool (up to 96 MiB) in the
+  process, as the quiet close already did.
+
+## Decoders 0.3.6 (not released; replaced by 0.3.7)
+
+- A decode session from before a system sleep is no longer used after it. A user reported
+  that with the AV1 and VP9 decoders a wake from sleep hung the Mac a while later, with
+  glitches before it, and that a VP9 video came out red and broken in Chrome right after a
+  wake while Safari played it fine. Apple's kernel driver keeps a decoder's video context
+  across a sleep but restarts the video engine under it, and nothing tells the program
+  (see "A system sleep" in `docs/how-it-works.md`). The plug-ins now notice a sleep from the
+  time the Mac spent asleep or the time of its last wake, with no notification. A session
+  opened before it writes and sends nothing more: its frames fail as a malfunction
+  (-12911), so VideoToolbox makes a new session, and the host gets a working decoder again
+  or falls back to software. Closing such a session leaves out the driver's own teardown,
+  which would send the restarted engine a command for the lost session and wait for it
+  with no time limit; only the accelerator's connections are closed, on a background
+  thread. The MPEG-2, VC-1 and MPEG-4 decoders share the code and get the same.
+- While such a session is still open in a process, no new session opens there, in any of
+  the plug-ins: VideoToolbox decodes the new stream in software until the old sessions are
+  closed. The reporter's log showed why: a browser's decoder process kept two VP9 sessions
+  open across a sleep, the AV1 session it opened after the wake never decoded a frame, and
+  the Mac hung after the next wake.
+- `vtvp9test` has `-renew` (a new session for every `-loop` pass, in the same process) and
+  prints a line per pass with the time; `vtav1test` gets `-loop` and `-renew` too. They are
+  for the sleep test in `docs/testing.md`.
+- Not run across a real sleep yet.
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count
