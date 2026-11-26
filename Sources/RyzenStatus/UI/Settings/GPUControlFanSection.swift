@@ -15,6 +15,10 @@ struct GPUControlFanSection: View {
     /// The section that asked last, so a refusal shows next to its control.
     @Binding var lastOD8Source: GPUControlOD8Source
     let apply: (GPUControlFanDraft) -> Void
+    /// The zero RPM switch's own answer when the state it would send is not
+    /// one the card takes: shown next to the switch, in the page's words for
+    /// a refusal.
+    @State private var zeroRpmRefusal: GPUControlCurvePreview?
 
     private var curveState: GPUControlCurveRules.State? {
         input.writing?.od8.flatMap(GPUControlCurveRules.State.init(table:))
@@ -58,6 +62,9 @@ struct GPUControlFanSection: View {
                 .toggleStyle(.switch)
                 .controlSize(.regular)
                 .disabled(!enabled)
+            if let refused = zeroRpmRefusal {
+                refusalNote(refused)
+            }
             Toggle(fan.curveToggle, isOn: $draft.customCurve)
                 .toggleStyle(.switch)
                 .controlSize(.regular)
@@ -139,14 +146,48 @@ struct GPUControlFanSection: View {
     /// that curve, as the clock and voltage controls do; otherwise it is part
     /// of the draft "Apply curve" sends. Point edits not applied yet stay in
     /// the editor and are not sent with it.
+    ///
+    /// The preview judges the whole state the card will get, not the two
+    /// fields the switch builds: the controller adds the held clocks and the
+    /// voltage back before the call. When that state is refused, the section
+    /// says so next to the switch instead of reading on as if it went out.
     private func zeroRpmSwitched(_ on: Bool) {
         let otherEdits = draft.want.curve != heldOD8.curve
         draft.zeroRpmOff = on
-        guard enabled, let send = Self.zeroRpmAtOnce(held: heldOD8, zeroRpmOff: on),
-              GPUControlCurvePreview.make(want: send.want, writing: input.writing).allowsApply else { return }
+        zeroRpmRefusal = nil
+        guard enabled, let send = Self.zeroRpmAtOnce(held: heldOD8, zeroRpmOff: on) else { return }
+        let answer = GPUControlCurvePreview.make(want: Self.stateSent(held: heldOD8, zeroRpmOff: on),
+                                                 writing: input.writing)
+        guard answer.allowsApply else {
+            zeroRpmRefusal = answer
+            return
+        }
         lastOD8Source = .fan
         apply(send)
         if !otherEdits { draft = draft.applied }
+    }
+
+    /// The whole OD8 state the card gets when the switch sends `zeroRpmOff`
+    /// while `held` is held: the controller takes every setting from the held
+    /// state (what the kext has), so the preview must see the same one.
+    static func stateSent(held: GPUControlOD8Want, zeroRpmOff: Bool) -> GPUControlOD8Want {
+        GPUControlOD8Want(curve: held.curve, zeroRpmOff: zeroRpmOff, gfxMaxMHz: held.gfxMaxMHz,
+                          gfxMinMHz: held.gfxMinMHz, voltMV: held.voltMV, overclock: held.overclock)
+    }
+
+    /// A refusal in the page's own words (the live row's), with the kext's
+    /// sentence under it, as the page shows one.
+    private func refusalNote(_ answer: GPUControlCurvePreview) -> some View {
+        let (text, detail, _) = sentence(for: answer)
+        return VStack(alignment: .leading, spacing: 2) {
+            GPUControlProblemLabel(text: text, isProblem: true)
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     /// What the zero RPM switch sends by itself: the held curve with the new
@@ -330,7 +371,10 @@ struct GPUControlFanSection: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var previewText: (String, String?, Bool) {
+    private var previewText: (String, String?, Bool) { sentence(for: preview) }
+
+    /// One preview's sentence: the live row's, and the zero RPM switch's.
+    private func sentence(for preview: GPUControlCurvePreview) -> (String, String?, Bool) {
         switch preview {
         case .accepted:
             return (fan.curveOK, nil, true)

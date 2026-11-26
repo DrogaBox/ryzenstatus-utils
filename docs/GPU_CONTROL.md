@@ -46,6 +46,11 @@ Five points, temperature and speed. The kext only takes curves that give at leas
 air as the stock curve at every point and reach 100 % well below the card's target
 temperature. Zero RPM can only be turned off (the fan always spins).
 
+While a custom curve is held, the Zero RPM switch sends the change at once with that curve,
+as the clock and voltage controls do; otherwise it is part of the curve that Apply curve
+sends. The switch is sent only when the whole state the card would get passes the rules, and
+when it does not, the section says why next to the switch and nothing is sent.
+
 ## GFX maximum and minimum clock
 
 The maximum can be lowered from stock down to 1500 MHz. The minimum can be raised from its

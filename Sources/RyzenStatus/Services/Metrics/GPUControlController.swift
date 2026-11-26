@@ -1094,11 +1094,16 @@ final class GPUControlController: @unchecked Sendable {
 /// yet (right after launch, right after a wake).
 enum GPUControlReadings {
     /// The AMD accelerator classes, most specific first, so an Intel iGPU or
-    /// another card that enumerates first is never the one read.
+    /// another card that enumerates first is never the one read. The names are
+    /// the driver's own: the Vulkan driver's class exists while a Vulkan app
+    /// holds the card, and `AMDRadeonX6000_AMDGraphicsAccelerator` is the class
+    /// every RX 6000 accelerator inherits, so `IOServiceMatching` finds the
+    /// card through it. (Two names used here before, `AMDRadeonX6000_Amd…` and
+    /// `AMDGPUAccelerator`, match no service at all, so the whole walk found
+    /// nothing and the readings were never actually refreshed.)
     private static let amdClasses = [
         "AMDRadeonX6000_AMDAcceleratedVKDriver",
-        "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
-        "AMDGPUAccelerator"
+        "AMDRadeonX6000_AMDGraphicsAccelerator"
     ]
 
     /// Reads `PerformanceStatistics` of the AMD accelerator. The values are

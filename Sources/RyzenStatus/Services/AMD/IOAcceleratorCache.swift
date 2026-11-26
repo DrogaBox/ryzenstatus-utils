@@ -66,11 +66,14 @@ actor IOAcceleratorCache {
 
     /// Ordered list of IOAccelerator service class names to try.
     /// Navi 21 (RX 6800 XT) exposes `AMDRadeonX6000_AMDAcceleratedVKDriver`
-    /// first in Ventura+; we list the generic one as final fallback.
+    /// first in Ventura+; `AMDRadeonX6000_AMDGraphicsAccelerator` is the class
+    /// every RX 6000 accelerator inherits, and `IOAccelerator` is the last
+    /// fallback for a card whose class is not named here. (The list used to try
+    /// `AMDRadeonX6000_Amd…` and `AMDGPUAccelerator`, which match no service, so
+    /// only the fallback ever read anything.)
     private let serviceClasses = [
         "AMDRadeonX6000_AMDAcceleratedVKDriver",
-        "AMDGPUAccelerator",
-        "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
+        "AMDRadeonX6000_AMDGraphicsAccelerator",
         "IOAccelerator"
     ]
 
