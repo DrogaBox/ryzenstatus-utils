@@ -26,6 +26,10 @@ int vcnvp9_gpu_armed = 0;
 #define VCN_MODE_VCN0 \
   4  // VP9 runs on both instances, but AV1 contexts only work on VCN0
 #define NUM_DPB 9
+// A rebuild after a sleep waits for a key frame; at 60 fps this is ten
+// seconds of frames. A stream that does not send one by then is stopped the
+// way PR 160 stopped it, so the host can hand it to another decoder.
+#define REBUILD_MAX_DROPPED 600
 #define NUM_BS VCN_NUM_BS
 #define BS_SIZE VCN_BS_SIZE
 #define FRAME_BYTES 4096
@@ -66,10 +70,13 @@ struct VcnVP9 {
   CVPixelBufferPoolRef pool;
   uint32_t poolW, poolH;
   bool poolTen;
-  bool stuck;   // a command never finished: the GPU may still hold it
-  bool broken;  // stuck, or a driver call failed: nothing more goes out
-  int failure;  // VCNVP9_FAIL_* of the last error
-  bool shown;   // the current decode call output a frame
+  bool stuck;         // a command never finished: the GPU may still hold it
+  bool broken;        // stuck, or a driver call failed: nothing more goes out
+  bool needKey;       // rebuilt after a sleep: drop frames until a key frame
+  unsigned dropped;   // frames dropped since that rebuild
+  unsigned rebuilds;  // driver objects rebuilt in this session (one per sleep)
+  int failure;        // VCNVP9_FAIL_* of the last error
+  bool shown;         // the current decode call output a frame
   CVPixelBufferRef hidden;  // retained: last frame it decoded without showing
   unsigned fwErrors;        // decodes the firmware reported as failed
   unsigned done;            // decode commands that finished
@@ -522,6 +529,78 @@ static CVPixelBufferRef new_target(VcnVP9* d, uint32_t w, uint32_t h,
   return pb;
 }
 
+// One VP9 context on the driver handle this session has open: what a create and
+// a rebuild after a sleep both need. The factory's class pointer is swapped
+// only for the length of CreateContexts, as it always was.
+static int vp9_create_context(VcnVP9* d, char* err, size_t errLen) {
+  AVD_ContextList list = {0};
+  void* ctxOut[2] = {0};
+  AVD_FunctionInfo* fis[1] = {&list.inlineInfo};
+  list.count = 1;
+  list.functions = fis;
+  list.contextsOut = ctxOut;
+  list.inlineInfo = (AVD_FunctionInfo){.kind = 1,
+                                       .function = AVD_FUNC_AV1,
+                                       .mode = VCN_MODE_VCN0,
+                                       .pixelRate = d->maxW * d->maxH * 60,
+                                       .width = d->maxW,
+                                       .height = d->maxH,
+                                       .inFormat = 0x72617762,
+                                       .inFormatCount = 1,
+                                       .outFormat = 0x4e563132,
+                                       .outFormatCount = 1};
+  AVD_DriverContextInit ci = {.list = &list};
+  // Swap the vtable pointer on this driver's factory, only for the length of
+  // CreateContexts.
+  static pthread_mutex_t create_lock = PTHREAD_MUTEX_INITIALIZER;
+  // The wrapped copy of the factory's class vtable. Built once, under
+  // create_lock, before any factory points at it: threads of other sessions
+  // may read it at any time once it is published, so it never changes again.
+  static void* factoryVt[FACTORY_SLOTS + 2];
+  static void** factoryOrigVt;
+  // driver+8 is the VAContext, VAContext+75072 its VAFactory (avd.h,
+  // AVD_CreateDriver_fn). Each is checked before it is read through: a NULL
+  // fails the start like any other step instead of a read at a small address.
+  uint8_t* va = PTR(d->s.drv, 8);
+  if (!va) {
+    snprintf(err, errLen, "no VAContext");
+    return 1;
+  }
+  void*** factory = (void***)PTR(va, 75072);
+  if (!factory || !*factory) {
+    snprintf(err, errLen, "no factory");
+    return 1;
+  }
+  vcnvp9_dryrun_checkpoint(1);
+  pthread_mutex_lock(&create_lock);
+  void** origFactoryVt = *factory;
+  if (!factoryOrigVt) {
+    memcpy(factoryVt, origFactoryVt - 2, sizeof(factoryVt));
+    g_orig_create_processor =
+        (void* (*)(void*, int, void*))origFactoryVt[FACTORY_CREATE_PROCESSOR];
+    factoryVt[2 + FACTORY_CREATE_PROCESSOR] = (void*)hook_create_processor;
+    factoryOrigVt = origFactoryVt;
+  }
+  if (origFactoryVt != factoryOrigVt) {
+    pthread_mutex_unlock(&create_lock);
+    snprintf(err, errLen, "the driver's factory class changed (%p, was %p)",
+             (void*)origFactoryVt, (void*)factoryOrigVt);
+    return 1;
+  }
+  __atomic_store_n(factory, &factoryVt[2], __ATOMIC_RELEASE);
+  t_creating = 1;
+  int r = FN(CreateContexts)(d->s.drv, &ci);
+  t_creating = 0;
+  __atomic_store_n(factory, origFactoryVt, __ATOMIC_RELEASE);
+  pthread_mutex_unlock(&create_lock);
+  if (r || !ctxOut[0]) {
+    snprintf(err, errLen, "CreateContexts %d", r);
+    return 1;
+  }
+  d->s.ctx = ctxOut[0];
+  return 0;
+}
+
 VcnVP9* vcnvp9_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
                       size_t errLen) {
 #define FAIL(...)                                          \
@@ -580,64 +659,67 @@ VcnVP9* vcnvp9_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
   // included.
   if (!vcn_session_open(&d->s, &lib, svc, vlog(), why, sizeof(why)))
     FAIL("%s", why);
-  AVD_ContextList list = {0};
-  void* ctxOut[2] = {0};
-  AVD_FunctionInfo* fis[1] = {&list.inlineInfo};
-  list.count = 1;
-  list.functions = fis;
-  list.contextsOut = ctxOut;
-  list.inlineInfo = (AVD_FunctionInfo){.kind = 1,
-                                       .function = AVD_FUNC_AV1,
-                                       .mode = VCN_MODE_VCN0,
-                                       .pixelRate = maxWidth * maxHeight * 60,
-                                       .width = maxWidth,
-                                       .height = maxHeight,
-                                       .inFormat = 0x72617762,
-                                       .inFormatCount = 1,
-                                       .outFormat = 0x4e563132,
-                                       .outFormatCount = 1};
-  AVD_DriverContextInit ci = {.list = &list};
-  // Swap the vtable pointer on this driver's factory, only for the length of
-  // CreateContexts.
-  static pthread_mutex_t create_lock = PTHREAD_MUTEX_INITIALIZER;
-  // The wrapped copy of the factory's class vtable. Built once, under
-  // create_lock, before any factory points at it: threads of other sessions
-  // may read it at any time once it is published, so it never changes again.
-  static void* factoryVt[FACTORY_SLOTS + 2];
-  static void** factoryOrigVt;
-  // driver+8 is the VAContext, VAContext+75072 its VAFactory (avd.h,
-  // AVD_CreateDriver_fn). Each is checked before it is read through: a NULL
-  // fails the start like any other step instead of a read at a small address.
-  uint8_t* va = PTR(d->s.drv, 8);
-  if (!va) FAIL("no VAContext");
-  void*** factory = (void***)PTR(va, 75072);
-  if (!factory || !*factory) FAIL("no factory");
-  vcnvp9_dryrun_checkpoint(1);
-  pthread_mutex_lock(&create_lock);
-  void** origFactoryVt = *factory;
-  if (!factoryOrigVt) {
-    memcpy(factoryVt, origFactoryVt - 2, sizeof(factoryVt));
-    g_orig_create_processor =
-        (void* (*)(void*, int, void*))origFactoryVt[FACTORY_CREATE_PROCESSOR];
-    factoryVt[2 + FACTORY_CREATE_PROCESSOR] = (void*)hook_create_processor;
-    factoryOrigVt = origFactoryVt;
-  }
-  if (origFactoryVt != factoryOrigVt) {
-    pthread_mutex_unlock(&create_lock);
-    FAIL("the driver's factory class changed (%p, was %p)",
-         (void*)origFactoryVt, (void*)factoryOrigVt);
-  }
-  __atomic_store_n(factory, &factoryVt[2], __ATOMIC_RELEASE);
-  t_creating = 1;
-  int r = FN(CreateContexts)(d->s.drv, &ci);
-  t_creating = 0;
-  __atomic_store_n(factory, origFactoryVt, __ATOMIC_RELEASE);
-  pthread_mutex_unlock(&create_lock);
-  if (r || !ctxOut[0]) FAIL("CreateContexts %d", r);
-  d->s.ctx = ctxOut[0];
+  if (vp9_create_context(d, why, sizeof(why))) FAIL("%s", why);
   DBG("created: driver %s session=%s drv=%p ctx=%p\n", lib.uuid, sess, d->s.drv,
       d->s.ctx);
   return d;
+}
+
+// Rebuilds the driver side of a session the system slept through (plan B of
+// the sleep fix, job 178): the objects from before the sleep are dropped
+// without a word to the driver, and a fresh accelerator, driver, context and
+// bitstream pool are opened for the same plug-in session, so the host's decoder
+// object lives on instead of failing frames with kVTVideoDecoderMalfunctionErr.
+// Nothing decoded before the sleep can be referenced after it, so the DPB, the
+// references, the parser state and the pictures go, and frames are dropped
+// until a key frame (on_frame). False when the rebuild fails: the caller then
+// stops the session as PR 160 did.
+static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
+  vcn_session_drop(&d->s);
+  for (int i = 0; i < NUM_DPB; i++)
+    if (d->dpb[i]) {
+      CVPixelBufferRelease(d->dpb[i]);
+      d->dpb[i] = NULL;
+    }
+  memset(d->dpbRefs, 0, sizeof(d->dpbRefs));
+  for (size_t i = 0; i < sizeof(d->parser.ref) / sizeof(d->parser.ref[0]);
+       i++) {
+    d->parser.ref[i].valid = 0;
+    d->parser.ref[i].dpb_slot = -1;
+  }
+  if (d->hidden) {
+    CVPixelBufferRelease(d->hidden);
+    d->hidden = NULL;
+  }
+  d->bsNext = 0;
+  d->needKey = true;
+  d->dropped = 0;
+  VcnDriverLib lib;
+  if (!vcn_driver_load(&lib, why, whyLen)) return false;
+  bool validated = false;
+  for (size_t i = 0; i < sizeof(kValidatedDrivers) / sizeof(*kValidatedDrivers);
+       i++)
+    if (!strcmp(lib.uuid, kValidatedDrivers[i])) validated = true;
+  if (!validated) {
+    snprintf(why, whyLen, "AMDRadeonVADriver2 build %s not validated for VP9",
+             lib.uuid);
+    return false;
+  }
+  io_service_t svc = vcn_find_accelerator();
+  if (!svc) {
+    snprintf(why, whyLen, "no AMD accelerator");
+    return false;
+  }
+  if (!vcn_session_reopen(&d->s, &lib, svc, vlog(), why, whyLen)) return false;
+  if (vp9_create_context(d, why, whyLen)) {
+    vcn_session_drop(&d->s);
+    return false;
+  }
+  d->rebuilds++;
+  os_log_error(vlog(),
+               "the system slept since this session opened: driver rebuilt, "
+               "frames are dropped until the next key frame");
+  return true;
 }
 
 static void destroy_now(VcnVP9* d) {
@@ -746,6 +828,33 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
                     const uint8_t* data, size_t size) {
   VcnVP9* d = vctx;
   const VP9Frame* h = &p->fh;
+  // After a rebuild nothing from before the sleep can be used: every frame but
+  // a key frame (or an intra-only one, which refreshes every slot) is dropped,
+  // with no picture and no error, and a key frame starts the decoder again.
+  // Bounded: a stream that never sends one is stopped as a device failure,
+  // PR 160's behaviour.
+  if (d->needKey) {
+    bool key =
+        kind == VP9_PARSE_DECODE && (h->frame_type == 0 || h->intra_only);
+    if (!key) {
+      if (++d->dropped > REBUILD_MAX_DROPPED) {
+        d->broken = true;
+        d->failure = VCNVP9_FAIL_DEVICE;
+        snprintf(d->err, sizeof(d->err),
+                 "no key frame in %u frames after the system sleep",
+                 d->dropped);
+        return -1;
+      }
+      return 0;
+    }
+    for (size_t i = 0; i < sizeof(p->ref) / sizeof(p->ref[0]); i++) {
+      p->ref[i].valid = 0;
+      p->ref[i].dpb_slot = -1;
+    }
+    memset(d->dpbRefs, 0, sizeof(d->dpbRefs));
+    d->needKey = false;
+    d->dropped = 0;
+  }
   if (kind == VP9_PARSE_SHOW_EXISTING) {
     const VP9Ref* r = &p->ref[h->frame_to_show];
     if (!r->valid || r->dpb_slot < 0 || r->dpb_slot >= NUM_DPB ||
@@ -806,15 +915,6 @@ static int on_frame(void* vctx, VP9Parser* p, VP9ParseResult kind,
   }
   if (d->dpb[slot]) CVPixelBufferRelease(d->dpb[slot]);
   d->dpb[slot] = target;
-  // Nothing goes into the pool or to the engine for a session from before a
-  // system sleep (vcndriver.h).
-  if (vcn_session_lost(&d->s)) {
-    d->broken = true;
-    d->failure = VCNVP9_FAIL_DEVICE;
-    snprintf(d->err, sizeof(d->err), "%s",
-             "the system slept since this session opened");
-    return -1;
-  }
   int bi = d->bsNext;
   d->bsNext = (d->bsNext + 1) % NUM_BS;
   memcpy(d->s.bsAddr[bi], data, size);
@@ -879,12 +979,22 @@ int vcnvp9_decode(VcnVP9* d, const uint8_t* chunk, size_t size, int64_t tag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
-  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
+  if (!d->broken && vcn_session_lost(&d->s)) {
+    char why[200];
+    if (!vp9_rebuild(d, why, sizeof(why))) {
+      d->broken = true;
+      snprintf(d->err, sizeof(d->err),
+               "session stopped: the system slept since it opened and the "
+               "rebuild failed (%s)",
+               why);
+      d->failure = VCNVP9_FAIL_DEVICE;
+      return -1;
+    }
+  }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck    ? "the GPU did not finish an earlier frame"
-             : d->s.lost ? "the system slept since it opened"
-                         : "an earlier driver call failed");
+             d->stuck ? "the GPU did not finish an earlier frame"
+                      : "an earlier driver call failed");
     d->failure = VCNVP9_FAIL_DEVICE;
     return -1;
   }

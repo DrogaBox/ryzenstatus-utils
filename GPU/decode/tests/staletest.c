@@ -1,9 +1,9 @@
 // staletest: two plug-ins in one process (two copies of common/vcnsession.c,
 // libstale-a and libstale-b, built from stalelib.c) with a made-up driver and a
 // made-up sleep. A session of one that opened before a sleep and is still open
-// stops the other from opening one, as the VP9 sessions of a browser's decoder
-// process should have stopped the AV1 session it opened after the wake; once
-// it is closed, the other opens again. Without a sleep both open side by side.
+// is seen by the other plug-in (the local notification center), but it no
+// longer stops it from opening one: each session rebuilds for itself after a
+// sleep (plan B of the sleep fix). Without a sleep both open side by side.
 //
 // usage: staletest <libstale-a.dylib> <libstale-b.dylib>. Exit status 0 = pass.
 #include <dlfcn.h>
@@ -63,12 +63,12 @@ int main(int argc, char** argv) {
   sb = b.open(err, sizeof(err));
   printf("     refused: %s\n", err);
   expect(
-      "after it, one plug-in's session from before the sleep, still open, "
-      "stops the other from opening one, before it opens anything",
-      sa && !sb && b.live() == 0);
+      "after it, one plug-in's session from before the sleep, still open, no "
+      "longer stops the other from opening one",
+      sa && sb && b.live() == 1);
   if (sb) b.close(sb);
   VcnDriverSession* sa2 = a.open(err, sizeof(err));
-  expect("and the same plug-in from opening another", sa && !sa2);
+  expect("nor the same plug-in from opening another", sa && sa2);
   if (sa2) a.close(sa2);
   if (sa) a.close(sa);
   expect("its close (without the driver's teardown) frees the accelerator",

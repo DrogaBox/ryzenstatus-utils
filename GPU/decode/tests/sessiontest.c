@@ -133,6 +133,8 @@ static struct {
   bool hang;          // commands never finish
   unsigned firmware;  // result of every finished command
   bool noDestroy;     // the build has no AVD_DestroyAVDAccelerator
+  bool
+      rebuildFail;  // CreateDriver fails: the rebuild after a sleep cannot open
 } fault;
 
 enum { kFakeBuffer = 1 << 20 };  // larger than any frame of the test clips
@@ -156,6 +158,7 @@ static int f_create_driver(void** out, AVD_DriverCreate* dc) {
   st.createDrivers++;
   if (((FakeAccel*)dc->accel)->destroyed) st.useAfterDestroy = true;
   if (fault.createDriver) return fault.createDriver;
+  if (fault.rebuildFail) return 7;  // the rebuild's own CreateDriver
   FakeDrv* d = calloc(1, sizeof(*d));
   d->va = calloc(1, 75080);
   d->factory = calloc(1, 16);
@@ -245,10 +248,13 @@ static int f_delete_ctx(void* h, AVD_DriverContextDelete* del) {
 }
 // What vcn_sleep_mark reports: the test moves it to make a sleep.
 static VcnSleepMark fakeSleep = {.asleepNs = 5000000000ull,
-                                 .wakeUs = 1795000000000000ll};
+                                 .wakeUs = 1795000000000000ll,
+                                 .wallUs = 1795000000000000ll};
 static void sleep_for(uint64_t ns) {
   fakeSleep.asleepNs += ns;
   fakeSleep.wakeUs += 1000000;
+  // The wall clock counts through a sleep, mach_absolute_time does not.
+  fakeSleep.wallUs += (int64_t)(ns / 1000);
 }
 
 static int f_schedule(void* h, AVD_CmdList* l, AVD_RefConList* r) {
@@ -378,6 +384,15 @@ static bool released_in_order(void) {
   }
   return true;
 }
+// After a rebuild the driver handle from before the sleep is still open: that
+// is the leak F4 of the review describes, one per rebuild, left behind on
+// purpose because only the driver could free it and it may be wedged. What
+// must hold is that every accelerator is closed, and that exactly the dropped
+// drivers are left.
+static bool closed_after_rebuild(int dropped) {
+  return st.liveAccels == 0 && st.liveDrivers == dropped &&
+         !st.useAfterDestroy && !st.freeWithoutPool;
+}
 static bool all_released(void) {
   return st.liveAccels == 0 && st.liveDrivers == 0 && !st.useAfterDestroy &&
          !st.freeWithoutPool;
@@ -427,6 +442,10 @@ typedef struct {
 } Sample;
 static Sample clip[64];
 static int clipCount;
+static void clip_clear(void) {
+  for (int i = 0; i < clipCount; i++) free(clip[i].data);
+  clipCount = 0;
+}
 static bool read_clip(const char* path) {
   FILE* f = fopen(path, "rb");
   uint8_t h[32], fh[12];
@@ -731,32 +750,48 @@ int main(int argc, char** argv) {
          d && rj != 0 && FAILURE(d) == FAIL_STREAM && st.schedules == 0);
   if (d) DESTROY(d);
 
-  // 12. A system sleep.
+  // 12. A system sleep, and the rebuild that follows it instead of failing
+  // every frame (plan B, job 178).
+  clip_clear();
+  bool haveSamples = read_clip(argv[1]);
+  if (!haveSamples) printf("     the clip did not read for the sleep tests\n");
+  bool haveInter = haveSamples && clipCount > 1;
+  // A second sample only exercises "dropped until a key frame" if it really
+  // needs references: on a fresh session such a frame fails as a reference
+  // error, while a second key frame would decode.
+  bool interUsable = false;
+  if (haveInter) {
+    reset();
+    Vcn* probe = make();
+    if (probe) DECODE(probe, clip[1].data, clip[1].size, 0, on_out, NULL);
+    interUsable = probe && FAILURE(probe) == FAIL_REFERENCE;
+    if (probe) DESTROY(probe);
+  }
+
   reset();
   d = make();
   int rb = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
   expect("before the sleep, a frame decodes", d && rb == 0);
-  int schedulesBefore12 = st.schedules;
-  snapshot_pool();
+  int createsBefore12 = st.creates, ctxBefore12 = st.createCtx;
   sleep_for(30000000000ull);
-  int ra = d ? DECODE(d, frame0, frame0Size, 1, on_out, NULL) : 0;
-  int ka = d ? FAILURE(d) : -1;
-  printf("     after the sleep: %s\n", d ? LASTERR(d) : "");
-  int ra2 = d ? DECODE(d, frame0, frame0Size, 2, on_out, NULL) : 0;
+  int shown12 = 0;
+  int ra = d ? DECODE(d, frame0, frame0Size, 1, on_out, &shown12) : -1;
+  printf("     after the sleep: %s\n", d && ra ? LASTERR(d) : "driver rebuilt");
   expect(
-      "after it, the session fails as a device and sends nothing, not even "
-      "into the pool",
-      ra != 0 && ka == FAIL_DEVICE && ra2 != 0 && FAILURE(d) == FAIL_DEVICE &&
-          st.schedules == schedulesBefore12 && pool_untouched());
-  expect(
-      "its close skips the driver's own teardown and only destroys the "
-      "accelerator, in the background",
-      d && closed_quietly(d));
+      "after it, the session rebuilds the driver and decodes the key frame on "
+      "it, with no error",
+      d && ra == 0 && shown12 == 1 && st.creates == createsBefore12 + 1 &&
+          st.createCtx == ctxBefore12 + 1);
+  if (d) DESTROY(d);
+  expect("and the rebuilt session closes fully, only the dropped driver left",
+         closed_after_rebuild(1));
 
+  // Closed after the wake without a frame: still the quiet close of PR 160,
+  // because no rebuild happened.
   reset();
   d = make();
   sleep_for(10000000000ull);
-  expect("a session only closed after the wake closes the same way",
+  expect("a session only closed after the wake closes quietly",
          d && closed_quietly(d) && st.schedules == 0);
 
   reset();
@@ -770,10 +805,10 @@ int main(int argc, char** argv) {
   reset();
   d = make();
   fakeSleep.wakeUs += 1000000;  // a wake whose time asleep was not counted
-  int rw = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : 0;
-  expect("a new wake time alone counts as a sleep",
-         rw != 0 && d && FAILURE(d) == FAIL_DEVICE && st.schedules == 0);
-  if (d) closed_quietly(d);
+  int rw = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  expect("a new wake time alone counts as a sleep, and the session rebuilds",
+         d && rw == 0 && st.creates == 2);
+  if (d) DESTROY(d);
 
   reset();
   d = make();
@@ -781,30 +816,113 @@ int main(int argc, char** argv) {
   int rj12 = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
   if (d) DESTROY(d);
   expect("a change of the time asleep under 1 ms is not a sleep",
-         rj12 == 0 && st.deleteCtx == 1 && all_released());
+         rj12 == 0 && st.deleteCtx == 1 && st.creates == 1 && all_released());
 
+  reset();
+  d = make();
+  // A machine whose sleep path skipped the kernel's wake accounting: the
+  // counters do not move, only the wall clock does (the RTC counts through a
+  // sleep even when the kernel counted none of it).
+  fakeSleep.wallUs += 30000000;
+  int rwall = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  expect("a wall clock that ran ahead of the counters counts as a sleep",
+         d && rwall == 0 && st.creates == 2);
+  if (d) DESTROY(d);
+  fakeSleep.wallUs -= 30000000;
+
+  reset();
+  d = make();
+  fakeSleep.wallUs += 2000000;  // the same two seconds on both clocks
+  fakeSleep.monoNs += 2000000000ull;
+  int rboth = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  if (d) DESTROY(d);
+  expect("the wall clock and the counters moving together is not a sleep",
+         rboth == 0 && st.deleteCtx == 1 && st.creates == 1);
+  fakeSleep.wallUs -= 2000000;
+  fakeSleep.monoNs -= 2000000000ull;
+
+  if (interUsable) {
+    // An inter frame after the sleep: the rebuild happens, the frame is dropped
+    // with no picture and no error, and the next key frame decodes.
+    reset();
+    d = make();
+    int k0 = d ? DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL) : -1;
+    sleep_for(10000000000ull);
+    int createsBefore2 = st.creates;
+    int shownI = 0;
+    int di = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shownI) : -1;
+    expect(
+        "an inter frame after the sleep rebuilds and is dropped, with no "
+        "picture and no error",
+        d && k0 == 0 && di == 0 && shownI == 0 &&
+            st.creates == createsBefore2 + 1);
+    int shownK = 0;
+    int dk = d ? DECODE(d, clip[0].data, clip[0].size, 2, on_out, &shownK) : -1;
+    if (dk) printf("     key frame after the drop: %s\n", d ? LASTERR(d) : "");
+    expect("the next key frame decodes on the rebuilt driver",
+           d && dk == 0 && shownK == 1);
+    if (d) DESTROY(d);
+    expect("and that session closes fully, only the dropped driver left",
+           closed_after_rebuild(1));
+
+    // A stream that never sends one: frames are dropped for a while, then the
+    // session stops the way PR 160 stopped it.
+    reset();
+    d = make();
+    if (d) DECODE(d, clip[0].data, clip[0].size, 0, on_out, NULL);
+    sleep_for(10000000000ull);
+    int stopped = 0, iters = 0;
+    for (; d && iters < 1000 && !stopped; iters++)
+      stopped = DECODE(d, clip[1].data, clip[1].size, iters, on_out, NULL) != 0;
+    expect(
+        "with no key frame the frames are dropped up to the limit, then the "
+        "session stops as a device failure",
+        d && stopped && FAILURE(d) == FAIL_DEVICE);
+    if (d) DESTROY(d);
+    expect("and it still releases everything, only the dropped driver left",
+           closed_after_rebuild(1));
+  }
+
+  // A rebuild that fails is the case the refusal is left for.
+  reset();
+  d = make();
+  if (d) DECODE(d, frame0, frame0Size, 0, on_out, NULL);
+  sleep_for(10000000000ull);
+  fault.rebuildFail = true;
+  int rf = d ? DECODE(d, frame0, frame0Size, 1, on_out, NULL) : 0;
+  printf("     rebuild failure: %s\n", d ? LASTERR(d) : "");
+  fault.rebuildFail = false;
+  expect("a rebuild that fails stops the session, as PR 160 did",
+         d && rf != 0 && FAILURE(d) == FAIL_DEVICE);
+  int rf2 = d ? DECODE(d, frame0, frame0Size, 2, on_out, NULL) : 0;
+  expect("and later frames fail without opening anything else",
+         d && rf2 != 0 && st.creates == 2);
+  if (d) DESTROY(d);
+  expect("the failed rebuild leaves nothing open, only the dropped driver",
+         closed_after_rebuild(1));
+
+  // A new session opens beside one from before the sleep: no process-wide
+  // refusal any more, each session rebuilds for itself.
   reset();
   Vcn* before = make();
   sleep_for(10000000000ull);
-  int createsBefore = st.creates;
+  int createsB = st.creates;
   Vcn* beside = make();
-  expect(
-      "while a session from before the sleep is open, a new one is refused "
-      "before it opens anything",
-      before && !beside && st.creates == createsBefore);
+  expect("a new session opens beside one from before the sleep",
+         before && beside && st.creates == createsB + 1);
+  int rn = beside ? DECODE(beside, frame0, frame0Size, 0, on_out, NULL) : -1;
+  expect("and decodes on its own driver", beside && rn == 0);
   if (beside) DESTROY(beside);
   if (before) closed_quietly(before);
 
   reset();
   d = make();
-  int rn = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
+  int rn2 = d ? DECODE(d, frame0, frame0Size, 0, on_out, NULL) : -1;
   if (d) DESTROY(d);
-  expect(
-      "once it is closed, a session opened after the wake decodes and closes "
-      "fully",
-      rn == 0 && st.deleteCtx == 1 && st.destroys == 1 && all_released() &&
-          released_in_order());
+  expect("a session opened after the wake decodes and closes fully",
+         rn2 == 0 && st.deleteCtx == 1 && st.destroys == 1 && all_released());
 
+  clip_clear();
   if (argc == 3) hidden_frames(argv[2]);
 
   free(frame0);

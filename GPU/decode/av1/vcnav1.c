@@ -23,6 +23,10 @@ int vcnav1_gpu_armed = 0;
 
 #define VCN_MODE_VCN0 4
 #define NUM_DPB 9
+// A rebuild after a sleep waits for a key frame; at 60 fps this is ten
+// seconds of frames. A stream that does not send one by then is stopped the
+// way PR 160 stopped it, so the host can hand it to another decoder.
+#define REBUILD_MAX_DROPPED 600
 #define NUM_BS VCN_NUM_BS
 #define BS_SIZE VCN_BS_SIZE
 #define SEQ_BYTES 2048
@@ -60,10 +64,13 @@ struct VcnAV1 {
       pool;  // decode targets; references live in the driver's internal DPB
   uint32_t poolW, poolH;
   bool poolTen;
-  bool stuck;   // a command never finished: the GPU may still hold it
-  bool broken;  // stuck, or a driver call failed: nothing more goes out
-  int failure;  // VCNAV1_FAIL_* of the last error
-  bool shown;   // the current decode call output a frame
+  bool stuck;         // a command never finished: the GPU may still hold it
+  bool broken;        // stuck, or a driver call failed: nothing more goes out
+  bool needKey;       // rebuilt after a sleep: drop frames until a key frame
+  unsigned dropped;   // frames dropped since that rebuild
+  unsigned rebuilds;  // driver objects rebuilt in this session (one per sleep)
+  int failure;        // VCNAV1_FAIL_* of the last error
+  bool shown;         // the current decode call output a frame
   CVPixelBufferRef hidden;  // retained: last frame it decoded without showing
   unsigned fwErrors;        // decodes the firmware reported as failed
   unsigned done;            // decode commands that finished
@@ -172,6 +179,45 @@ static CVPixelBufferRef new_target(VcnAV1* d, uint32_t w, uint32_t h,
   if (CVPixelBufferPoolCreatePixelBuffer(NULL, d->pool, &pb)) return NULL;
   return pb;
 }
+// One AV1 context on the driver handle this session has open: what a create
+// and a rebuild after a sleep both need.
+static int av1_create_context(VcnAV1* d) {
+  AVD_ContextList list = {0};
+  void* ctxOut[2] = {0};
+  AVD_FunctionInfo* fis[1] = {&list.inlineInfo};
+  list.count = 1;
+  list.functions = fis;
+  list.contextsOut = ctxOut;
+  // mode 3/5 => VAVcnDecoder::Init(1) => second VCN instance (VCN1Dec), which
+  // has NO AV1 on Navi21 and hangs the GPU. Mode 4 (what AppleGVA uses for
+  // H.264) => Init(0) => VCN0Dec.
+  list.inlineInfo = (AVD_FunctionInfo){.kind = 1,
+                                       .function = AVD_FUNC_AV1,
+                                       .mode = VCN_MODE_VCN0,
+                                       .pixelRate = d->maxW * d->maxH * 60,
+                                       .width = d->maxW,
+                                       .height = d->maxH,
+                                       .inFormat = 0x72617762,
+                                       .inFormatCount = 1,
+                                       .outFormat = 0x4e563132,
+                                       .outFormatCount = 1};
+  AVD_DriverContextInit ci = {.list = &list};
+  int r = FN(CreateContexts)(d->s.drv, &ci);
+  if (r || !ctxOut[0]) return r ? r : 1;
+  d->s.ctx = ctxOut[0];
+  return 0;
+}
+
+// The builds the AV1 parameter blocks were validated against, or the override
+// a dry run sets (vcndriver.h).
+static bool av1_driver_allowed(const VcnDriverLib* lib) {
+  for (size_t i = 0; i < sizeof(kValidatedDrivers) / sizeof(*kValidatedDrivers);
+       i++)
+    if (!strcmp(lib->uuid, kValidatedDrivers[i])) return true;
+  const char* ov = getenv("VCNAV1_ALLOW_UNVALIDATED_DRIVER");
+  return ov && !strcmp(ov, "1");
+}
+
 VcnAV1* vcnav1_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
                       size_t errLen) {
   VcnAV1* d = calloc(1, sizeof(*d));
@@ -215,31 +261,62 @@ VcnAV1* vcnav1_create(uint32_t maxWidth, uint32_t maxHeight, char* err,
   // included.
   if (!vcn_session_open(&d->s, &lib, svc, vlog(), why, sizeof(why)))
     FAIL("%s", why);
-  AVD_ContextList list = {0};
-  void* ctxOut[2] = {0};
-  AVD_FunctionInfo* fis[1] = {&list.inlineInfo};
-  list.count = 1;
-  list.functions = fis;
-  list.contextsOut = ctxOut;
-  // mode 3/5 => VAVcnDecoder::Init(1) => second VCN instance (VCN1Dec), which
-  // has NO AV1 on Navi21 and hangs the GPU. Mode 4 (what AppleGVA uses for
-  // H.264) => Init(0) => VCN0Dec.
-  list.inlineInfo = (AVD_FunctionInfo){.kind = 1,
-                                       .function = AVD_FUNC_AV1,
-                                       .mode = VCN_MODE_VCN0,
-                                       .pixelRate = maxWidth * maxHeight * 60,
-                                       .width = maxWidth,
-                                       .height = maxHeight,
-                                       .inFormat = 0x72617762,
-                                       .inFormatCount = 1,
-                                       .outFormat = 0x4e563132,
-                                       .outFormatCount = 1};
-  AVD_DriverContextInit ci = {.list = &list};
-  int r = FN(CreateContexts)(d->s.drv, &ci);
-  if (r || !ctxOut[0]) FAIL("CreateContexts(AV1) %d", r);
-  d->s.ctx = ctxOut[0];
+  int r = av1_create_context(d);
+  if (r) FAIL("CreateContexts(AV1) %d", r);
   DBG("created: drv=%p ctx=%p bs=%p\n", d->s.drv, d->s.ctx, d->s.bsAddr[0]);
   return d;
+}
+
+// Rebuilds the driver side of a session the system slept through (plan B of
+// the sleep fix, job 178): the objects from before the sleep are dropped
+// without a word to the driver, and a fresh accelerator, driver, context and
+// bitstream pool are opened for the same plug-in session, so the host's decoder
+// object lives on instead of failing frames with kVTVideoDecoderMalfunctionErr.
+// Nothing decoded before the sleep can be referenced after it, so the DPB, the
+// reference slots, the parser and the pictures go, and the next frames are
+// dropped until a key frame (on_frame). False when the rebuild fails: the
+// caller then stops the session as PR 160 did.
+static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
+  vcn_session_drop(&d->s);
+  for (int i = 0; i < NUM_DPB; i++)
+    if (d->dpb[i]) {
+      CVPixelBufferRelease(d->dpb[i]);
+      d->dpb[i] = NULL;
+    }
+  memset(d->dpbRefs, 0, sizeof(d->dpbRefs));
+  if (d->hidden) {
+    CVPixelBufferRelease(d->hidden);
+    d->hidden = NULL;
+  }
+  av1_parser_free(&d->parser);
+  av1_parser_init(&d->parser);
+  d->bsNext = 0;
+  d->needKey = true;
+  d->dropped = 0;
+  VcnDriverLib lib;
+  if (!vcn_driver_load(&lib, why, whyLen)) return false;
+  if (!av1_driver_allowed(&lib)) {
+    snprintf(why, whyLen, "AMDRadeonVADriver2 build %s not validated",
+             lib.uuid);
+    return false;
+  }
+  io_service_t svc = vcn_find_accelerator();
+  if (!svc) {
+    snprintf(why, whyLen, "no AMD accelerator");
+    return false;
+  }
+  if (!vcn_session_reopen(&d->s, &lib, svc, vlog(), why, whyLen)) return false;
+  int r = av1_create_context(d);
+  if (r) {
+    snprintf(why, whyLen, "CreateContexts(AV1) %d", r);
+    vcn_session_drop(&d->s);
+    return false;
+  }
+  d->rebuilds++;
+  os_log_error(vlog(),
+               "the system slept since this session opened: driver rebuilt, "
+               "frames are dropped until the next key frame");
+  return true;
 }
 
 static void destroy_now(VcnAV1* d) {
@@ -574,6 +651,27 @@ static bool seq_supported(const AV1Seq* s) {
 static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
   VcnAV1* d = vctx;
   const AV1Frame* h = &p->fh;
+  // After a rebuild nothing from before the sleep can be used: every frame but
+  // a key frame is dropped (no picture for this sample, which is what a hidden
+  // frame looks like to the host, not an error), and a key frame starts the
+  // decoder again. Bounded: a stream that never sends one is stopped as a
+  // device failure, PR 160's behaviour.
+  if (d->needKey) {
+    if (kind != AV1_PARSE_FRAME_READY || h->frame_type != AV1_KEY_FRAME) {
+      if (++d->dropped > REBUILD_MAX_DROPPED) {
+        d->broken = true;
+        d->failure = VCNAV1_FAIL_DEVICE;
+        snprintf(d->err, sizeof(d->err),
+                 "no key frame in %u frames after the system sleep",
+                 d->dropped);
+        return -1;
+      }
+      return 0;
+    }
+    vcnav1_flush(d);
+    d->needKey = false;
+    d->dropped = 0;
+  }
   if (kind == AV1_PARSE_SHOW_EXISTING) {
     AV1RefSlot* r = &p->ref[h->frame_to_show_map_idx];
     if (!r->valid || r->dpb_slot < 0 || r->dpb_slot >= NUM_DPB ||
@@ -647,15 +745,6 @@ static int on_frame(void* vctx, AV1Parser* p, AV1ParseResult kind) {
   d->dpb[slot] = target;
   pack_seq(d);
   pack_frame(d);
-  // Nothing goes into the pool or to the engine for a session from before a
-  // system sleep (vcndriver.h).
-  if (vcn_session_lost(&d->s)) {
-    d->broken = true;
-    d->failure = VCNAV1_FAIL_DEVICE;
-    snprintf(d->err, sizeof(d->err), "%s",
-             "the system slept since this session opened");
-    return -1;
-  }
   // bitstream: concatenated tile data
   int bi = d->bsNext;
   d->bsNext = (d->bsNext + 1) % NUM_BS;
@@ -752,12 +841,22 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
     CVPixelBufferRelease(d->hidden);
     d->hidden = NULL;
   }
-  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
+  if (!d->broken && vcn_session_lost(&d->s)) {
+    char why[200];
+    if (!av1_rebuild(d, why, sizeof(why))) {
+      d->broken = true;
+      snprintf(d->err, sizeof(d->err),
+               "session stopped: the system slept since it opened and the "
+               "rebuild failed (%s)",
+               why);
+      d->failure = VCNAV1_FAIL_DEVICE;
+      return -1;
+    }
+  }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck    ? "the GPU did not finish an earlier frame"
-             : d->s.lost ? "the system slept since it opened"
-                         : "an earlier driver call failed");
+             d->stuck ? "the GPU did not finish an earlier frame"
+                      : "an earlier driver call failed");
     d->failure = VCNAV1_FAIL_DEVICE;
     return -1;
   }

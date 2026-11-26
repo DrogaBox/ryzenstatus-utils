@@ -56,22 +56,35 @@ enum { VCN_COMMAND_TIMEOUT_MS = 1000 };
 //
 // The mark is the time this Mac has spent asleep since it started, as the
 // kernel counts it (mach_continuous_time runs on during a sleep,
-// mach_absolute_time does not), and the time of the last wake (kern.waketime).
-// Either changing means the system slept. Neither needs a notification, which a
+// mach_absolute_time does not), the time of the last wake (kern.waketime), and
+// the wall clock read next to mach_absolute_time. Any of the three changing
+// means the system slept. The third is there for a machine whose sleep path
+// skips the kernel's wake accounting, where the first signal never moves, and
+// whose kern.waketime is refused inside the sandbox, where the second one is
+// dead: the RTC counts through a sleep even when the kernel counted none of it,
+// so a wall clock that ran ahead of mach_absolute_time is a sleep the other two
+// would miss. None of the three needs a notification, which a
 // decoder could not get anyway: VideoToolbox's decoder service is sandboxed
 // without the root power domain's user client that IORegisterForSystemPower
 // opens (VTDecoderSandboxProfile.sb).
 typedef struct {
   uint64_t asleepNs;  // time asleep since boot
   int64_t wakeUs;     // last wake in microseconds since 1970; 0 when unknown
+  bool wakeKnown;     // kern.waketime could be read (its value may still be 0)
+  uint64_t monoNs;    // mach_absolute_time at the same reading, in ns
+  int64_t wallUs;     // that same moment on the wall clock, us since 1970
 } VcnSleepMark;
 
-// Reads both now (vcndriver.c: it asks the system).
+// Reads all of it now (vcndriver.c: it asks the system). kern.waketime is a
+// sysctl and the codecs ask for a mark on every frame, so that one value is
+// reused for 100 ms of mach_absolute_time; a sleep is still noticed at once
+// through the time asleep.
 void vcn_sleep_mark(VcnSleepMark* m);
 
-// True when the system has slept between `then` and `now`. A change of the
-// time asleep below 1 ms is the error of the reading, not a sleep: a real one
-// takes seconds.
+// True when the system has slept between `then` and `now`: the time asleep
+// moved by more than 1 ms (the error of a reading, not a sleep: a real one
+// takes seconds), the wake time is two different non-zero values, or the wall
+// clock ran more than a second ahead of mach_absolute_time (see above).
 bool vcn_slept_between(const VcnSleepMark* then, const VcnSleepMark* now);
 
 typedef enum {
@@ -116,22 +129,45 @@ typedef struct VcnDriverSession {
 // part opened so far is closed again, s is left empty and err says which call
 // failed.
 //
-// It also fails, before it opens anything, while a session of this process
-// that opened before a system sleep is still open, in any of the plug-ins (they
-// ask each other through the process's local notification center). A reported
+// It counts, once per process, the sessions of this process that opened before
+// a system sleep and are still open in any of the plug-ins (they ask each
+// other through the process's local notification center). It no longer refuses
+// because of them: those sessions rebuild for themselves now, and refusing
+// would turn a paused tab into no hardware decode in the whole process (F3 of
+// the review). A reported
 // hang began exactly so: two VP9 sessions of a browser's decoder process stayed
 // open across a sleep, and the AV1 session the same process opened after the
-// wake never decoded a frame. VideoToolbox then gives the stream to another
-// decoder (software); once those sessions are closed, new ones open again.
+// wake never decoded a frame. That is why a decoder session does not fail when
+// it finds the system slept: it rebuilds its driver side (vcn_session_reopen)
+// and drops frames until a key frame, so the host's decoder object lives on and
+// never sees a malfunction. What is left of the refusal below is the case where
+// the rebuild itself fails.
 bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
                       io_service_t svc, os_log_t log, char* err, size_t errLen);
 
+// Opens the driver side of a session that replaces one the system slept
+// through: the same work without the check for other sessions of the process
+// from before the sleep (this one is being replaced, not added beside them),
+// and it clears `lost`, because what it opens is from after the wake. The
+// session stays in this plug-in's list of open ones.
+bool vcn_session_reopen(VcnDriverSession* s, const VcnDriverLib* lib,
+                        io_service_t svc, os_log_t log, char* err,
+                        size_t errLen);
+
+// Drops the driver objects of a lost session without telling the driver
+// anything: AVD_DestroyAVDAccelerator (that is what closes the IOKit clients)
+// and the service. The driver handle, its context and the bitstream pool are
+// left where they are, because only the driver can free them and it may be
+// wedged after a wake (F4 of the review); a rebuild leaks that once per sleep
+// and starts a new pool. The session stays listed as open.
+void vcn_session_drop(VcnDriverSession* s);
+
 // True once the system has slept since s opened (see VcnSleepMark), and from
-// then on; the first time, it says so in the log. The codec asks before it
-// writes a frame into the bitstream pool and before it schedules a command, and
-// refuses the frame as a device failure: VideoToolbox then makes a new session,
-// which opens on the restarted engine. A session with no accelerator is never
-// lost.
+// then on; the first time, it says so in the log. A codec that finds this
+// rebuilds its driver side (vcnav1.c / vcnvp9.c: vcn_session_drop then
+// vcn_session_reopen) and drops frames until a key frame; only a rebuild that
+// fails stops the session, with kVTVideoDecoderMalfunctionErr (-12911), which
+// is PR 160's behaviour. A session with no accelerator is never lost.
 bool vcn_session_lost(VcnDriverSession* s);
 
 // Closes what open (and the codec's CreateContexts) made, in the order Apple's

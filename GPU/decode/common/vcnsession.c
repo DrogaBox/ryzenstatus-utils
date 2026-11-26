@@ -65,7 +65,18 @@ VcnWaitResult vcn_wait_command(AVD_QueryAVDCommandStatus_fn query, void* driver,
 
 bool vcn_slept_between(const VcnSleepMark* then, const VcnSleepMark* now) {
   if (now->asleepNs > then->asleepNs + 1000000) return true;
-  return then->wakeUs && now->wakeUs && then->wakeUs != now->wakeUs;
+  if (then->wakeUs && now->wakeUs && then->wakeUs != now->wakeUs) return true;
+  // The wall clock counts through a sleep even when the kernel counted none of
+  // it, and mach_absolute_time does not: the two running apart by more than a
+  // second is a sleep neither of the other signals saw. A wall clock set back
+  // (NTP, a manual change) makes the difference negative and is not a sleep; a
+  // clock set forward is, which is the safe direction.
+  if (then->wallUs && now->wallUs) {
+    int64_t wallUs = now->wallUs - then->wallUs;
+    int64_t monoUs = (int64_t)(now->monoNs - then->monoNs) / 1000;
+    if (wallUs - monoUs > 1000000) return true;
+  }
+  return false;
 }
 
 bool vcn_session_lost(VcnDriverSession* s) {
@@ -165,25 +176,65 @@ static int stale_sessions(const VcnSleepMark* now) {
   return q.stale;
 }
 
-bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
-                      io_service_t svc, os_log_t log, char* err,
-                      size_t errLen) {
+// Shared by open and reopen. `rebuild` keeps the session in this plug-in's
+// list of open sessions (it is replacing one, not adding one) and skips the
+// question asked of the other plug-ins, which was for a new session opened
+// beside a stale one; a rebuild is the answer to that case now.
+static bool open_session(VcnDriverSession* s, const VcnDriverLib* lib,
+                         io_service_t svc, os_log_t log, bool rebuild,
+                         char* err, size_t errLen) {
+  bool listed = s->listed;
+  VcnDriverSession* nextOpen = s->nextOpen;
   *s = (VcnDriverSession){.destroy = lib->destroy, .svc = svc, .log = log};
+  if (rebuild) {
+    // Already in the list: keep it there (close unlists it if this fails).
+    s->listed = listed;
+    s->nextOpen = nextOpen;
+  }
   // Before anything is opened: a sleep during the open loses the session too.
   vcn_sleep_mark(&s->opened);
+  if (!s->opened.wakeKnown) {
+    // Not fatal: the other two signals still count. Said once, because in a
+    // sandbox it is the expected case (container.sb lists kern.waketime by
+    // name, so a profile stricter than that one refuses it) and the value is
+    // never read later, which used to be invisible.
+    static bool told;
+    if (!__atomic_exchange_n(&told, true, __ATOMIC_RELAXED))
+      os_log_error(log,
+                   "kern.waketime is not readable in this process: a sleep is "
+                   "noticed through the monotonic and wall clocks only");
+  }
 #define FAIL(...)                       \
   do {                                  \
     snprintf(err, errLen, __VA_ARGS__); \
     vcn_session_close(s);               \
     return false;                       \
   } while (0)
-  // No new session beside one from before a sleep (vcndriver.h).
-  int stale = stale_sessions(&s->opened);
-  if (stale > 0)
-    FAIL(
-        "%d session(s) of this process from before a system sleep still "
-        "open: no new one until they close",
-        stale);
+  // Other sessions of this process from before a sleep are only counted now: a
+  // new session opens beside them and each one rebuilds for itself, which is
+  // what stops a paused tab from turning hardware decode off for the process
+  // (F3 of the review). A rebuild does not ask at all.
+  int stale = rebuild ? 0 : stale_sessions(&s->opened);
+  if (stale < 0) {
+    // The question could not be asked (no memory for the dictionary). Fail
+    // open, as a decoder must, but say so once: this is the one case where
+    // the guard is not in force.
+    static bool toldQuery;
+    if (!__atomic_exchange_n(&toldQuery, true, __ATOMIC_RELAXED))
+      os_log_error(log,
+                   "could not ask the other plug-ins for sessions from before "
+                   "a sleep: this session opens beside them");
+  }
+  if (stale > 0) {
+    // Once per process: the count is a diagnostic, not a refusal any more.
+    static bool toldStale;
+    if (!__atomic_exchange_n(&toldStale, true, __ATOMIC_RELAXED))
+      os_log_error(log,
+                   "%d session(s) of this process from before a system sleep "
+                   "are still open: this one opens beside them and rebuilds "
+                   "for itself if it needs to",
+                   stale);
+  }
   if (!lib->destroy) {
     // Said once per process: every session would say the same.
     static bool told;
@@ -232,10 +283,43 @@ bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
   for (int i = 0; i < VCN_NUM_BS; i++)
     if (!s->bsAddr[i]) FAIL("AllocateBitstreamBufferPool: no buffer %d", i);
 #undef FAIL
-  list_open(s);
+  if (!rebuild) list_open(s);
   return true;
 }
 
+bool vcn_session_open(VcnDriverSession* s, const VcnDriverLib* lib,
+                      io_service_t svc, os_log_t log, char* err,
+                      size_t errLen) {
+  return open_session(s, lib, svc, log, false, err, errLen);
+}
+
+bool vcn_session_reopen(VcnDriverSession* s, const VcnDriverLib* lib,
+                        io_service_t svc, os_log_t log, char* err,
+                        size_t errLen) {
+  return open_session(s, lib, svc, log, true, err, errLen);
+}
+
+void vcn_session_drop(VcnDriverSession* s) {
+  if (!s->accel) return;
+  // No DeleteContexts, FreeBitstreamBufferPool or DeleteDriver: those send the
+  // engine a command for a session it has forgotten and wait with no limit.
+  if (s->destroy) s->destroy(s->accel);
+  s->accel = NULL;
+  s->drv = NULL;
+  s->ctx = NULL;
+  s->poolAllocated = false;
+  memset(s->bsAddr, 0, sizeof(s->bsAddr));
+  if (s->svc) IOObjectRelease(s->svc);
+  s->svc = 0;
+}
+
+// Skipping the driver's own teardown keeps this close from waiting on a command
+// for a session the engine has forgotten, but it does not make it a
+// non-blocking call: AVD_DestroyAVDAccelerator below still closes three IOKit
+// user clients, and on the kernel side a context stop goes through PowerPlay's
+// notify (escape 0x34), which can wait after a failed wake. That is why a lost
+// or stuck session is closed on the teardown queue (vcn_teardown) and never on
+// the caller's thread.
 void vcn_session_close(VcnDriverSession* s) {
   // Asked here too: a session can be closed without having been asked since
   // the wake (a paused video that is closed after it).
@@ -251,13 +335,23 @@ void vcn_session_close(VcnDriverSession* s) {
       FN(DeleteDriver)(s->drv);
     }
     if (s->destroy) s->destroy(s->accel);
-    if (lost)
-      os_log_error(s->log,
-                   "session from before the sleep closed without the driver's "
-                   "own teardown%{public}s",
-                   s->destroy ? ""
-                              : " (this driver build has no "
-                                "AVD_DestroyAVDAccelerator: it stays open)");
+    if (lost) {
+      // What the skipped teardown leaves behind, and how much of it this
+      // process has left behind so far: the driver's pool and context go with
+      // the driver handle, which is never deleted here. Accounting only; the
+      // fix is a process that does not sleep with sessions open.
+      static long lostCloses;
+      long n = __atomic_add_fetch(&lostCloses, 1, __ATOMIC_RELAXED);
+      os_log_error(
+          s->log,
+          "session from before the sleep closed without the driver's own "
+          "teardown: %ld so far in this process, up to %lld MiB of the "
+          "driver's bitstream pool and its context not returned%{public}s",
+          n, (long long)n * VCN_NUM_BS * VCN_BS_SIZE / (1024 * 1024),
+          s->destroy ? ""
+                     : " (this driver build has no "
+                       "AVD_DestroyAVDAccelerator: it stays open)");
+    }
   }
   // Out of the list only now: until the accelerator is closed, the session
   // still counts as open for a new one.
