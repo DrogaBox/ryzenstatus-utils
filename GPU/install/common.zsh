@@ -134,6 +134,11 @@ loader_prop() { # name
 # Removing takes them off either way.
 LEGACY_BUNDLES=(MPEG2VCNDecoder.bundle VC1VCNDecoder.bundle MPEG4VCNDecoder.bundle)
 legacy_on() { [[ ${VCNVT_LEGACY_DECODERS:-0} == 1 ]]; }
+# The JPEG and Motion JPEG plug-in. It decodes through the VCNJpeg kext (install/jpeg.sh), not
+# through Apple's video driver, and the installers leave it alone unless VCNVT_JPEG_DECODER=1
+# (decoders.sh --jpeg, install.sh --with-jpeg). Removing takes it off either way.
+JPEG_BUNDLE=JPEGVCNDecoder.bundle
+jpeg_on() { [[ ${VCNVT_JPEG_DECODER:-0} == 1 ]]; }
 # The executable of a plug-in bundle in a folder.
 plugin_exe() { print -r -- "$1/$2/Contents/MacOS/${2%.bundle}"; } # folder bundle
 # The code directory hash of a bundle or program: what identifies one exact build.

@@ -24,6 +24,8 @@ Mac has to be reset. Before any run marked "can hang" below:
 | `vtlegacytest` | yes, through VideoToolbox | **yes** | `VCNLEGACY_ALLOW_GPU=yes-i-know-it-can-hang` (without it, it only cuts the stream into samples) |
 | `vtav1test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
 | `vtvp9test` | yes, through VideoToolbox | **yes** | none: a decode run is armed |
+| `vtjpegtest` | yes, through VideoToolbox and the VCNJpeg kext | **yes** | none: a decode run is armed (`-apple` runs on the CPU only) |
+| `mkmjpeg422` | no | no | none |
 | `vtchurn` | yes, through VideoToolbox | **yes** | none: every session decodes |
 | `probe_ctx` | yes | low risk: it opens a session, it decodes nothing | none |
 | `tools/driver/dryrun.py`, `dryrun_vp9.py` | yes, under lldb | the driver's own setup goes out; our commands do not | the scripts arm the program themselves |
@@ -146,6 +148,23 @@ VCNVP9_SESSION=vp9 VCNVP9_ALLOW_GPU=yes-i-know-it-can-hang \
 - **Can hang the GPU.**
 
 A pass: one line per frame ending in `OK`, then `N frames, 0 mismatches`, and exit status 0.
+
+## vtjpegtest
+
+Motion JPEG through VideoToolbox, every frame compared with FFmpeg's decode (within 2: the
+block's IDCT rounds a little differently). It needs `VCNJpeg.kext` running
+([jpeg/README.md](../../../jpeg/README.md)).
+
+```bash
+ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -frames:v 30 -pix_fmt yuvj420p -c:v mjpeg -q:v 3 -f mjpeg c420.mjpeg
+ffmpeg -i c420.mjpeg -f rawvideo -pix_fmt yuvj420p r420.yuv
+decode/build/gpu/vtjpegtest -apple c420.mjpeg r420.yuv 1280 720 420            # CPU only: checks the clip
+decode/build/gpu/vtjpegtest -load decode/build/JPEGVCNDecoder.bundle c420.mjpeg r420.yuv 1280 720 420
+decode/build/gpu/vtjpegtest -system c420.mjpeg r420.yuv 1280 720 420           # the installed plug-in
+```
+
+`-dmb1` sends the same pictures as OpenDML. `mkmjpeg422` writes the 4:2:2 sampling webcams
+use (luma 2x1), which FFmpeg does not write.
 
 ## vtav1test and vtvp9test
 

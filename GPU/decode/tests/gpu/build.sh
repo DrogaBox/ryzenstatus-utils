@@ -12,6 +12,9 @@
 #                 test's own process, nothing installed       (armed by VCNLEGACY_ALLOW_GPU)
 #   vtav1test     AV1 through VideoToolbox, as Safari does   (no switch: see README.md)
 #   vtvp9test     VP9 through VideoToolbox, as Safari does   (no switch: see README.md)
+#   vtjpegtest    Motion JPEG through VideoToolbox, our decoder only (loaded in the process, or the
+#                 installed one with -system), compared with FFmpeg (no switch)
+#   mkmjpeg422    writes Motion JPEG sampled as webcams do (4:2:2, luma 2x1); CPU only
 #   vtchurn       many sessions in one process, counts ports and IOKit connections (no switch)
 #   probe_ctx     asks the driver for one decode context     (no switch: see README.md)
 #   driveruuid    prints the build identifier of the installed driver
@@ -79,6 +82,8 @@ build vtlegacytest -Impeg2 -Ivc1 -Impeg4 $T/vtlegacytest.c mpeg2/MPEG2VCNDecoder
 
 build vtav1test $T/vtav1test.c av1/av1parse.c $CF $VT
 build vtvp9test $T/vtvp9test.c vp9/vp9parse.c $CF $VT
+build vtjpegtest $T/vtjpegtest.c $CF $VT
+build mkmjpeg422 $T/mkmjpeg422.c
 build vtchurn $T/vtchurn.c $CF $VT
 build probe_ctx $T/probe_ctx.c common/vcndriver.c $CF $IOKIT
 build driveruuid $T/driveruuid.c common/vcndriver.c $CF $IOKIT

@@ -28,6 +28,10 @@
 #      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac
 #   5c. the GPU sensors: they build twice to the same bytes, their decisions, and that the
 #      kext accepts the PMLog function of this Mac's driver
+#   5d. the JPEG decoder kext: it builds twice to the same bytes, its door and the rule that
+#      powers the block only while decoding (jpeg/tests/run.sh, with the KDK and Mesa parts
+#      when they are there), and that this Mac's driver starts each function it uses the way
+#      its table says
 #   6. every symbol the kexts import exists in this kernel or in Lilu (tools/kextlinks.sh);
 #      the encoding fix builds and passes its own tests (the wide patch run on the CPU for
 #      each validated build, OpenCore config editing)
@@ -71,8 +75,8 @@ fi
 
 syntax() {
   local f
-  for f in build.sh {decode,encode,sensors}/build.sh decode/loader/build.sh decode/tests/gpu/build.sh tools/*.sh tests/*.sh \
-           install/*.sh encode/scripts/*.sh; do
+  for f in build.sh {decode,encode,sensors,jpeg}/build.sh decode/loader/build.sh decode/tests/gpu/build.sh tools/*.sh tests/*.sh \
+           install/*.sh encode/scripts/*.sh jpeg/tests/run.sh; do
     zsh -n $f || { print "syntax error in $f"; return 1; }
   done
 }
@@ -137,6 +141,12 @@ check "the MPEG-2 and VC-1 codec layers send the firmware only what it decodes" 
 pick() { decode/build/tests/legacypick > decode/build/tests/legacypick.txt ||
   { cat decode/build/tests/legacypick.txt; return 1; }; }
 check "VideoToolbox gives our MPEG-4 plug-in the streams it takes, and Apple's the rest" pick
+jpeg_plugin() {
+  decode/build/tests/plugintest-jpeg > decode/build/tests/plugintest-jpeg.txt ||
+    { cat decode/build/tests/plugintest-jpeg.txt; return 1; }
+  decode/build/tests/jpegtest > decode/build/tests/jpegtest.txt || { grep -v ^PASS decode/build/tests/jpegtest.txt; return 1; }
+}
+check "the JPEG plug-in: VideoToolbox side, preparer, session against a made-up kext" jpeg_plugin
 damaged() {$PD --mutate $rounds tests/media/av1/*.ivf tests/media/vp9/*.ivf > decode/build/tests/damaged.txt; }
 check "$rounds damaged copies of each stream are survived" damaged
 
@@ -234,9 +244,58 @@ if [[ -f $SKC ]]; then
 else
   skip "the sensors kext against this Mac's driver" "no system kernel collection on this machine"
 fi
+step "JPEG decoder kext"
+if [[ -f deps/Lilu.kext/Contents/Resources/Library/plugin_start.cpp || -n ${LILU_KEXT:-} ]]; then
+  jpeg_twice() {
+    local k=jpeg/build/VCNJpeg.kext/Contents/MacOS/VCNJpeg
+    jpeg/build.sh tests > /dev/null || return 1
+    local first second
+    first=$(shasum -a 256 < $k) || return 1
+    jpeg/build.sh tests > /dev/null || return 1
+    second=$(shasum -a 256 < $k) || return 1
+    [[ $first == $second ]] || { print "two builds differ"; return 1; }
+    no_local_paths $k || return 1
+  }
+  check "the JPEG kext builds twice to the same bytes, with no local path inside" jpeg_twice
+  jpeg_host() { jpeg/tests/run.sh > decode/build/tests/jpeg-host.txt || { cat decode/build/tests/jpeg-host.txt; return 1; }; }
+  check "the JPEG kext's commands, door and power rule (jpeg/tests/run.sh)" jpeg_host
+  grep '^skip ' decode/build/tests/jpeg-host.txt 2>/dev/null | while read -r _ why; do skip "part of jpeg/tests/run.sh" "$why"; done
+  if [[ -f $SKC && $(/usr/bin/sw_vers -buildVersion) == 25G342 ]]; then
+    # every function of jpeg/kext/hwlibs_expect.hpp starts in this Mac's driver as the table says
+    jpeg_this_mac() {
+      /usr/bin/python3 -I - $SKC <<'PY'
+import re, subprocess, sys
+hpp = open("jpeg/kext/hwlibs_expect.hpp").read()
+want = {}
+for block, kext in ((hpp.split("kX6000Uuid")[0], "com.apple.kext.AMDRadeonX6000HWLibs"),
+                    (hpp.split("kX6000Uuid")[1], "com.apple.kext.AMDRadeonX6000")):
+    for sym, head in re.findall(r'\{"(\w+)",\s+0x[0-9a-f]+,\s+\{([^}]*)\}\}', block):
+        want.setdefault(kext, {})[sym] = bytes(int(x, 16) for x in head.split(","))
+bad = 0
+for kext, syms in want.items():
+    out = subprocess.run([sys.executable, "-I", "tools/driver/kcfunc.py", kext, ",".join(syms), "this_mac=" + sys.argv[1]],
+                         capture_output=True, text=True).stdout
+    got = {f[1]: bytes.fromhex(f[0])[:16] for f in (l.split() for l in out.splitlines()) if len(f) >= 2}
+    for sym, head in syms.items():
+        if got.get(sym) != head:
+            print("differs or missing in this Mac's driver: %s" % sym)
+            bad += 1
+print("%d functions checked" % sum(len(s) for s in want.values()))
+sys.exit(1 if bad else 0)
+PY
+    }
+    check "the JPEG kext's functions start in this Mac's driver as its table says" jpeg_this_mac
+  else
+    skip "the JPEG kext against this Mac's driver" "not macOS 25G342, or no system kernel collection"
+  fi
+else
+  print "SKIP: no kext SDK (run tools/bootstrap.sh)"
+  failed+=("JPEG kext not built")
+fi
+
 kext_links() {
   tools/kextlinks.sh sensors/build/GPUSensors.kext decode/build/VCNVTLoader.kext \
-    encode/build/VCNEncodeFloor.kext > decode/build/tests/kextlinks.txt ||
+    encode/build/VCNEncodeFloor.kext jpeg/build/VCNJpeg.kext > decode/build/tests/kextlinks.txt ||
     { cat decode/build/tests/kextlinks.txt; return 1; }
 }
 encode_paths() {
@@ -248,7 +307,7 @@ step "encoding fix"
 if [[ -f deps/Lilu.kext/Contents/Resources/Library/plugin_start.cpp || -n ${LILU_KEXT:-} ]]; then
   check "builds and passes its tests" encode/build.sh
   check "holds no path of this machine" encode_paths
-  check "every symbol the three kexts import exists in this kernel or in Lilu" kext_links
+  check "every symbol the four kexts import exists in this kernel or in Lilu" kext_links
 else
   print "SKIP: no kext SDK (run tools/bootstrap.sh)"
   failed+=("encoding fix not built")

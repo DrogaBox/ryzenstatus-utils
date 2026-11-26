@@ -4,6 +4,8 @@
 #   VP9VCNDecoder.bundle   vp09 on the same block
 #   MPEG2VCNDecoder.bundle mp2v, VC1VCNDecoder.bundle vc-1/WVC1/WMV3 and
 #   MPEG4VCNDecoder.bundle mp4v on the same block (common/vcnlegacy.c)
+#   JPEGVCNDecoder.bundle  jpeg and dmb1 on the JPEG block of the VCN, through the VCNJpeg kext
+#                          (jpeg/); installed only on request (install/decoders.sh --jpeg)
 #   lvprobe                the installer's helper that asks macOS whether it would accept them
 #   kextentry              the installers' helper that edits OpenCore's config.plist for the
 #                          loader kext and the sensors kext
@@ -57,6 +59,7 @@ LEGACY=(common/vcnlegacy.c common/vcndriver.c common/vcnsession.c)
 build_bundle MPEG2VCNDecoder mpeg2 mpeg2/MPEG2VCNDecoder.c mpeg2/vcnmpeg2.c mpeg2/mpeg2parse.c $LEGACY
 build_bundle VC1VCNDecoder vc1 vc1/VC1VCNDecoder.c vc1/vcnvc1.c vc1/vc1parse.c $LEGACY
 build_bundle MPEG4VCNDecoder mpeg4 mpeg4/MPEG4VCNDecoder.c mpeg4/vcnmpeg4.c mpeg4/mpeg4parse.c $LEGACY
+build_bundle JPEGVCNDecoder jpeg jpeg/JPEGVCNDecoder.c jpeg/vcnjpeg.c jpeg/jpegprep.c
 
 # lvprobe (install/lvprobe.c) asks macOS whether it would accept a plug-in; the installer
 # runs it. It must carry the library-validation flag, or the kernel says yes to everything.
@@ -84,8 +87,8 @@ if [[ ${1:-} == tests ]]; then
   xcrun clang $TFLAGS -Iav1 -Ivp9 -Icommon tests/colortest.c av1/av1parse.c vp9/vp9parse.c \
     -framework CoreFoundation -framework CoreMedia -framework CoreVideo -o $T/colortest
   xcrun clang $TFLAGS -Ivp9 tests/vp9state.c vp9/vp9parse.c -o $T/vp9state
-  for c in AV1 VP9; do
-    xcrun clang $TFLAGS -DTEST_$c -Icommon tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
+  for c in AV1 VP9 JPEG; do
+    xcrun clang $TFLAGS -DTEST_$c -Icommon -Ijpeg tests/plugintest.c -framework CoreFoundation -framework CoreMedia \
       -framework CoreVideo -framework VideoToolbox -o $T/plugintest-${(L)c}
   done
   for c in MPEG2 VC1 MPEG4; do
@@ -117,6 +120,9 @@ if [[ ${1:-} == tests ]]; then
       common/vcnsession.c -framework CoreFoundation -framework CoreVideo -framework IOKit \
       -framework IOSurface -o $T/sessiontest-$c
   done
+  # The JPEG plug-in's preparer and session against a made-up kext (it is tested also when it is not built).
+  xcrun clang $TFLAGS -Ijpeg tests/jpegtest.c jpeg/vcnjpeg.c jpeg/jpegprep.c -framework CoreFoundation \
+    -framework CoreVideo -framework CoreGraphics -framework ImageIO -framework IOKit -o $T/jpegtest
   xcrun clang++ -std=c++17 $TFLAGS -Iloader tests/loadertest.cpp -o $T/loadertest
   print "built the test programs in decode/$T"
 fi

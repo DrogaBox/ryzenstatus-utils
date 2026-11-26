@@ -1,14 +1,14 @@
 // kextentry - adds or removes the entry of one of this repository's kexts in
 // OpenCore's config.plist (Kernel > Add). install/loader.sh and
-// install/sensors.sh run it; decode/build.sh builds it as
+// install/sensors.sh and install/jpeg.sh run it; decode/build.sh builds it as
 // decode/build/kextentry.
 //
 //   kextentry <kext> check  <config.plist>   say what is there; changes nothing
 //   kextentry <kext> add    <config.plist>   add the entry, after Lilu
 //   kextentry <kext> remove <config.plist>   remove it
 //
-// <kext> is VCNVTLoader or GPUSensors. (The encoding fix has the same editor
-// built into its service: vcnencodefix efi-add.)
+// <kext> is VCNVTLoader, GPUSensors or VCNJpeg. (The encoding fix has the same
+// editor built into its service: vcnencodefix efi-add.)
 //
 // Every change writes a backup next to the file first
 // (config.plist.backup-<date>-<time>-pre-<kext in lower case>) and is
@@ -23,7 +23,8 @@
 
 #include "ocentry.h"
 
-// MinKernel 24.0.0 = Sequoia: the oldest macOS both kexts start on.
+// MinKernel 24.0.0 = Sequoia: the oldest macOS the first two kexts start on;
+// 25.0.0 = Tahoe for VCNJpeg, which was checked on 26.7.3 only.
 static const OcKext kKexts[] = {
     {
         .bundle = "VCNVTLoader.kext",
@@ -43,6 +44,15 @@ static const OcKext kKexts[] = {
         .tag = "gpusensors",
         .removeHint = "remove it first (kextentry GPUSensors remove)",
     },
+    {
+        .bundle = "VCNJpeg.kext",
+        .executable = "Contents/MacOS/VCNJpeg",
+        .comment = "VCNJpeg: JPEG and Motion JPEG decoding on the GPU",
+        .minKernel = "25.0.0",
+        .oldMinKernel = NULL,
+        .tag = "vcnjpeg",
+        .removeHint = "remove it first (kextentry VCNJpeg remove)",
+    },
 };
 
 int main(int argc, char** argv) {
@@ -56,9 +66,10 @@ int main(int argc, char** argv) {
   }
   if (kext == NULL || (strcmp(argv[2], "check") && strcmp(argv[2], "add") &&
                        strcmp(argv[2], "remove"))) {
-    fprintf(stderr,
-            "usage: kextentry {VCNVTLoader|GPUSensors} {check|add|remove} "
-            "<config.plist>\n");
+    fprintf(
+        stderr,
+        "usage: kextentry {VCNVTLoader|GPUSensors|VCNJpeg} {check|add|remove} "
+        "<config.plist>\n");
     return 64;
   }
   return oc_entry_command(argv[2], argv[3], kext);
