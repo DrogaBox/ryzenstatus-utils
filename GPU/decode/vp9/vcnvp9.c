@@ -1008,14 +1008,14 @@ static int decode_one(void* vctx, VP9Parser* p, VP9ParseResult kind,
       // 1280x720 layer: 320x180 reference, 4x) the picture matches libvpx only
       // in its first 180 rows, the reference's height, and is wrong below them
       // (mean PSNR Y 7.9 dB over the 20 pictures), and the error carries into
-      // every frame predicted from it. A wrong picture is worse than no picture: refuse
-      // the frame, and VideoToolbox falls back to another decoder. Which of
-      // the three references a block predicts from is known only to the
-      // engine, so any reference out of range refuses the frame. The limit
-      // came from comparing pictures, not from the firmware; ratios between 2x
-      // and 4x were not tried and are refused too. A reference larger than the
-      // frame is not refused: the resize vectors predict from one up to 2x
-      // larger bit-exactly.
+      // every frame predicted from it. A wrong picture is worse than no
+      // picture: refuse the frame (whether VideoToolbox then tries another
+      // decoder was not checked). Which of the three references a block uses is
+      // known only to the engine, so any reference out of range refuses the
+      // frame. The limit came from comparing pictures, not from the firmware;
+      // ratios between 2x and 4x were not tried and are refused too. A
+      // reference larger than the frame is not refused: the resize vectors
+      // predict from one up to 2x larger bit-exactly.
       if (2 * r->width < h->width || 2 * r->height < h->height) {
         snprintf(
             d->err, sizeof(d->err),
