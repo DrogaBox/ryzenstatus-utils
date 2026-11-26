@@ -23,8 +23,18 @@
 //  This file routes the library's _PEM_CWDDEPM_QueryPMLogData. The route calls
 //  the original first, with the same arguments, and returns its result
 //  untouched; when it succeeded and the log looks filled, it copies the 2052
-//  bytes. Nothing new is ever asked of the GPU or of its power firmware: the
-//  readings are the ones the driver takes anyway, at the driver's own pace.
+//  bytes. The readings are the ones the driver takes anyway, at the driver's
+//  own pace.
+//
+//  0.9.1: the driver takes them only when someone reads the accelerator's
+//  PerformanceStatistics, so with nothing outside polling nothing here is
+//  fresh and the fan watchdog goes blind. While a fan curve, an OD8 change or a
+//  raised power limit is held, the worker asks the library for the same log
+//  itself, once a second (pmlog_logic.hpp, kKeeperMs), through the power
+//  management object the driver used: one PEM_CWDDEPM_QueryPMLogData call,
+//  which is one PMLog query of the power firmware, the same message a read of
+//  the statistics sends. Nothing else is ever asked of the card, and nothing at
+//  all while nothing is held.
 //
 //  The function is found by symbol and only routed when its first 17 bytes are
 //  the ones in pmlog_logic.hpp. The route is a long jump (routeMultipleLong),
@@ -77,6 +87,21 @@ static const char* kQuerySymbol = "_PEM_CWDDEPM_QueryPMLogData";
 using t_query = uint32_t (*)(void* pem, void* in, void* out);
 static t_query orgQuery[arrsize(kHWLibs)]{};
 
+// The library that was routed (its kHWLibs index), or arrsize(kHWLibs) before
+// one is: the keeper samples through that one.
+static size_t gActiveLib{arrsize(kHWLibs)};
+
+// The power management object the driver reads the statistics with, and the
+// sleep count (GPUControl::sleepCount) it was seen in. Written on whichever
+// thread the driver reads on, read by the worker: single words, atomic
+// builtins. PEM_CWDDEPM_QueryPMLogData uses pem[2] (the GPU's IP block state),
+// pem[3] (the hardware manager) and pem[4] (PowerPlay's lock) and never looks
+// at its request, so the keeper's zeroed 16-byte one is what the driver's calls
+// amount to (AMDRadeonX6000HWLibs 26.7.3, 0xf6322).
+static void* gPem{nullptr};
+static uint64_t gPemGen{0};
+static uint8_t gPemIn[16]{};
+
 // Written only by Lilu's callbacks, which run one at a time during boot, and
 // read by publish(). Each is a single word; a reader in the middle of the
 // boot-time callbacks can see Status and AllSensors from two moments, and the
@@ -92,9 +117,9 @@ static uint64_t gSamples{0};
 // the log again. gSamples keeps counting, so "since boot" stays true.
 static bool gValid{false};
 
-static void keep(const void* out) {
+static bool keep(const void* out) {
   auto log = static_cast<const uint8_t*>(out);
-  if (gLock == nullptr || !gpusens::plausible(log)) return;
+  if (gLock == nullptr || !gpusens::plausible(log)) return false;
   uint64_t now = mach_absolute_time();
   IOSimpleLockLock(gLock);
   memcpy(gLog, log, sizeof(gLog));
@@ -102,12 +127,19 @@ static void keep(const void* out) {
   gSamples++;
   gValid = true;
   IOSimpleLockUnlock(gLock);
+  return true;
 }
 
 template <size_t K>
 static uint32_t wrapQuery(void* pem, void* in, void* out) {
   uint32_t result = orgQuery[K](pem, in, out);
   if (result == 0 && out != nullptr) keep(out);
+  // The object the driver is using now: the keeper asks the same one, and only
+  // one seen in the current sleep count.
+  if (pem != nullptr) {
+    __atomic_store_n(&gPemGen, GPUControl::sleepCount(), __ATOMIC_RELEASE);
+    __atomic_store_n(&gPem, pem, __ATOMIC_RELEASE);
+  }
   return result;
 }
 static_assert(arrsize(kHWLibs) == 2, "one wrapper per library");
@@ -250,6 +282,7 @@ static void routeLibrary(KernelPatcher& patcher, size_t index,
   if (routed && error == KernelPatcher::Error::NoError &&
       orgQuery[k] != nullptr && gpusens::entryIsRouted(entry, available)) {
     SYSLOG("gpusens", "%s: active", kNames[k]);
+    gActiveLib = k;
     gStatus = PMLogCopy::Status::Active;
   } else {
     SYSLOG("gpusens", "%s: route failed (%d), nothing changed", kNames[k],
@@ -347,4 +380,64 @@ void PMLogCopy::invalidate() {
   IOSimpleLockLock(gLock);
   gValid = false;
   IOSimpleLockUnlock(gLock);
+}
+
+// ----------------------------------------------------------------- keeper --
+
+// The keeper's buffer and counters. The log is worker-only; the counters are
+// loaded atomically by the ioreg readers.
+static uint8_t wKeeperLog[gpusens::kLogBytes];
+static uint64_t gKeeperTries{0};
+static uint64_t gKeeperKept{0};
+static uint64_t gKeeperRefused{0};
+static uint32_t gKeeperResult{0};
+
+bool PMLogCopy::canSample() {
+  if (gStatus != Status::Active || gActiveLib >= arrsize(kHWLibs) ||
+      orgQuery[gActiveLib] == nullptr)
+    return false;
+  // The sleep count is read before and after the object: a sleep that starts
+  // in between makes the two differ, and the keeper then waits for the driver's
+  // own read after that wake.
+  uint64_t before = GPUControl::sleepCount();
+  void* pem = __atomic_load_n(&gPem, __ATOMIC_ACQUIRE);
+  uint64_t seen = __atomic_load_n(&gPemGen, __ATOMIC_ACQUIRE);
+  return pem != nullptr && seen == before && GPUControl::sleepCount() == before;
+}
+
+bool PMLogCopy::sampleNow() {
+  if (!canSample()) return false;
+  void* pem = __atomic_load_n(&gPem, __ATOMIC_ACQUIRE);
+  t_query org = orgQuery[gActiveLib];
+  // The library clears the log itself once it gets to the hardware
+  // (PECI_ClearMemory, AMDRadeonX6000HWLibs 0xf6390); zeroing here covers the
+  // answers that come before that (the GPU's IP block off, hardware access
+  // blocked in a sleep), so an old reading is never kept with a new stamp.
+  memset(wKeeperLog, 0, sizeof(wKeeperLog));
+  __atomic_add_fetch(&gKeeperTries, 1, __ATOMIC_RELAXED);
+  uint32_t r = org(pem, gPemIn, wKeeperLog);
+  __atomic_store_n(&gKeeperResult, r, __ATOMIC_RELAXED);
+  if (r == 0 && keep(wKeeperLog)) {
+    __atomic_add_fetch(&gKeeperKept, 1, __ATOMIC_RELAXED);
+    return true;
+  }
+  __atomic_add_fetch(&gKeeperRefused, 1, __ATOMIC_RELAXED);
+  return false;
+}
+
+void PMLogCopy::keeperCounts(uint64_t* tries, uint64_t* samples,
+                             uint64_t* refused, uint32_t* lastResult) {
+  if (tries) *tries = __atomic_load_n(&gKeeperTries, __ATOMIC_RELAXED);
+  if (samples) *samples = __atomic_load_n(&gKeeperKept, __ATOMIC_RELAXED);
+  if (refused) *refused = __atomic_load_n(&gKeeperRefused, __ATOMIC_RELAXED);
+  if (lastResult)
+    *lastResult = __atomic_load_n(&gKeeperResult, __ATOMIC_RELAXED);
+}
+
+const char* PMLogCopy::keeperText(bool held) {
+  if (!held) return "off: nothing held";
+  if (gStatus != Status::Active) return "off: the PMLog function is not routed";
+  if (!canSample())
+    return "off: no reading from the driver since the last sleep";
+  return "on: one sample a second while something is held";
 }

@@ -2,6 +2,26 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.9.1 (host tests only, not booted)
+
+- The readings keep up when nothing outside polls them. The driver reads the PMLog only when
+  someone reads the accelerator's `PerformanceStatistics`, so with nothing polling it the kext's
+  copy went stale and the fan watchdog refused a held curve, a raised GFX minimum or a raised
+  power limit with "no fresh hotspot and fan readings"; the app worked around it by reading the
+  statistics right before each write, and the owner's test script ran an `ioreg` loop every 0.5 s.
+  While something is held, the kext's worker now asks the library for that reading itself, once a
+  second, and stops as soon as nothing is held.
+- It is the call the driver makes, not a new one: `PEM_CWDDEPM_QueryPMLogData`, the function the
+  kext already routes (AMDRadeonX6000HWLibs 25G342, `0xf6322`): it clears the 2052-byte log,
+  returns before touching the card when the GPU's IP block is off or hardware access is blocked,
+  takes PowerPlay's lock and asks the power firmware for the metrics table. One message a second
+  while something is held, nothing otherwise, on the worker thread with none of the kext's locks
+  held. After a wake it only asks a power management object the driver itself read with since that
+  wake.
+- `Keeper` (what the keeper is doing, or why not) and `KeeperState` (`Tries`, `Samples`,
+  `Refused`, `LastResult`) are published next to the readings. The app's read before each write
+  (`GPUControlReadings.freshen()`) is no longer needed with this kext, and still does no harm.
+
 ## JPEG decoder 1.0.0 (RyzenStatus 1.90.0)
 
 - New, optional, macOS 26.7.3 only: `VCNJpeg.kext` (`jpeg/`) and the VideoToolbox plug-in

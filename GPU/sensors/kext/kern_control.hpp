@@ -23,6 +23,16 @@ void init();
 void onLibrary(KernelPatcher& patcher, size_t index, mach_vm_address_t address,
                size_t size, const char* name);
 
+// How many sleeps started since boot (0.9.1). kern_pmlog.cpp's keeper asks
+// only a power management object that the driver itself used in the current
+// one: a pointer from before a wake may belong to a driver that started over.
+uint64_t sleepCount();
+
+// Whether something of the control is on the card and not confirmed stock: a
+// fan curve, a clock or voltage change (an OD8 state), or a raised power limit.
+// This is what the PMLog keeper runs for (0.9.1).
+bool holdsAny();
+
 // What the control did, for ioreg (rebuilt when read).
 const char* statusText();
 const char* profileText();  // the boot profile: asked, set, or why not

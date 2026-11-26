@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "control_logic.hpp"
 #include "pmlog_logic.hpp"
 
 static int failures = 0;
@@ -57,6 +58,28 @@ int main(int argc, char** argv) {
         "a fresh log is published");
   check(!publishable(true, kMaxSampleAgeMs + 1),
         "a stale log is not published");
+
+  // 0.9.1: the keeper takes a sample itself once a second while something is
+  // held, at once when a held state starts, and stops when nothing is held.
+  uint64_t next = 0;
+  check(!keeperStep(false, 1000, &next) && next == 0,
+        "the keeper does not run while nothing is held");
+  check(keeperStep(true, 1000, &next) && next == 1000 + kKeeperMs,
+        "a held state is sampled at once, then a second later");
+  check(!keeperStep(true, 1000 + kKeeperMs - 1, &next) &&
+            next == 1000 + kKeeperMs,
+        "two samples are never closer than kKeeperMs");
+  check(keeperStep(true, 1000 + kKeeperMs, &next),
+        "the keeper samples once the second is up");
+  next = 9000;
+  check(!keeperStep(false, 9500, &next) && next == 0,
+        "a release stops the keeper and clears its time");
+  check(keeperStep(true, 9500, &next), "a new held state samples at once");
+  check(kKeeperMs == 1000, "the keeper asks for one sample a second");
+  static_assert(kKeeperMs <= gpuctl::kOd8DogFreshMs,
+                "the watchdog's fresh window spans a keeper period");
+  check(gpuctl::kOd8DogStaleMs >= 2 * kKeeperMs,
+        "the watchdog goes blind only after more than one missed sample");
 
   // The ids the samplePMStatistics of the driver reads must keep their names.
   struct {

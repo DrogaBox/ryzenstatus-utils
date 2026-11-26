@@ -51,6 +51,37 @@ inline bool publishable(bool have, uint64_t ageMs) {
   return have && sampleFresh(ageMs);
 }
 
+// ------------------------------------------------------ the PMLog keeper --
+//
+// The driver asks the library for a sample only when someone reads the
+// accelerator's PerformanceStatistics, so with nothing outside polling the
+// kext's copy ages out and the fan watchdog has nothing to look at. 0.9.1:
+// while something of the control's is held on the card, the kext asks the
+// library for the same sample itself, at this rate, and stops as soon as
+// nothing is held.
+//
+// One second: the watchdog looks once a second, takes a change only while the
+// copy is at most kOd8DogFreshMs (2 s) old and gives up after kOd8DogStaleMs
+// (10 s) without readings (control_logic.hpp), and the driver's own sampling is
+// about once a second too. Each sample is one PMLog query of the power
+// firmware, the message a read of the statistics sends, so a faster rate would
+// only cost firmware time.
+constexpr uint64_t kKeeperMs = 1000;
+
+// Whether the keeper samples at nowMs, and when it looks again (*nextMs is 0
+// while it is not running). A newly held state is sampled at once; two samples
+// are never closer than kKeeperMs, and a slow pass moves the next one rather
+// than making up for it.
+inline bool keeperStep(bool wanted, uint64_t nowMs, uint64_t* nextMs) {
+  if (!wanted) {
+    *nextMs = 0;
+    return false;
+  }
+  if (*nextMs != 0 && nowMs < *nextMs) return false;
+  *nextMs = nowMs + kKeeperMs;
+  return true;
+}
+
 // A filled log: every flag is 0 or 1, and at least one is 1. The library
 // returns success without filling anything while the GPU is powered down, and
 // the caller then holds whatever its buffer had (the driver's own caller clears

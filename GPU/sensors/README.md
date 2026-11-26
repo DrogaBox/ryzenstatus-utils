@@ -98,6 +98,8 @@ The properties of `DrogaBoxGPUSensors` are:
 | `OD8` | once tried: `Reads`, `Tries`, `LastResult`, `LastReadAgeS`, `Caps`, `NotAllowed`, `StockOdd`, `DefaultsMoved`, `CurrentMoved`, `FanCurveStock`, `FanCurve` (five [C, %] pairs) and `Settings` by name (`Feature`, `Min`, `Max`, `Stock`, `Current`); `OddEntry` and `OddEscape` when an answer was not as expected. See [OD8, read only](#od8-read-only-060) |
 | `OD8Write` | OD8 writes (0.7.0): `off until restart: see WriteState`, `read only: this card can only be read (see WriteState)` (0.8.0), `waiting for a clean OD8 read (OD8State)`, `closed: sudo gpucontrol arm opens it until restart`, or `armed: ...` (OD8 at stock, a program holds a fan or clock change, going back to stock, the last call was not taken) |
 | `OD8WriteState` | `Held` (1 fan curve, 2 zero RPM off, 4 GFX max, 8 not confirmed, 16 GFX min, 32 GFX voltage, 64 GFX max above stock, the last three since 0.9.0), `Changes` and `Reverts` (confirmed since boot), `LastCheck` and `LastCheckText` (why the last OD8 request was refused, 0 = none), `SentPower` (power limit sends seen during OD8 calls), `FanCurveHeld` (C × 1000 + %), `GfxMaxHeld`, `GfxMinHeld` and `VoltHeld` (0.9.0) while held, `Takes` (0.9.0: what `setOd8` takes, in `Held` bits: 119 = also 32 GFX voltage and 64 GFX maximum above stock). See [OD8 writes](#od8-writes-070) |
+| `Keeper` | (0.9.1) the reading the kext takes itself while something is held: `off: nothing held`, `on: one sample a second while something is held`, `off: the PMLog function is not routed`, or `off: no reading from the driver since the last sleep`. See [Readings that keep up](#readings-that-keep-up-091) |
+| `KeeperState` | (0.9.1) `Tries`, `Samples`, `Refused` and `LastResult` of those readings, once the keeper tried |
 | `Samples` | readings copied since boot |
 | `SampleAgeMs` | how old the last reading is; with `Sensors`, `Units` and `PMLog` it is absent once the copy is older than 5 s (the driver stopped sampling: the card is asleep, powered down, or its driver is gone) |
 | `Sensors` | `{ name: value }`, in the units of `Units` |
@@ -374,6 +376,27 @@ GPU recovery: on macOS 26.7.3 the driver's only recovery is an engine reset in t
 accelerator (`AMDAccelChannel::resetHardwareAndReplay`), which never tells PowerPlay. An
 escape during it is a normal firmware message, not refused, and the read-back still checks
 it. The kext does not route it.
+
+## Readings that keep up (0.9.1)
+
+The driver reads the PMLog only when someone reads the accelerator's `PerformanceStatistics`
+(`ioreg -r -c IOAccelerator` does). With nothing polling it, the copies stop, after 5 s the kext
+publishes no readings, and the fan watchdog refuses a curve, a raised GFX minimum or a raised
+power limit with "no fresh readings". Since 0.9.1, while the kext holds one of those, its worker
+asks the library for the same reading itself, once a second, and stops as soon as nothing is held.
+
+The call is the one the driver makes, not a new one: `PEM_CWDDEPM_QueryPMLogData`, the function
+this kext already routes (AMDRadeonX6000HWLibs 26.7.3, `0xf6322`). It clears the 2052-byte log,
+returns early when the GPU's IP block is off or hardware access is blocked (a sleep), takes
+PowerPlay's lock, asks the power firmware for the metrics table and fills the log. One message a
+second while something is held, and nothing at all otherwise. It runs on the kext's worker thread
+with none of the kext's locks held, so a driver thread inside a PowerPlay call never waits for it;
+a sleep that starts in between is caught by the library, which returns before touching the card.
+After a wake the keeper only asks a power management object the driver itself read with since that
+wake, so a pointer from before the sleep is never used.
+
+One second: the watchdog looks once a second and takes a change only while the copy is at most
+2 s old (10 s without readings trips it), and the driver's own rate is about once a second too.
 
 ## What has been checked
 
