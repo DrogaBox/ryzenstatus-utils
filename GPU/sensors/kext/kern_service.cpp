@@ -28,11 +28,13 @@
 //                                  HeldW, Changes, Reverts, LastReply }
 //    PowerRangeState               the card's power range (0.8.0): where the
 //                                  floor comes from, or why it is not known
-//    PowerRange                    { FloorW, MaxW, StepW, PercentMin,
-//                                  PercentMax, Known }: the lowest and highest
-//                                  limit set takes; Known 1 with FloorW and
-//                                  MaxW once the floor is known (FloorW = MaxW
-//                                  when the card offers nothing lower);
+//    PowerRange                    { FloorW, MaxW, CeilW, StepW,
+//                                  PercentMin, PercentMax, Known }: the lowest
+//                                  and highest limit set takes; Known 1 with
+//                                  FloorW and MaxW once the floor is known
+//                                  (FloorW = MaxW when the card offers nothing
+//                                  lower); CeilW (0.9.0) the highest with the
+//                                  raise flag (= MaxW when nothing higher);
 //                                  PercentMin/Max once OD8 was read
 //    OD8State                      OD8 (0.6.0, read only): waiting, read,
 //                                  not available, or why not
@@ -187,6 +189,9 @@ void DrogaBoxGPUSensors::publish() {
       if (floorKnown) {
         putNumber(d, "FloorW", pr.floorW);
         putNumber(d, "MaxW", pr.maxW);
+        // 0.9.0: the highest limit set's raise form takes (MaxW when the
+        // card offers nothing higher).
+        putNumber(d, "CeilW", pr.ceilW > pr.maxW ? pr.ceilW : pr.maxW);
       }
       putNumber(d, "StepW", gpuctl::kStepW);
       if (pr.state != gpuctl::FloorState::NoBootValue &&
@@ -205,7 +210,7 @@ void DrogaBoxGPUSensors::publish() {
   setProperty("OD8Write", GPUControl::od8WriteText());
   GPUControl::Od8WriteState ow;
   if (GPUControl::od8WriteState(&ow)) {
-    auto d = OSDictionary::withCapacity(10);
+    auto d = OSDictionary::withCapacity(12);
     if (d) {
       putNumber(d, "Held", ow.held);
       putNumber(d, "Changes", ow.changes);
@@ -237,6 +242,19 @@ void DrogaBoxGPUSensors::publish() {
       }
       if (ow.want.gfxMaxMHz != 0)
         putNumber(d, "GfxMaxHeld", static_cast<uint64_t>(ow.want.gfxMaxMHz));
+      if (ow.want.gfxMinMHz != 0)
+        putNumber(d, "GfxMinHeld", static_cast<uint64_t>(ow.want.gfxMinMHz));
+      if (ow.want.voltMV != 0)
+        putNumber(d, "VoltHeld", static_cast<uint64_t>(ow.want.voltMV));
+      // 0.9.0: what setOd8 takes, in the Held bits (1 fan curve, 2 zero RPM
+      // off, 4 GFX max, 16 GFX min; 0.9.0: 32 GFX voltage, 64 GFX max above
+      // stock with the overclock flag), so a program knows a setting is
+      // there before it sends one. The card must still offer it (OD8
+      // Settings, Feature not 0).
+      putNumber(d, "Takes",
+                gpuctl::kOd8HeldCurve | gpuctl::kOd8HeldZeroRpmOff |
+                    gpuctl::kOd8HeldGfx | gpuctl::kOd8HeldGfxMin |
+                    gpuctl::kOd8HeldVolt | gpuctl::kOd8HeldGfxUp);
       setProperty("OD8WriteState", d);
       d->release();
     }
@@ -352,9 +370,19 @@ IOReturn DrogaBoxGPUControlClient::externalMethod(
     IOExternalMethodDispatch*, OSObject*, void*) {
   if (args == nullptr || selector >= gpuctl::kSelCount)
     return kIOReturnBadArgument;
-  uint32_t wantIn = selector == gpuctl::kSelSet      ? 2
-                    : selector == gpuctl::kSelSetOd8 ? gpuctl::kOd8WireCount
-                                                     : 1;
+  uint32_t wantIn = 1;
+  // set takes two counts (0.9.0): {version, watts} and the raise form.
+  if (selector == gpuctl::kSelSet)
+    wantIn = gpuctl::setWireCountOk(args->scalarInputCount)
+                 ? args->scalarInputCount
+                 : gpuctl::kSetWireCount;
+  // setOd8 takes three counts: its 0.7.0 form, the one with a GFX minimum
+  // (0.9.0) and the one with a GFX voltage (0.9.0). The count is passed on;
+  // od8Wire reads only what came.
+  if (selector == gpuctl::kSelSetOd8)
+    wantIn = gpuctl::od8WireCountOk(args->scalarInputCount)
+                 ? args->scalarInputCount
+                 : gpuctl::kOd8WireCount;
   uint32_t wantOut = selector == gpuctl::kSelStatus   ? gpuctl::kStatusCount
                      : selector == gpuctl::kSelSetOd8 ? 2
                                                       : 1;
@@ -405,7 +433,11 @@ IOReturn DrogaBoxGPUControlClient::externalMethod(
         break;
       case gpuctl::kSelSet:
         // The value is looked at only after off and not armed (setWire).
-        r = GPUControl::set(id_, args->scalarInput[1], &closed_);
+        r = GPUControl::set(id_, args->scalarInput[1],
+                            args->scalarInputCount == gpuctl::kSetWireCountRaise
+                                ? args->scalarInput[2]
+                                : 0,
+                            &closed_);
         break;
       case gpuctl::kSelAlive:
         r = GPUControl::alive(id_);
@@ -414,10 +446,13 @@ IOReturn DrogaBoxGPUControlClient::externalMethod(
         r = GPUControl::release(id_);
         break;
       case gpuctl::kSelSetOd8: {
-        // {version, flags, t1..t5, s1..s5, gfxMaxMHz}, decoded by
-        // gpuctl::od8Wire after off and not armed; the kext checks the rest.
+        // {version, flags, t1..t5, s1..s5, gfxMaxMHz[, gfxMinMHz[, voltMV]]},
+        // decoded
+        // by gpuctl::od8Wire after off and not armed; the kext checks the
+        // rest.
         uint32_t check = 0;
-        r = GPUControl::setOd8(id_, args->scalarInput, &closed_, &check);
+        r = GPUControl::setOd8(id_, args->scalarInput, args->scalarInputCount,
+                               &closed_, &check);
         out[1] = check;
         break;
       }

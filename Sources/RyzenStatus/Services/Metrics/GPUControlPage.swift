@@ -48,6 +48,10 @@ struct GPUControlFacts: Equatable, Sendable {
     /// The kext can close writing again (`disarm`, 0.8.0): it publishes
     /// `PowerRangeState`, which 0.7.x does not.
     var canDisarm = false
+    /// The kext takes raises (0.9.0): the overclock flag of `setOD8` and the
+    /// raise form of `set` (status flag 2048; from the properties, `Takes`
+    /// with the bit for a GFX maximum above stock).
+    var takesRaise = false
 
     var writeOff: GPUControlWriteOff? { GPUControlWriteOff(rawValue: writeOffCode) }
     /// The read-only card (kext 0.8.0): read, never controlled.
@@ -78,6 +82,7 @@ struct GPUControlFacts: Equatable, Sendable {
         mine = flags.contains(.mine)
         ready = flags.contains(.ready)
         od8Ready = flags.contains(.od8Ready)
+        takesRaise = flags.contains(.raise)
         bootW = status.bootW == 0 ? nil : Int(clamping: status.bootW)
         heldW = status.heldW == 0 ? nil : Int(clamping: status.heldW)
         writeOffCode = status.writeOffCode
@@ -119,6 +124,7 @@ struct GPUControlFacts: Equatable, Sendable {
         od8Changes = writing.od8State?.changes
         od8Reverts = writing.od8State?.reverts
         od8Ready = writing.od8Read == .read
+        takesRaise = writing.od8State?.takesGfxMaxUp == true
         if case .notClean(let text)? = writing.od8Read { od8ReadText = text }
         changed = (heldW != nil && bootW != nil && heldW != bootW) || !od8Held.isEmpty
         takeRange(from: writing)
@@ -424,6 +430,11 @@ enum GPUControlRemembered: Equatable, Sendable {
             var want = GPUControlOD8Want(zeroRpmOff: defaults.bool(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff))
             let mhz = defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
             if mhz > 0 { want.gfxMaxMHz = mhz }
+            let low = defaults.integer(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz)
+            if low > 0 { want.gfxMinMHz = low }
+            let mv = defaults.integer(forKey: DefaultsKey.gpuControlRememberedVoltMV)
+            if mv > 0 { want.voltMV = mv }
+            want.overclock = defaults.bool(forKey: DefaultsKey.gpuControlRememberedOverclock)
             if let flat = defaults.array(forKey: DefaultsKey.gpuControlRememberedCurve) as? [Int] {
                 guard flat.count == 2 * GPUControlWire.fanCurvePoints else { return .nothing }
                 want.curve = stride(from: 0, to: flat.count, by: 2).map {
@@ -441,6 +452,9 @@ enum GPUControlRemembered: Equatable, Sendable {
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedCurve)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
         defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedGfxMHz)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedGfxMinMHz)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedVoltMV)
+        defaults.removeObject(forKey: DefaultsKey.gpuControlRememberedOverclock)
         switch self {
         case .nothing:
             defaults.set("none", forKey: DefaultsKey.gpuControlRememberedKind)
@@ -455,6 +469,9 @@ enum GPUControlRemembered: Equatable, Sendable {
             }
             defaults.set(want.zeroRpmOff, forKey: DefaultsKey.gpuControlRememberedZeroRpmOff)
             if let mhz = want.gfxMaxMHz { defaults.set(mhz, forKey: DefaultsKey.gpuControlRememberedGfxMHz) }
+            if let low = want.gfxMinMHz { defaults.set(low, forKey: DefaultsKey.gpuControlRememberedGfxMinMHz) }
+            if let mv = want.voltMV { defaults.set(mv, forKey: DefaultsKey.gpuControlRememberedVoltMV) }
+            if want.overclock { defaults.set(true, forKey: DefaultsKey.gpuControlRememberedOverclock) }
         }
     }
 }
@@ -488,30 +505,60 @@ enum GPUControlRememberPolicy {
     /// RPM) goes out only to a build the curve rules were checked against, as
     /// with "Apply curve" (none given: no fan state). A clock alone does not
     /// depend on them, as on the page.
+    /// `gfxMin`: the GFX minimum the kext takes now (`GPUControlClockMinLogic
+    /// .limits`), nil when it takes none (a kext before 0.9.0): a remembered
+    /// minimum outside it is left out of the request, like the maximum.
+    /// `volt`: the card's range for the GFX voltage now
+    /// (`GPUControlVoltLogic.limits`), nil when the kext takes none: a
+    /// remembered voltage outside it is left out of the request.
+    /// `overclock`: the card's range for a raised GFX maximum
+    /// (`GPUControlOverclockLogic.gfxLimits`), and `overclockAllowed`: the
+    /// "Allow overclocking" switch. A remembered raised maximum goes only
+    /// with the switch on and inside that range; otherwise it is left out
+    /// with its flag (a lowered maximum stays). The owner's choice: a
+    /// voltage and a raised maximum come back at launch like the rest.
+    /// A power limit above the start-up one is still never asked for at
+    /// launch. The rest of the state still goes.
     static func request(remembered: GPUControlRemembered, active: Bool,
                         facts: GPUControlFacts?, stopped: GPUControlStop?,
-                        stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil) -> GPUControlRequest? {
+                        stockGfxMaxMHz: Int? = nil, kextVersion: String? = nil,
+                        gfxMin: GPUControlClockMinLogic.Limits? = nil,
+                        volt: GPUControlVoltLogic.Limits? = nil,
+                        overclock: GPUControlOverclockLogic.GfxLimits? = nil,
+                        overclockAllowed: Bool = false) -> GPUControlRequest? {
         guard active, stopped == nil, let facts, facts.armed, !facts.off, facts.writeOffCode == 0,
               !(facts.owned && !facts.mine) else { return nil }
         switch remembered {
         case .nothing:
             return nil
         case .power(let watts):
-            guard watts > 0, let boot = facts.bootW, GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange)
-                    .contains(watts), watts != boot else { return nil }
+            // Only the lower limits the pop-up offers: never one above the
+            // start-up limit (a raise) at launch.
+            guard watts > 0, let boot = facts.bootW, watts < boot,
+                  GPUControlPageLogic.powerChoices(bootW: boot, range: facts.powerRange).contains(watts) else { return nil }
             return .power(watts: UInt32(watts))
-        case .od8(var want):
+        case .od8(let want):
             // OD8 not read cleanly: the kext could not take it.
             guard facts.od8Ready else { return nil }
             // A fan state and another kext build: the rules were not checked
             // with it, and Apply is off too. Nothing goes, not even the clock:
             // only what was held is asked for again, never a part of it.
             if want.curve != nil || want.zeroRpmOff, !GPUControlCurveRules.isChecked(kextVersion) { return nil }
-            if let mhz = want.gfxMaxMHz, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) {
-                want.gfxMaxMHz = nil
-            }
-            return want.isStock ? nil : .od8(want)
+            return checkedAgain(.od8(want), stockGfxMaxMHz: stockGfxMaxMHz, gfxMin: gfxMin, volt: volt,
+                                overclock: overclock, overclockAllowed: overclockAllowed)
         }
+    }
+
+    /// An OD8 state without its raise: the overclock flag with the raised
+    /// GFX maximum it allowed (a lowered maximum stays). What is left of a
+    /// remembered state while "Allow overclocking" is off.
+    static func withoutRaise(_ want: GPUControlOD8Want) -> GPUControlOD8Want {
+        var want = want
+        if want.overclock {
+            want.overclock = false
+            want.gfxMaxMHz = nil
+        }
+        return want
     }
 
     /// A remembered limit the card does not take is forgotten, not kept for
@@ -575,14 +622,282 @@ enum GPUControlClockLogic {
     }
 }
 
+// MARK: - The GFX minimum clock (GPUSensors 0.9.0)
+
+/// The minimum clock control's numbers. The range is the card's stock
+/// minimum (OD8 id 1, 500 MHz on the test card; the way back, never a hold)
+/// up to the GFX maximum of the same state: the lowered maximum held or
+/// asked for, else the stock maximum, and never past the card's own top for
+/// id 1. The kext takes the same and nothing else (`GfxMinRange`). Only
+/// offered when the kext publishes `Takes` with the GFX minimum.
+enum GPUControlClockMinLogic {
+    static let step = 10
+    static let tickStepMHz = 100
+
+    /// The card's range for the minimum, and its stock value.
+    struct Limits: Equatable, Sendable {
+        var min: Int
+        var max: Int
+        var stock: Int
+    }
+
+    /// Nil when the kext takes no minimum (before 0.9.0), OD8 is not read
+    /// cleanly, or the table has no usable GFX pair.
+    static func limits(writing: GPUControlStatus.Writing?, od8Ready: Bool) -> Limits? {
+        guard od8Ready, writing?.od8State?.takesGfxMin == true, let m = writing?.od8?.gfxMin else { return nil }
+        return Limits(min: m.min, max: m.max, stock: m.stock)
+    }
+
+    /// The control's range: stock up to the GFX maximum in force. Nil when
+    /// there is nothing above stock to choose.
+    static func range(limits: Limits?, gfxMaxMHz: Int?) -> ClosedRange<Int>? {
+        guard let limits, let gfxMaxMHz else { return nil }
+        let top = Swift.min(gfxMaxMHz, limits.max)
+        let bottom = Swift.max(limits.stock, limits.min)
+        guard top > bottom else { return nil }
+        return bottom...top
+    }
+
+    /// A value the control may send as a hold: above stock, inside the range.
+    static func raises(_ mhz: Int, range: ClosedRange<Int>?) -> Bool {
+        guard let range else { return false }
+        return mhz > range.lowerBound && mhz <= range.upperBound
+    }
+
+    /// What choosing `mhz` asks for: nil (the stock minimum, the way back) at
+    /// or below the stock value, else the value.
+    static func request(_ mhz: Int, stockMHz: Int) -> Int? {
+        mhz <= stockMHz ? nil : mhz
+    }
+
+    /// A slider position as a value: 10 MHz steps from the stock minimum,
+    /// the top of the range when it is not on a step.
+    static func snapped(_ raw: Double, range: ClosedRange<Int>) -> Int {
+        let floor = range.lowerBound
+        let value = floor + Int(((raw - Double(floor)) / Double(step)).rounded()) * step
+        if value >= range.upperBound - step / 2 { return range.upperBound }
+        return Swift.max(floor, value)
+    }
+
+    /// The slider's tick marks, one every 100 MHz from the stock minimum.
+    static func tickCount(range: ClosedRange<Int>) -> Int {
+        (range.upperBound - range.lowerBound) / tickStepMHz + 1
+    }
+
+    /// A state with its minimum checked against what the kext takes now:
+    /// left out when the kext takes none, or when it is not above stock or
+    /// passes the GFX maximum of the state (the lowered one, else the stock
+    /// maximum of the moment). The rest of the state is kept.
+    static func checked(_ want: GPUControlOD8Want, limits: Limits?, stockGfxMaxMHz: Int?) -> GPUControlOD8Want {
+        guard let low = want.gfxMinMHz else { return want }
+        var want = want
+        let range = range(limits: limits, gfxMaxMHz: want.gfxMaxMHz ?? stockGfxMaxMHz)
+        if !raises(low, range: range) { want.gfxMinMHz = nil }
+        return want
+    }
+}
+
 extension GPUControlRememberPolicy {
-    /// A remembered request again, right before it goes out: a clock that no
-    /// longer lowers the stock maximum of the moment is left out (the rest
-    /// of the fan state still goes). Nil when nothing is left to ask.
-    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?) -> GPUControlRequest? {
-        guard case .od8(var want) = request, let mhz = want.gfxMaxMHz else { return request }
-        if !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }
+    /// A remembered request again, right before it goes out (after a wake,
+    /// in the same run of the app): a clock that no longer lowers the stock
+    /// maximum of the moment is left out (the rest of the fan state still
+    /// goes), and so is a minimum the kext does not take now (`gfxMin` nil:
+    /// a kext before 0.9.0, or no clean OD8 read). The same for a GFX voltage
+    /// (`volt`) and a raised GFX maximum (`overclock`, the card's range for
+    /// it): kept only while the kext takes them and inside the card's range,
+    /// and the raise only while "Allow overclocking" is on
+    /// (`overclockAllowed`). A power limit above the start-up one (`bootW`)
+    /// is a raise too: it is dropped while the switch is off. Nil when
+    /// nothing is left to ask.
+    static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?,
+                             gfxMin: GPUControlClockMinLogic.Limits? = nil,
+                             volt: GPUControlVoltLogic.Limits? = nil,
+                             overclock: GPUControlOverclockLogic.GfxLimits? = nil,
+                             overclockAllowed: Bool = true,
+                             bootW: Int? = nil) -> GPUControlRequest? {
+        if case .power(let watts) = request, !overclockAllowed, let boot = bootW, boot > 0,
+           Int(watts) > boot {
+            return nil
+        }
+        guard case .od8(var want) = request else { return request }
+        if !overclockAllowed { want = withoutRaise(want) }
+        if let mhz = want.gfxMaxMHz {
+            let raised = want.overclock && GPUControlOverclockLogic.raises(mhz, limits: overclock)
+            if !raised, !GPUControlClockLogic.lowers(mhz, stockGfxMaxMHz: stockGfxMaxMHz) { want.gfxMaxMHz = nil }
+        }
+        // The flag goes only with the raise it allows.
+        if want.overclock, !(want.gfxMaxMHz.map { GPUControlOverclockLogic.raises($0, limits: overclock) } ?? false) {
+            want.overclock = false
+        }
+        want = GPUControlClockMinLogic.checked(want, limits: gfxMin, stockGfxMaxMHz: stockGfxMaxMHz)
+        want = GPUControlVoltLogic.checked(want, limits: volt)
         return want.isStock ? nil : .od8(want)
+    }
+}
+
+// MARK: - The GFX voltage (GPUSensors 0.9.0)
+
+/// The voltage control's numbers, from the card's own table
+/// (`OD8.Settings.GfxVoltOffset`, the driver's VddGfxOffset: 881 to 1075 mV,
+/// stock 1075, on the test card). The value is a cap in mV: the whole GFX
+/// voltage curve goes down by stock minus the value. Only lower than stock,
+/// at or above the card's minimum, in 25 mV steps from stock: the kext takes
+/// that and nothing else (`VoltRange`). Only offered when the kext publishes
+/// `Takes` with the voltage and the card offers it.
+enum GPUControlVoltLogic {
+    static let step = GPUControlWire.voltStepMV
+
+    /// The card's lowest value and its stock one, in mV.
+    struct Limits: Equatable, Sendable {
+        var min: Int
+        var stock: Int
+    }
+
+    /// Nil when the kext takes no voltage (before 0.9.0), OD8 is not read
+    /// cleanly, the card does not offer it, or nothing is lower than stock.
+    static func limits(writing: GPUControlStatus.Writing?, od8Ready: Bool) -> Limits? {
+        guard od8Ready, writing?.od8State?.takesVolt == true, let v = writing?.od8?.gfxVolt else { return nil }
+        let limits = Limits(min: v.min, stock: v.stock)
+        return range(limits) == nil ? nil : limits
+    }
+
+    /// The control's range: the lowest 25 mV step from stock at or above
+    /// the card's minimum, up to stock. Nil when there is no such step.
+    static func range(_ limits: Limits?) -> ClosedRange<Int>? {
+        guard let limits, limits.min < limits.stock else { return nil }
+        let bottom = limits.stock - (limits.stock - limits.min) / step * step
+        guard bottom < limits.stock else { return nil }
+        return bottom...limits.stock
+    }
+
+    /// A value the control may send as a hold: below stock, at or above the
+    /// card's minimum, a whole number of steps from stock.
+    static func lowers(_ mv: Int, limits: Limits?) -> Bool {
+        guard let limits else { return false }
+        return mv < limits.stock && mv >= limits.min && (limits.stock - mv) % step == 0
+    }
+
+    /// What choosing `mv` asks for: nil (the stock voltage, the way back) at
+    /// or above stock, else the value.
+    static func request(_ mv: Int, stockMV: Int) -> Int? {
+        mv >= stockMV ? nil : mv
+    }
+
+    /// A slider position as a value: 25 mV steps down from stock, never
+    /// below the range.
+    static func snapped(_ raw: Double, range: ClosedRange<Int>) -> Int {
+        let top = range.upperBound
+        let value = top - Int(((Double(top) - raw) / Double(step)).rounded()) * step
+        return Swift.min(top, Swift.max(range.lowerBound, value))
+    }
+
+    /// The slider's tick marks, one every step.
+    static func tickCount(range: ClosedRange<Int>) -> Int {
+        (range.upperBound - range.lowerBound) / step + 1
+    }
+
+    /// The starting point the page offers: one step below stock, from the
+    /// card's own table, never a fixed number. Nil when that step is below
+    /// the card's minimum, or the card offers no voltage. A starting point to
+    /// test, never applied on its own.
+    static func recommended(_ limits: Limits?) -> Int? {
+        guard let limits else { return nil }
+        let mv = limits.stock - step
+        return mv >= limits.min ? mv : nil
+    }
+
+    /// A state with its voltage checked against what the kext takes now:
+    /// left out when the kext takes none or the value is not one it takes.
+    static func checked(_ want: GPUControlOD8Want, limits: Limits?) -> GPUControlOD8Want {
+        guard let mv = want.voltMV, !lowers(mv, limits: limits) else { return want }
+        var want = want
+        want.voltMV = nil
+        return want
+    }
+}
+
+// MARK: - Overclock (GPUSensors 0.9.0)
+
+/// The overclock section's numbers: a GFX maximum above stock up to the
+/// card's own maximum (`OD8.Settings.GfxMaxMHz.Max`, 2800 MHz on the test
+/// card; sent with the overclock flag), and a power limit above the start-up
+/// one up to the card's ceiling (`PowerRange.CeilW`, 261 W on the test card;
+/// sent with `set`'s raise form). Both are inside AMD's own limits for the
+/// card; the kext takes nothing else, and holds them under its watchdog.
+enum GPUControlOverclockLogic {
+    static let step = 10
+    static let tickStepMHz = 100
+
+    /// The stock GFX maximum and the card's own top for it.
+    struct GfxLimits: Equatable, Sendable {
+        var stock: Int
+        var max: Int
+    }
+
+    /// Nil when the kext takes no raised maximum (`Takes` without 64), OD8 is
+    /// not read cleanly, or the card's top is not above stock.
+    static func gfxLimits(writing: GPUControlStatus.Writing?, od8Ready: Bool) -> GfxLimits? {
+        guard od8Ready, writing?.od8State?.takesGfxMaxUp == true, let stock = writing?.od8?.stockGfxMaxMHz,
+              let top = writing?.od8?.gfxMaxTopMHz, top > stock else { return nil }
+        return GfxLimits(stock: stock, max: top)
+    }
+
+    /// The raised maximum's range: stock (the way back) to the card's top.
+    static func gfxRange(_ limits: GfxLimits) -> ClosedRange<Int> { limits.stock...limits.max }
+
+    /// A value the control may send as a raise: above stock, at most the
+    /// card's top.
+    static func raises(_ mhz: Int, limits: GfxLimits?) -> Bool {
+        guard let limits else { return false }
+        return mhz > limits.stock && mhz <= limits.max
+    }
+
+    /// What choosing `mhz` asks for: nil (the stock maximum) at or below
+    /// stock, else the value.
+    static func request(_ mhz: Int, stockMHz: Int) -> Int? {
+        mhz <= stockMHz ? nil : mhz
+    }
+
+    /// A slider position as a value: 10 MHz steps from stock, the card's top
+    /// on its own.
+    static func snapped(_ raw: Double, range: ClosedRange<Int>) -> Int {
+        let floor = range.lowerBound
+        let value = floor + Int(((raw - Double(floor)) / Double(step)).rounded()) * step
+        if value >= range.upperBound - step / 2 { return range.upperBound }
+        return Swift.max(floor, value)
+    }
+
+    /// The slider's tick marks, one every 100 MHz from stock.
+    static func tickCount(range: ClosedRange<Int>) -> Int {
+        (range.upperBound - range.lowerBound) / tickStepMHz + 1
+    }
+
+    /// The card's power ceiling, when the kext takes raises and the card
+    /// offers a limit above the start-up one (`CeilW` above `MaxW`, for this
+    /// start-up value). Nil otherwise.
+    static func ceilingW(facts: GPUControlFacts?) -> Int? {
+        guard let facts, facts.takesRaise, let boot = facts.bootW, let range = facts.powerRange,
+              range.maxW == boot, let ceil = range.ceilW, ceil > boot else { return nil }
+        return ceil
+    }
+
+    /// The raised pop-up's values: the start-up value first (the way back),
+    /// then every multiple of the step above it up to the ceiling, and the
+    /// ceiling itself (the kext takes it even off a step: 261 W).
+    static func powerChoices(bootW: Int?, ceilW: Int?, stepW: Int = GPUControlWire.powerStepW) -> [Int] {
+        guard let boot = bootW, let ceil = ceilW, ceil > boot else { return [] }
+        let step = Swift.max(stepW, 1)
+        let firstAbove = (boot / step + 1) * step
+        var choices = [boot]
+        if firstAbove <= ceil { choices += Array(stride(from: firstAbove, through: ceil, by: step)) }
+        if choices.last != ceil { choices.append(ceil) }
+        return choices
+    }
+
+    /// A limit above the start-up one: sent with the raise form.
+    static func raisesPower(_ watts: Int, bootW: Int?) -> Bool {
+        guard let boot = bootW else { return false }
+        return watts > boot
     }
 }
 

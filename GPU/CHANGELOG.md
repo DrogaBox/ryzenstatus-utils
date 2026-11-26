@@ -19,6 +19,67 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   (4:2:0, 4:2:2 and `dmb1` at 1280x720, under 5 ms a frame, within 1 of FFmpeg). The
   product kext itself has not run yet.
 
+## GPU sensors 0.9.0 (host tests only, not booted)
+
+- A program may now hold a raised GFX minimum clock (OD8 id 1) with the rest of the OD8
+  state: `gpucontrol hold gfxmin 1500 -- <command>`, `gpucontrol check gfxmin 1500`. It is
+  taken only inside the card's own range for it (the 0x9f entry: 500 to 2800 MHz on the test
+  RX 6800 XT, stock 500) and never above the GFX maximum of the same state (the stock one, or
+  the lowered one held with it): the driver's own rule (`PhwComm_OD8_SetGfxClockLimits`: both
+  requested, each in its range, minimum at most the maximum). Anything else is refused with
+  the new reason `GfxMinRange` (12), never clamped. It goes back to stock in the same cases
+  as the rest of OD8 (release, close, 30 s of silence, a wake), through the same stock pair.
+- It is the first setting that can make the card warmer at idle, so it is taken only while
+  the fan watchdog has fresh readings, and the watchdog runs while it is held: 95 C, or no
+  readings for 10 s, puts stock back and turns writing off. The "too hot with the fan under
+  90 %" rule stays with a held curve, because the stock fan climbs slowly by design.
+- The read-back allows the minimum to read up to 25 MHz lower than sent, never higher, as
+  for the maximum. Whether the firmware ever rounds it is not known yet.
+- The channel stays version 2: `setOd8` takes 14 scalars (the 14th is the minimum) as well as
+  the 0.7.0 form of 13, `status` sets flag 512 (`kFlagGfxMin`), `OD8WriteState` gains `Held`
+  bit 16, `GfxMinHeld` and `Takes` (23: what `setOd8` takes). An older kext refuses the
+  14-scalar form with a wrong-count error; `gpucontrol` and the app send it only with a
+  minimum.
+- A lower GFX voltage (OD8 id 37, the firmware's `VddGfxOffset`): `gpucontrol hold volt 1050
+  -- <command>`. Read end to end in HWLibs 25G342: the driver offers it with
+  `PP_OD8VoltageSliderSupport` (the Navi 21 default, 1) as a range from swsmu+328 to swsmu+332
+  (881 to 1075 mV on the test card, stock 1075), stages value minus the top as the OD table's
+  `VddGfxOffset` (int16 mV, written whole to the firmware) and reads it back as top plus
+  offset. So it is a millivolt cap that moves the whole voltage curve down, and it cannot go
+  above the top. Linux writes the same field and needs SMU firmware 58.41.0 or later (the
+  test card: 58.76.0). The kext takes it lower only (at or below stock, at or above the card's
+  minimum) in 25 mV steps from stock, reads it back exactly, and sends the stock value in
+  every other call so a way back never leaves an offset behind. Refused: `VoltRange` (13);
+  not offered or not allowed now: `NoFeature`.
+- Raises, only when the request asks for them and only inside the card's own OverDrive
+  range: a GFX maximum above stock up to the 0x9f maximum (2800 MHz here) with `setOd8` flag
+  4, `gpucontrol hold gfxmax 2500 overclock -- <command>`; and a power limit above the
+  start-up one with `set`'s new 3-scalar form (flag 1), `gpucontrol hold power 260 raise --
+  <command>`, up to `PowerRange.CeilW` = start-up limit x (100 + the 0x9f power percent) /
+  100, the way Linux takes `power1_cap_max`, the percent cut at +15 (261 W on the test card,
+  +9 %). The driver's 0x6e path has no ceiling of its own (it sends SMU message 0x32 with the
+  watts as given), so this is the only one. One step past either maximum is refused
+  (`GfxRange`; the new reply 21 `AboveCeiling`). Each raise is taken only while the watchdog
+  has fresh readings (new reply 22 `NoReadings` for `set`) and is held under it: 95 C or no
+  readings for 10 s puts stock back and turns writing off (new `WriteOff` 16
+  `PowerWatchdog` for the power limit).
+- The channel stays version 2: `setOd8` also takes 15 scalars (the 15th is the voltage),
+  `set` also takes 3, `status` sets flags 1024 (`kFlagVolt`) and 2048 (`kFlagRaise`),
+  `OD8WriteState` gains `Held` bits 32 (voltage) and 64 (GFX maximum above stock), `VoltHeld`,
+  and `Takes` 119; `PowerRange` gains `CeilW`. An older kext refuses the new counts.
+- Not added, and why (read in the 25G342 driver, 2026-11-25): the memory maximum (id 8) and
+  fast memory timings (id 14, AC timing). Both start with `PhwComm_OD8_StartMemoryOverclock`
+  -> `PECI_StartGPUMemoryOverclock`, an IRI call 0x110018 to the display driver, and on macOS
+  that interface is `AtiAppleDalServices::dalIriFunction`, which has no case for 0x110018 (nor
+  0x110019, the end) and answers status 1, so the start fails. A memory maximum then makes
+  `PhwComm_OD8_ApplySettings` return before the OD table is written (the whole call fails
+  and the new clock stays staged), and fast timings are recorded but never programmed
+  (nothing could be read back). Also not added: the fan minimum speed (id 10) and fan target
+  temperature (id 12), which the driver does not offer while the fan curve is offered
+  (feature 0, and `PhwComm_OD8_SetGenericSetting` skips a setting whose feature is 0).
+- `gpucontrol status` names a held GFX maximum above stock "GFX max raised" (it said
+  "lowered" for every held maximum) and shows a held voltage as "GFX voltage lowered".
+
 ## Decoders 0.3.5 (RyzenStatus 1.89.0)
 
 - The `stats` line's slow-frame count now uses the stream's own frame time. It used to count

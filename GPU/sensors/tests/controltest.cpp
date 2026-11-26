@@ -871,11 +871,14 @@ static void od8Writes() {
             in.e[0].reset == 0 && in.e[1].reset == 0,
         "stock: the GFX pair as explicit stock values, no reset flags");
   bool others = true;
-  const uint32_t untouched[] = {8,  9,  10, 11, 12, 13, 14,
-                                16, 17, 18, 29, 36, 37};
+  const uint32_t untouched[] = {8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 29, 36};
   for (uint32_t i : untouched)
     others = others && in.e[i].requested == 0 && in.e[i].reset == 0;
-  check(others, "memory, power %, voltage, power mode, auto OC/UV: untouched");
+  check(others, "memory, power %, power mode, auto OC/UV: untouched");
+  check(
+      in.e[37].requested == 1 && in.e[37].reset == 0 && in.e[37].value == 1075,
+      "stock (0.9.0): the GFX voltage as its explicit stock value, so a "
+      "held offset never survives the way back");
   Od8InitialOut woke = first;
   woke.e[0].def = 2359;
   od8Build(stock, first, woke, &in);
@@ -1042,7 +1045,7 @@ static void od8Writes() {
   after.cur[15] = 0;
   after.notAllowed = 0;
   check(od8VerifyAfter(in, cur, after) == 39, "the allowed mask moved: 39");
-  od8Build(g = Od8Want{0, {}, {}, false, 2300}, first, fresh, &in);
+  od8Build(g = Od8Want{0, {}, {}, false, 2300, 0, 0, false}, first, fresh, &in);
   after = cur;
   after.cur[0] = 2295;
   check(od8VerifyAfter(in, cur, after) == 0, "GFX read back 5 MHz lower: ok");
@@ -1086,7 +1089,7 @@ static void od8Writes() {
         "no reading for 10 s, or none at all: blind (the kext goes back)");
 
   bool texts = true;
-  for (uint32_t c = 0; c <= static_cast<uint32_t>(Od8Check::NoReadings); c++)
+  for (uint32_t c = 0; c <= static_cast<uint32_t>(Od8Check::GfxMinRange); c++)
     texts = texts && od8CheckText(c)[0] != '\0';
   check(texts && od8CheckText(99)[0] != '\0', "every OD8 refusal has a text");
 }
@@ -1103,6 +1106,8 @@ static void od8Scalars(uint64_t in[kOd8WireCount], uint64_t flags,
     in[7 + k] = sp[k];
   }
   in[12] = gfx;
+  in[13] = 0;  // the GFX minimum (0.9.0): stock
+  in[14] = 0;  // the GFX voltage (0.9.0): stock
 }
 static void readOnlyCard() {
   check(deviceReadable(0x1002, 0x73BF, 0xC0) &&
@@ -1195,11 +1200,11 @@ static void readOnlyCard() {
   const uint64_t okS[5] = {20, 36, 52, 68, 100};
   Od8Want want{};
   od8Scalars(in, UINT64_MAX, bigT, bigS, UINT64_MAX);
-  bool od8off = od8Wire(o, in, &want) == Reply::Off;
+  bool od8off = od8Wire(o, in, kOd8WireCount, &want) == Reply::Off;
   od8Scalars(in, kOd8WantCurve, okT, okS, 2300);
-  od8off = od8off && od8Wire(o, in, &want) == Reply::Off;
+  od8off = od8off && od8Wire(o, in, kOd8WireCount, &want) == Reply::Off;
   od8Scalars(in, 0, okT, okS, 0);
-  od8off = od8off && od8Wire(o, in, &want) == Reply::Off;
+  od8off = od8off && od8Wire(o, in, kOd8WireCount, &want) == Reply::Off;
   check(od8off, "setOd8 answers off for absurd, good and stock states alike");
 }
 static void disarming() {
@@ -1225,7 +1230,7 @@ static void disarming() {
   const uint64_t bigS[5] = {201, 0, 0, 7, 0};
   Od8Want want{};
   od8Scalars(in, 0xff, bigT, bigS, UINT64_MAX);
-  check(od8Wire(o, in, &want) == Reply::NotArmed,
+  check(od8Wire(o, in, kOd8WireCount, &want) == Reply::NotArmed,
         "and setOd8 with an absurd state answers not armed");
   check(o.arm() && o.change(7, 1000) == Ask::Ok,
         "arm opens it again and a change is taken");
@@ -1292,37 +1297,38 @@ static void wires() {
   const uint64_t okT[5] = {30, 40, 44, 46, 48};
   const uint64_t okS[5] = {20, 36, 52, 68, 100};
   Od8Want want{};
-  od8Scalars(in, 4, zero, zero, 0);
-  bool bad = od8Wire(o, in, &want) == Reply::BadArgs;
+  od8Scalars(in, 8, zero, zero, 0);  // 4 is the overclock flag since 0.9.0
+  bool bad = od8Wire(o, in, kOd8WireCount, &want) == Reply::BadArgs;
   od8Scalars(in, kOd8WantCurve, okT, okS, 0);
   in[3] = 201;
-  bad = bad && od8Wire(o, in, &want) == Reply::BadArgs;
+  bad = bad && od8Wire(o, in, kOd8WireCount, &want) == Reply::BadArgs;
   od8Scalars(in, 0, okT, okS, 0);
-  bad = bad && od8Wire(o, in, &want) == Reply::BadArgs;
+  bad = bad && od8Wire(o, in, kOd8WireCount, &want) == Reply::BadArgs;
   od8Scalars(in, 0, zero, zero, 0x80000000ULL);
-  bad = bad && od8Wire(o, in, &want) == Reply::BadArgs;
+  bad = bad && od8Wire(o, in, kOd8WireCount, &want) == Reply::BadArgs;
   od8Scalars(in, 0, zero, zero, 0x100000000ULL);
-  bad = bad && od8Wire(o, in, &want) == Reply::BadArgs;
+  bad = bad && od8Wire(o, in, kOd8WireCount, &want) == Reply::BadArgs;
   check(bad,
         "armed: unknown flags, a point over 200, points without a curve, a "
         "clock the 32-bit field cannot carry (also 2^32, never read as stock)"
         " are malformed");
   od8Scalars(in, kOd8WantCurve | kOd8WantZeroRpmOff, okT, okS, 2300);
-  check(od8Wire(o, in, &want) == Reply::Ok && want.curve && want.zeroRpmOff &&
-            want.gfxMaxMHz == 2300 && want.temp[4] == 48 &&
+  check(od8Wire(o, in, kOd8WireCount, &want) == Reply::Ok && want.curve &&
+            want.zeroRpmOff && want.gfxMaxMHz == 2300 && want.temp[4] == 48 &&
             want.speed[4] == 100,
         "armed: a good state is decoded as sent");
   // S-8: the clock's first check is the card's stock maximum (2354 here).
   od8Scalars(in, 0, zero, zero, 5001);
-  check(od8Wire(o, in, &want) == Reply::Ok && want.gfxMaxMHz == 5001 &&
+  check(od8Wire(o, in, kOd8WireCount, &want) == Reply::Ok &&
+            want.gfxMaxMHz == 5001 &&
             od8CheckWant(want, first, first, cur) == Od8Check::GfxRange,
         "5001 MHz is no longer cut at the wire: the card's maximum refuses it");
   od8Scalars(in, 0, zero, zero, 2355);
-  check(od8Wire(o, in, &want) == Reply::Ok &&
+  check(od8Wire(o, in, kOd8WireCount, &want) == Reply::Ok &&
             od8CheckWant(want, first, first, cur) == Od8Check::GfxRange,
         "1 MHz above the stock maximum is refused");
   od8Scalars(in, 0, zero, zero, 2354);
-  check(od8Wire(o, in, &want) == Reply::Ok &&
+  check(od8Wire(o, in, kOd8WireCount, &want) == Reply::Ok &&
             od8CheckWant(want, first, first, cur) == Od8Check::Ok,
         "the stock maximum itself is taken");
 }
@@ -1403,6 +1409,435 @@ static void floors() {
             replyText(19)[0] != '\0' && replyText(20)[0] != '\0',
         "the two new replies are 19 and 20, with their texts");
 }
+// ----------------------------------------------------------- 0.9.0 tests --
+// The GFX minimum clock (OD8 id 1): the card's 0x9f range for it (500-2800
+// on the test card, stock 500), never above the GFX maximum of the same
+// state, sent with the GFX pair, read back like the maximum.
+static void gfxMin() {
+  Od8InitialOut first, fresh;
+  cardInitial(&first);
+  fresh = first;
+  Od8CurrentOut cur;
+  cardCurrent(first, &cur);
+  Od8Want m{};
+  m.gfxMinMHz = 1500;
+  check(!od8IsStock(m), "a raised GFX minimum is a change, not stock");
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::Ok,
+        "GFX min 1500 with the stock maximum: ok");
+  m.gfxMinMHz = 2354;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::Ok,
+        "GFX min at the stock maximum (a pinned clock): ok");
+  m.gfxMinMHz = 2355;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::GfxMinRange,
+        "GFX min 1 MHz above the stock maximum: refused");
+  m.gfxMinMHz = 499;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::GfxMinRange,
+        "GFX min under the card's 500 MHz: refused");
+  m.gfxMinMHz = 2801;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::GfxMinRange,
+        "GFX min over the card's range: refused");
+  m.gfxMinMHz = 2000;
+  m.gfxMaxMHz = 1900;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::GfxMinRange,
+        "GFX min above the GFX max asked in the same state: refused");
+  m.gfxMaxMHz = 2000;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::Ok,
+        "GFX min equal to the GFX max asked: ok");
+  m.gfxMaxMHz = 1400;
+  check(od8CheckWant(m, first, fresh, cur) == Od8Check::GfxRange,
+        "a GFX max under 1500 is still the max's refusal");
+  Od8InitialOut woke = first;
+  woke.e[0].def = 2340;
+  Od8Want top{};
+  top.gfxMinMHz = 2350;
+  check(od8CheckWant(top, first, woke, cur) == Od8Check::GfxMinRange,
+        "after a wake lowered the maximum's default to 2340: 2350 refused");
+  top.gfxMinMHz = 2340;
+  check(od8CheckWant(top, first, woke, cur) == Od8Check::Ok,
+        "and 2340 taken (the lower of the two reads)");
+  Od8InitialOut narrow = first;
+  narrow.e[1].min = 600;
+  Od8Want lo{};
+  lo.gfxMinMHz = 550;
+  check(od8CheckWant(lo, narrow, narrow, cur) == Od8Check::GfxMinRange,
+        "the range comes from the card's 0x9f entry, not a constant");
+
+  // The call.
+  Od8SetIn in;
+  Od8Want b{};
+  b.gfxMinMHz = 1500;
+  od8Build(b, first, fresh, &in);
+  check(od8ShapeOk(in) && in.e[1].value == 1500 && in.e[1].requested == 1 &&
+            in.e[1].reset == 0 && in.e[0].value == 2354 &&
+            in.e[0].requested == 1,
+        "GFX min 1500: the pair goes out as {2354 stock, 1500}");
+  bool others = true;
+  const uint32_t untouched[] = {8,  9,  10, 11, 12, 13, 14,
+                                16, 17, 18, 29, 34, 36};
+  for (uint32_t i : untouched)
+    others = others && in.e[i].requested == 0 && in.e[i].reset == 0;
+  check(others && in.e[37].requested == 1 && in.e[37].value == 1075,
+        "memory max and min, fan minimum and target, power %: untouched "
+        "with a GFX minimum; the voltage at its stock 1075 mV (0.9.0)");
+  b.gfxMaxMHz = 2000;
+  od8Build(b, first, fresh, &in);
+  check(od8ShapeOk(in) && in.e[0].value == 2000 && in.e[1].value == 1500,
+        "GFX max and min together: both values");
+  Od8SetIn bad = in;
+  bad.e[1].value = 2001;
+  check(!od8ShapeOk(bad), "a minimum above the maximum in the bytes: never");
+  bad = in;
+  bad.e[1].requested = 0;
+  check(!od8ShapeOk(bad), "the pair split (only the maximum): never");
+  bad = in;
+  bad.e[1].value = 0;
+  check(!od8ShapeOk(bad), "a minimum of 0 in the bytes: never");
+  od8Build(Od8Want{}, first, fresh, &in);
+  check(od8ShapeOk(in) && in.e[1].value == 500,
+        "stock: the minimum goes back to the first read's 500");
+
+  // The read-back.
+  b = Od8Want{};
+  b.gfxMinMHz = 1500;
+  od8Build(b, first, fresh, &in);
+  Od8CurrentOut after = cur;
+  after.cur[1] = 1500;
+  check(od8VerifyAfter(in, cur, after) == 0, "GFX min read back as sent: ok");
+  after.cur[1] = 1490;
+  check(od8VerifyAfter(in, cur, after) == 0,
+        "GFX min read back 10 MHz lower: ok (as the maximum)");
+  after.cur[1] = 1501;
+  check(od8VerifyAfter(in, cur, after) == 2,
+        "GFX min read back higher: entry 1 reported");
+  after.cur[1] = 1474;
+  check(od8VerifyAfter(in, cur, after) == 2,
+        "GFX min read back 26 MHz lower: reported");
+  after = cur;
+  check(od8VerifyAfter(in, cur, after) == 2,
+        "GFX min not taken (still 500): reported");
+
+  // The wire.
+  Owner o;
+  uint64_t w14[kOd8WireCount];
+  const uint64_t zero[5] = {0, 0, 0, 0, 0};
+  Od8Want want{};
+  od8Scalars(w14, 0, zero, zero, 0);
+  w14[13] = 1500;
+  check(od8Wire(o, w14, kOd8WireCountV090, &want) == Reply::NotArmed,
+        "the 14-scalar form answers not armed before its values");
+  o.arm();
+  check(od8Wire(o, w14, kOd8WireCountV090, &want) == Reply::Ok &&
+            want.gfxMinMHz == 1500 && want.gfxMaxMHz == 0 && !want.curve,
+        "14 scalars: the GFX minimum is decoded as sent");
+  check(od8Wire(o, w14, kOd8WireCountV070, &want) == Reply::Ok &&
+            want.gfxMinMHz == 0,
+        "13 scalars (0.7.0): the 14th is never read, the minimum is stock");
+  check(od8Wire(o, w14, 12, &want) == Reply::BadArgs &&
+            od8Wire(o, w14, 16, &want) == Reply::BadArgs &&
+            !od8WireCountOk(12) && od8WireCountOk(13) && od8WireCountOk(14) &&
+            od8WireCountOk(15) && !od8WireCountOk(16),
+        "any other count: malformed (15, the 0.9.0 form, is taken)");
+  w14[13] = 0x80000000ULL;
+  check(od8Wire(o, w14, kOd8WireCountV090, &want) == Reply::BadArgs,
+        "a minimum the 32-bit field cannot carry: malformed");
+  Owner gone;
+  gone.arm();
+  gone.turnOff();
+  w14[13] = 1500;
+  check(od8Wire(gone, w14, kOd8WireCountV090, &want) == Reply::Off,
+        "writing off: off before the minimum is looked at");
+
+  // The watchdog while only a GFX minimum is held: target 0, so only the
+  // 95 C limit and the missing readings count (the stock fan climbs slowly).
+  Od8Watch dog;
+  check(od8Watchdog(&dog, true, 900, 80, 40, 0, 1000) == Od8Dog::Fine &&
+            od8Watchdog(&dog, true, 900, 85, 40, 0, 9000) == Od8Dog::Fine,
+        "no curve: 80-85 C with the stock fan at 40 % for 8 s is fine");
+  check(od8Watchdog(&dog, true, 900, 95, 100, 0, 10000) == Od8Dog::Trip,
+        "no curve: 95 C still trips");
+  check(od8Watchdog(&dog, true, 11000, 50, 30, 0, 22000) == Od8Dog::Blind,
+        "no curve: no readings for 10 s still goes back");
+  check(od8CheckText(static_cast<uint64_t>(Od8Check::GfxMinRange))[0] != '\0' &&
+            static_cast<uint32_t>(Od8Check::GfxMinRange) == 12 &&
+            kOd8HeldGfxMin == 16 && kFlagGfxMin == 512,
+        "GfxMinRange is 12 with a text, held bit 16, status flag 512");
+}
+
+// ------------------------------------ 0.9.0 tests: voltage and raises --
+// The GFX voltage (OD8 id 37): lower only, inside the card's 0x9f range
+// (881-1075 mV on the test card, stock 1075), 25 mV steps from stock, carried
+// in every call, read back exactly.
+static void gfxVolt() {
+  Od8InitialOut first, fresh;
+  cardInitial(&first);
+  fresh = first;
+  Od8CurrentOut cur;
+  cardCurrent(first, &cur);
+  Od8Want v{};
+  v.voltMV = 1050;
+  check(!od8IsStock(v), "a GFX voltage is not the stock state");
+  check(od8CheckWant(v, first, fresh, cur) == Od8Check::Ok,
+        "1050 mV (stock 1075 - 25): taken");
+  v.voltMV = 900;
+  check(od8CheckWant(v, first, fresh, cur) == Od8Check::Ok,
+        "900 mV (stock - 175, the lowest 25 mV step above the 881 minimum): "
+        "taken");
+  v.voltMV = 1075;
+  check(od8CheckWant(v, first, fresh, cur) == Od8Check::Ok,
+        "the stock 1075 mV itself: taken");
+  v.voltMV = 1076;
+  bool refused = od8CheckWant(v, first, fresh, cur) == Od8Check::VoltRange;
+  v.voltMV = 1100;
+  refused =
+      refused && od8CheckWant(v, first, fresh, cur) == Od8Check::VoltRange;
+  check(refused, "1 mV or 25 mV above stock: refused (lower only)");
+  v.voltMV = 875;
+  refused = od8CheckWant(v, first, fresh, cur) == Od8Check::VoltRange;
+  v.voltMV = 880;
+  refused =
+      refused && od8CheckWant(v, first, fresh, cur) == Od8Check::VoltRange;
+  check(refused, "below the card's 881 mV minimum: refused, never clamped");
+  v.voltMV = 1060;
+  check(od8CheckWant(v, first, fresh, cur) == Od8Check::VoltRange,
+        "1060 mV, not a 25 mV step from stock: refused");
+  Od8InitialOut nv = first;
+  nv.e[37] = Od8Entry{};
+  v.voltMV = 1050;
+  check(od8CheckWant(v, nv, nv, cur) == Od8Check::NoFeature,
+        "a card that does not offer the voltage: refused as not offered");
+  Od8CurrentOut na = cur;
+  na.notAllowed |= kOd8VoltFeature;
+  check(od8CheckWant(v, first, fresh, na) == Od8Check::NoFeature,
+        "offered but not allowed now: refused (the driver would refuse the "
+        "whole call)");
+  Od8InitialOut low = first;
+  low.e[37] = Od8Entry{0x20000, 881, 1150, 1100, 0, 0};
+  v.voltMV = 1125;
+  bool fromStock = od8CheckWant(v, low, low, cur) == Od8Check::VoltRange;
+  v.voltMV = 1075;
+  fromStock = fromStock && od8CheckWant(v, low, low, cur) == Od8Check::Ok;
+  check(fromStock,
+        "the top is the card's stock value, not its maximum (another card: "
+        "1100 stock, 1150 max)");
+
+  Od8SetIn in;
+  v.voltMV = 1050;
+  od8Build(v, first, fresh, &in);
+  check(od8ShapeOk(in) && in.e[37].value == 1050 && in.e[37].requested == 1 &&
+            in.e[37].reset == 0 && in.e[0].value == 2354 &&
+            in.e[1].value == 500 && in.e[8].requested == 0 &&
+            in.e[14].requested == 0 && in.e[19].reset == 1,
+        "1050 mV: entry 37 = 1050 requested, the GFX pair at stock, memory "
+        "and AC timing untouched, the curve as the reset");
+  od8Build(Od8Want{}, first, fresh, &in);
+  check(in.e[37].value == 1075 && in.e[37].requested == 1,
+        "the way back sends the stock 1075 mV over a held offset");
+  od8Build(Od8Want{}, nv, nv, &in);
+  check(in.e[37].requested == 0 && od8ShapeOk(in),
+        "not offered: entry 37 never requested");
+  od8Build(v, first, fresh, &in);
+  in.e[37].value = 0;
+  check(!od8ShapeOk(in), "a shape with a voltage of 0 is never sent");
+  od8Build(v, first, fresh, &in);
+  in.e[37].reset = 1;
+  check(!od8ShapeOk(in), "nor one with a voltage reset flag");
+  od8Build(v, first, fresh, &in);
+  in.e[14].requested = 1;
+  check(!od8ShapeOk(in), "nor one that asks for fast memory timings");
+  od8Build(v, first, fresh, &in);
+  in.e[8].requested = 1;
+  check(!od8ShapeOk(in), "nor one that asks for a memory clock");
+
+  // The read-back: exact, the driver reads max + VddGfxOffset back.
+  od8Build(v, first, fresh, &in);
+  Od8CurrentOut after = cur;
+  after.cur[37] = 1050;
+  check(od8VerifyAfter(in, cur, after) == 0, "1050 mV read back: ok");
+  after.cur[37] = 1049;
+  check(od8VerifyAfter(in, cur, after) == 38, "1 mV off: entry 37 reported");
+  after.cur[37] = 1075;
+  check(od8VerifyAfter(in, cur, after) == 38,
+        "not taken (still 1075): reported");
+
+  // The wire: the 15th scalar.
+  Owner o;
+  uint64_t w15[kOd8WireCount];
+  const uint64_t zero[5] = {0, 0, 0, 0, 0};
+  od8Scalars(w15, 0, zero, zero, 0);
+  w15[14] = 1050;
+  Od8Want want{};
+  check(od8Wire(o, w15, kOd8WireCount, &want) == Reply::NotArmed,
+        "15 scalars: not armed before the voltage is looked at");
+  o.arm();
+  check(od8Wire(o, w15, kOd8WireCount, &want) == Reply::Ok &&
+            want.voltMV == 1050 && want.gfxMinMHz == 0 && !want.overclock,
+        "15 scalars: the voltage is decoded as sent");
+  check(od8Wire(o, w15, kOd8WireCountV090, &want) == Reply::Ok &&
+            want.voltMV == 0,
+        "14 scalars: the 15th is never read, the voltage is stock");
+  w15[14] = 0x80000000ULL;
+  check(od8Wire(o, w15, kOd8WireCount, &want) == Reply::BadArgs,
+        "a voltage the 32-bit field cannot carry: malformed");
+  check(static_cast<uint32_t>(Od8Check::VoltRange) == 13 &&
+            od8CheckText(13)[0] != '\0' && kOd8HeldVolt == 32 &&
+            kFlagVolt == 1024 && kOd8GfxVolt == 37 &&
+            od8Feature(kOd8GfxVolt) == kOd8VoltFeature,
+        "VoltRange is 13 with a text, held bit 32, status flag 1024");
+}
+
+// The GFX maximum above stock (0.9.0): only with the overclock flag, up to
+// the card's own 0x9f maximum (2800 on the test card), never past it.
+static void gfxOverclock() {
+  Od8InitialOut first, fresh;
+  cardInitial(&first);
+  fresh = first;
+  Od8CurrentOut cur;
+  cardCurrent(first, &cur);
+  Od8Want g{};
+  g.gfxMaxMHz = 2500;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::GfxRange,
+        "2500 MHz without the overclock flag: refused as before");
+  g.overclock = true;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::Ok &&
+            od8RaisesGfxMax(g, first, fresh),
+        "2500 MHz with the flag: taken, and it raises above stock");
+  g.gfxMaxMHz = 2800;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::Ok,
+        "the card's own 2800 MHz maximum: taken");
+  g.gfxMaxMHz = 2801;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::GfxRange,
+        "one step above the 0x9f maximum (2801): refused");
+  g.gfxMaxMHz = 2825;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::GfxRange,
+        "2825 (25 MHz past the maximum): refused");
+  g.gfxMaxMHz = 2300;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::Ok &&
+            !od8RaisesGfxMax(g, first, fresh),
+        "a lower maximum with the flag: taken, not a raise");
+  g.gfxMaxMHz = 1400;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::GfxRange,
+        "the 1500 MHz floor holds with the flag too");
+  Od8Want stockFlag{};
+  stockFlag.overclock = true;
+  check(od8IsStock(stockFlag) &&
+            od8CheckWant(stockFlag, first, fresh, cur) == Od8Check::Ok &&
+            !od8RaisesGfxMax(stockFlag, first, fresh),
+        "the flag alone is the stock state: a permission, not a setting");
+  g.gfxMaxMHz = 2600;
+  g.gfxMinMHz = 2600;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::Ok,
+        "a minimum up to a raised maximum: taken (FMIN <= FMAX)");
+  g.gfxMinMHz = 2601;
+  check(od8CheckWant(g, first, fresh, cur) == Od8Check::GfxMinRange,
+        "a minimum above the raised maximum: refused");
+  Od8SetIn in;
+  g.gfxMinMHz = 0;
+  g.gfxMaxMHz = 2500;
+  od8Build(g, first, fresh, &in);
+  check(od8ShapeOk(in) && in.e[0].value == 2500 && in.e[1].value == 500 &&
+            in.e[0].requested == 1 && in.e[1].requested == 1,
+        "2500 MHz: the pair goes out as {2500, 500 stock}");
+  Od8CurrentOut after = cur;
+  after.cur[0] = 2500;
+  check(od8VerifyAfter(in, cur, after) == 0, "2500 read back: ok");
+  after.cur[0] = 2480;
+  check(od8VerifyAfter(in, cur, after) == 0,
+        "20 MHz lower (the firmware rounds): ok, as for a lower maximum");
+  after.cur[0] = 2354;
+  check(od8VerifyAfter(in, cur, after) == 1,
+        "the firmware kept stock: reported (no silent overclock claim)");
+  Owner o;
+  o.arm();
+  uint64_t w[kOd8WireCount];
+  const uint64_t zero[5] = {0, 0, 0, 0, 0};
+  od8Scalars(w, kOd8WantOverclock, zero, zero, 2500);
+  Od8Want want{};
+  check(od8Wire(o, w, kOd8WireCountV070, &want) == Reply::Ok &&
+            want.overclock && want.gfxMaxMHz == 2500,
+        "the overclock flag is taken in the 13-scalar form too");
+  check(kOd8WantOverclock == 4 && kOd8HeldGfxUp == 64 && kFlagRaise == 2048,
+        "overclock flag 4, held bit 64, status flag 2048");
+}
+
+// The power limit above the start-up one (0.9.0): only with the raise flag,
+// up to the start-up value plus the card's 0x9f power percent (at most 15).
+static void powerRaise() {
+  Od8InitialOut t;
+  cardInitial(&t);
+  PowerRange r = powerRange(240, true, false, t);
+  check(r.ceilW == 261,
+        "the owner's card: 240 W plus its +9 % is a 261 W ceiling (Linux's "
+        "power1_cap_max, rounded down)");
+  check(checkPower(240, r.floorW, 250) == PowerCheck::AboveBoot &&
+            routeSet(240, r.floorW, 250) == SetRoute::Refuse,
+        "250 W without the raise flag: above the start-up limit, as before");
+  check(checkPower(240, r.floorW, 250, r.ceilW) == PowerCheck::Ok &&
+            checkPower(240, r.floorW, 260, r.ceilW) == PowerCheck::Ok &&
+            routeSet(240, r.floorW, 260, r.ceilW) == SetRoute::Change,
+        "250 and 260 W with the flag: a change");
+  check(checkPower(240, r.floorW, 261, r.ceilW) == PowerCheck::Ok,
+        "the ceiling itself (261, not a 10 W step): taken");
+  check(
+      checkPower(240, r.floorW, 262, r.ceilW) == PowerCheck::AboveCeiling &&
+          checkPower(240, r.floorW, 270, r.ceilW) == PowerCheck::AboveCeiling &&
+          replyFor(PowerCheck::AboveCeiling) == Reply::AboveCeiling,
+      "1 W or one 10 W step above the ceiling: refused");
+  check(checkPower(240, r.floorW, 255, r.ceilW) == PowerCheck::NotAStep,
+        "255 W: not a 10 W step");
+  check(checkPower(240, r.floorW, 230, r.ceilW) == PowerCheck::Ok &&
+            checkPower(240, r.floorW, 220, r.ceilW) == PowerCheck::BelowFloor &&
+            checkPower(240, r.floorW, 240, r.ceilW) == PowerCheck::Ok,
+        "the flag changes nothing below the start-up limit");
+  SetLimitIn in{};
+  check(makeSetLimit(240, r.floorW, 260, &in, r.ceilW) && in.watts == 260 &&
+            !makeSetLimit(240, r.floorW, 260, &in) &&
+            !makeSetLimit(240, r.floorW, 270, &in, r.ceilW),
+        "the 0x6e bytes are built only with the ceiling and inside it");
+  Od8InitialOut x = t;
+  x.e[kOd8PowerPercent].max = 20;
+  check(powerRange(264, true, false, x).ceilW == 303,
+        "a table offering +20 %: cut at AMD's +15 (264 W -> 303 W)");
+  x.e[kOd8PowerPercent].max = 15;
+  check(powerRange(264, true, false, x).ceilW == 303, "+15 %: 303 W");
+  x.e[kOd8PowerPercent].max = 0;
+  PowerRange flat = powerRange(240, true, false, x);
+  check(flat.ceilW == 240 && checkPower(240, flat.floorW, 250, flat.ceilW) ==
+                                 PowerCheck::AboveBoot,
+        "no percent up: the ceiling is the start-up limit, nothing higher");
+  x = t;
+  x.e[kOd8PowerPercent] = Od8Entry{0, -6, 9, 0, 0, 0};
+  check(powerRange(240, true, false, x).ceilW == 0,
+        "no power limit feature: no ceiling");
+  check(powerRange(240, false, false, Od8InitialOut{}).ceilW == 0 &&
+            powerRange(240, true, true, t).ceilW == 0,
+        "OD8 not read, or its first read odd: no ceiling");
+
+  // The wire: {version, watts, flags}.
+  Owner o;
+  uint32_t w = 0;
+  bool raise = true;
+  check(setWireRaise(o, 250, kSetWantRaise, &w, &raise) == Reply::NotArmed &&
+            !raise,
+        "the raise form answers not armed before its values");
+  o.arm();
+  check(setWireRaise(o, 250, kSetWantRaise, &w, &raise) == Reply::Ok && raise &&
+            w == 250,
+        "armed: the raise flag is decoded");
+  check(setWireRaise(o, 250, 0, &w, &raise) == Reply::Ok && !raise,
+        "flags 0: no raise");
+  check(setWireRaise(o, 250, 2, &w, &raise) == Reply::BadArgs && !raise,
+        "an unknown flag: malformed");
+  check(setWireCountOk(2) && setWireCountOk(3) && !setWireCountOk(1) &&
+            !setWireCountOk(4),
+        "set takes 2 or 3 scalars");
+  check(static_cast<uint32_t>(Reply::AboveCeiling) == 21 &&
+            static_cast<uint32_t>(Reply::NoReadings) == 22 &&
+            replyText(21)[0] != '\0' && replyText(22)[0] != '\0' &&
+            static_cast<uint32_t>(WriteOff::PowerWatchdog) == 16 &&
+            writeOffText(WriteOff::PowerWatchdog)[0] != '\0',
+        "replies 21 and 22, WriteOff 16, with their texts");
+}
+
 int main() {
   card();
   profiles();
@@ -1428,6 +1863,10 @@ int main() {
   disarming();
   wires();
   floors();
+  gfxMin();
+  gfxVolt();
+  gfxOverclock();
+  powerRaise();
   if (failures != 0) printf("%d FAILED\n", failures);
   return failures == 0 ? 0 : 1;
 }

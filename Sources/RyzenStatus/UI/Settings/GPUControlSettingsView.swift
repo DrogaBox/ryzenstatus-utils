@@ -20,6 +20,8 @@ struct GPUControlSettingsView: View {
             fan: FeatureStrings.gpuControlFan(l10n.language),
             clock: FeatureStrings.gpuControlClock(l10n.language),
             boot: FeatureStrings.gpuControlBoot(l10n.language),
+            overclock: FeatureStrings.gpuControlOverclock(l10n.language),
+            profile: FeatureStrings.gpuControlProfile(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
@@ -32,7 +34,16 @@ struct GPUControlSettingsView: View {
                 },
                 applyFan: { service.applyFan($0) },
                 chooseGfxMax: { service.chooseGfxMax($0) },
-                closeChanges: { service.closeChanges() }))
+                chooseGfxMin: { service.chooseGfxMin($0) },
+                chooseVolt: { service.chooseVolt($0) },
+                chooseGfxMaxRaised: { service.chooseGfxMaxRaised($0) },
+                setOverclock: { service.overclock = $0 },
+                closeChanges: { service.closeChanges() }),
+            profileActions: GPUControlProfileActions(
+                save: { service.saveProfile(named: $0) },
+                load: { service.loadProfile($0) },
+                rename: { service.renameProfile(named: $0, to: $1) },
+                delete: { service.deleteProfile(named: $0) }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
                                   activate: { service.viewerAppeared() },
@@ -65,6 +76,14 @@ struct GPUControlPageInput: Equatable {
     /// The editor's starting draft; nil starts from what is held, or from
     /// the tested curve.
     var fanDraft: GPUControlFanDraft?
+    /// "Allow overclocking" (GPUSensors 0.9.0), off by default.
+    var overclock = false
+    /// The owner's saved GPU profiles, and the name of the one that is
+    /// exactly what the card holds now (nil when none is).
+    var profiles: [GPUControlProfile] = []
+    var matchingProfile: String?
+    /// The last profile loaded: what went out and what was left out.
+    var profileLoad: GPUControlProfileLoad?
 
     init(facts: GPUControlFacts?, state: GPUControlPageState?, snapshot: GPUControlSnapshot?) {
         self.facts = facts
@@ -87,6 +106,10 @@ struct GPUControlPageInput: Equatable {
         kextVersion = service.control?.writing?.kextVersion
         canChoose = service.mode != .none
         writing = service.control?.writing
+        overclock = service.overclock
+        profiles = service.profiles
+        matchingProfile = service.matchingProfile
+        profileLoad = service.profileLoad
     }
 }
 
@@ -98,6 +121,10 @@ struct GPUControlPageActions {
     var setBootArm: (Bool) -> Void = { _ in }
     var applyFan: (GPUControlFanDraft) -> Void = { _ in }
     var chooseGfxMax: (Int?) -> Void = { _ in }
+    var chooseGfxMin: (Int?) -> Void = { _ in }
+    var chooseVolt: (Int?) -> Void = { _ in }
+    var chooseGfxMaxRaised: (Int?) -> Void = { _ in }
+    var setOverclock: (Bool) -> Void = { _ in }
     var closeChanges: () -> Void = {}
 }
 
@@ -200,8 +227,11 @@ struct GPUControlPageContent: View {
     let fan: GPUControlFanStrings
     let clock: GPUControlClockStrings
     let boot: GPUControlBootStrings
+    let overclock: GPUControlOverclockStrings
+    let profile: GPUControlProfileStrings
     let title: String
     let actions: GPUControlPageActions
+    let profileActions: GPUControlProfileActions
     @State private var copied = false
     /// The editor's draft; its `edited` flag says whether the owner touched
     /// it since it was last seeded or applied.
@@ -209,15 +239,20 @@ struct GPUControlPageContent: View {
     @State private var lastOD8Source: GPUControlOD8Source = .fan
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
-         clock: GPUControlClockStrings, boot: GPUControlBootStrings = .enUS, title: String,
-         actions: GPUControlPageActions) {
+         clock: GPUControlClockStrings, boot: GPUControlBootStrings = .enUS,
+         overclock: GPUControlOverclockStrings = .enUS, profile: GPUControlProfileStrings = .enUS,
+         title: String, actions: GPUControlPageActions,
+         profileActions: GPUControlProfileActions = GPUControlProfileActions()) {
         self.input = input
         self.strings = strings
         self.fan = fan
         self.clock = clock
         self.boot = boot
+        self.overclock = overclock
+        self.profile = profile
         self.title = title
         self.actions = actions
+        self.profileActions = profileActions
         var held: GPUControlOD8Want?
         if case .heldByApp(.od8(let want))? = input.state { held = want }
         _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
@@ -243,9 +278,31 @@ struct GPUControlPageContent: View {
                 GPUControlClockSection(input: input, strings: strings, clock: clock,
                                        lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMax)
             }
+            // Right under the maximum: the two ends of the same clock range.
+            if showsPower, GPUControlClockMinSection.shows(input) {
+                GPUControlClockMinSection(input: input, strings: strings, clock: clock,
+                                          lastOD8Source: $lastOD8Source, choose: actions.chooseGfxMin)
+            }
+            // GPUSensors 0.9.0: the voltage next to the clocks, then the
+            // raises on their own, off by default. Neither on a card that can
+            // only be read.
+            if showsPower, GPUControlVoltSection.shows(input) {
+                GPUControlVoltSection(input: input, strings: strings, clock: clock, overclock: overclock,
+                                      lastOD8Source: $lastOD8Source, choose: actions.chooseVolt)
+            }
+            if showsPower, GPUControlOverclockSection.shows(input) {
+                GPUControlOverclockSection(input: input, strings: strings, clock: clock, overclock: overclock,
+                                           lastOD8Source: $lastOD8Source, setOn: actions.setOverclock,
+                                           chooseGfx: actions.chooseGfxMaxRaised, choosePower: actions.choosePower)
+            }
             if case .closed? = input.state { armSection }
             if Self.showsBootArm(input) { bootArmSection }
             rememberSection
+            // Its own section, like "remember": the list is worth seeing even
+            // on a card the control only reads.
+            if showsPower || !input.profiles.isEmpty {
+                GPUControlProfilesSection(input: input, strings: profile, page: s, actions: profileActions)
+            }
             detailsSection
         }
         .formStyle(.grouped)
@@ -456,9 +513,13 @@ struct GPUControlPageContent: View {
     /// offer choices instead of typing. Applies when chosen, like AMD Power
     /// and System Settings ("Sliders", macOS: show the result as it changes).
     private var powerSection: some View {
-        let choices = GPUControlPageLogic.powerChoices(facts: input.facts, state: input.state)
+        let lowerChoices = GPUControlPageLogic.powerChoices(facts: input.facts, state: input.state)
         let limits = GPUControlPageLogic.limits(bootW: input.facts?.bootW, range: input.facts?.powerRange)
         let shown = input.facts.flatMap { GPUControlPageLogic.shownWatts(facts: $0, snapshot: input.snapshot) }
+        // A raised limit (held from the Overclock section) is not one of the
+        // lower choices: listed so the menu shows what is in force.
+        let choices = shown.map { lowerChoices.isEmpty || lowerChoices.contains($0) ? lowerChoices : lowerChoices + [$0] }
+            ?? lowerChoices
         // While a request is out or waits, the kext has not taken it: no
         // second choice until it answers.
         let enabled = input.canChoose && (input.state?.acceptsChoices ?? false) && !input.isPending
@@ -469,6 +530,10 @@ struct GPUControlPageContent: View {
         // A refusal of a fan request shows in the fan section instead.
         var note = GPUControlPageNote.make(input.snapshot, s)
         if case .refused(let request, _)? = input.snapshot?.outcome, request.isOD8 { note = nil }
+        // A refused raise shows in the overclock section instead.
+        if case .refused(.power(let watts), _)? = input.snapshot?.outcome,
+           GPUControlOverclockSection.shows(input),
+           GPUControlOverclockLogic.raisesPower(Int(watts), bootW: input.facts?.bootW) { note = nil }
         return Section {
             Picker(s.powerLabel, selection: Binding(
                 get: { shown ?? choices.first ?? 0 },

@@ -546,6 +546,15 @@ enum GPUControlChannelTests {
         // 0.8.0's two replies.
         do { let (_, c) = fresh { $0.od8Ready = false }; got(c.setPower(watts: 230), .noFloor, "the card's floor not known") }
         do { let (_, c) = fresh(); _ = c.setPower(watts: 230); got(c.disarm(), .stillApplied, "close while a change is held") }
+        // 0.9.0's two replies, for set's raise form.
+        do {
+            let (_, c) = fresh { $0.takesOverclock = true }
+            got(c.setPower(watts: 290, raise: true), .aboveCeiling, "290 W, above the card's ceiling")
+        }
+        do {
+            let (_, c) = fresh { $0.takesOverclock = true; $0.dogSees = false }
+            got(c.setPower(watts: 250, raise: true), .noReadings, "a raise the watchdog cannot watch")
+        }
         suite.expect(seen == Set(GPUControlReply.allCases.map(\.rawValue)), "the model gives every reply of the kext")
 
         // Every reason writing goes off, with the off-back for OD8.
@@ -1278,8 +1287,9 @@ enum GPUControlChannelTests {
             .tooSoon: .busy, .belowFloor: .notAllowed, .aboveBoot: .notAllowed, .notAStep: .notAllowed,
             .timeout: .unconfirmed, .failed: .unconfirmed, .notOwner: .notOwner, .cancelled: .notReady,
             .od8Refused: .notAllowed, .noFloor: .noFloor, .stillApplied: .stillApplied,
+            .aboveCeiling: .notAllowed, .noReadings: .settingMissing,
         ]
-        suite.expect(replies.count == 20, "20 replies besides ok")
+        suite.expect(replies.count == 22, "22 replies besides ok")
         for reply in GPUControlReply.allCases {
             suite.expect(G.forReply(reply.rawValue) == replies[reply], "reply \(reply.rawValue) \(reply): its group")
             suite.expect(!reply.kextText.isEmpty, "reply \(reply): the kext's words")
@@ -1289,8 +1299,9 @@ enum GPUControlChannelTests {
             .notRead: .notReady, .drifted: .notReady, .memoryMoved: .notReady, .noFeature: .settingMissing,
             .curveRange: .notAllowed, .curveOrder: .notAllowed, .curveFirst: .notAllowed, .curveLast: .notAllowed,
             .curveCooling: .notAllowed, .gfxRange: .notAllowed, .noReadings: .settingMissing,
+            .gfxMinRange: .notAllowed, .voltRange: .notAllowed,
         ]
-        suite.expect(checks.count == 11, "11 OD8 reasons besides ok")
+        suite.expect(checks.count == 13, "13 OD8 reasons besides ok")
         for check in GPUControlOD8Check.allCases {
             suite.expect(G.forOD8Check(check.rawValue) == checks[check], "OD8 check \(check.rawValue) \(check): its group")
             if check != .ok {
@@ -1298,8 +1309,8 @@ enum GPUControlChannelTests {
                              "OD8 refused for \(check): the reason's group")
             }
         }
-        suite.expect(G.forOD8Check(12) == nil, "an unknown OD8 reason has no group")
-        suite.expect(G.forReply(GPUControlReply.od8Refused.rawValue, check: 12) == .notAllowed,
+        suite.expect(G.forOD8Check(14) == nil, "an unknown OD8 reason has no group")
+        suite.expect(G.forReply(GPUControlReply.od8Refused.rawValue, check: 14) == .notAllowed,
                      "refused for an unknown reason: not allowed")
         let offs: [GPUControlWriteOff: G] = [
             .ctlOff: .offNotAsExpected, .notOneCard: .offNotAsExpected, .otherAmdGpu: .offNotAsExpected,
@@ -1307,15 +1318,17 @@ enum GPUControlChannelTests {
             .secondObject: .offNotAsExpected, .bootImplausible: .offNotAsExpected, .start: .offNotAsExpected,
             .sendFailed: .offChangeUnconfirmed, .revertFailed: .offChangeUnconfirmed, .teardown: .offDriverStopped,
             .od8Failed: .offChangeUnconfirmed, .od8Watchdog: .offWatchdog, .readOnlyCard: .readOnlyCard,
+            .powerWatchdog: .offPowerWatchdog,
         ]
-        suite.expect(offs.count == 15, "15 write-off reasons")
+        suite.expect(offs.count == 16, "16 write-off reasons")
         for reason in GPUControlWriteOff.allCases {
             suite.expect(G.forWriteOff(reason.rawValue) == offs[reason], "write off \(reason.rawValue) \(reason): its group")
             suite.expect(reason == .none || !reason.kextText.isEmpty, "write off \(reason): the kext's words")
         }
-        suite.expect(G.forWriteOff(16) == nil, "an unknown write-off reason has no group")
+        suite.expect(G.forWriteOff(17) == nil, "an unknown write-off reason has no group")
         let answer = GPUControlAnswer(replyCode: GPUControlReply.od8Refused.rawValue, checkCode: 10)
-        suite.expect(answer.kextText == "GFX max must be between 1500 MHz and the stock maximum",
+        suite.expect(answer.kextText
+                        == "GFX max must be between 1500 MHz and the stock maximum (with overclock: the card's own maximum)",
                      "a refused OD8 state shows the reason in the kext's words")
         suite.expect(GPUControlAnswer(replyCode: 77).kextText == "reply 77", "an unknown reply shows its number")
     }
@@ -1337,24 +1350,44 @@ enum GPUControlChannelTests {
             (.ok, 0), (.badVersion, 1), (.badArgs, 2), (.notPrivileged, 3), (.off, 4), (.notArmed, 5),
             (.noBootValue, 6), (.notReady, 7), (.sleeping, 8), (.busy, 9), (.tooSoon, 10), (.belowFloor, 11),
             (.aboveBoot, 12), (.notAStep, 13), (.timeout, 14), (.failed, 15), (.notOwner, 16), (.cancelled, 17),
-            (.od8Refused, 18), (.stillApplied, 19), (.noFloor, 20),
+            (.od8Refused, 18), (.stillApplied, 19), (.noFloor, 20), (.aboveCeiling, 21), (.noReadings, 22),
         ]
-        suite.expect(replies.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlReply.allCases.count == 21,
-                     "replies: ok 0 ... noFloor 20, as gpuctl::Reply")
+        suite.expect(replies.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlReply.allCases.count == 23,
+                     "replies: ok 0 ... noReadings 22, as gpuctl::Reply")
         let checks: [(GPUControlOD8Check, UInt64)] = [
             (.ok, 0), (.notRead, 1), (.drifted, 2), (.memoryMoved, 3), (.noFeature, 4), (.curveRange, 5),
             (.curveOrder, 6), (.curveFirst, 7), (.curveLast, 8), (.curveCooling, 9), (.gfxRange, 10),
-            (.noReadings, 11),
+            (.noReadings, 11), (.gfxMinRange, 12), (.voltRange, 13),
         ]
-        suite.expect(checks.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlOD8Check.allCases.count == 12,
-                     "OD8 checks: ok 0 ... noReadings 11, as gpuctl::Od8Check")
+        suite.expect(checks.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlOD8Check.allCases.count == 14,
+                     "OD8 checks: ok 0 ... voltRange 13, as gpuctl::Od8Check")
+        suite.expect(GPUControlOD8Held.gfxMin.rawValue == 16 && GPUControlFlags.gfxMin.rawValue == 512,
+                     "0.9.0: the GFX minimum's held bit 16 and status flag 512, as kOd8HeldGfxMin and kFlagGfxMin")
+        suite.expect(GPUControlOD8Held.volt.rawValue == 32 && GPUControlOD8Held.gfxMaxUp.rawValue == 64
+                        && GPUControlFlags.volt.rawValue == 1024 && GPUControlFlags.raise.rawValue == 2048,
+                     "0.9.0: held bits 32 and 64, status flags 1024 and 2048, as kOd8HeldVolt, kOd8HeldGfxUp, "
+                        + "kFlagVolt and kFlagRaise")
+        suite.expect(GPUControlWire.wantOverclock == 4 && GPUControlWire.setWantRaise == 1,
+                     "the overclock flag 4 (kOd8WantOverclock) and the raise flag 1 (kSetWantRaise)")
+        suite.expect(GPUControlWire.Selector.setOD8.takes(inputCount: 13)
+                        && GPUControlWire.Selector.setOD8.takes(inputCount: 14)
+                        && GPUControlWire.Selector.setOD8.takes(inputCount: 15)
+                        && !GPUControlWire.Selector.setOD8.takes(inputCount: 12)
+                        && !GPUControlWire.Selector.setOD8.takes(inputCount: 16)
+                        && GPUControlWire.Selector.set.takes(inputCount: 2)
+                        && GPUControlWire.Selector.set.takes(inputCount: 3)
+                        && !GPUControlWire.Selector.set.takes(inputCount: 4)
+                        && !GPUControlWire.Selector.status.takes(inputCount: 2),
+                     "setOD8 takes 13, 14 or 15 scalars (od8WireCountOk), set 2 or 3 (setWireCountOk), "
+                        + "every other call its one count")
         let offs: [(GPUControlWriteOff, UInt64)] = [
             (.none, 0), (.ctlOff, 1), (.notOneCard, 2), (.otherAmdGpu, 3), (.library, 4), (.routes, 5),
             (.cwdde, 6), (.secondObject, 7), (.bootImplausible, 8), (.start, 9), (.sendFailed, 10),
             (.revertFailed, 11), (.teardown, 12), (.od8Failed, 13), (.od8Watchdog, 14), (.readOnlyCard, 15),
+            (.powerWatchdog, 16),
         ]
-        suite.expect(offs.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWriteOff.allCases.count == 16,
-                     "write-off reasons: none 0 ... readOnlyCard 15, as gpuctl::WriteOff")
+        suite.expect(offs.allSatisfy { $0.0.rawValue == $0.1 } && GPUControlWriteOff.allCases.count == 17,
+                     "write-off reasons: none 0 ... powerWatchdog 16, as gpuctl::WriteOff")
         kextConstants(suite)
     }
 
@@ -1378,6 +1411,12 @@ enum GPUControlChannelTests {
             ("kWakeReadyMarginMs", GPUControlWire.wakeReadyMarginMs),
             ("kSetWaitMs", GPUControlWire.setWaitMs),
             ("kMaxPowerPercentDown", UInt64(GPUControlPowerRange.maxPercentDown)),
+            ("kOd8WireCount", UInt64(GPUControlWire.setOD8InputCountVolt)),
+            ("kOd8WireCountV090", UInt64(GPUControlWire.setOD8InputCountGfxMin)),
+            ("kOd8WireCountV070", UInt64(GPUControlWire.setOD8InputCount)),
+            ("kSetWireCount", UInt64(GPUControlWire.Selector.set.inputCount)),
+            ("kSetWireCountRaise", UInt64(GPUControlWire.setInputCountRaise)),
+            ("kOd8VoltStepMV", UInt64(GPUControlWire.voltStepMV)),
         ]
         let kext = constants(in: source)
         for (name, app) in mirrored {

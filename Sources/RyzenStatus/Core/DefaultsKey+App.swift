@@ -1102,4 +1102,19 @@ extension DefaultsKey {
     static let gpuControlRememberedCurve = "gpuControlRememberedCurve"   // [C, %] x 5, flat
     static let gpuControlRememberedZeroRpmOff = "gpuControlRememberedZeroRpmOff"
     static let gpuControlRememberedGfxMHz = "gpuControlRememberedGfxMHz"
+    /// A raised GFX minimum (GPUSensors 0.9.0), in MHz.
+    static let gpuControlRememberedGfxMinMHz = "gpuControlRememberedGfxMinMHz"
+    /// A lowered GFX voltage (GPUSensors 0.9.0), in mV. Asked for again at
+    /// launch and after a wake with the rest of the state.
+    static let gpuControlRememberedVoltMV = "gpuControlRememberedVoltMV"
+    /// The overclock flag of a remembered raised GFX maximum (GPUSensors
+    /// 0.9.0). The raised maximum is asked for again at launch and after a
+    /// wake only while "Allow overclocking" is on.
+    static let gpuControlRememberedOverclock = "gpuControlRememberedOverclock"
+    /// The "Allow overclocking" switch of Settings > GPU control (off by
+    /// default).
+    static let gpuControlOverclock = "gpuControlOverclock"
+    /// The owner's GPU profiles, one JSON blob with a version number
+    /// (`GPUControlProfileStore`).
+    static let gpuControlProfiles = "gpuControlProfiles"
 }

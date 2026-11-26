@@ -2,9 +2,12 @@
 //  control_logic.hpp - every decision GPUSensors' GPU control takes, with no
 //  kernel headers, so the tests build it as ordinary C++.
 //
-//  The control only lowers or limits, always within the values the card had
-//  when the Mac started (the power table on the EFI: 240 W on the owner's RX
-//  6800 XT, 264 W on a stock one). It never raises a clock, a voltage or a
+//  The control lowers or limits within the values the card had when the Mac
+//  started (the power table on the EFI: 240 W on the owner's RX 6800 XT, 264 W
+//  on a stock one). Since 0.9.0 it may also raise the GFX maximum clock and
+//  the power limit, only when the request says so (the overclock flag), and
+//  never past the card's own OverDrive range (the 0x9f maximum; for power,
+//  the 0x9f power percent, at most +15 %). It never raises a voltage or a
 //  temperature limit. Nothing here talks to the GPU: the kext asks these
 //  functions first and only acts on a yes.
 //
@@ -193,9 +196,11 @@ enum class PowerCheck : uint32_t {
   Ok = 0,
   NoBootValue,  // the start-up limit was never read, or is not believable
   BelowFloor,   // below the card's own minimum (PowerRange)
-  AboveBoot,
+  AboveBoot,    // above the start-up value without the raise flag, or the
+                // card offers no higher limit (ceilW not above it)
   NotAStep,
   NoFloor,  // the card's minimum is not known (OD8 not read cleanly): no change
+  AboveCeiling,  // 0.9.0: raise flag, but above the card's own ceiling
 };
 
 inline bool bootValuePlausible(uint32_t bootW) {
@@ -206,12 +211,21 @@ inline bool bootValuePlausible(uint32_t bootW) {
 // in 10 W steps. The start-up value itself is always taken (it is how the
 // control goes back, floor known or not), even when it is not a multiple of
 // 10 (264 W). floorW 0 = not known: nothing below the start-up value is
-// taken (NoFloor); above it is AboveBoot either way.
-inline PowerCheck checkPower(uint32_t bootW, uint32_t floorW,
-                             uint32_t requestW) {
+// taken (NoFloor). Above it (0.9.0): only when the caller passes the card's
+// ceiling (PowerRange::ceilW, given only for a request with the raise flag),
+// up to that ceiling, in 10 W steps or the ceiling itself; ceilW 0, or not
+// above the start-up value, is AboveBoot as before.
+inline PowerCheck checkPower(uint32_t bootW, uint32_t floorW, uint32_t requestW,
+                             uint32_t ceilW = 0) {
   if (!bootValuePlausible(bootW)) return PowerCheck::NoBootValue;
   if (requestW == bootW) return PowerCheck::Ok;
-  if (requestW > bootW) return PowerCheck::AboveBoot;  // floor known or not
+  if (requestW > bootW) {
+    if (ceilW <= bootW) return PowerCheck::AboveBoot;  // floor known or not
+    if (requestW > ceilW) return PowerCheck::AboveCeiling;
+    if (requestW != ceilW && requestW % kStepW != 0)
+      return PowerCheck::NotAStep;
+    return PowerCheck::Ok;
+  }
   if (floorW == 0 || floorW > bootW) return PowerCheck::NoFloor;
   if (requestW < floorW) return PowerCheck::BelowFloor;
   if (requestW % kStepW != 0) return PowerCheck::NotAStep;
@@ -221,8 +235,9 @@ inline PowerCheck checkPower(uint32_t bootW, uint32_t floorW,
 // A program's set(watts): refused (outside the range), the start-up value
 // (that is going back: Owner::release, never a change), or a change.
 enum class SetRoute : uint32_t { Refuse, Release, Change };
-inline SetRoute routeSet(uint32_t bootW, uint32_t floorW, uint32_t requestW) {
-  if (checkPower(bootW, floorW, requestW) != PowerCheck::Ok)
+inline SetRoute routeSet(uint32_t bootW, uint32_t floorW, uint32_t requestW,
+                         uint32_t ceilW = 0) {
+  if (checkPower(bootW, floorW, requestW, ceilW) != PowerCheck::Ok)
     return SetRoute::Refuse;
   return requestW == bootW ? SetRoute::Release : SetRoute::Change;
 }
@@ -263,8 +278,9 @@ inline AccessOut accessAnswer() { return AccessOut{sizeof(AccessOut), 0, 0}; }
 // The 0x6e request, built only for a value checkPower takes: the range is
 // checked again where the bytes are made, whatever the caller checked.
 inline bool makeSetLimit(uint32_t bootW, uint32_t floorW, uint32_t watts,
-                         SetLimitIn* out) {
-  if (out == nullptr || checkPower(bootW, floorW, watts) != PowerCheck::Ok)
+                         SetLimitIn* out, uint32_t ceilW = 0) {
+  if (out == nullptr ||
+      checkPower(bootW, floorW, watts, ceilW) != PowerCheck::Ok)
     return false;
   *out =
       SetLimitIn{EscapeHeader{kEscapeHeaderSize,
@@ -616,6 +632,17 @@ constexpr uint32_t kOd8PowerFeature = 0x8;
 // A lower bound further down than this is taken as a broken read (refused),
 // never as a floor. Tables seen: -6 (the owner's RX 6800 XT).
 constexpr int32_t kMaxPowerPercentDown = 50;
+// The ceiling (0.9.0), the other side of the same entry, the way Linux takes
+// power1_cap_max on a Navi 21 (sienna_cichlid_init_ppt_limits):
+//   max = SocketPowerLimitAc * (100 + overdrive_table.max[POWERPERCENTAGE])
+//         / 100
+// with the start-up value standing for SocketPowerLimitAc as for the floor.
+// AMD's own tool stops at +15 % on these cards (Adrenalin, RX 6800 XT): a
+// table that offers more is cut there, never past it. +9 on the owner's card
+// (240 W -> 261 W). The driver's 0x6e path has no ceiling of its own
+// (PEM_CWDDEPM_SetPackagePowerLimit -> smu_11_0_7_set_power_limit sends SMU
+// message 0x32 with the watts as given, 25G342): this is the only one.
+constexpr int32_t kMaxPowerPercentUp = 15;
 enum class FloorState : uint32_t {
   Known = 0,
   NoBootValue,    // the start-up limit is not read yet, or not believable
@@ -628,10 +655,22 @@ struct PowerRange {
   uint32_t floorW;  // 0 unless the floor is known
   uint32_t maxW;    // the start-up limit (never raised); 0 until believable
   int32_t percentMin, percentMax;  // the card's PowerPercent, when read
+  // 0.9.0: the highest limit a request with the raise flag may take; 0
+  // unless the floor is known (state Known), and equal to maxW when the card
+  // offers nothing higher (percentMax 0 or less, or NotOffered: then 0 too).
+  uint32_t ceilW{0};
 };
+// The ceiling for a known entry: the start-up value plus its percent, the
+// percent cut at +15. Not above the start-up value when nothing is offered.
+inline uint32_t powerCeiling(uint32_t bootW, int32_t percentMax) {
+  if (percentMax <= 0) return bootW;
+  int32_t up =
+      percentMax < kMaxPowerPercentUp ? percentMax : kMaxPowerPercentUp;
+  return bootW * static_cast<uint32_t>(100 + up) / 100;
+}
 inline PowerRange powerRange(uint32_t bootW, bool haveStock, bool stockOdd,
                              const Od8InitialOut& stock) {
-  PowerRange r{FloorState::NoBootValue, 0, 0, 0, 0};
+  PowerRange r{FloorState::NoBootValue, 0, 0, 0, 0, 0};
   if (!bootValuePlausible(bootW)) return r;
   r.maxW = bootW;
   if (!haveStock) {
@@ -657,6 +696,7 @@ inline PowerRange powerRange(uint32_t bootW, bool haveStock, bool stockOdd,
   }
   r.state = FloorState::Known;
   r.floorW = bootW * static_cast<uint32_t>(100 + e.min) / 100;
+  r.ceilW = powerCeiling(bootW, e.max);
   return r;
 }
 inline const char* floorStateText(FloorState s) {
@@ -681,17 +721,40 @@ inline const char* floorStateText(FloorState s) {
 // design-od8-b.md v3 + v3.1. Three settings, each only in the direction that
 // cannot make the card hotter: the fan curve (more air than stock, all ten
 // entries in every call), zero RPM (off only: the fan always spins), and the
-// GFX maximum clock (lower only, not below 1500 MHz). Everything else goes out
-// with requested 0.
+// GFX maximum clock (lower only, not below 1500 MHz). 0.9.0 adds a fourth, the
+// GFX minimum clock, the one setting that may go up: inside the card's own
+// 0x9f range for id 1 and never above the GFX maximum of the same call (the
+// driver's own rule, PhwComm_OD8_SetGfxClockLimits: both requested, each in
+// its range, FMIN <= FMAX). A raised minimum keeps the GPU clock up at idle,
+// so it is only taken while the watchdog has readings and the watchdog's
+// 95 C limit holds it (od8DogPass). 0.9.0 also adds two: the GFX voltage (id
+// 37, the driver's VddGfxOffset; lower only, see kOd8GfxVolt) and, with the
+// overclock flag, a GFX maximum above stock up to the card's own 0x9f maximum
+// (held under the watchdog like the minimum). Everything else goes out with
+// requested 0. Not taken, and why (2026-11-25, 25G342): the memory maximum
+// (id 8) and fast memory timings (id 14, AC timing). Both go through
+// PhwComm_OD8_StartMemoryOverclock -> PECI_StartGPUMemoryOverclock, an IRI
+// call 0x110018 to the display driver, and on macOS that interface is
+// AtiAppleDalServices::dalIriFunction, which has no case for 0x110018 (nor
+// 0x110019, the end): it answers status 1, so the start fails. A memory
+// maximum then makes PhwComm_OD8_ApplySettings return before the OD table is
+// written (the whole call fails, the new UCLK stays staged and blocks every
+// later commit until a call stages the old one again); fast timings record
+// the new value and never program the timings (nothing to read back). Also
+// not taken: the fan minimum speed and target temperature (ids 10 and 12; the
+// driver does not offer them while the fan curve is offered: feature 0, and
+// SetGenericSetting skips a setting whose feature is 0).
 //   0xa1 OD8_SetSettings: in = header {16, 0x00C000A1, 1 = not kept for
 //        replay, 0} + count 38 + 38 x {value, requested, reset, 0, 0} + 8
 //        unused (788); out = a 0xa0 answer (164), out[0] must equal 38.
 // Every call carries all ten fan curve entries requested 1: the wanted curve,
 // or the all-ten reset (FanMode 0, the points back to the driver's defaults).
 // So the driver's legacy branch for a partial curve (which caps the fan's
-// maximum RPM from entry 28) can never run. Every call also carries zero RPM
-// and the GFX pair explicitly: the result does not depend on what was staged
-// before (a failed call leaves its change staged in the driver).
+// maximum RPM from entry 28) can never run. Every call also carries zero RPM,
+// the GFX pair and (0.9.0, when the card offers it) the GFX voltage
+// explicitly: the result does not depend on what was staged before (a failed
+// call leaves its change staged in the driver; a voltage left out of a call
+// would keep the staged offset).
 constexpr uint32_t kEscapeOd8Set = 0xa1;
 struct Od8SetEntry {
   int32_t value;
@@ -709,6 +772,23 @@ static_assert(sizeof(Od8SetIn) == 16 + 772, "0xa1 request 788 bytes");
 constexpr uint32_t kOd8GfxMax = 0, kOd8GfxMin = 1, kOd8MemMax = 8,
                    kOd8TargetTemp = 12, kOd8ZeroRpm = 15, kOd8ZeroRpmStop = 35;
 constexpr int32_t kOd8GfxFloorMHz = 1500;
+// The GFX voltage (0.9.0), id 37, feature 0x20000. Read in HWLibs 25G342:
+// PhwComm_OD8_InitializeDefaultSettings offers it when
+// PP_OD8VoltageSliderSupport is 1 (the Navi 21 default) with min = swsmu+328,
+// max = default = swsmu+332 (881..1075 mV, stock 1075, on the test card);
+// PhwComm_OD8_ApplySettings stages value - max (only when min <= value <=
+// max, else it keeps the old one) as the OD table's VddGfxOffset (int16 mV,
+// smu_11_0_7_set_od_table +46), written whole to the firmware; and
+// PhwComm_OD8_UpdateInternalSettings reads the table back and sets current =
+// max + VddGfxOffset. So the value is a millivolt cap from which the whole
+// GFX voltage curve is offset down; it can never go above max. Linux writes
+// the same field (sienna_cichlid_od_edit_dpm_table, PP_OD_EDIT_VDDGFX_OFFSET)
+// and only for SMU firmware 58.41.0 or later (the test card: 58.76.0). The
+// kext takes it lower only (at or below the card's stock value, at or above
+// its minimum), in 25 mV steps from stock, and reads it back exactly.
+constexpr uint32_t kOd8GfxVolt = 37;
+constexpr uint32_t kOd8VoltFeature = 0x20000;
+constexpr int32_t kOd8VoltStepMV = 25;
 // Factory defaults move a little across a wake (GfxMax 2354 -> 2359 MHz,
 // 2026-11-19): this much is accepted for the GFX pair, nothing for the rest.
 constexpr int32_t kOd8DriftMHz = 25;
@@ -726,9 +806,14 @@ struct Od8Want {
   int32_t temp[kOd8CurvePoints], speed[kOd8CurvePoints];
   bool zeroRpmOff;
   int32_t gfxMaxMHz;  // 0 = stock
+  int32_t gfxMinMHz;  // 0 = stock (0.9.0)
+  int32_t voltMV;     // 0 = stock (0.9.0): the GFX voltage, lower only
+  bool overclock;     // 0.9.0: gfxMaxMHz may be above stock, up to the
+                      // card's 0x9f maximum (a permission, not a setting)
 };
 inline bool od8IsStock(const Od8Want& w) {
-  return !w.curve && !w.zeroRpmOff && w.gfxMaxMHz == 0;
+  return !w.curve && !w.zeroRpmOff && w.gfxMaxMHz == 0 && w.gfxMinMHz == 0 &&
+         w.voltMV == 0;
 }
 
 enum class Od8Check : uint32_t {
@@ -743,7 +828,12 @@ enum class Od8Check : uint32_t {
   CurveLast,     // the last point not 100 %, or above the target - the gap
   CurveCooling,  // less air than the stock curve somewhere below the target
   GfxRange,      // GFX max above stock, below 1500, or below the GFX min
-  NoReadings,    // a curve, but the fan watchdog has no fresh readings
+  NoReadings,    // a curve or a raised GFX min, but the watchdog has no
+                 // fresh readings
+  GfxMinRange,   // 0.9.0: GFX min outside the card's range for it, or above
+                 // the GFX max of the same state
+  VoltRange,     // 0.9.0: GFX voltage above stock, below the card's minimum,
+                 // or not a 25 mV step from stock
 };
 inline const char* od8CheckText(uint64_t c) {
   switch (static_cast<Od8Check>(c)) {
@@ -769,9 +859,15 @@ inline const char* od8CheckText(uint64_t c) {
     case Od8Check::CurveCooling:
       return "the curve gives less air than stock somewhere";
     case Od8Check::GfxRange:
-      return "GFX max must be between 1500 MHz and the stock maximum";
+      return "GFX max must be between 1500 MHz and the stock maximum (with "
+             "overclock: the card's own maximum)";
     case Od8Check::NoReadings:
       return "the fan watchdog has no fresh hotspot and fan readings";
+    case Od8Check::GfxMinRange:
+      return "GFX min must be in the card's range and not above GFX max";
+    case Od8Check::VoltRange:
+      return "GFX voltage must be at or below stock, in the card's range, in "
+             "25 mV steps from stock";
   }
   return "unknown";
 }
@@ -877,12 +973,42 @@ inline Od8Check od8CheckWant(const Od8Want& w, const Od8InitialOut& first,
     }
   }
   if (w.gfxMaxMHz != 0) {
-    int32_t top = od8StockGfxMax(first, fresh);
+    // Without the overclock flag, the stock maximum; with it (0.9.0), the
+    // card's own 0x9f maximum for id 0 (the same in both reads,
+    // od8SameLayout above), the driver's own upper bound for the pair
+    // (PhwComm_OD8_SetGfxClockLimits: each in its range, FMIN <= FMAX).
+    int32_t top =
+        w.overclock ? fresh.e[kOd8GfxMax].max : od8StockGfxMax(first, fresh);
     if (w.gfxMaxMHz < kOd8GfxFloorMHz || w.gfxMaxMHz > top ||
         w.gfxMaxMHz < first.e[kOd8GfxMin].def)
       return Od8Check::GfxRange;
   }
+  if (w.gfxMinMHz != 0) {
+    // The range of id 1 is the same in both reads (od8SameLayout above).
+    const Od8Entry& m = fresh.e[kOd8GfxMin];
+    int32_t max = w.gfxMaxMHz != 0 ? w.gfxMaxMHz : od8StockGfxMax(first, fresh);
+    if (w.gfxMinMHz < m.min || w.gfxMinMHz > m.max || w.gfxMinMHz > max)
+      return Od8Check::GfxMinRange;
+  }
+  if (w.voltMV != 0) {
+    // Offered as at boot, and allowed now (a call that changes a feature the
+    // driver does not allow is refused whole, PP 7).
+    const Od8Entry& v = first.e[kOd8GfxVolt];
+    if (v.feature != kOd8VoltFeature || (cur.notAllowed & kOd8VoltFeature) != 0)
+      return Od8Check::NoFeature;
+    // Lower only: stock is the top; the defaults are the same in both reads
+    // (the drift check above allows no change outside the GFX pair).
+    if (w.voltMV < v.min || w.voltMV > v.max || w.voltMV > v.def ||
+        (v.def - w.voltMV) % kOd8VoltStepMV != 0)
+      return Od8Check::VoltRange;
+  }
   return Od8Check::Ok;
+}
+// Whether a held state raises anything above stock (0.9.0): a GFX maximum
+// above the stock one. Held under the watchdog like a raised minimum.
+inline bool od8RaisesGfxMax(const Od8Want& w, const Od8InitialOut& first,
+                            const Od8InitialOut& fresh) {
+  return w.overclock && w.gfxMaxMHz > od8StockGfxMax(first, fresh);
 }
 
 // The whole 0xa1 for a state. With the stock state this is the one fixed way
@@ -912,11 +1038,20 @@ inline void od8Build(const Od8Want& w, const Od8InitialOut& first,
       Od8SetEntry{fresh.e[kOd8ZeroRpmStop].def, 1, 0, 0, 0};
   int32_t gfx = w.gfxMaxMHz != 0 ? w.gfxMaxMHz : od8StockGfxMax(first, fresh);
   out->e[kOd8GfxMax] = Od8SetEntry{gfx, 1, 0, 0, 0};
-  out->e[kOd8GfxMin] = Od8SetEntry{first.e[kOd8GfxMin].def, 1, 0, 0, 0};
+  int32_t low = w.gfxMinMHz != 0 ? w.gfxMinMHz : first.e[kOd8GfxMin].def;
+  out->e[kOd8GfxMin] = Od8SetEntry{low, 1, 0, 0, 0};
+  // The GFX voltage (0.9.0) in every call when the card offers it: the
+  // wanted value or the fresh stock one, so a held offset never survives a
+  // way back. Not offered: requested 0 (od8CheckWant refused any voltage).
+  if (first.e[kOd8GfxVolt].feature == kOd8VoltFeature) {
+    int32_t mv = w.voltMV != 0 ? w.voltMV : fresh.e[kOd8GfxVolt].def;
+    out->e[kOd8GfxVolt] = Od8SetEntry{mv, 1, 0, 0, 0};
+  }
 }
 // Every call's shape, checked again where it is sent: count 38, all ten curve
-// entries requested 1 (never 1..9 of them), nothing outside the five
-// settings requested, no reset outside the curve.
+// entries requested 1 (never 1..9 of them), nothing outside the six
+// settings requested (the GFX voltage since 0.9.0), no reset outside the
+// curve.
 inline bool od8ShapeOk(const Od8SetIn& in) {
   if (in.count != kOd8Count ||
       in.header.code != (kEscapeCode | kEscapeOd8Set) ||
@@ -927,7 +1062,7 @@ inline bool od8ShapeOk(const Od8SetIn& in) {
     const Od8SetEntry& e = in.e[i];
     bool isCurve = i >= 19 && i <= 28;
     bool allowed = isCurve || i == kOd8GfxMax || i == kOd8GfxMin ||
-                   i == kOd8ZeroRpm || i == kOd8ZeroRpmStop;
+                   i == kOd8ZeroRpm || i == kOd8ZeroRpmStop || i == kOd8GfxVolt;
     if (e.zero0 != 0 || e.zero1 != 0 || e.requested > 1 || e.reset > 1)
       return false;
     if (!allowed && (e.requested != 0 || e.reset != 0)) return false;
@@ -936,14 +1071,24 @@ inline bool od8ShapeOk(const Od8SetIn& in) {
     if (isCurve && e.value <= 0) return false;
     if (i == kOd8GfxMax && e.requested == 1 && e.value < kOd8GfxFloorMHz)
       return false;
+    if (i == kOd8GfxVolt && e.requested == 1 && e.value <= 0) return false;
   }
+  // The GFX pair always together, the minimum never above the maximum
+  // (the driver refuses the pair otherwise, and then keeps neither).
+  const Od8SetEntry& hi = in.e[kOd8GfxMax];
+  const Od8SetEntry& lo = in.e[kOd8GfxMin];
+  if (hi.requested != lo.requested ||
+      (lo.requested == 1 && (lo.value <= 0 || lo.value > hi.value)))
+    return false;
   return curve == 10 && in.unused[0] == 0 && in.unused[1] == 0;
 }
 
 // The read-back after a call (design section 5): 0 = as sent, else the first
 // entry that is not + 1 (39 = the allowed mask moved). Requested entries
-// must read what was sent (GFX max may read lower, by up to the allowance:
-// the firmware rounds; never higher); the others what they read before.
+// must read what was sent (GFX max and, since 0.9.0, GFX min may read lower,
+// by up to the allowance: the firmware rounds; never higher); the others what
+// they read before. Whether the firmware ever rounds the minimum is not known
+// (not seen on a card yet): reading higher than sent fails as for the max.
 inline uint32_t od8VerifyAfter(const Od8SetIn& sent,
                                const Od8CurrentOut& before,
                                const Od8CurrentOut& after) {
@@ -951,7 +1096,8 @@ inline uint32_t od8VerifyAfter(const Od8SetIn& sent,
     int32_t a = after.cur[i];
     if (sent.e[i].requested == 1) {
       int32_t v = sent.e[i].value;
-      bool ok = i == kOd8GfxMax ? (a <= v && a >= v - kOd8DriftMHz) : a == v;
+      bool gfx = i == kOd8GfxMax || i == kOd8GfxMin;
+      bool ok = gfx ? (a <= v && a >= v - kOd8DriftMHz) : a == v;
       if (!ok) return i + 1;
     } else if (a != before.cur[i]) {
       return i + 1;
@@ -1029,6 +1175,8 @@ enum class WriteOff : uint32_t {
   Od8Watchdog,      // the fan watchdog took the curve back
   ReadOnlyCard,     // 0.8.0: a card the kext reads but never writes (73BF
                     // rev C0, the RX 6900 XT); the reads run as on the C1
+  PowerWatchdog,    // 0.9.0: the watchdog put the start-up limit back over
+                    // a raised one (95 C, or no readings)
 };
 struct WritePrereqs {
   bool ctlOff;
@@ -1126,6 +1274,9 @@ inline const char* writeOffText(WriteOff w) {
     case WriteOff::ReadOnlyCard:
       return "this card can only be read (RX 6900 XT, 73BF rev C0): writing "
              "never opens on it";
+    case WriteOff::PowerWatchdog:
+      return "the watchdog put the start-up power limit back over a raised "
+             "one";
   }
   return "unknown";
 }
@@ -1336,15 +1487,29 @@ class Owner {
 //   alive    in {version}            the owner's word, every 5 s
 //   release  in {version}            the owner goes back to the start-up limit
 //   setOd8   in {version, flags, t1..t5, s1..s5, gfxMaxMHz} (13 scalars)
-//            out {reply, Od8Check}; flags 1 = a fan curve, 2 = zero RPM off;
-//            gfxMaxMHz 0 = stock (0.7.0). The stock state is the way back.
+//            or, since 0.9.0, {..., gfxMaxMHz, gfxMinMHz} (14) or
+//            {..., gfxMaxMHz, gfxMinMHz, voltMV} (15)
+//            out {reply, Od8Check}; flags 1 = a fan curve, 2 = zero RPM off,
+//            4 = overclock (0.9.0: gfxMaxMHz may be above stock, up to the
+//            card's own maximum); gfxMaxMHz 0 = stock (0.7.0); gfxMinMHz 0
+//            = stock, and the 13 scalar form means a stock minimum; voltMV 0
+//            = stock, and the 13 and 14 scalar forms mean a stock voltage.
+//            The stock state is the way back.
+//   set      also, since 0.9.0, {version, watts, flags} (3): flags 1 =
+//            raise (watts may be above the start-up limit, up to the card's
+//            ceiling, PowerRange::ceilW); the 2-scalar form never raises.
 //   disarm   in {version}            anyone (0.8.0): closes writing again;
 //            StillApplied while anything is applied; arm reopens it
 // Version 2 (0.7.0): setOd8, and status grew. A power change and an OD8
 // change are never held together: the other kind answers "busy". 0.8.0 adds
 // disarm and two replies at the end and keeps version 2: nothing an older
 // program sends means anything else now. An older kext answers disarm with
-// kIOReturnBadArgument (an unknown selector).
+// kIOReturnBadArgument (an unknown selector). 0.9.0 adds the 14- and
+// 15-scalar setOd8 and the 3-scalar set, three Od8Checks' worth of
+// refusals (GfxMinRange, VoltRange), two replies (AboveCeiling, NoReadings),
+// four held bits, three status flags (kFlagGfxMin, kFlagVolt, kFlagRaise) and
+// one WriteOff (PowerWatchdog), and keeps version 2: an older kext answers
+// the new counts with kIOReturnBadArgument (a wrong count).
 // set and setOd8 answer Off (writing off, or a read-only card) and then
 // NotArmed (never armed since restart, or disarmed) before they look at any
 // value they carry (valueGate), so an absurd value still gets the real
@@ -1384,6 +1549,9 @@ enum class Reply : uint32_t {
                  // being handled; go back to the start-up values first
   NoFloor,       // 0.8.0, set: the card's minimum power limit is not known
                  // (PowerRangeState says why): only the start-up value
+  AboveCeiling,  // 0.9.0, set with the raise flag: above the card's ceiling
+  NoReadings,    // 0.9.0, set with the raise flag: the watchdog has no fresh
+                 // hotspot readings, so nothing above the start-up value
 };
 constexpr uint64_t kSetWaitMs = 5000;
 inline Reply replyFor(Ask a) {
@@ -1419,6 +1587,8 @@ inline Reply replyFor(PowerCheck c) {
       return Reply::NotAStep;
     case PowerCheck::NoFloor:
       return Reply::NoFloor;
+    case PowerCheck::AboveCeiling:
+      return Reply::AboveCeiling;
   }
   return Reply::BadArgs;
 }
@@ -1471,6 +1641,11 @@ inline const char* replyText(uint64_t r) {
     case Reply::NoFloor:
       return "refused: the card's minimum power limit is not known "
              "(PowerRangeState)";
+    case Reply::AboveCeiling:
+      return "refused: above the card's own power ceiling (PowerRange CeilW)";
+    case Reply::NoReadings:
+      return "refused: no fresh hotspot readings for the watchdog, so no "
+             "raised limit";
   }
   return "unknown answer";
 }
@@ -1501,17 +1676,29 @@ enum : uint64_t {
   kFlagMine = 64,       // the program asking does
   kFlagReady = 128,     // the PowerPlay object and the start-up limit are known
   kFlagOd8Ready = 256,  // OD8 was read cleanly since boot: setOd8 can work
+  kFlagGfxMin = 512,    // 0.9.0: setOd8 takes a GFX minimum (14 scalars)
+  kFlagVolt = 1024,     // 0.9.0: setOd8 takes a GFX voltage (15 scalars)
+  kFlagRaise = 2048,    // 0.9.0: setOd8 takes the overclock flag and set
+                        // the raise form (3 scalars)
 };
 enum : uint64_t {
   kOd8HeldCurve = 1,
   kOd8HeldZeroRpmOff = 2,
   kOd8HeldGfx = 4,
   kOd8HeldUnknown = 8,  // not confirmed stock (a failed or unapplied call)
+  kOd8HeldGfxMin = 16,  // 0.9.0: a raised GFX minimum
+  kOd8HeldVolt = 32,    // 0.9.0: a lowered GFX voltage
+  kOd8HeldGfxUp = 64,   // 0.9.0: a GFX maximum above stock (overclock)
 };
 // setOd8's flags scalar.
 enum : uint64_t {
   kOd8WantCurve = 1,
   kOd8WantZeroRpmOff = 2,
+  kOd8WantOverclock = 4,  // 0.9.0
+};
+// set's flags scalar (0.9.0, the 3-scalar form).
+enum : uint64_t {
+  kSetWantRaise = 1,
 };
 // ------------------------------------------------ what a call answers first --
 //
@@ -1554,22 +1741,57 @@ inline Reply setWire(const Owner& o, uint64_t watts, uint32_t* out) {
   *out = static_cast<uint32_t>(watts);
   return Reply::Ok;
 }
-// setOd8's {version, flags, t1..t5, s1..s5, gfxMaxMHz}: the gate, then
-// anything that cannot be a fan point or a clock is malformed (BadArgs).
-// The clock's only wire bound is the 32-bit field (0.8.0, was 5000 MHz): its
-// first real check is od8CheckWant's, against the card's stock maximum.
-constexpr uint32_t kOd8WireCount = 13;
+// set's 3-scalar form (0.9.0), {version, watts, flags}: the same, then a
+// flag the kext does not know is malformed.
+constexpr uint32_t kSetWireCount = 2;
+constexpr uint32_t kSetWireCountRaise = 3;
+inline bool setWireCountOk(uint32_t count) {
+  return count == kSetWireCount || count == kSetWireCountRaise;
+}
+inline Reply setWireRaise(const Owner& o, uint64_t watts, uint64_t flags,
+                          uint32_t* out, bool* raise) {
+  *raise = false;
+  Reply g = setWire(o, watts, out);
+  if (g != Reply::Ok) return g;
+  if ((flags & ~uint64_t(kSetWantRaise)) != 0) return Reply::BadArgs;
+  *raise = (flags & kSetWantRaise) != 0;
+  return Reply::Ok;
+}
+// setOd8's {version, flags, t1..t5, s1..s5, gfxMaxMHz[, gfxMinMHz[,
+// voltMV]]}: the gate, then anything that cannot be a fan point, a clock or
+// a voltage is malformed (BadArgs). The clocks' and the voltage's only wire
+// bound is the 32-bit field (0.8.0, was 5000 MHz): their first real check is
+// od8CheckWant's, against the card's range. count is how many scalars came:
+// kOd8WireCount (with the voltage), kOd8WireCountV090 (stock voltage) or the
+// 0.7.0 form kOd8WireCountV070 (stock minimum and voltage). The overclock
+// flag is taken in every form.
+constexpr uint32_t kOd8WireCount = 15;
+constexpr uint32_t kOd8WireCountV090 = 14;
+constexpr uint32_t kOd8WireCountV070 = 13;
 constexpr uint64_t kOd8WireMaxPoint = 200;
-inline Reply od8Wire(const Owner& o, const uint64_t* in, Od8Want* want) {
+inline bool od8WireCountOk(uint32_t count) {
+  return count == kOd8WireCount || count == kOd8WireCountV090 ||
+         count == kOd8WireCountV070;
+}
+inline Reply od8Wire(const Owner& o, const uint64_t* in, uint32_t count,
+                     Od8Want* want) {
   Reply g = valueGate(o);
   if (g != Reply::Ok) return g;
   *want = Od8Want{};
+  if (!od8WireCountOk(count)) return Reply::BadArgs;
   uint64_t flags = in[1];
-  bool ok = (flags & ~uint64_t(kOd8WantCurve | kOd8WantZeroRpmOff)) == 0 &&
-            in[12] <= 0x7fffffffULL;
+  uint64_t low = count >= kOd8WireCountV090 ? in[13] : 0;
+  uint64_t mv = count >= kOd8WireCount ? in[14] : 0;
+  bool ok = (flags & ~uint64_t(kOd8WantCurve | kOd8WantZeroRpmOff |
+                               kOd8WantOverclock)) == 0 &&
+            in[12] <= 0x7fffffffULL && low <= 0x7fffffffULL &&
+            mv <= 0x7fffffffULL;
   want->curve = (flags & kOd8WantCurve) != 0;
   want->zeroRpmOff = (flags & kOd8WantZeroRpmOff) != 0;
+  want->overclock = (flags & kOd8WantOverclock) != 0;
   want->gfxMaxMHz = static_cast<int32_t>(in[12] <= 0x7fffffffULL ? in[12] : 0);
+  want->gfxMinMHz = static_cast<int32_t>(low <= 0x7fffffffULL ? low : 0);
+  want->voltMV = static_cast<int32_t>(mv <= 0x7fffffffULL ? mv : 0);
   for (uint32_t k = 0; k < kOd8CurvePoints; k++) {
     uint64_t t = in[2 + k], v = in[7 + k];
     if (t > kOd8WireMaxPoint || v > kOd8WireMaxPoint ||
