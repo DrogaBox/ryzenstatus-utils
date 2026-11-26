@@ -300,7 +300,9 @@ enum ConfirmAction: Identifiable {
 enum Phase: Equatable {
     case idle
     case checking
-    case running(String)
+    /// A step is running. privileged: the step asks for the administrator password, which is
+    /// worth saying before it happens; building the plan runs as the user and asks for nothing.
+    case running(String, privileged: Bool)
     case done(String)
     case failed(String)
     /// The administrator password prompt (or a restart) was cancelled: nothing changed,
@@ -505,7 +507,7 @@ final class Engine: ObservableObject {
             phase = .failed("GPU tools folder is not selected.")
             return
         }
-        phase = .running("Building install plan")
+        phase = .running("Building install plan", privileged: false)
         var args = ["plan"]
         if withEncoder { args.append("--with-encoder") }
         if withSensors { args.append("--with-sensors") }
@@ -540,7 +542,7 @@ final class Engine: ObservableObject {
             phase = .failed("This window shows a made-up Mac (RYZENSTATUS_GPU_FAKE_DIR): nothing is installed.")
             return
         }
-        phase = .running(title)
+        phase = .running(title, privileged: true)
         lastActionTitle = title
         lastOutput = ""
         let inner = Self.stagedCommand(root: root, script: script, args: args)
@@ -1326,8 +1328,12 @@ struct ContentView: View {
 
     @ViewBuilder var phaseBanner: some View {
         switch engine.phase {
-        case .running(let title):
-            banner(icon: "gearshape.fill", color: .blue, text: "\(title)… enter your administrator password when asked.")
+        case .running(let title, let privileged):
+            // Only the steps that run as root ask for a password: the plan is built as the
+            // user, and saying otherwise made the first moment of the window wrong.
+            banner(icon: "gearshape.fill", color: .blue,
+                   text: privileged ? "\(title)… enter your administrator password when asked."
+                                   : "\(title)…")
         case .done(let msg):
             banner(icon: "checkmark.seal.fill", color: .green, text: msg)
         case .failed(let msg):

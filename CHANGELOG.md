@@ -19,9 +19,10 @@
 
 - **HDR colour (decoders 0.3.7)**: AV1 and VP9 pictures now carry their colour and HDR information, so HDR video is no longer shown washed out. Not tested on the GPU yet.
 - **After a sleep (decoders 0.3.7)**: a video that was playing before a sleep keeps decoding after the wake and switches to fresh decoder state at its next key frame, without dropping frames. 0.3.6 was never released: in a real sleep test it made those videos fail.
+- **One window for all the GPU parts**: the GPU installer now has JPEG and MPEG-2, VC-1 and MPEG-4 boxes next to the encoding fix and GPU sensors ones. They start ticked when that part is on this Mac, so an update keeps what you installed instead of taking it off, and all of them can be installed or removed from there without Terminal.
 - **MPEG-2, VC-1 and MPEG-4 decoders (optional, macOS 26.7.2 to 26.7.4)**: hardware decoding of these older formats on the RX 6800 XT. Not installed by default: run `install/install.sh --with-legacy-decoders` from the GPU parts. Installed, they replace Apple's decoders for these formats. MPEG-4 streams with B-frames are left to Apple's decoder, and MPEG-2 field pictures are not decoded on the GPU.
 - **JPEG and Motion JPEG decoder (optional, macOS 26.7.3 only)**: decodes JPEG and Motion JPEG video on the card's JPEG block. Not installed by default: `install/install.sh --with-jpeg`. It needs a reboot, and the block is powered only while pictures arrive.
-- **Encoding fix 1.3.0**: Continuity Camera and FaceTime video are decoded by the GPU instead of the CPU, and with a MacPro7,1 or iMacPro1,1 SMBIOS FaceTime's encoder no longer looks for a T2 chip, so outgoing video works. This part is for macOS 15.8.2, 26.7.2 and 26.7.3 and is turned off with `--no-cc`. Not tried in a real FaceTime call yet.
+- **Encoding fix 1.3.0**: Continuity Camera and FaceTime video are decoded by the GPU instead of the CPU, and with a MacPro7,1 or iMacPro1,1 SMBIOS FaceTime's encoder no longer looks for a T2 chip, so outgoing video works. This part is for macOS 14.8.9, 15.8.2, 15.8.3, 26.7.3 and 26.7.4 and is turned off with `--no-cc`. Not tried in a real FaceTime call yet.
 - **macOS 26.7.4**: the decoders and the encoding fix know 26.7.4's drivers. Checked from the installer only, not run on a card with 26.7.4 yet.
 
 ### Network
