@@ -229,6 +229,14 @@ enum GPUControlProfileTests {
                      "a fan curve and an unchecked kext build: nothing goes, as Apply curve would not")
         suite.expect(load(profile("Fan", .od8(Want(curve: curve)))).request == .od8(Want(curve: curve)),
                      "the checked build takes the same curve")
+        let mixedOnOld = load(profile("Mixed", .od8(Want(curve: curve, zeroRpmOff: true, gfxMaxMHz: 2_000))),
+                              kextVersion: "REL-073-2026-12-01")
+        suite.expect(mixedOnOld.request == .od8(Want(gfxMaxMHz: 2_000)) && mixedOnOld.blocked == nil,
+                     "an unchecked build: the clock still goes without the fan part")
+        suite.expect(mixedOnOld.leftOut == [.fanCurve, .zeroRpm], "and the fan part is named as left out")
+        let words = GPUControlPageStrings.enUS.od8Items(Want(gfxMaxMHz: 2_000))
+        suite.expect(words.first?.isUppercase == true && !words.contains("RyzenStatus"),
+                     "a profile's line lists the values, not \"RyzenStatus is holding\"")
 
         // Where writing stands.
         suite.expect(load(profile("Quiet", .power(watts: 220)), facts: facts(armed: false)).blocked == .writingClosed,

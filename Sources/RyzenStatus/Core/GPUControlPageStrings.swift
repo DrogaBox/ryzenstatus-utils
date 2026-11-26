@@ -168,6 +168,18 @@ struct GPUControlPageStrings {
 
     /// What an OD8 hold is, in words: "a fan curve and a GFX maximum of 2300 MHz".
     func od8Held(_ want: GPUControlOD8Want) -> String {
+        guard let text = od8List(want) else { return heldOD8Short }
+        return String(format: heldOD8Format, text)
+    }
+
+    /// What an OD8 state holds, as a list that starts with a capital: a
+    /// saved profile's line, where "RyzenStatus is holding" would be wrong.
+    func od8Items(_ want: GPUControlOD8Want) -> String {
+        guard let text = od8List(want) else { return heldOD8Short }
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    private func od8List(_ want: GPUControlOD8Want) -> String? {
         var items: [String] = []
         if want.curve != nil { items.append(fanCurveItem) }
         if want.zeroRpmOff { items.append(zeroRpmItem) }
@@ -175,13 +187,12 @@ struct GPUControlPageStrings {
         if let mhz = want.gfxMinMHz { items.append(String(format: gfxMinItemFormat, mhz)) }
         if let mv = want.voltMV { items.append(String(format: voltItemFormat, mv)) }
         // An empty hold would leave "RyzenStatus is holding " with nothing
-        // after it: say the short form instead.
-        guard !items.isEmpty else { return heldOD8Short }
+        // after it: the callers say the short form instead.
+        guard !items.isEmpty else { return nil }
         // One sentence in every language: the last item joins with the
         // language's "and".
-        let text = items.count < 2 ? items.joined()
+        return items.count < 2 ? items.joined()
             : items.dropLast().joined(separator: listSeparator) + listLastSeparator + items[items.count - 1]
-        return String(format: heldOD8Format, text)
     }
 
     /// The translated sentence of one group.

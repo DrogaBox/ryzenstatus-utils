@@ -126,7 +126,7 @@ struct GPUControlProfilesSection: View {
     private func summary(_ request: GPUControlRequest) -> String {
         switch request {
         case .power(let watts): return String(format: page.wattsFormat, Int(watts))
-        case .od8(let want): return page.od8Held(want)
+        case .od8(let want): return page.od8Items(want)
         case .startUp: return ""
         }
     }

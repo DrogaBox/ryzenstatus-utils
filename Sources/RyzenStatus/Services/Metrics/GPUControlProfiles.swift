@@ -447,13 +447,20 @@ enum GPUControlProfiles {
             return load
         }
         // A fan state and another kext build: the rules were not checked with
-        // it, and "Apply curve" is off too.
+        // it, and "Apply curve" is off too. The fan part is left out and the
+        // clocks and voltage still go; a profile that is only a fan state
+        // goes out as nothing.
+        var sendable = want
         if want.curve != nil || want.zeroRpmOff, !GPUControlCurveRules.isChecked(kextVersion) {
-            load.blocked = .fanNotChecked
-            return load
+            sendable.curve = nil
+            sendable.zeroRpmOff = false
+            if sendable.isStock {
+                load.blocked = .fanNotChecked
+                return load
+            }
         }
         guard let checked = GPUControlRememberPolicy.checkedAgain(
-                .od8(want), stockGfxMaxMHz: stockGfxMaxMHz, gfxMin: gfxMin, volt: volt,
+                .od8(sendable), stockGfxMaxMHz: stockGfxMaxMHz, gfxMin: gfxMin, volt: volt,
                 overclock: overclock, overclockAllowed: overclockAllowed),
               case .od8(let kept) = checked else {
             let fields = leftOut(want, keptIn: .stock)
