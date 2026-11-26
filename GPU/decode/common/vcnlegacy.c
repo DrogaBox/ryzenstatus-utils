@@ -821,6 +821,16 @@ int vcnlegacy_failure(VcnLegacy* d) {
 unsigned vcnlegacy_firmware_errors(VcnLegacy* d) { return d ? d->fwErrors : 0; }
 uint32_t vcnlegacy_width(VcnLegacy* d) { return d ? d->cfg.width : 0; }
 uint32_t vcnlegacy_height(VcnLegacy* d) { return d ? d->cfg.height : 0; }
+bool vcnlegacy_session_lost(VcnLegacy* d) {
+  return d && !d->broken && vcn_session_lost(&d->s);
+}
+void vcnlegacy_log_rebuild(VcnLegacy* d, const char* what, unsigned dropped) {
+  if (!d) return;
+  os_log_info(d->log,
+              "a session from before a system sleep: a new one at %{public}s, "
+              "%u picture(s) dropped meanwhile",
+              what, dropped);
+}
 bool vcnlegacy_last_status(VcnLegacy* d, bool* executed, uint32_t* status) {
   if (!d || !d->haveStatus) return false;
   if (executed) *executed = d->executed;
@@ -856,14 +866,23 @@ int vcnlegacy_decode(VcnLegacy* d, const void* block, uint32_t blockSize,
   d->err[0] = 0;
   d->failure = VCNLEGACY_FAIL_STREAM;
   d->haveStatus = false;
-  // Nothing goes into the pool or to the engine for a session from before a
-  // system sleep (vcndriver.h).
-  if (!d->broken && vcn_session_lost(&d->s)) d->broken = true;
+  // A session from before a system sleep never decodes another picture: the
+  // engine lost it at the wake (vcndriver.h). That is not a failure of the
+  // decoder: the codec layer drops the pictures up to its next intra picture
+  // and starts a new session there (mpeg2/vcnmpeg2.c, vc1/vcnvc1.c,
+  // mpeg4/vcnmpeg4.c), as AV1 and VP9 have done since 0.3.8. Only a session
+  // that stopped for another reason stops the decoder. Nothing goes into the
+  // pool or to the engine here.
+  if (vcnlegacy_session_lost(d)) {
+    snprintf(d->err, sizeof(d->err),
+             "session stopped: the system slept since it opened");
+    d->failure = VCNLEGACY_FAIL_DEVICE;
+    return -1;
+  }
   if (d->broken) {
     snprintf(d->err, sizeof(d->err), "session stopped: %s",
-             d->stuck    ? "the GPU did not finish an earlier picture"
-             : d->s.lost ? "the system slept since it opened"
-                         : "an earlier driver call failed");
+             d->stuck ? "the GPU did not finish an earlier picture"
+                      : "an earlier driver call failed");
     d->failure = VCNLEGACY_FAIL_DEVICE;
     return -1;
   }

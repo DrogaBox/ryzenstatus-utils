@@ -187,3 +187,14 @@ unsigned vcnlegacy_firmware_errors(VcnLegacy* d);
 bool vcnlegacy_last_status(VcnLegacy* d, bool* executed, uint32_t* status);
 uint32_t vcnlegacy_width(VcnLegacy* d);
 uint32_t vcnlegacy_height(VcnLegacy* d);
+// True when the system has slept since this session opened (vcn_session_lost,
+// vcndriver.h): nothing can be decoded on it any more. The codec layer drops
+// the pictures up to its next intra picture and starts a new session there
+// (mpeg2/vcnmpeg2.c, vc1/vcnvc1.c, mpeg4/vcnmpeg4.c), so the host keeps its
+// decoder object and no error reaches it. vcnlegacy_decode says the same in
+// its error until then.
+bool vcnlegacy_session_lost(VcnLegacy* d);
+// Says in the session's log that a new session replaces this one, which the
+// system slept through, at `what`, and how many pictures were dropped while
+// there was no session to decode them.
+void vcnlegacy_log_rebuild(VcnLegacy* d, const char* what, unsigned dropped);

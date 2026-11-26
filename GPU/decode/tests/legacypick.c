@@ -95,6 +95,13 @@ uint32_t vcnlegacy_height(VcnLegacy* d) {
   (void)d;
   return 0;
 }
+bool vcnlegacy_session_lost(VcnLegacy* d) {
+  (void)d;
+  return false;  // the stand-in never gets a session to lose
+}
+void vcnlegacy_log_rebuild(VcnLegacy* d, const char* what, unsigned dropped) {
+  (void)d, (void)what, (void)dropped;
+}
 
 // ---- the streams' headers
 static const uint8_t kSimple[] = {  // profile 0x01, object type 1

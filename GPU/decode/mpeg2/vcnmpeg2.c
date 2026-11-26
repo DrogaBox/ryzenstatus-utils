@@ -31,6 +31,11 @@ typedef struct {
   char err[256];
   int failure;
   unsigned fwErrors;  // of sessions already closed
+  // Pictures that did not go to the engine because no session could take
+  // them: the ones a sleep took the session away from, and the ones that
+  // needed a reference the session rebuilt at the wake does not have yet.
+  unsigned dropped;
+  bool ramping;  // rebuilt after a sleep: drop what has no reference yet
 } VcnMpeg2;
 
 // Mesa's NUM_MPEG2_REFS: a reference index is kept within the last six
@@ -127,6 +132,25 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
   if (d->vcn && (vcnlegacy_width(d->vcn) != p->width ||
                  vcnlegacy_height(d->vcn) != p->height))
     end_session(d);
+  // A session from before a system sleep cannot take another picture. An I
+  // picture is coded from nothing before it (ISO/IEC 13818-2 6.3.1, Table
+  // 6-12: I pictures use no motion-compensated prediction), so it decodes the
+  // same in a new session: the pictures up to it are dropped without an error
+  // — the host sees the stream carry on — and it starts the new session. A GOP
+  // header's closed_gop says the pictures after the I need nothing from the
+  // one before (6.2.2.6); with an open GOP, or with broken_link, they predict
+  // from the previous GOP, whose pictures this session never decoded, and are
+  // dropped by the reference check below (ramping).
+  if (d->vcn && vcnlegacy_session_lost(d->vcn)) {
+    if (pic->coding_type != MPEG2_I) {
+      d->dropped++;
+      return 0;
+    }
+    vcnlegacy_log_rebuild(d->vcn, "an MPEG-2 I picture", d->dropped);
+    end_session(d);
+    d->dropped = 0;
+    d->ramping = true;
+  }
   if (!d->vcn) {
     VcnLegacyConfig cfg = {.codecId = VCN_CODEC_MPEG2_VLD,
                            .messageId = VCN_MESSAGE_MPEG2_VLD,
@@ -154,6 +178,11 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
                                            : 0;
   if (second && pic->coding_type == MPEG2_P) need = 0;
   if (d->refs < need) {
+    if (d->ramping) {
+      drop_field(d);
+      d->dropped++;
+      return 0;
+    }
     snprintf(d->err, sizeof(d->err),
              "%s picture without its reference picture%s",
              pic->coding_type == MPEG2_B ? "B" : "P", need == 2 ? "s" : "");
@@ -207,6 +236,7 @@ static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {
     d->refNumber[1] = n;
     if (d->refs < 2) d->refs++;
   }
+  if (d->ramping && d->refs >= 2) d->ramping = false;
   int stop = d->out ? d->out(d->outCtx, target,
                              type == MPEG2_B ? VCNLEGACY_PIC_B
                                              : VCNLEGACY_PIC_REFERENCE,

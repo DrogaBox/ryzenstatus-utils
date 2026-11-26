@@ -126,4 +126,11 @@ them, when, on which card and macOS build, and add the result to `docs/status.md
   followed by a replacement line, not by -12911) and any malfunction in the first frame
   after a replacement (the 15 s limit must cover it). Only `sessiontest` and `staletest`
   (made-up driver and sleep) have run for 0.3.8.
+- Decoders 0.3.9, the three legacy codecs after a sleep: `layertest` tells the codec layer its
+  session is from before a sleep, and checks that the pictures up to the next I picture are
+  dropped with no command and no error, that the I picture starts a new session, and that the
+  pictures after it decode on it — for MPEG-2, VC-1 and MPEG-4. A real sleep with those three
+  (a video in `quicklookd` or Safari across `pmset sleepnow`) is still the owner's test: the
+  picture must come back at the next I picture, with "a session from before a system sleep: a
+  new one at …" in the log and no -12911.
 - Everything at once: `install/check.sh` ends in one line.

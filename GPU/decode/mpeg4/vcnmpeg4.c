@@ -22,6 +22,11 @@ typedef struct {
   char err[256];
   int failure;
   unsigned fwErrors;  // of sessions already closed
+  // VOPs that did not go to the engine because no session could take them:
+  // the ones a sleep took the session away from, and the ones that needed a
+  // reference the session rebuilt at the wake does not have yet.
+  unsigned dropped;
+  bool ramping;  // rebuilt after a sleep: drop what has no reference yet
 } VcnMpeg4;
 
 #define NUM_REFS 6  // Mesa uses NUM_MPEG2_REFS for this codec too
@@ -136,6 +141,25 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
   if (d->vcn && (vcnlegacy_width(d->vcn) != p->width ||
                  vcnlegacy_height(d->vcn) != p->height))
     end_session(d);
+  // A session from before a system sleep cannot take another VOP. An I-VOP is
+  // intra coded and uses no motion compensation from another VOP (ISO/IEC
+  // 14496-2 6.3.3, vop_coding_type in Table 6-7), so it decodes the same in a
+  // new session: the VOPs up to it are dropped without an error — the host
+  // sees the stream carry on — and it starts the new session. The VOL and its
+  // size are what a new sequence can change, and both come with the session
+  // (the size check above, vcnmpeg4_fill_block for the flags). The P-VOPs
+  // after it that predict from a VOP this session never decoded are dropped by
+  // the reference check below (ramping).
+  if (d->vcn && vcnlegacy_session_lost(d->vcn)) {
+    if (pic->coding_type != MPEG4_I) {
+      d->dropped++;
+      return 0;
+    }
+    vcnlegacy_log_rebuild(d->vcn, "an MPEG-4 I-VOP", d->dropped);
+    end_session(d);
+    d->dropped = 0;
+    d->ramping = true;
+  }
   if (!d->vcn) {
     VcnLegacyConfig cfg = {.codecId = VCN_CODEC_MPEG4,
                            .messageId = VCN_MESSAGE_MPEG4_ASP_VLD,
@@ -176,6 +200,10 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
                                            : 0;
   if (!pic->vop_coded) need = 1;
   if (d->refs < need) {
+    if (d->ramping) {
+      d->dropped++;
+      return 0;
+    }
     snprintf(d->err, sizeof(d->err), "VOP without its reference VOP%s",
              need == 2 ? "s" : "");
     d->failure = VCNLEGACY_FAIL_REFERENCE;
@@ -226,6 +254,7 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
     if (d->lastRef) CVPixelBufferRelease(d->lastRef);
     d->lastRef = CVPixelBufferRetain(target);
   }
+  if (d->ramping && d->refs >= 2) d->ramping = false;
   int stop = d->out ? d->out(d->outCtx, target,
                              b ? VCNLEGACY_PIC_B : VCNLEGACY_PIC_REFERENCE,
                              p->width, p->height)

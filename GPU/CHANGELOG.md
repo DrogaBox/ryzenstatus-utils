@@ -2,6 +2,23 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## Decoders 0.3.9 (not released; host tests only)
+
+- The MPEG-2, VC-1 and MPEG-4 decoders now live through a system sleep the way AV1 and VP9
+  have since 0.3.8. A session from before the sleep keeps its place in the plug-in: the
+  pictures up to the next I picture are dropped with no error, that one starts a new session,
+  and the pictures after it decode on it. Before, every picture of such a session was a
+  malfunction, so VideoToolbox made a new decoder for each one and the stream stopped at the
+  first picture after the wake.
+- The picture that starts the new session is intra coded in all three codecs, so it decodes
+  the same in a session that has seen nothing: an MPEG-2 I picture (ISO/IEC 13818-2 6.3.1), a
+  VC-1 I or BI frame (SMPTE 421M 7.1.1.3) or an MPEG-4 I-VOP (ISO/IEC 14496-2 6.3.3). A GOP
+  header's `closed_gop` says the pictures after the I need nothing from before it; with an
+  open GOP, or with `broken_link` set, the leading B pictures predict from the previous GOP,
+  which the new session never decoded, and are dropped too instead of drawn wrong.
+- A driver call that fails, a command that does not finish and a firmware error are still a
+  session stopped, as before: only a system sleep is something to rebuild from.
+
 ## Decoders 0.3.8 (not released; host tests only)
 
 - A review of 0.3.7 found five things to fix in the sleep work; this release is those fixes.
