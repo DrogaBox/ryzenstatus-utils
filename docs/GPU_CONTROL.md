@@ -106,6 +106,23 @@ some cards 2500, for about 5 % more performance and about 15 % more power (KitGu
 Lab, Guru3D). Igor's Lab advises not to go past about 330 W for the chip. Raise one thing at
 a time, 25 MHz at a time, and test each step.
 
+## Profiles
+
+Profiles, at the bottom of the page, keeps the setups you use under names: a quiet desktop, a
+gaming one. A profile holds what the page can hold — a power limit, or the whole fan, clock and
+voltage state (fan curve, zero RPM, GFX maximum and minimum, voltage) — saved from what the kext
+confirmed, exactly what Remember would keep. Names are unique and trimmed; deleting asks first.
+
+Load sends it the way the controls above do: the same limits, the same watchdog, the same refusal
+on the page, and with Remember on the loaded setup comes back at launch and after a wake like any
+other change. A profile also records the card it was made on (its PCI device id and the stock
+limits the kext reported). On another card, or after those limits moved, it is still listed and
+still loads, but every value is checked against the card in front of you: one it does not take is
+left out and the section says which — a raised GFX maximum, and a power limit above the start-up
+one, go out only while Allow overclocking is on.
+
+Profiles live in the app's preferences on this Mac; nothing is written to the card.
+
 ## Not offered: memory clock and fast memory timings
 
 The cards offer a higher memory clock (2000 to 2150 MHz on the RX 6800 XT) and a "fast

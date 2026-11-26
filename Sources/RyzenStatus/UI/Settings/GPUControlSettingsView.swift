@@ -21,6 +21,7 @@ struct GPUControlSettingsView: View {
             clock: FeatureStrings.gpuControlClock(l10n.language),
             boot: FeatureStrings.gpuControlBoot(l10n.language),
             overclock: FeatureStrings.gpuControlOverclock(l10n.language),
+            profile: FeatureStrings.gpuControlProfile(l10n.language),
             title: FeatureStrings.gpuControl(l10n.language).title,
             actions: GPUControlPageActions(
                 choosePower: { service.choosePower($0) },
@@ -37,7 +38,12 @@ struct GPUControlSettingsView: View {
                 chooseVolt: { service.chooseVolt($0) },
                 chooseGfxMaxRaised: { service.chooseGfxMaxRaised($0) },
                 setOverclock: { service.overclock = $0 },
-                closeChanges: { service.closeChanges() }))
+                closeChanges: { service.closeChanges() }),
+            profileActions: GPUControlProfileActions(
+                save: { service.saveProfile(named: $0) },
+                load: { service.loadProfile($0) },
+                rename: { service.renameProfile(named: $0, to: $1) },
+                delete: { service.deleteProfile(named: $0) }))
             // Reads once a second only while the page is on screen.
             .settingsPageActivity(.gpuControl,
                                   activate: { service.viewerAppeared() },
@@ -72,6 +78,12 @@ struct GPUControlPageInput: Equatable {
     var fanDraft: GPUControlFanDraft?
     /// "Allow overclocking" (GPUSensors 0.9.0), off by default.
     var overclock = false
+    /// The owner's saved GPU profiles, and the name of the one that is
+    /// exactly what the card holds now (nil when none is).
+    var profiles: [GPUControlProfile] = []
+    var matchingProfile: String?
+    /// The last profile loaded: what went out and what was left out.
+    var profileLoad: GPUControlProfileLoad?
 
     init(facts: GPUControlFacts?, state: GPUControlPageState?, snapshot: GPUControlSnapshot?) {
         self.facts = facts
@@ -95,6 +107,9 @@ struct GPUControlPageInput: Equatable {
         canChoose = service.mode != .none
         writing = service.control?.writing
         overclock = service.overclock
+        profiles = service.profiles
+        matchingProfile = service.matchingProfile
+        profileLoad = service.profileLoad
     }
 }
 
@@ -213,8 +228,10 @@ struct GPUControlPageContent: View {
     let clock: GPUControlClockStrings
     let boot: GPUControlBootStrings
     let overclock: GPUControlOverclockStrings
+    let profile: GPUControlProfileStrings
     let title: String
     let actions: GPUControlPageActions
+    let profileActions: GPUControlProfileActions
     @State private var copied = false
     /// The editor's draft; its `edited` flag says whether the owner touched
     /// it since it was last seeded or applied.
@@ -223,16 +240,19 @@ struct GPUControlPageContent: View {
 
     init(input: GPUControlPageInput, strings: GPUControlPageStrings, fan: GPUControlFanStrings,
          clock: GPUControlClockStrings, boot: GPUControlBootStrings = .enUS,
-         overclock: GPUControlOverclockStrings = .enUS, title: String,
-         actions: GPUControlPageActions) {
+         overclock: GPUControlOverclockStrings = .enUS, profile: GPUControlProfileStrings = .enUS,
+         title: String, actions: GPUControlPageActions,
+         profileActions: GPUControlProfileActions = GPUControlProfileActions()) {
         self.input = input
         self.strings = strings
         self.fan = fan
         self.clock = clock
         self.boot = boot
         self.overclock = overclock
+        self.profile = profile
         self.title = title
         self.actions = actions
+        self.profileActions = profileActions
         var held: GPUControlOD8Want?
         if case .heldByApp(.od8(let want))? = input.state { held = want }
         _draft = State(initialValue: input.fanDraft ?? GPUControlFanDraft(held: held))
@@ -278,6 +298,11 @@ struct GPUControlPageContent: View {
             if case .closed? = input.state { armSection }
             if Self.showsBootArm(input) { bootArmSection }
             rememberSection
+            // Its own section, like "remember": the list is worth seeing even
+            // on a card the control only reads.
+            if showsPower || !input.profiles.isEmpty {
+                GPUControlProfilesSection(input: input, strings: profile, page: s, actions: profileActions)
+            }
             detailsSection
         }
         .formStyle(.grouped)

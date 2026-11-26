@@ -1114,4 +1114,7 @@ extension DefaultsKey {
     /// The "Allow overclocking" switch of Settings > GPU control (off by
     /// default).
     static let gpuControlOverclock = "gpuControlOverclock"
+    /// The owner's GPU profiles, one JSON blob with a version number
+    /// (`GPUControlProfileStore`).
+    static let gpuControlProfiles = "gpuControlProfiles"
 }

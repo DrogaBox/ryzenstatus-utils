@@ -79,6 +79,16 @@ final class GPUControlService: ObservableObject {
         }
     }
 
+    /// The owner's GPU profiles, as saved in the app's defaults.
+    @Published private(set) var profiles: [GPUControlProfile] = []
+    /// What the last profile loaded came to: the section under the list says
+    /// what went out and what this card did not take.
+    @Published private(set) var profileLoad: GPUControlProfileLoad?
+    /// The display card's PCI device id, read once: a profile records the
+    /// card it was made on with it.
+    private let cardDeviceID: UInt32? = GPUControlCardDevice.displayDeviceID()
+    private var profileStore = GPUControlProfileStore()
+
     private let defaults: UserDefaults
     /// The switch for the controller's queue: a remembered raise is checked
     /// against it right before it goes out.
@@ -102,6 +112,8 @@ final class GPUControlService: ObservableObject {
         let on = defaults.bool(forKey: DefaultsKey.gpuControlOverclock)
         overclock = on
         overclockNow.withLock { $0 = on }
+        profileStore = GPUControlProfileStore.load(defaults)
+        profiles = profileStore.profiles
     }
 
     var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control) }
@@ -366,6 +378,81 @@ final class GPUControlService: ObservableObject {
             }
         }
         if next.stopped != nil { pendingRemembered = false }
+        // The sentence about the last profile loaded is about the state it
+        // put on the card: another change makes it old news.
+        if let load = profileLoad, next.outcome == nil, next.activity == .none,
+           next.held != load.request {
+            profileLoad = nil
+        }
+    }
+
+    // MARK: Profiles
+
+    /// The card as the kext and the registry describe it now.
+    private var cardNow: GPUControlProfileCard {
+        GPUControlProfileCard.current(facts: facts, writing: control?.writing, deviceID: cardDeviceID)
+    }
+
+    /// The saved profile that is exactly what the card holds now, if any.
+    var matchingProfile: String? {
+        GPUControlProfiles.match(profiles, held: snapshot?.held)
+    }
+
+    /// What the card holds now goes into a profile under `raw`. Only what
+    /// the kext confirmed is saved, as Remembering does; a name is trimmed,
+    /// may not be empty and may not repeat another profile's.
+    @discardableResult
+    func saveProfile(named raw: String) -> GPUControlProfileSave {
+        guard !profileStore.isNewerVersion else { return .newerVersion }
+        guard let held = snapshot?.held, held != .startUp else { return .nothingToSave }
+        guard let name = GPUControlProfileStore.clean(raw) else { return .emptyName }
+        guard !profileStore.isTaken(name) else { return .duplicateName(name) }
+        guard let profile = GPUControlProfiles.profile(named: name, held: held, card: cardNow) else {
+            return .nothingToSave
+        }
+        profileStore.add(profile)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+        return .saved(name: name)
+    }
+
+    @discardableResult
+    func renameProfile(named name: String, to raw: String) -> GPUControlProfileSave {
+        guard !profileStore.isNewerVersion else { return .newerVersion }
+        guard let clean = GPUControlProfileStore.clean(raw) else { return .emptyName }
+        guard profileStore.profile(named: name) != nil else { return .nothingToSave }
+        guard !profileStore.isTaken(clean, excluding: name) else { return .duplicateName(clean) }
+        profileStore.rename(name, to: clean)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+        return .saved(name: clean)
+    }
+
+    func deleteProfile(named name: String) {
+        guard !profileStore.isNewerVersion else { return }
+        profileStore.remove(named: name)
+        profileStore.save(defaults)
+        profiles = profileStore.profiles
+    }
+
+    /// A profile goes out through the controller's own path, exactly as a
+    /// value the owner changes by hand does: the same checks, the same
+    /// waiting, the same refusal on screen. What this card does not take now
+    /// is left out, and the section says which part. With Remember on, a
+    /// profile the kext confirms becomes the remembered state like any other
+    /// change (`received`).
+    func loadProfile(_ profile: GPUControlProfile) {
+        let writing = control?.writing
+        let od8Ready = facts?.od8Ready ?? false
+        let load = GPUControlProfiles.load(
+            profile, card: cardNow, facts: facts, stockGfxMaxMHz: writing?.od8?.stockGfxMaxMHz,
+            od8Ready: od8Ready, kextVersion: writing?.kextVersion,
+            gfxMin: GPUControlClockMinLogic.limits(writing: writing, od8Ready: od8Ready),
+            volt: GPUControlVoltLogic.limits(writing: writing, od8Ready: od8Ready),
+            overclock: GPUControlOverclockLogic.gfxLimits(writing: writing, od8Ready: od8Ready),
+            overclockAllowed: overclock)
+        profileLoad = load
+        if let request = load.request { controller?.choose(request) }
     }
 
     // MARK: Another program (security review S-5, S-9)
