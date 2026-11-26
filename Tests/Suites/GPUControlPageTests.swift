@@ -241,9 +241,13 @@ enum GPUControlPageTests {
         let changelog = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath + "/CHANGELOG.md",
                                      encoding: .utf8)) ?? ""
         suite.expect(!changelog.contains("## [Unreleased]"), "no invented changelog heading")
-        let firstRelease = changelog.range(of: "\n## [")?.lowerBound ?? changelog.startIndex
-        suite.expect(changelog[..<firstRelease].contains("GPU power limit"),
-                     "the GPU control page has its paragraph above the first release")
+        // Its text sits above the first release heading until a release takes it, then in
+        // that newest release (1.90.0 on).
+        let firstRelease = changelog.range(of: "\n## [")?.upperBound ?? changelog.startIndex
+        let secondRelease = changelog.range(of: "\n## [", range: firstRelease..<changelog.endIndex)?.lowerBound
+            ?? changelog.endIndex
+        suite.expect(changelog[..<secondRelease].localizedCaseInsensitiveContains("power limit"),
+                     "the GPU control page has its paragraph in the newest release or above it")
         // The page source: the status header, the remember section apart.
         let view = (try? String(contentsOfFile: FileManager.default.currentDirectoryPath
                                 + "/Sources/RyzenStatus/UI/Settings/GPUControlSettingsView.swift", encoding: .utf8)) ?? ""
