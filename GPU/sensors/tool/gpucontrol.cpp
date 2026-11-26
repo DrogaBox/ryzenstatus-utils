@@ -204,9 +204,9 @@ int doStatus() {
     printf("  OD8         %s%s%s%s%s%s\n",
            (h & kOd8HeldCurve) ? "fan curve " : "",
            (h & kOd8HeldZeroRpmOff) ? "zero RPM off " : "",
-           !(h & kOd8HeldGfx)     ? ""
-           : (h & kOd8HeldGfxUp)  ? "GFX max raised "
-                                  : "GFX max lowered ",
+           !(h & kOd8HeldGfx)    ? ""
+           : (h & kOd8HeldGfxUp) ? "GFX max raised "
+                                 : "GFX max lowered ",
            (h & kOd8HeldGfxMin) ? "GFX min raised " : "",
            (h & kOd8HeldVolt) ? "GFX voltage lowered " : "",
            (h & kOd8HeldUnknown) ? "not confirmed, going back to stock" : "");
