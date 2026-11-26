@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased: macOS 26.7.4 (25G422)
+## macOS 26.7.4 (25G422) (RyzenStatus 1.90.0)
 
 - Kext: 26.7.4 added to `kX6000Builds` (`F8070234-57B0-3107-AC79-F3AA1C816072`) and
   `kX6800Builds` (`C3C1D191-CC3D-38F3-BBBE-2F99B74FE0F1`), routed by symbol:
@@ -12,7 +12,7 @@
   now runs at the 26.7.4 site too.
 - Checked from the 26.7.4 installer (release candidate) only; not run on a card on 26.7.4.
 
-## 1.3.0 (not released)
+## 1.3.0 (RyzenStatus 1.90.0)
 
 - New service fix, *cc* (on by default; `--no-cc` turns it off), in every `ContinuityCaptureAgent` and
   `avconferenced`, the processes that handle Continuity Camera and FaceTime calls. Three changes in VideoProcessing:

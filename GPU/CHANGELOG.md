@@ -2,7 +2,7 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
-## JPEG decoder 1.0.0 (not released; host tests only, not booted)
+## JPEG decoder 1.0.0 (RyzenStatus 1.90.0)
 
 - New, optional, macOS 26.7.3 only: `VCNJpeg.kext` (`jpeg/`) and the VideoToolbox plug-in
   `JPEGVCNDecoder.bundle` (`decode/jpeg/`) decode JPEG and Motion JPEG (`jpeg`, `dmb1`) on
@@ -17,9 +17,15 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   `VCNVT_JPEG_DECODER=1`. The loader kext lists the JPEG plug-in too.
 - It comes from the test kext that decoded through the same plug-in on an RX 6800 XT
   (4:2:0, 4:2:2 and `dmb1` at 1280x720, under 5 ms a frame, within 1 of FFmpeg). The
-  product kext itself has not run yet.
+  product kext ran once on an RX 6800 XT with 26.7.3 (2026-11-25, started from a separate
+  OpenCore config): four VideoToolbox cases decoded on the GPU at 74 to 75 dB against the
+  reference, 90 frames through `avconvert`, and the block powered off two seconds after the
+  last picture.
+- `install.sh --with-jpeg` takes the kext as installed only when the config.plist it installs
+  to lists it: a kext started from another config file (one picked in OpenCore for one boot)
+  was skipped before, though the next normal boot would not load it.
 
-## GPU sensors 0.9.0 (host tests only, not booted)
+## GPU sensors 0.9.0 (RyzenStatus 1.90.0; host tests only)
 
 - A program may now hold a raised GFX minimum clock (OD8 id 1) with the rest of the OD8
   state: `gpucontrol hold gfxmin 1500 -- <command>`, `gpucontrol check gfxmin 1500`. It is
@@ -80,9 +86,33 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 - `gpucontrol status` names a held GFX maximum above stock "GFX max raised" (it said
   "lowered" for every held maximum) and shows a held voltage as "GFX voltage lowered".
 
-## Decoders 0.3.7 (not released; host tests only)
+## Decoders 0.3.7 (RyzenStatus 1.90.0)
 
-- 0.3.6 made things worse in the first real sleep test on this Mac (RX 6800 XT, Tahoe
+Everything since 0.3.5, the last release. The sleep part was host-tested only; the rest as
+said in each item.
+
+- Colour and HDR metadata: every AV1 and VP9 picture now carries its colour primaries,
+  transfer function and matrix, plus the mastering display colour volume and content light
+  level when the stream or the container has them. Before, BT.2020 PQ video was shown as
+  untagged video (washed out, no HDR). AV1 takes them from the sequence header first and the
+  container where the header says nothing, and keeps the `HDR_MDCV` and `HDR_CLL` metadata
+  OBUs (a cut or unknown one changes nothing); VP9 takes the container first, then the
+  bitstream's `color_space` (VP9 has no transfer function of its own). Host tests only; not
+  run on the GPU yet.
+- New, optional, macOS 26.7.2 and 26.7.3 (and 26.7.4, same driver code): MPEG-2, VC-1 and
+  MPEG-4 part 2 decoders (`decode/mpeg2/`, `decode/vc1/`, `decode/mpeg4/`), installed only
+  with `install/decoders.sh install --legacy` or `install/install.sh --with-legacy-decoders`;
+  installed, they replace Apple's decoders for these formats. Run on an RX 6800 XT with 26.7.3
+  through VideoToolbox: VC-1 bit-exact (advanced profile I/P/B, WMV3 main, 1080i frame and
+  field interlaced), MPEG-2 frame pictures 58.8 dB or better, MPEG-4 I/P 59 to 67 dB.
+  Refused before the GPU: MPEG-4 B-VOPs (they stall the firmware, on Linux as well) and MPEG-2
+  field pictures (the firmware writes their chroma as zeros; Mesa does not decode them on this
+  card either).
+- MPEG-4: a B-VOP whose TRD is 0 is never sent (direct mode divides by it), the size goes to
+  the firmware aligned to 16 as Mesa does (1920x1080 as 1920x1088; the pictures keep the real
+  size), and the quantizer matrices always go in stream order.
+
+- A system sleep. 0.3.6 made things worse in the first real sleep test on this Mac (RX 6800 XT, Tahoe
   26.7.3): it noticed the sleep (132 s asleep), but every session from before it then
   failed all its frames with -12911, and the new sessions after the wake lost their first
   frames to the refusal below. The same test with 0.3.5, which knows nothing of sleeps,
@@ -131,7 +161,7 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   for the sleep test in `docs/testing.md`.
 - Not run across a real sleep yet.
 
-## Unreleased: macOS 26.7.4 (25G422)
+## macOS 26.7.4 (25G422) (RyzenStatus 1.90.0)
 
 - Decoders: `AMDRadeonVADriver2` of 26.7.4 has a new UUID,
   `F7D8F5849EC139DB857C769697294957`, added to `kValidatedDrivers` in `decode/av1/vcnav1.c`,
