@@ -706,12 +706,19 @@ extension GPUControlRememberPolicy {
     /// (`volt`) and a raised GFX maximum (`overclock`, the card's range for
     /// it): kept only while the kext takes them and inside the card's range,
     /// and the raise only while "Allow overclocking" is on
-    /// (`overclockAllowed`). Nil when nothing is left to ask.
+    /// (`overclockAllowed`). A power limit above the start-up one (`bootW`)
+    /// is a raise too: it is dropped while the switch is off. Nil when
+    /// nothing is left to ask.
     static func checkedAgain(_ request: GPUControlRequest, stockGfxMaxMHz: Int?,
                              gfxMin: GPUControlClockMinLogic.Limits? = nil,
                              volt: GPUControlVoltLogic.Limits? = nil,
                              overclock: GPUControlOverclockLogic.GfxLimits? = nil,
-                             overclockAllowed: Bool = true) -> GPUControlRequest? {
+                             overclockAllowed: Bool = true,
+                             bootW: Int? = nil) -> GPUControlRequest? {
+        if case .power(let watts) = request, !overclockAllowed, let boot = bootW, boot > 0,
+           Int(watts) > boot {
+            return nil
+        }
         guard case .od8(var want) = request else { return request }
         if !overclockAllowed { want = withoutRaise(want) }
         if let mhz = want.gfxMaxMHz {

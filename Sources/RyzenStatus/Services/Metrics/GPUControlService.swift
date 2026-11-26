@@ -163,7 +163,8 @@ final class GPUControlService: ObservableObject {
                 gfxMin: GPUControlClockMinLogic.limits(writing: control?.writing, od8Ready: od8Ready),
                 volt: GPUControlVoltLogic.limits(writing: control?.writing, od8Ready: od8Ready),
                 overclock: GPUControlOverclockLogic.gfxLimits(writing: control?.writing, od8Ready: od8Ready),
-                overclockAllowed: overclockNow.withLock { $0 })
+                overclockAllowed: overclockNow.withLock { $0 },
+                bootW: control?.powerWatch?.bootW)
         }
         // The kext refuses a curve or a raise while the watchdog's readings
         // are older than 2 s: one read right before each such change.
@@ -379,9 +380,10 @@ final class GPUControlService: ObservableObject {
         }
         if next.stopped != nil { pendingRemembered = false }
         // The sentence about the last profile loaded is about the state it
-        // put on the card: another change makes it old news.
-        if let load = profileLoad, next.outcome == nil, next.activity == .none,
-           next.held != load.request {
+        // put on the card: another change of what is held makes it old news
+        // (the readings in the status move every second and do not count).
+        if let load = profileLoad, next.held != previous?.held, next.outcome == nil,
+           next.activity == .none, next.held != load.request {
             profileLoad = nil
         }
     }

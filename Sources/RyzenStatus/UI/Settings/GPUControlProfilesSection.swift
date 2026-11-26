@@ -217,9 +217,9 @@ struct GPUControlProfilesSection: View {
                 Spacer()
                 Button(strings.cancel) { sheet = nil }
                     .keyboardShortcut(.cancelAction)
-                Button(strings.saveAction) { commit(draft) }
+                Button(strings.saveAction) { commit(sheet ?? draft) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled((draft.name).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled((sheet ?? draft).name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding()
@@ -235,8 +235,8 @@ struct GPUControlProfilesSection: View {
         case .duplicateName(let name):
             sheetProblem = String(format: strings.duplicateName, name)
         case .emptyName, .nothingToSave, .newerVersion:
-            // Nothing to say that the field or the section does not: the
-            // sheet stays open for a name that can be used.
+            // Nothing the sheet can fix: it closes, and the section's line
+            // says why Save is dimmed.
             sheet = nil
         }
     }

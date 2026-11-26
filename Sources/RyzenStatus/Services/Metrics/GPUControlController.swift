@@ -251,7 +251,14 @@ final class GPUControlEngine {
         let request = request.normalized
         let now = clock()
         if request == wanted {
-            // Asked for already: it goes out as planned.
+            // Asked for already: it goes out as planned. When the owner picks
+            // the very value a remembered retry is asking for, it is the
+            // owner's from now on (their refusal shows, no remembered filter).
+            if origin == .owner, wantedOrigin != .owner {
+                wantedOrigin = .owner
+                temporarySince = nil
+                snapshot.ownerReleased = false
+            }
             snapshot.outcome = nil
             return
         }
@@ -410,6 +417,9 @@ final class GPUControlEngine {
             }
         }
         if wanted != nil {
+            // A retry the sleep cut short gets its whole window again after
+            // the wake, counted from the next refusal.
+            temporarySince = nil
             nextTryAt = Swift.max(nextTryAt, now + Self.wakeSettleMs)
             if let wanted { snapshot.activity = .afterWake(wanted) }
         }
@@ -1083,19 +1093,32 @@ final class GPUControlController: @unchecked Sendable {
 /// change makes them fresh, whether or not the app's own GPU readings run
 /// yet (right after launch, right after a wake).
 enum GPUControlReadings {
-    /// Reads `PerformanceStatistics` of the first accelerator that has it.
-    /// The values are not used here; `IOAcceleratorCache` keeps its own.
+    /// The AMD accelerator classes, most specific first, so an Intel iGPU or
+    /// another card that enumerates first is never the one read.
+    private static let amdClasses = [
+        "AMDRadeonX6000_AMDAcceleratedVKDriver",
+        "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
+        "AMDGPUAccelerator"
+    ]
+
+    /// Reads `PerformanceStatistics` of the AMD accelerator. The values are
+    /// not used here; `IOAcceleratorCache` keeps its own.
     static func freshen() {
+        for cls in amdClasses where read(matching: cls) { return }
+    }
+
+    private static func read(matching cls: String) -> Bool {
         var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"),
-                                           &iterator) == kIOReturnSuccess else { return }
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls),
+                                           &iterator) == kIOReturnSuccess else { return false }
         defer { IOObjectRelease(iterator) }
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
             if IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
                                                kCFAllocatorDefault, 0)?.takeRetainedValue() != nil {
-                return
+                return true
             }
         }
+        return false
     }
 }

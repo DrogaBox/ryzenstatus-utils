@@ -281,6 +281,17 @@ enum GPUControlProfileTests {
         suite.expect(GPUControlProfiles.match(profiles, held: nil) == nil, "nothing held, no match")
         suite.expect(GPUControlProfiles.match(profiles, held: .startUp) == nil, "the way back is not a profile")
         suite.expect(GPUControlProfiles.match([], held: .power(watts: 220)) == nil, "no profiles, no match")
+
+        // A remembered power raise is checked against the switch too, not
+        // only an OD8 raise.
+        suite.expect(Policy.checkedAgain(.power(watts: 261), stockGfxMaxMHz: 2_359, overclockAllowed: false,
+                                         bootW: 240) == nil, "a raised power limit is dropped with the switch off")
+        suite.expect(Policy.checkedAgain(.power(watts: 261), stockGfxMaxMHz: 2_359, overclockAllowed: true,
+                                         bootW: 240) == .power(watts: 261), "and kept with it on")
+        suite.expect(Policy.checkedAgain(.power(watts: 225), stockGfxMaxMHz: 2_359, overclockAllowed: false,
+                                         bootW: 240) == .power(watts: 225), "a lowered limit needs no switch")
+        suite.expect(Policy.checkedAgain(.power(watts: 261), stockGfxMaxMHz: 2_359, overclockAllowed: false,
+                                         bootW: nil) == .power(watts: 261), "no start-up limit known: left as it is")
     }
 
     // MARK: The words

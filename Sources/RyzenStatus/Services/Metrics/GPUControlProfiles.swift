@@ -519,14 +519,23 @@ enum GPUControlCardDevice {
         return nil
     }
 
+    /// AMD's PCI vendor id: an Intel iGPU or another card is never the one read.
+    private static let amdVendor: UInt32 = 0x1002
+
+    private static func number(_ key: String, of entry: io_registry_entry_t) -> UInt32? {
+        guard let value = IORegistryEntryCreateCFProperty(entry, key as CFString,
+                                                          kCFAllocatorDefault, 0)?.takeRetainedValue() else { return nil }
+        // The registry keeps it as four bytes, little endian (bf 73 00 00).
+        if let data = value as? Data, data.count >= 4 {
+            return UInt32(data[0]) | UInt32(data[1]) << 8 | UInt32(data[2]) << 16 | UInt32(data[3]) << 24
+        }
+        return (value as? NSNumber)?.uint32Value
+    }
+
     private static func deviceID(from entry: io_registry_entry_t, depth: Int) -> UInt32? {
-        if let value = IORegistryEntryCreateCFProperty(entry, "device-id" as CFString,
-                                                       kCFAllocatorDefault, 0)?.takeRetainedValue() {
-            // The registry keeps it as four bytes, little endian (bf 73 00 00).
-            if let data = value as? Data, data.count >= 4 {
-                return UInt32(data[0]) | UInt32(data[1]) << 8 | UInt32(data[2]) << 16 | UInt32(data[3]) << 24
-            }
-            if let number = value as? NSNumber { return number.uint32Value }
+        if let id = number("device-id", of: entry) {
+            // The node with the PCI ids: only an AMD card counts.
+            return number("vendor-id", of: entry) == amdVendor ? id : nil
         }
         guard depth > 0 else { return nil }
         var parent: io_registry_entry_t = 0
