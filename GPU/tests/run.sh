@@ -29,7 +29,9 @@
 #      (staletest)
 #   5b. the loader kext: its decisions, that it builds twice to the same bytes and lists the
 #      plug-ins just built, that install/loader.sh puts it on an EFI and takes it off again
-#      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac
+#      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac; and the
+#      boot arguments that decide whether it is needed at all: AMFI switched off and AMFIPass
+#      loaded but off, on made-up Macs (amfidetect)
 #   5c. the GPU sensors: they build twice to the same bytes, their decisions, and that the
 #      kext accepts the PMLog function of this Mac's driver
 #   5d. the JPEG decoder kext: it builds twice to the same bytes, its door and the rule that
@@ -141,6 +143,9 @@ check "the plug-ins' VideoToolbox side, with a stand-in decoder" plugins
 legacyparse() { decode/build/tests/legacyparse > decode/build/tests/legacyparse.txt ||
   { cat decode/build/tests/legacyparse.txt; return 1; }; }
 check "the MPEG-2, VC-1 and MPEG-4 parsers and messages, with made-up and damaged streams" legacyparse
+bootargs() { tests/amfidetect.sh > decode/build/tests/amfidetect.txt 2>&1 ||
+  { cat decode/build/tests/amfidetect.txt; return 1; }; }
+check "the boot arguments that decide whether the loader kext is needed" bootargs
 layers() { decode/build/tests/layertest > decode/build/tests/layertest.txt ||
   { cat decode/build/tests/layertest.txt; return 1; }; }
 check "the MPEG-2, VC-1 and MPEG-4 codec layers send the firmware only what it decodes" layers
