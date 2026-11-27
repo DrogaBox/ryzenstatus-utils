@@ -336,6 +336,8 @@ static void *ccdLegacyFirstPlacement(void *node, void *thread, void **processor_
         c.same++;
         return orig;
     }
+    // The original may have set a processor hint inside its own pset; it does not apply to ours.
+    if (processor_hint != nullptr) *processor_hint = nullptr;
     c.kept++;
     return home;
 }
