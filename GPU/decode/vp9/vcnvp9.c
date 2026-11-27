@@ -711,7 +711,8 @@ static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
   CVPixelBufferRef* keep = n ? malloc((size_t)n * sizeof(*keep)) : NULL;
   if (keep) memcpy(keep, old, (size_t)n * sizeof(*keep));
   int kept = keep ? n : 0;
-  vcn_session_drop_later(&d->s, "VP9 session from before the sleep", ^{
+  vcn_session_drop_later(&d->s, "VP9 session from before the sleep",
+                         "the system slept since it opened", ^{
     for (int i = 0; i < kept; i++) CVPixelBufferRelease(keep[i]);
     free(keep);
   });
@@ -740,7 +741,8 @@ static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
   }
   if (!vcn_session_reopen(&d->s, &lib, svc, vlog(), why, whyLen)) return false;
   if (vp9_create_context(d, why, whyLen)) {
-    vcn_session_drop_later(&d->s, "VP9 session, CreateContexts failed", ^{});
+    vcn_session_drop_later(&d->s, "VP9 session, CreateContexts failed",
+                           "no command was ever sent to it", ^{});
     return false;
   }
   return true;
@@ -819,7 +821,8 @@ static void destroy_now(VcnVP9* d) {
 
 void vcnvp9_destroy(VcnVP9* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "VP9 session", ^{
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "VP9 session", NULL,
+               ^{
     destroy_now(d);
   });
 }

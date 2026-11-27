@@ -313,7 +313,8 @@ static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
   CVPixelBufferRef* keep = n ? malloc((size_t)n * sizeof(*keep)) : NULL;
   if (keep) memcpy(keep, old, (size_t)n * sizeof(*keep));
   int kept = keep ? n : 0;
-  vcn_session_drop_later(&d->s, "AV1 session from before the sleep", ^{
+  vcn_session_drop_later(&d->s, "AV1 session from before the sleep",
+                         "the system slept since it opened", ^{
     for (int i = 0; i < kept; i++) CVPixelBufferRelease(keep[i]);
     free(keep);
   });
@@ -335,7 +336,8 @@ static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
   int r = av1_create_context(d);
   if (r) {
     snprintf(why, whyLen, "CreateContexts(AV1) %d", r);
-    vcn_session_drop_later(&d->s, "AV1 session, CreateContexts failed", ^{});
+    vcn_session_drop_later(&d->s, "AV1 session, CreateContexts failed",
+                           "no command was ever sent to it", ^{});
     return false;
   }
   return true;
@@ -415,7 +417,8 @@ static void destroy_now(VcnAV1* d) {
 
 void vcnav1_destroy(VcnAV1* d) {
   if (!d) return;
-  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "AV1 session", ^{
+  vcn_teardown(d->stuck, vcn_session_lost(&d->s), vlog(), "AV1 session", NULL,
+               ^{
     destroy_now(d);
   });
 }
@@ -819,6 +822,19 @@ static int decode_one(void* vctx, AV1Parser* p, AV1ParseResult kind) {
       if (!r->valid || r->dpb_slot < 0 || r->dpb_slot >= NUM_DPB ||
           !d->dpb[r->dpb_slot]) {
         snprintf(d->err, sizeof(d->err), "missing reference");
+        d->failure = VCNAV1_FAIL_REFERENCE;
+        return -1;
+      }
+      // A reference of another bit depth means the sequence header changed
+      // mid-stream; the message sets the depth for the whole DPB, and a new
+      // depth makes the driver allocate it again while the frame reads from
+      // it (the same check vcnvp9.c makes of its references). Failed like the
+      // missing reference above: the stream's references are the problem, not
+      // the device.
+      if (r->bit_depth != p->seq.BitDepth) {
+        snprintf(d->err, sizeof(d->err),
+                 "%d-bit reference for a %d-bit frame", r->bit_depth,
+                 p->seq.BitDepth);
         d->failure = VCNAV1_FAIL_REFERENCE;
         return -1;
       }

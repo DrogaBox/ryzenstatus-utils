@@ -670,7 +670,7 @@ static void destroy_now(VcnLegacy* d) {
 void vcnlegacy_destroy(VcnLegacy* d) {
   if (!d) return;
   vcn_teardown(d->stuck, vcn_session_lost(&d->s), d->log,
-               "legacy codec session", ^{
+               "legacy codec session", NULL, ^{
                  destroy_now(d);
                });
 }

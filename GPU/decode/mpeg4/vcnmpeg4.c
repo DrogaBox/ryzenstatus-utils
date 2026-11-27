@@ -27,6 +27,7 @@ typedef struct {
   // reference the session rebuilt at the wake does not have yet.
   unsigned dropped;
   bool ramping;  // rebuilt after a sleep: drop what has no reference yet
+  bool broken;   // stopped: the stream sent no intra picture after the sleep
 } VcnMpeg4;
 
 #define NUM_REFS 6  // Mesa uses NUM_MPEG2_REFS for this codec too
@@ -155,7 +156,18 @@ static int on_picture(void* ctx, Mpeg4Parser* p, const Mpeg4Picture* pic) {
   // the reference check below (ramping).
   if (d->vcn && vcnlegacy_session_lost(d->vcn)) {
     if (pic->coding_type != MPEG4_I) {
-      d->dropped++;
+      // Bounded like the AV1 and VP9 rebuilds (REBUILD_MAX_DROPPED there): a
+      // stream that sends no intra picture is stopped as a device failure, so
+      // the host can hand it to another decoder, instead of dropping pictures
+      // for however long the stream goes without one.
+      if (++d->dropped > 600) {
+        d->broken = true;
+        d->failure = VCNLEGACY_FAIL_DEVICE;
+        snprintf(d->err, sizeof(d->err),
+                 "no intra picture in %u frames after the system sleep",
+                 d->dropped);
+        return -1;
+      }
       return 0;
     }
     vcnlegacy_log_rebuild(d->vcn, "an MPEG-4 I-VOP", d->dropped);
@@ -314,6 +326,14 @@ static int decode(void* v, const uint8_t* chunk, size_t size,
   d->outCtx = ctx;
   d->err[0] = 0;
   d->failure = VCNLEGACY_FAIL_STREAM;
+  if (d->broken) {
+    snprintf(d->err, sizeof(d->err),
+             "session stopped: no intra picture in %u frames after the "
+             "system sleep",
+             d->dropped);
+    d->failure = VCNLEGACY_FAIL_DEVICE;
+    return -1;
+  }
   int r = mpeg4_parse_chunk(&d->parser, chunk, size, on_picture, d);
   if (r && !d->err[0]) {
     snprintf(d->err, sizeof(d->err), "%s",

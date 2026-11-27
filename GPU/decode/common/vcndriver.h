@@ -188,9 +188,10 @@ void vcn_session_drop(VcnDriverSession* s);
 // destroyed on the teardown queue (vcn_teardown), because that close can wait
 // for the command in the kernel, and then `after` runs there (the codec lets go
 // of the pictures the command may still write). The session is empty when this
-// returns and can be opened again at once.
+// returns and can be opened again at once. why is the reason for the close, in
+// the teardown's log line.
 void vcn_session_drop_later(VcnDriverSession* s, const char* what,
-                            void (^after)(void));
+                            const char* why, void (^after)(void));
 
 // True once the system has slept since s opened (see VcnSleepMark), and from
 // then on; the first time, it says so in the log. The AV1 or VP9 codec that
@@ -223,9 +224,10 @@ void vcn_session_close(VcnDriverSession* s);
 // finished) or lost (the system slept since the session opened), with a log
 // line before and after: the teardown may then wait in the kernel, and the
 // caller (VideoToolbox's invalidate) must not wait with it. what names the
-// session in the log.
+// session in the log. why is the reason printed after the name; NULL keeps the
+// wording above ("a command never finished", or the sleep for a lost session).
 void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
-                  void (^close)(void));
+                  const char* why, void (^close)(void));
 
 // Waits until every teardown handed to the background queue has finished, at
 // most timeoutMs. False when one is still running: its kernel call may never

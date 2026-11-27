@@ -326,13 +326,13 @@ void vcn_session_drop(VcnDriverSession* s) {
 }
 
 void vcn_session_drop_later(VcnDriverSession* s, const char* what,
-                            void (^after)(void)) {
+                            const char* why, void (^after)(void)) {
   AVD_Accelerator* accel;
   io_service_t svc;
   detach(s, &accel, &svc);
   AVD_DestroyAVDAccelerator_fn destroy = s->destroy;
   // vcn_teardown copies the block, and with it `after`.
-  vcn_teardown(true, false, s->log, what, ^{
+  vcn_teardown(true, false, s->log, what, why, ^{
     if (accel && destroy) destroy(accel);
     // Released only after the driver is gone: it may hold on to the service.
     if (svc) IOObjectRelease(svc);
@@ -416,19 +416,24 @@ static void pin_this_image(void) {
 }
 
 void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
-                  void (^close)(void)) {
+                  const char* why, void (^close)(void)) {
   if (!stuck && !lost) {
     close();
     return;
   }
   // Kept for the line after the close, which runs once the caller is gone.
   char* name = strdup(what ? what : "session");
+  // The log too: the close may give up the caller's last reference to it
+  // (destroy_now in vcnlegacy.c does), and the block below logs with it after
+  // the close. This reference is given up on the block's last line.
+  os_retain(log);
   os_log_error(
       log,
       "%{public}s: %{public}s; closing the session on a background "
       "thread, the close may wait for the GPU",
       name ? name : "session",
-      stuck ? "a command never finished" : "the system slept since it opened");
+      why ? why : (stuck ? "a command never finished"
+                         : "the system slept since it opened"));
   dispatch_queue_t q = teardown_queue();  // also makes the group
   // dispatch_group_async copies this block, and with it close.
   dispatch_group_async(teardown_group, q, ^{
@@ -438,6 +443,7 @@ void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
                  name ? name : "session", stuck ? "stuck" : "lost",
                  wait_now_ms() - t0);
     free(name);
+    os_release(log);
   });
 }
 
