@@ -2,6 +2,23 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.9.3 (host tests only, not booted)
+
+- **The keeper is gone.** 0.9.1's keeper, which called
+  `PEM_CWDDEPM_QueryPMLogData` from the kext's own worker thread through the power
+  management object the driver had used, panicked this Mac twice on 2026-11-27 (02:42 and
+  02:45, both while a remembered GPU profile was applied; one 34 s after boot). The library
+  cleared a word of that object while the call was running: `PECI_LockPowerPlayOnly(pem[4])`
+  succeeded and `PECI_UnlockPowerPlayOnly` then read `pem[4]` as NULL (CR2 0x180, RDI 0).
+  0.9.2 checked the object before the call and could not see a clear in the middle of it, so
+  the kext no longer calls into the library at all: `sampleNow`, `keeperStep`, their counters
+  and the `Keeper` and `KeeperState` properties are removed, and the power management object
+  is no longer stored. The kext still copies the PMLog the driver reads (the routed function
+  is unchanged); the app reads the accelerator's `PerformanceStatistics` at least once a
+  second while it holds a fan curve, an OD8 state or a raised power limit, which is what makes
+  the driver read. 0.9.2's other fixes stay: the copy is dropped at sleep and teardown, and a
+  ppCWDDE call is refused when the sleep or wake watcher did not route.
+
 ## GPU sensors 0.9.2 (host tests only, not booted)
 
 - **Kernel panic after a sleep (found on this Mac, 2026-11-27)**: a GPU profile loaded about five minutes after a wake started the keeper, which called `PEM_CWDDEPM_QueryPMLogData` with the power object stored before the sleep; its `pem[2]` was already NULL and the library faulted in `PSM_IsIPState` (page fault at 0x27c). The object seen while the GPU sleeps (ppSleep to the end of ppWake) is no longer stored, the stored one is dropped at every wake, and the keeper asks only once the driver read with an object after that wake. It also refuses an object whose `pem[2]`, `pem[3]` or `pem[4]` is NULL, and the pointer is now written before its sleep count and read after it (audit findings K2 and K3).

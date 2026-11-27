@@ -40,31 +40,10 @@ bool snapshot(uint8_t* out, uint64_t* ageNs, uint64_t* samples);
 // the clock the age is taken from can pause while the Mac sleeps.
 void invalidate();
 
-// The keeper (0.9.1): while something is held on the card, GPUSensors asks the
-// library for a sample itself once a second, so the watchdog and the readers
-// have a fresh copy with nothing outside polling. The rate and the decision to
-// run live in pmlog_logic.hpp (keeperStep); kern_control.cpp's worker calls
-// these, on its own thread, with none of its locks held: the library takes
-// PowerPlay's, and it may wait for the power firmware.
-
-// True when there is a power management object to ask: the PMLog function is
-// routed and the driver has read the statistics at least once since the last
-// sleep (a pointer from before a wake may belong to a driver that started
-// over).
-bool canSample();
-
-// One sample: the same call the driver makes, kept only when it succeeded and
-// the library filled the log. False when it could not be asked, when the
-// library refused (the GPU's IP block off, hardware access blocked in a sleep)
-// or when the answer was not a log (an old reading is never kept as a new one).
-bool sampleNow();
-
-// What the keeper did since boot, for ioreg.
-void keeperCounts(uint64_t* tries, uint64_t* samples, uint64_t* refused,
-                  uint32_t* lastResult);
-// What the keeper is doing, in words: "off: nothing held", "on: ..." or why
-// it cannot sample. `held` is GPUControl::holdsAny().
-const char* keeperText(bool held);
+// The kext copies what the driver reads and nothing else (0.9.3): the keeper
+// of 0.9.1 and 0.9.2, which called the library from this kext's own thread, is
+// gone. The app reads the accelerator's PerformanceStatistics at least once a
+// second while it holds something, which is what makes the driver read.
 
 }  // namespace PMLogCopy
 

@@ -23,16 +23,18 @@ void init();
 void onLibrary(KernelPatcher& patcher, size_t index, mach_vm_address_t address,
                size_t size, const char* name);
 
-// How many sleeps started since boot (0.9.1). kern_pmlog.cpp's keeper asks
-// only a power management object that the driver itself used in the current
-// one: a pointer from before a wake may belong to a driver that started over.
+// How many sleeps started since boot (0.9.1). The kext keeps no power
+// management object any more (0.9.3), so nothing here pairs a call with the
+// sleep count of the object it would use; the count still tells a reader
+// whether the kext has seen a sleep.
 uint64_t sleepCount();
 // True from ppSleep's start to the end of ppWake.
 bool inSleep();
 
 // Whether something of the control is on the card and not confirmed stock: a
 // fan curve, a clock or voltage change (an OD8 state), or a raised power limit.
-// This is what the PMLog keeper runs for (0.9.1).
+// The app reads PerformanceStatistics while this is true (0.9.3), so the fan
+// watchdog has fresh readings without the kext calling the library itself.
 bool holdsAny();
 
 // What the control did, for ioreg (rebuilt when read).

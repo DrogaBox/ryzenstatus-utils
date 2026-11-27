@@ -4,12 +4,8 @@
 //  Properties, all rebuilt when read:
 //    Status, StatusCode, Library   what the kext did at boot
 //    AllSensors                    what became of PP_EnableAllPMLogSensors
-//    Keeper                        (0.9.1) the sample the kext takes itself
-//                                  while something is held, or why not
 //    Samples                       good logs copied since boot
 //    SampleAgeMs                   how old the last one is
-//    KeeperState                   (0.9.1) { Tries, Samples, Refused,
-//                                  LastResult } once the keeper tried
 //    Sensors                       { name: value } for the named ids
 //                                  (pmlog_logic.hpp) the card marks supported
 //    Units                         { name: unit } for the same names
@@ -113,7 +109,6 @@ void DrogaBoxGPUSensors::publish() {
   setProperty("StatusCode", static_cast<uint32_t>(status), 32);
   setProperty("Library", PMLogCopy::library());
   setProperty("AllSensors", PMLogCopy::allSensors());
-  setProperty("Keeper", PMLogCopy::keeperText(GPUControl::holdsAny()));
   setProperty("Control", GPUControl::statusText());
   setProperty("Profile", GPUControl::profileText());
   uint32_t profile = 0;
@@ -277,22 +272,6 @@ void DrogaBoxGPUSensors::publish() {
   uint64_t ageNs = 0, samples = 0;
   bool have = PMLogCopy::snapshot(log, &ageNs, &samples);
   setProperty("Samples", samples, 64);
-  uint64_t tries = 0, kept = 0, refused = 0;
-  uint32_t lastResult = 0;
-  PMLogCopy::keeperCounts(&tries, &kept, &refused, &lastResult);
-  if (tries != 0) {
-    auto k = OSDictionary::withCapacity(4);
-    if (k) {
-      putNumber(k, "Tries", tries);
-      putNumber(k, "Samples", kept);
-      putNumber(k, "Refused", refused);
-      putNumber(k, "LastResult", lastResult);
-      setProperty("KeeperState", k);
-      k->release();
-    }
-  } else {
-    removeProperty("KeeperState");
-  }
   // A failed read leaves the previous copy in place; a stale one is removed
   // rather than published as if it were current.
   if (!gpusens::publishable(have, ageNs / 1000000)) {

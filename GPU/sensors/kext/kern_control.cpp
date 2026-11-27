@@ -1201,9 +1201,6 @@ uint64_t earliest(uint64_t a, uint64_t b) {
 // The fan watchdog's readings (worker-only).
 uint8_t wDogLog[gpusens::kLogBytes];
 uint64_t wDogNextMs{0};
-// The PMLog keeper's next sample (work-0.9.1), worker-only.
-uint64_t wKeeperNextMs{0};
-bool wKeeperSaid{false};  // the one log line, once it first worked
 // Whether the watchdog can see now: a fresh PMLog copy with the hotspot (27)
 // and the fan (15).
 bool od8DogSees() {
@@ -1395,25 +1392,6 @@ uint64_t od8DogPass() {
   return 0;
 }
 
-// The PMLog keeper (0.9.1): while something is held, one sample a second, so
-// the fan watchdog and the readers of the kext's properties have a reading
-// about a second old even when nothing outside reads the accelerator's
-// statistics. Returns when to look again (0 = only when signalled).
-uint64_t pmlogPass() {
-  uint64_t now = nowMs();
-  if (!gpusens::keeperStep(GPUControl::holdsAny(), now, &wKeeperNextMs))
-    return 0;
-  // No lock of ours is held here: the library takes PowerPlay's and may wait
-  // for the power firmware, and a driver thread inside a PowerPlay call must
-  // never wait for a lock that this thread holds.
-  if (PMLogCopy::sampleNow() && !wKeeperSaid) {
-    wKeeperSaid = true;
-    SYSLOG("gpusens",
-           "PMLog keeper: one sample a second while something is held");
-  }
-  return wKeeperNextMs;
-}
-
 // The fixed way back after writing went off (gOd8OffBack*). Returns when to
 // look again (0 = only when signalled).
 uint64_t od8OffBackPass() {
@@ -1543,13 +1521,10 @@ uint64_t workerPass() {
     }
     uint64_t offBack = od8OffBackPass();
     if (offBack != 0 && offBack <= nowMs()) continue;
-    // Before the watchdog, so it looks at the sample taken this second.
-    uint64_t keep = pmlogPass();
     uint64_t dog = od8DogPass();
     uint64_t od8 = od8Pass();
     if (od8 != 0 && od8 <= nowMs()) continue;  // a retry is due already
-    return earliest(earliest(deadline, offBack),
-                    earliest(od8, earliest(dog, keep)));
+    return earliest(earliest(deadline, offBack), earliest(od8, dog));
   }
 }
 
