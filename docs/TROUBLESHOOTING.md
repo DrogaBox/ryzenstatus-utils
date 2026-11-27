@@ -63,8 +63,18 @@ Since macOS 15.4, Now Playing reads Music and Spotify by asking them directly, w
 - **The Mac restarts while booting after a kext update.** Add `-amdoff` to OpenCore's boot-args so the CPU kext does not start, or boot your backup EFI; then restore the old kexts. [Updating the AMD kexts](KEXTS.md#4-if-the-mac-does-not-boot) has both steps.
 - **You want to know whether the energy preference reaches the CPU.** Settings › AMD Ryzen › Hardware Validation shows the path it takes (CPPC MSRs or ACPI) and can read the values back from the firmware.
 - **Deep idle cannot be switched on.** The `amdcstate=1` or `-amdnoidle` boot arguments forbid it; remove them and restart.
+- **Two programs fight over fan control.** With kext 3.42.0, programs talking to the CPU kext coordinate fan writes so they no longer undo each other.
 
 If another driver also attaches to the AMD host bridge at 00:00.0 to reach the SMU, the two drivers cannot share a lock, and their SMU mailbox commands could overlap. RyzenStatus checks for that before each of those writes and pauses its own power-limit, Curve Optimizer and preset writes while the other driver is there; sensors and readings keep working. Hardware Validation shows the same warning until the other driver is removed and the Mac restarts.
+
+## AMD Radeon RX 6000 GPU & Video
+
+NVIDIA cards and NullMoth are not supported or tested.
+
+- **GPU control says changes are refused or busy.** Hardware writes need an administrator password via Allow GPU Changes, or the `-amdpnopchk` boot argument. Power limit and OverDrive settings (clocks, fan, voltage) cannot be held at the same time. The hotspot temperature watchdog puts stock settings back and closes changes if hotspot hits 95 °C or if sensor readings stop for 10 seconds.
+- **Only readings show, with no controls to change.** Only the RX 6800 XT writes. The RX 6900 XT is read-only, and other Navi cards are not supported for writes yet. Hardware Validation shows whether GPUSensors.kext is loaded and found a supported card.
+- **Video playback after a system sleep.** GPU decoders (0.3.9) drop in-flight frames during sleep and start clean at the next key frame. If a video player hung after a wake on an older release, update the decoders using the GPU installer.
+- **Safari or apps do not load the video decoders.** The decoders require library validation to be relaxed, either through AMFIPass, VCNVTLoader, an internal CA, or AMFI switched off (`amfi=0x80`, `-amfipassoff`, or `-liluoff`). The GPU installer checks your AMFI configuration and guides the setup.
 
 ## Resetting permissions
 
