@@ -93,6 +93,7 @@ static os_log_t vlog(void) {
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     l = os_log_create("com.droga.vtav1vcn", "driver");
+    if (!l) l = OS_LOG_DEFAULT;
   });
   return l;
 }

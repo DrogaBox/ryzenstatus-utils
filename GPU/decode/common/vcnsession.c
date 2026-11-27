@@ -423,10 +423,15 @@ void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
   }
   // Kept for the line after the close, which runs once the caller is gone.
   char* name = strdup(what ? what : "session");
+  // The reason too, carried the same way: the line after the close prefers it
+  // over "stuck"/"lost", and falls back to those when strdup failed or `why`
+  // was not set.
+  char* whyCopy = why ? strdup(why) : NULL;
   // The log too: the close may give up the caller's last reference to it
   // (destroy_now in vcnlegacy.c does), and the block below logs with it after
-  // the close. This reference is given up on the block's last line.
-  os_retain(log);
+  // the close. This reference is given up on the block's last line. The
+  // default log is a global that must not be retained or released.
+  if (log != OS_LOG_DEFAULT) os_retain(log);
   os_log_error(
       log,
       "%{public}s: %{public}s; closing the session on a background "
@@ -440,10 +445,12 @@ void vcn_teardown(bool stuck, bool lost, os_log_t log, const char* what,
     double t0 = wait_now_ms();
     close();
     os_log_error(log, "%{public}s: %{public}s session closed after %.0f ms",
-                 name ? name : "session", stuck ? "stuck" : "lost",
+                 name ? name : "session",
+                 whyCopy ? whyCopy : (stuck ? "stuck" : "lost"),
                  wait_now_ms() - t0);
     free(name);
-    os_release(log);
+    free(whyCopy);
+    if (log != OS_LOG_DEFAULT) os_release(log);
   });
 }
 

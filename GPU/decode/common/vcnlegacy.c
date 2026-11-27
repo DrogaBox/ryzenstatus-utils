@@ -660,7 +660,7 @@ static void destroy_now(VcnLegacy* d) {
   vcn_session_close(&d->s);
   reg_remove(d);
   if (d->pool) CVPixelBufferPoolRelease(d->pool);
-  if (d->log) os_release(d->log);
+  if (d->log && d->log != OS_LOG_DEFAULT) os_release(d->log);
   free(d->seq);
   free(d->frame);
   free(d->bsinfo);
@@ -723,6 +723,7 @@ VcnLegacy* vcnlegacy_create(const VcnLegacyConfig* cfg, char* err,
   d->log = os_log_create(
       cfg->logSubsystem ? cfg->logSubsystem : "com.droga.vtlegacyvcn",
       "driver");
+  if (!d->log) d->log = OS_LOG_DEFAULT;
   d->seq = calloc(1, SEQ_BYTES);
   d->frame = calloc(1, FRAME_BYTES);
   d->bsinfo = calloc(1, BSINFO_BYTES);
