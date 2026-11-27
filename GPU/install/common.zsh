@@ -95,7 +95,9 @@ gpu_dir_unsafe() { # folder
       mode=$(/usr/bin/stat -f '%Lp' "$d")
       [[ $owner == root ]] || { print -r -- "$d belongs to $owner, not root"; return 0; }
       (( (8#$mode & 8#022) == 0 )) || { print -r -- "$d can be written by others than root (mode $mode)"; return 0; }
-      [[ $(/bin/ls -lde "$d" 2>/dev/null | head -1 | cut -c11) == "+" ]] &&
+      # an entry that also has extended attributes shows @ in the mode column, so look for
+      # the ACL lines ls -lde prints after the first one
+      [[ -n $(/bin/ls -lde "$d" 2>/dev/null | sed -n '2,$p') ]] &&
         { print -r -- "$d has an access control list"; return 0; }
     fi
     d=${d:h}

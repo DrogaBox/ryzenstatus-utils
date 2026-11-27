@@ -374,7 +374,11 @@ for part in $ORDER; do
     if [[ $part == decoders ]] && (( DEC_AFTER_LOADER )); then
       print -r -u2 -- "The loader kext is on the EFI and starts at the next boot. Reboot, then $(pick "run 'sudo install/install.sh' again" "open RyzenStatus GPU and use Install what this Mac needs again"): the decoders go in then."
     fi
-    (( ${#DONE} )) && print -r -u2 -- "Done before it: ${(j:, :)${DONE/#%tools/gpucontrol and gpusensors}}. $(pick "'sudo install/undo.sh'" "Remove all in this window") takes everything off."
+    # spell 'tools' out element-wise: a substitution inside the join operates on the joined
+    # string and would only match a DONE of exactly one element
+    done_names=()
+    for done_p in $DONE; do [[ $done_p == tools ]] && done_p="gpucontrol and gpusensors"; done_names+=($done_p); done
+    (( ${#DONE} )) && print -r -u2 -- "Done before it: ${(j:, :)done_names}. $(pick "'sudo install/undo.sh'" "Remove all in this window") takes everything off."
     exit 1
   fi
   DONE+=($part)
@@ -384,7 +388,8 @@ print
 print -r -- "== check"
 /bin/zsh "$SELF_DIR/check.sh" || true
 print
-done_names=${(j:, :)${DONE/#%tools/gpucontrol and gpusensors}}
+done_names=()
+for done_p in $DONE; do [[ $done_p == tools ]] && done_p="gpucontrol and gpusensors"; done_names+=($done_p); done
 if [[ ${(j: :)DONE} == tools ]]; then
   print -r -- "Installed: $done_names, in /usr/local/bin. They work now; no reboot needed."
 else

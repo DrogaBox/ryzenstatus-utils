@@ -392,7 +392,9 @@ do_uninstall_tools() {
 TOOL_DIR=$GPU_TOOL_DIR
 TOOLS=($GPU_TOOL_NAMES)
 tool_id() { gpu_tool_id "$1"; }
-has_acl() { [[ $(/bin/ls -lde "$1" 2>/dev/null | head -1 | cut -c11) == "+" ]]; }
+# an entry that also has extended attributes shows @ in the mode column, so look for the ACL
+# lines ls -lde prints after the first one
+has_acl() { [[ -n $(/bin/ls -lde "$1" 2>/dev/null | sed -n '2,$p') ]]; }
 tool_dir_unsafe() { gpu_dir_unsafe "$TOOL_DIR"; }
 tool_file_unsound() { # file name
   local f=$1 owner mode

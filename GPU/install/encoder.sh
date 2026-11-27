@@ -57,7 +57,9 @@ JSON=0
 while (( $# )); do
   case $1 in
     --efi)
-      (( $# >= 2 )) && [[ -n $2 ]] || usage_error "--efi needs a partition, for example disk0s1"
+      # the same check install.sh and undo.sh make (auto is resolved later, by resolve_efi)
+      (( $# >= 2 )) && [[ $2 == auto || $2 =~ '^disk[0-9]+s[0-9]+$' ]] ||
+        usage_error "--efi takes a partition like disk0s1, or auto"
       EFI_ID=$2
       shift ;;
     --package)
@@ -411,7 +413,7 @@ do_install() {
   [[ $CAN_INSTALL -eq 1 ]] || { echo "the encoding fix cannot be installed on this Mac (see the checks)" >&2; print -rl -u2 -- "${CHECK_LINES[@]}"; exit 2; }
   local rc
   stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
-  trap stage_cleanup EXIT
+  trap 'enc_cleanup; stage_cleanup' EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     OPEN_ID=$EFI_ID
@@ -442,7 +444,7 @@ do_uninstall() {
   [[ -f $PKG/uninstall.sh ]] || { echo "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")" >&2; exit 1; }
   local rc
   stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
-  trap stage_cleanup EXIT
+  trap 'enc_cleanup; stage_cleanup' EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     # taking the kext off needs no Lilu on that EFI
