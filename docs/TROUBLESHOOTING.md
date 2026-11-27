@@ -71,10 +71,10 @@ If another driver also attaches to the AMD host bridge at 00:00.0 to reach the S
 
 NVIDIA cards and NullMoth are not supported or tested.
 
-- **GPU control says changes are refused or busy.** Hardware writes need an administrator password via Allow GPU Changes, or the `-amdpnopchk` boot argument. Power limit and OverDrive settings (clocks, fan, voltage) cannot be held at the same time. The hotspot temperature watchdog puts stock settings back and closes changes if hotspot hits 95 °C or if sensor readings stop for 10 seconds.
+- **GPU control says changes are refused or busy.** Hardware writes need an administrator password via Allow GPU Changes (`-amdpnopchk` is for the CPU kext and does not open GPU changes). Power limit and OverDrive settings (clocks, fan, voltage) cannot be held at the same time. The hotspot temperature watchdog puts stock settings back and closes changes if hotspot hits 95 °C or if sensor readings stop for 10 seconds.
 - **Only readings show, with no controls to change.** Only the RX 6800 XT writes. The RX 6900 XT is read-only, and other Navi cards are not supported for writes yet. Hardware Validation shows whether GPUSensors.kext is loaded and found a supported card.
 - **Video playback after a system sleep.** GPU decoders (0.3.9) drop in-flight frames during sleep and start clean at the next key frame. If a video player hung after a wake on an older release, update the decoders using the GPU installer.
-- **Safari or apps do not load the video decoders.** The decoders require library validation to be relaxed, either through AMFIPass, VCNVTLoader, an internal CA, or AMFI switched off (`amfi=0x80`, `-amfipassoff`, or `-liluoff`). The GPU installer checks your AMFI configuration and guides the setup.
+- **Safari or apps do not load the video decoders.** The decoders are ad-hoc signed, so macOS must accept them: with AMFIPass active, with the VCNVTLoader kext, or with AMFI switched off (`amfi=0x80`). `-amfipassoff` or `-liluoff` switch AMFIPass off, and then the loader or `amfi=0x80` is needed. The GPU installer reads your setup and tells you which one applies.
 
 ## Resetting permissions
 
