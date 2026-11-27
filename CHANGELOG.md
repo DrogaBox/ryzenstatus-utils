@@ -9,16 +9,25 @@
 - **A sleep in the middle of a frame**: when the Mac slept while a frame was on the GPU, AV1 and VP9 video stopped with an error right after the wake. That frame is now dropped and the decoder starts over at the next key frame, and the first frame on it gets the longer limit a GPU coming out of a sleep needs.
 - **MPEG-2, VC-1 and MPEG-4 after a sleep**: these decoders now live through a sleep too. The pictures up to the next I picture are dropped without an error and the video carries on from there.
 - **VP9 with references of another size**: a frame that predicts from a picture more than twice as small (spatial SVC streams) is refused instead of showing a wrong picture, and a frame that fails no longer leaves AV1 or VP9 decoding the next frames against older pictures.
+- **A session that ends starts clean**: ending an MPEG-2, VC-1 or MPEG-4 session clears the picture dropping a sleep rebuild uses, so a video that stops and plays again does not keep dropping pictures from the old session; the rebuild after a sleep turns that dropping back on as before.
+- **A rebuild that fails after a sleep closes the session cleanly**: when AV1 or VP9 cannot recreate its GPU context after the wake, the session is closed on the background queue like every other close, never from the decode thread.
+- **A stream with no I picture after a sleep stops instead of dropping forever**: MPEG-2, VC-1 and MPEG-4 now fail with a device failure after 600 pictures dropped without an I picture, like AV1 and VP9 already do, so the player can hand the stream to another decoder.
+- **A reference of another bit depth** (AV1): a frame whose reference picture is another bit depth is refused instead of asking the driver to rebuild its picture buffers underneath a running frame (the same check VP9 makes of its references).
+- **A cut-short sequence header** (AV1): a sequence header that fails to parse leaves the stored one in place instead of emptying it mid-stream.
+- **A VP9 profile that does not match the stream's bit depth**: such a frame is refused, and the stream's bit depth stays as the stream set it.
+- The line written after a queued session close now carries the reason the session was dropped (for example "the system slept since it opened") instead of calling every dropped session stuck or lost, and a decoder that cannot create its log falls back to the system's default log.
 
 ### GPU sensors (0.9.2)
 
 - **Fresh readings while a setting is held**: with a fan curve, a clock or voltage change or a raised power limit held, GPUSensors takes the card's readings itself once a second, so the temperature watchdog keeps working when nothing else is reading the card. Nothing extra is asked of the card while nothing is held.
 - **No crash after a sleep**: the reading the kext takes itself no longer uses the power object it saw before a sleep. Loading a GPU profile some minutes after a wake could crash the Mac; now the kext waits until the driver reads the card again after the wake.
 - RyzenStatus finds the card's accelerator by the driver's real class name, so the statistics it reads from it refresh again.
+- The number of AMD GPUs the kext reports was read through the wrong channel and always came back 0, so the GPU temperatures and powers the kext publishes were never taken. The count is now read as the scalar the kext answers with.
 
 ### GPU control (needs GPUSensors.kext)
 
 - **Zero RPM**: the switch goes out together with the held fan curve, and it is checked against the whole state the card will get. When that state is refused, the reason shows next to the switch.
+- **The refusal note follows the card**: when a later reading would let the held state go out, the note next to the Zero RPM switch clears by itself; while the state is still refused, the note stays.
 
 ### GPU installer
 
@@ -26,6 +35,23 @@
 - Building the install plan no longer says that a password is coming; only the steps that need one do.
 - The installer carries 1.90.1's install scripts and all the decoders (AV1, VP9, MPEG-2, VC-1, MPEG-4, Motion JPEG).
 - Every command the installers run is now checked before a release, so a tool missing on macOS (1.90.0's `/usr/bin/chown`) cannot ship again.
+- **Interrupting the EFI search leaves nothing mounted**: the installer mounts EFI partitions to look inside them for OpenCore; interrupting it between the mount and the unmount used to leave the partition mounted. The interrupt now unmounts it like a normal end of the run.
+- **An interrupted encoding fix run cleans up after itself**: the exit cleanup was set inside the install step and stopped at its first function call, so a failed or interrupted run left the staged package copy in `/private/tmp`. One top-level trap now unmounts the EFI and removes the staged copy however the run ends.
+- **The encoding fix's `--efi` is validated**: a value that is not a partition like `disk0s1` or `auto` is rejected with a usage message before anything is opened.
+- **The undo plan leaves the encoding fix alone when OpenCore's start partition is not an EFI partition**: the plan skips the encoding fix step and says to run it by hand with `--efi diskNsM`, instead of searching other EFI partitions for it.
+- **Access control lists are seen on folders that also carry extended attributes**: the folder checks read the wrong column of the listing when an entry showed `@`, so an ACL slipped past; the checks now look at the ACL lines themselves.
+- **The parts already installed are named right**: when an install stops partway, the "Done before it:" line now spells the tools entry out (`gpucontrol and gpusensors`) beside the other parts instead of printing `tools`.
+- **An aborted kext removal keeps its record**: when the EFI kext remover stops because config.plist cannot be edited, its install record is not deleted, so a later check still reports the kext as installed on that EFI.
+- **The sensors uninstaller says when its record could not be written**: until the restart, the check cannot tell the kext was removed here; the uninstaller prints that note when the record write fails.
+
+### AMD Ryzen Power
+
+- **Per-CCD and all-core clock overrides report success again**: the kext answers those writes with eight values, and with no room reserved for them the call came back failed even though the write had already gone through. Both write paths reserve the room now.
+- Auto EPP no longer stalls the interface while it sets or lifts the idle clock limit.
+
+### Fans
+
+- **The manual fan's thermal guard survives App Nap**: with every RyzenStatus window closed, macOS could coalesce the timer that watches the temperature while a manual fan curve is held. The app holds an App Nap activity while that guard polls and lets it go when the poll stops; system sleep is still allowed.
 
 ## [1.90.0] — 2026-11-26 — kexts 3.42.0 (No kext changes)
 
