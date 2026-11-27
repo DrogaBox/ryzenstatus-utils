@@ -11303,7 +11303,7 @@ struct MetricsTests {
         expect(!kextCppC6.contains("write_msr(kMSR_CSTATE_ADDR, 0xf0)"),
                "the kext never overwrites the firmware C-state address")
         let pmIdle = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/pmAMDRyzen.c")
-        expect(pmIdle.contains("(void)inb((uint16_t)c6Port);") && pmIdle.contains("if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0) return;"),
+        expect(pmIdle.contains("(void)inb((uint16_t)c6Port);") && pmIdle.contains("if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0 || !pmRyzen_p1_ready) return;"),
                "CC6 idle enters through the C-state port and Zen 3+ never steps P-states")
         let kextHppS9d = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(kextHppS9d.contains("bool runMailboxDiagnostics(SMUDiagnosticReport &out);"),
