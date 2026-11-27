@@ -338,7 +338,12 @@ fi
 (( PLAN )) && exit 0
 
 # ---- the EFI, once for every part that needs it ----------------------------------------------
+# The EXIT trap does not run when the shell is killed by an untrapped signal, and
+# efi_find_opencore below mounts partitions to look inside them: catch the
+# signals too, or an interrupt between its mount and its unmount leaves the
+# partition mounted. Same shape as encoder.sh and efikext.zsh.
 trap '[[ -n $OPEN_ID ]] && efi_close "$OPEN_ID"' EXIT
+trap '[[ -n $OPEN_ID ]] && efi_close "$OPEN_ID"; OPEN_ID=""; exit 130' INT TERM HUP
 if needs_efi && [[ -z $EFI_ID ]]; then
   if efi_find_opencore; then
     EFI_ID=$EFI_FOUND
