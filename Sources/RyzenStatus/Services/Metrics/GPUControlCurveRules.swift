@@ -51,7 +51,7 @@ enum GPUControlCurveRules {
     /// answers as 0.8.0 for the first 100 lines of `curve-cases.jsonl`; the
     /// lines after them are its GFX minimum cases, then (the same 0.9.0) its
     /// GFX voltage and overclock cases, after the first 120.
-    static let checkedReleases: Set<String> = ["080", "081", "090", "091"]
+    static let checkedReleases: Set<String> = ["080", "081", "090", "091", "092"]
 
     /// The kext build is one this copy was checked against. Neither the
     /// editor nor a remembered fan state sends anything to another build.

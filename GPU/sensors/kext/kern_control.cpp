@@ -1670,6 +1670,9 @@ void startWriting(const char* library) {
 uint64_t GPUControl::sleepCount() {
   return __atomic_load_n(&gSleepGen, __ATOMIC_RELAXED);
 }
+bool GPUControl::inSleep() {
+  return __atomic_load_n(&gInSleep, __ATOMIC_SEQ_CST) != 0;
+}
 
 // The same "something of ours is on the card" the fan watchdog runs on
 // (od8DogPass): an OD8 state not confirmed stock, or a power limit above the

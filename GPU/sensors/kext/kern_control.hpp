@@ -27,6 +27,8 @@ void onLibrary(KernelPatcher& patcher, size_t index, mach_vm_address_t address,
 // only a power management object that the driver itself used in the current
 // one: a pointer from before a wake may belong to a driver that started over.
 uint64_t sleepCount();
+// True from ppSleep's start to the end of ppWake.
+bool inSleep();
 
 // Whether something of the control is on the card and not confirmed stock: a
 // fan curve, a clock or voltage change (an OD8 state), or a raised power limit.

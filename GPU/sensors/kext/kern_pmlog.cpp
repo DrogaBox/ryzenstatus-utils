@@ -136,9 +136,15 @@ static uint32_t wrapQuery(void* pem, void* in, void* out) {
   if (result == 0 && out != nullptr) keep(out);
   // The object the driver is using now: the keeper asks the same one, and only
   // one seen in the current sleep count.
-  if (pem != nullptr) {
-    __atomic_store_n(&gPemGen, GPUControl::sleepCount(), __ATOMIC_RELEASE);
+  // Not while the GPU sleeps (ppSleep to the end of ppWake): an object read
+  // then may be gone after the wake, and the keeper once called the library
+  // with one whose pem[2] was already NULL (panic in PSM_IsIPState,
+  // 2026-11-27). The pointer goes first and the generation second, so a
+  // reader that loads the generation first never pairs a new generation with
+  // an old pointer.
+  if (pem != nullptr && !GPUControl::inSleep()) {
     __atomic_store_n(&gPem, pem, __ATOMIC_RELEASE);
+    __atomic_store_n(&gPemGen, GPUControl::sleepCount(), __ATOMIC_RELEASE);
   }
   return result;
 }
@@ -376,6 +382,9 @@ bool PMLogCopy::snapshot(uint8_t* out, uint64_t* ageNs, uint64_t* samples) {
 }
 
 void PMLogCopy::invalidate() {
+  // The object seen before the sleep is not trusted after it: the keeper waits
+  // for the driver's own read after the wake.
+  __atomic_store_n(&gPem, static_cast<void*>(nullptr), __ATOMIC_RELEASE);
   if (gLock == nullptr) return;
   IOSimpleLockLock(gLock);
   gValid = false;
@@ -392,22 +401,32 @@ static uint64_t gKeeperKept{0};
 static uint64_t gKeeperRefused{0};
 static uint32_t gKeeperResult{0};
 
-bool PMLogCopy::canSample() {
-  if (gStatus != Status::Active || gActiveLib >= arrsize(kHWLibs) ||
-      orgQuery[gActiveLib] == nullptr)
-    return false;
-  // The sleep count is read before and after the object: a sleep that starts
-  // in between makes the two differ, and the keeper then waits for the driver's
-  // own read after that wake.
+// The object the keeper may ask with, or nullptr. The sleep count is read
+// before and after: a sleep that starts in between makes the two differ, and
+// the keeper then waits for the driver's own read after that wake. The three
+// words the library reads first (pem[2], pem[3], pem[4]) must be set: if one is
+// NULL the object is not one the library can use now, and the keeper does not
+// ask (the library itself would fault on pem[2], see wrapQuery).
+static void* pemNow() {
+  if (gStatus != PMLogCopy::Status::Active || gActiveLib >= arrsize(kHWLibs) ||
+      orgQuery[gActiveLib] == nullptr || GPUControl::inSleep())
+    return nullptr;
   uint64_t before = GPUControl::sleepCount();
-  void* pem = __atomic_load_n(&gPem, __ATOMIC_ACQUIRE);
   uint64_t seen = __atomic_load_n(&gPemGen, __ATOMIC_ACQUIRE);
-  return pem != nullptr && seen == before && GPUControl::sleepCount() == before;
+  void* pem = __atomic_load_n(&gPem, __ATOMIC_ACQUIRE);
+  if (pem == nullptr || seen != before || GPUControl::sleepCount() != before)
+    return nullptr;
+  void* const* words = static_cast<void* const*>(pem);
+  if (words[2] == nullptr || words[3] == nullptr || words[4] == nullptr)
+    return nullptr;
+  return pem;
 }
 
+bool PMLogCopy::canSample() { return pemNow() != nullptr; }
+
 bool PMLogCopy::sampleNow() {
-  if (!canSample()) return false;
-  void* pem = __atomic_load_n(&gPem, __ATOMIC_ACQUIRE);
+  void* pem = pemNow();
+  if (pem == nullptr) return false;
   t_query org = orgQuery[gActiveLib];
   // The library clears the log itself once it gets to the hardware
   // (PECI_ClearMemory, AMDRadeonX6000HWLibs 0xf6390); zeroing here covers the

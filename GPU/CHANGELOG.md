@@ -2,6 +2,11 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.9.2 (host tests only, not booted)
+
+- **Kernel panic after a sleep (found on this Mac, 2026-11-27)**: a GPU profile loaded about five minutes after a wake started the keeper, which called `PEM_CWDDEPM_QueryPMLogData` with the power object stored before the sleep; its `pem[2]` was already NULL and the library faulted in `PSM_IsIPState` (page fault at 0x27c). The object seen while the GPU sleeps (ppSleep to the end of ppWake) is no longer stored, the stored one is dropped at every wake, and the keeper asks only once the driver read with an object after that wake. It also refuses an object whose `pem[2]`, `pem[3]` or `pem[4]` is NULL, and the pointer is now written before its sleep count and read after it (audit findings K2 and K3).
+- The app's checked releases gain 092.
+
 ## Decoders 0.3.9 (not released; host tests only)
 
 - The MPEG-2, VC-1 and MPEG-4 decoders now live through a system sleep the way AV1 and VP9

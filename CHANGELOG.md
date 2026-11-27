@@ -2,7 +2,7 @@
 
 ## [1.90.1] — 2026-11-26 — kexts 3.42.0 (No kext changes)
 
-**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.1.
+**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.2.
 
 ### GPU decoders (0.3.9)
 
@@ -10,9 +10,10 @@
 - **MPEG-2, VC-1 and MPEG-4 after a sleep**: these decoders now live through a sleep too. The pictures up to the next I picture are dropped without an error and the video carries on from there.
 - **VP9 with references of another size**: a frame that predicts from a picture more than twice as small (spatial SVC streams) is refused instead of showing a wrong picture, and a frame that fails no longer leaves AV1 or VP9 decoding the next frames against older pictures.
 
-### GPU sensors (0.9.1)
+### GPU sensors (0.9.2)
 
 - **Fresh readings while a setting is held**: with a fan curve, a clock or voltage change or a raised power limit held, GPUSensors takes the card's readings itself once a second, so the temperature watchdog keeps working when nothing else is reading the card. Nothing extra is asked of the card while nothing is held.
+- **No crash after a sleep**: the reading the kext takes itself no longer uses the power object it saw before a sleep. Loading a GPU profile some minutes after a wake could crash the Mac; now the kext waits until the driver reads the card again after the wake.
 - RyzenStatus finds the card's accelerator by the driver's real class name, so the statistics it reads from it refresh again.
 
 ### GPU control (needs GPUSensors.kext)
