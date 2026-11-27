@@ -472,14 +472,17 @@ static void ccdInstall(KernelPatcher &patcher) {
     gGetThreadTask = reinterpret_cast<get_threadtask_t>(gtt);
     gCpuNumber = reinterpret_cast<cpu_number_t>(cpuNum);
     gKernelTask = *kernelTask;
-    mach_vm_address_t org = patcher.routeFunction(fn, reinterpret_cast<mach_vm_address_t>(ccdChooseStartingPset), true);
-    if (patcher.getError() != KernelPatcher::Error::NoError || !org) {
+    // routeMultiple, not routeFunction: Lilu stores the original in gOrg BEFORE it writes the jump
+    // (kern_patcher.cpp routeFunctionInternal, "to avoid null pointer dereference"). With routeFunction
+    // gOrg was set after the route was live, and a CPU entering the hook in between called a null pointer.
+    KernelPatcher::RouteRequest req("_choose_starting_pset", ccdChooseStartingPset, gOrg);
+    if (!patcher.routeMultiple(KernelPatcher::KernelID, &req, 1) || !gOrg) {
         gState = 4;
-        ccdLog("routeFunction failed (%d)", static_cast<int>(patcher.getError()));
+        ccdLog("routeMultiple failed (%d)", static_cast<int>(patcher.getError()));
         patcher.clearError();
         return;
     }
-    gOrg = reinterpret_cast<choose_starting_pset_t>(org);
+    if (req.from != fn) ccdLog("warning: routed %llx, checked %llx", (unsigned long long)req.from, (unsigned long long)fn);
     gState = 1;
     ccdLog("installed: %s layout, %d processor sets, mode %d", gL.name, gPsets, gMode);
 }

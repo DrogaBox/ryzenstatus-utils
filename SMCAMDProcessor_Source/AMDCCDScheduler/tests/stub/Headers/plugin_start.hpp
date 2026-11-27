@@ -23,6 +23,15 @@ struct KernelPatcher {
     void clearError() {}
     Error getError() { return Error::NoError; }
     mach_vm_address_t routeFunction(mach_vm_address_t, mach_vm_address_t, bool) { return 0; }
+    struct RouteRequest {
+        const char *symbol {nullptr};
+        mach_vm_address_t from {0}, to {0};
+        mach_vm_address_t *org {nullptr};
+        template <typename T, typename O>
+        RouteRequest(const char *s, T t, O &o) :
+            symbol(s), to(reinterpret_cast<mach_vm_address_t>(t)), org(reinterpret_cast<mach_vm_address_t *>(&o)) {}
+    };
+    bool routeMultiple(size_t, RouteRequest *, size_t) { return false; }
 };
 enum class LiluAPI { AllowNormal };
 enum class KernelVersion { Sonoma, Tahoe };
