@@ -3346,19 +3346,40 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
     // Vet the definitions once, here in thread context, with the same
     // 400 MHz floor in integer form: Zen 5 runs at FID * 5 MHz, earlier
     // families at FID / DfsId * 200 MHz. The rendezvous only writes.
-    // CpuVid [21:14] is clamped to the firmware P0's own VID: a lower VID
-    // asks the SMU for MORE core voltage than the firmware ever programs,
-    // and no caller of this selector validated that field. Undervolting
-    // (a higher VID, less voltage) stays possible. The firmware's P0 is read
-    // once, before the first write: clamping to the live P0 would leave an
-    // undervolted P0 unable to go back to stock until a reboot.
+    // CpuVid [21:14] is clamped to the firmware's most-voltage enabled
+    // P-state: P0 when it is enabled (the normal case), otherwise the
+    // lowest VID among the enabled states, so a board with P0 disabled
+    // (e.g. CPB off) still gets a real cap. A lower VID asks the SMU for
+    // MORE core voltage than the firmware ever programs, and no caller of
+    // this selector validated that field. Undervolting (a higher VID, less
+    // voltage) stays possible. The cap is read once, before the first
+    // write: clamping to the live P0 would leave an undervolted P0 unable
+    // to go back to stock until a reboot. With no enabled state readable at
+    // all there is no way to vet VID, so the write is refused instead of
+    // passing raw definitions through (fail closed).
     uint64_t defs[kMSR_PSTATE_LEN] = {};
     if (!firmwareP0VidKnown) {
-        uint64_t p0Def = 0;
-        if (read_msr(kMSR_PSTATE_0, &p0Def) && (p0Def >> 63)) {
-            firmwareP0Vid = (p0Def >> 14) & 0xFFULL;
-            firmwareP0VidKnown = true;
+        uint64_t capVid = 0;
+        bool haveAny = false;
+        for (uint32_t i = 0; i < kMSR_PSTATE_LEN; i++) {
+            uint64_t d = 0;
+            if (!read_msr(kMSR_PSTATE_0 + i, &d) || !(d >> 63)) continue;
+            const uint64_t vid = (d >> 14) & 0xFFULL;
+            if (!haveAny || vid < capVid) {
+                capVid = vid;
+                haveAny = true;
+            }
         }
+        if (!haveAny) {
+            static bool loggedNoVidCap = false;
+            if (!loggedNoVidCap) {
+                loggedNoVidCap = true;
+                IOLog("AMDRyzenCPUPowerManagement::writePstate refused: no enabled P-state readable, VID clamp unavailable\n");
+            }
+            return;
+        }
+        firmwareP0Vid = capVid;
+        firmwareP0VidKnown = true;
     }
     const bool haveP0 = firmwareP0VidKnown;
     const uint64_t p0Vid = firmwareP0Vid;
@@ -3626,10 +3647,17 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     // the last duty indefinitely. Re-judge the package temperature here, on
     // every sensor tick, and raise any fan still under a client's manual
     // control that sits below the guard while the CPU is hot. The duty and
-    // the control mode come from the telemetry refreshed at the top of this
-    // tick. Curve fans get the same guard further below; fans the user
+    // the control mode are read from the chip right here (see below). Curve fans get the same guard further below; fans the user
     // handed back to the BIOS (selector 96 / auto mode) are left alone.
     if (isTempValid(cpuTemp) && cpuTemp >= kTHERMAL_GUARD_TEMP_C) {
+        // Judge on the chip's live control mode and duty, not on the shared
+        // telemetry cache: that cache is at most kFAN_TELEMETRY_MIN_INTERVAL_MS
+        // old and selector 95/96 write the registers under superIOLock without
+        // refreshing it, so right after either it can still show a duty the
+        // client has since raised above the guard (knocking it back down) or a
+        // manual mode the user has since handed back to the BIOS (grabbing the
+        // fan back). One extra register-read burst per tick, only while hot.
+        superIO->updateFanControl();
         for (int fanIdx = 0; fanIdx < fanCount && fanIdx < (int)kMAX_FANS; fanIdx++) {
             const int8_t manualCurve = fanToCurveMap[fanIdx];
             if (manualCurve >= 0 && manualCurve < MAX_FAN_CURVES) continue;   // curve fan

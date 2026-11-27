@@ -476,7 +476,11 @@ static void ccdInstall(KernelPatcher &patcher) {
     // (kern_patcher.cpp routeFunctionInternal, "to avoid null pointer dereference"). With routeFunction
     // gOrg was set after the route was live, and a CPU entering the hook in between called a null pointer.
     KernelPatcher::RouteRequest req("_choose_starting_pset", ccdChooseStartingPset, gOrg);
-    if (!patcher.routeMultiple(KernelPatcher::KernelID, &req, 1) || !gOrg) {
+    // Lilu can report the route as done with gOrg written and no jump in place (a failed patch
+    // allocation or memory protection change after the trampoline): it leaves the error code set then.
+    patcher.clearError();
+    if (!patcher.routeMultiple(KernelPatcher::KernelID, &req, 1) || !gOrg
+        || patcher.getError() != KernelPatcher::Error::NoError) {
         gState = 4;
         ccdLog("routeMultiple failed (%d)", static_cast<int>(patcher.getError()));
         patcher.clearError();
