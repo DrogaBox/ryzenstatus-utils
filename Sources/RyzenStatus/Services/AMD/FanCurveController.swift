@@ -38,6 +38,11 @@ final class FanCurveController: ObservableObject {
     // MARK: - Internal Synchronization & Storage
 
     private var pollTimer: Timer?
+    /// Activity assertion held while the poll timer runs with every window
+    /// closed: without it App Nap may coalesce the timer that carries the
+    /// manual-mode thermal guard (the kext's 85 °C clamp only fires on a
+    /// write, and a manual fan is never touched by the curve loop).
+    private var pollActivity: (any NSObjectProtocol)?
     /// The full fan read (names included). Polls wait for it instead of
     /// cancelling it, so a slow first read always lands.
     private var refreshTask: Task<Void, Never>?
@@ -942,9 +947,20 @@ final class FanCurveController: ObservableObject {
             pollTimer = nil
             pollTask?.cancel()
             pollTask = nil
+            if let pollActivity {
+                ProcessInfo.processInfo.endActivity(pollActivity)
+                self.pollActivity = nil
+            }
             // Nothing refreshes it any more; a later hint must not show it.
             lastPackageTempC = nil
             return
+        }
+        if pollActivity == nil {
+            // No App Nap while the guard polls; system sleep is still allowed
+            // (the willSleep observer suspends the poll for that).
+            pollActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "RyzenStatus manual-fan thermal guard")
         }
         if let pollTimer, pollTimer.isValid, pollTimer.timeInterval == interval { return }
         pollTimer?.invalidate()
