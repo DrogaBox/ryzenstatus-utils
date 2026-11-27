@@ -77,6 +77,10 @@ struct SensorsCheck: Decodable {
     /// This version is on the EFI and the next boot loads it (an older one, or none, runs
     /// now): nothing to install.
     let pendingReboot: Bool?
+    /// What the record of this boot session says waits for the restart: "install",
+    /// "remove" (the kext was taken off the EFI here and still runs until the reboot) or
+    /// "none". Absent from a check that predates it.
+    let pending: String?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -425,6 +429,10 @@ final class Engine: ObservableObject {
             phase = .failed("Select the GPU tools folder to check this Mac.")
             return
         }
+        // After an action the footer keeps what the action came to: the check runs to
+        // refresh the rows, and leaving the phase at `.checking` kept the window (and
+        // its buttons) in the middle of a check that had already finished.
+        let phaseBefore = phase
         phase = .checking
         if !preserveOutput {
             lastOutput = ""
@@ -473,7 +481,7 @@ final class Engine: ObservableObject {
                         : "Could not read one or more check results from install/.")
                 } else {
                     self.suggestion = OptionalSuggestion(encoder: enc, sensors: sns)
-                    if !preserveOutput { self.phase = .idle }
+                    self.phase = preserveOutput ? phaseBefore : .idle
                 }
             }
         }
@@ -1186,6 +1194,9 @@ struct ContentView: View {
         if let sns = engine.sensors {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
+            // Taken off the EFI in this boot session: the kext that still runs is not
+            // installed any more, and the restart finishes the removal.
+            let removed = sns.pending == "remove"
             // The EFI copy is this build's and it runs, or it loads at the next boot: nothing
             // to update.
             let upToDate = (sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:"))
@@ -1194,7 +1205,7 @@ struct ContentView: View {
             let toolsOnly = sns.toolsOnly == true
             // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
             // takes just those.
-            let kextThere = onEfi || loaded || sns.pendingReboot == true
+            let kextThere = (onEfi || loaded || sns.pendingReboot == true) && !removed
             let toolsInstalled = sns.toolsInstalled == true
             let installTitle: String = {
                 if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
@@ -1208,6 +1219,7 @@ struct ContentView: View {
             ComponentSection(
                 title: "GPU sensors",
                 subtitle: {
+                    if removed { return "Removed — goes away after the next restart" }
                     if !kextThere && !toolsInstalled { return "Optional — not installed" }
                     if sns.pendingReboot == true { return "Optional — installed, starts after the next restart" }
                     if toolsOnly || engine.suggestion?.sensors == true { return "Optional — update ready" }
