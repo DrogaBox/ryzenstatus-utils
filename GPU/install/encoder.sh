@@ -380,7 +380,11 @@ emit_check() {
 # The partition a run mounted (OPEN_ID, in common.zsh) is unmounted again however the run
 # ends.
 enc_cleanup() { [[ -n $OPEN_ID ]] && efi_close "$OPEN_ID"; OPEN_ID=""; }
-trap enc_cleanup EXIT
+# One function as the only element, at the top level: a trap list set inside a function stops at its
+# first function call when an exit unwinds through it (emulate -L zsh = local traps), and the staged
+# copy was left in /private/tmp. Both are no-ops until something is opened or staged.
+enc_exit_cleanup() { enc_cleanup; stage_cleanup }
+trap enc_exit_cleanup EXIT
 trap 'enc_cleanup; exit 130' INT TERM HUP
 
 # --efi auto: find the partition now, or stop before anything is changed.
@@ -413,7 +417,6 @@ do_install() {
   [[ $CAN_INSTALL -eq 1 ]] || { echo "the encoding fix cannot be installed on this Mac (see the checks)" >&2; print -rl -u2 -- "${CHECK_LINES[@]}"; exit 2; }
   local rc
   stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
-  trap 'enc_cleanup; stage_cleanup' EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     OPEN_ID=$EFI_ID
@@ -444,7 +447,6 @@ do_uninstall() {
   [[ -f $PKG/uninstall.sh ]] || { echo "$(pick "no VCNEncodeFix package in $PKG; build it with encode/build.sh" "no VCNEncodeFix package inside RyzenStatus GPU.app; $APP_DAMAGED")" >&2; exit 1; }
   local rc
   stage_package "$PKG" || { echo "cannot verify a root-owned copy of the encoding fix package" >&2; exit 1; }
-  trap 'enc_cleanup; stage_cleanup' EXIT
   resolve_efi
   if [[ -n "$EFI_ID" ]]; then
     # taking the kext off needs no Lilu on that EFI
