@@ -57,6 +57,30 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 - A frame that fails, in VP9 and AV1, empties the reference slots it should have refreshed,
   so the frames that predict from them are refused ("missing reference") until a frame
   refreshes those slots, instead of decoding against older pictures.
+- In AV1 and VP9, a `CreateContexts` failure during the rebuild after a sleep closes the
+  session on the background teardown queue, like the success path does, never on the decode
+  thread (24d1300a).
+- Ending a session in MPEG-2, MPEG-4 and VC-1 now also clears its ramping state and dropped
+  count; the sleep rebuild still sets ramping again right after it (24d1300a).
+- The MPEG-2, MPEG-4 and VC-1 rebuilds after a sleep are bounded like the AV1 and VP9 ones:
+  a stream that sends no intra picture is stopped as a device failure after 600 dropped
+  frames, so the host can hand it to another decoder, instead of dropping pictures for as
+  long as the stream goes without one (7e9c2940).
+- The AV1 decoder refuses a reference picture of another bit depth than the frame (the
+  sequence header changed mid-stream, and with it the depth the DPB is allocated at), failed
+  like a missing reference so the host can recover, as VP9 already did (7e9c2940).
+- The AV1 parser keeps the sequence header it has when a new one is refused (one cut short,
+  say), so frames after it still parse with the stored header; a different valid header
+  replaces it (0e6e5df5).
+- The VP9 parser refuses a frame whose profile does not match the stream's bit depth (a
+  profile 0 frame after a 10-bit profile 2 key frame, say), with the stream's depth as it
+  was; libvpx ties the depth to the profile the same way (0e6e5df5).
+- A queued close's log lines now say why the session was closed, not just "stuck" or
+  "lost", so a session dropped after a sleep is logged with its real reason (7e9c2940,
+  4e5fc126). The queued close keeps its own reference to the log it logs with (the close may
+  give up the caller's last one) and never retains or releases the default log; where
+  `os_log_create` returns nothing, the AV1, VP9 and legacy decoders fall back to that
+  default log (7e9c2940, 4e5fc126).
 
 ## Decoders 0.3.8 (not released; host tests only)
 
@@ -490,6 +514,30 @@ made-up driver.
 
 ## Installers and gpusensors (not released)
 
+- `encoder.sh --efi` now takes only a partition like `disk0s1` or `auto`, the check
+  `install.sh` and `undo.sh` already make; anything else stops with a usage error before
+  anything is changed (b8e36c28).
+- `undo.sh` no longer takes another EFI in the place of the one OpenCore started from when
+  that is not an EFI partition: the encoder step is left out of the plan and the printout
+  says to run `install/encoder.sh uninstall --efi diskNsM` by hand (b8e36c28).
+- The access-control-list checks of `common.zsh` (`gpu_dir_unsafe`) and `sensors.sh` see an
+  entry that also has extended attributes: they look at the ACL lines `ls -lde` prints after
+  the first one, where an `@` for the attributes used to hide the `+` for the ACL (b8e36c28).
+- The "Done before it:" line of `install.sh` spells "gpucontrol and gpusensors" out for the
+  `tools` part itself, so the list names every part however many ran before; the old
+  substitution inside the join only matched a list of exactly one (b8e36c28).
+- `efikext.zsh` removes a kext's install record only after the `config.plist` check that can
+  still stop the uninstall, so a run that changes nothing leaves the record, and `check`'s
+  answer with it, as it was (b8e36c28).
+- `encoder.sh` cleans up through one exit trap at the top of the script: the one it set
+  inside `do_install`/`do_uninstall` was function-local and stopped at its first function
+  call when an exit unwound through it, so the staged copy of the package stayed in
+  `/private/tmp` on every failed or interrupted run (64de787e).
+- `sensors.sh uninstall` says so when it cannot write the removal record: until the restart,
+  `check` cannot tell the kext was removed here (24d1300a).
+- `install.sh` unmounts the EFI partition it mounted while looking for OpenCore when the run
+  is stopped with Ctrl-C (or killed) during that search, instead of leaving it mounted
+  (74f6d771).
 - `decoders.sh install` and `repair` copy each plug-in under another name, check it, and only
   then put it in place of the old one: a copy that fails half way leaves the installed plug-in
   as it was. The system volume they mount is unmounted again when they end.
