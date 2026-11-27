@@ -71,6 +71,9 @@ pmDispatch_t pmRyzen_cpuFuncs = {
 // MSR_PSTATE_CTL write happens, whatever limit the app sets later.
 static volatile int pmRyzen_p1_ready = 0;
 
+// Read from C++: applyPowerControl refuses MSR_PSTATE_CTL while the gate is closed.
+int pmRyzen_p1_gate(void){ return pmRyzen_p1_ready; }
+
 int pmRyzen_init_PState(void){
     // P1 = 80% of P0 by default. Override via boot-arg `amdpp1ratio=0.75` etc.
     // Integer percent: the SSE state belongs to the current thread, and float
@@ -114,7 +117,7 @@ int pmRyzen_init_PState(void){
 
 static inline void set_PState(pmProcessor_t *cpu, uint8_t state){
     // Zen 3+ never writes MSR_PSTATE_CTL, whatever PPM/LPM ask for.
-    if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0 || !pmRyzen_p1_ready) return;
+    if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0 || (!pmRyzen_p1_ready && state != 0)) return;
     if (state >= 8) state = 7;
     if (state > pmRyzen_pstatelimit) state = (uint8_t)pmRyzen_pstatelimit;
     if(cpu->PState == state) return;

@@ -1350,6 +1350,12 @@ void AMDRyzenCPUPowerManagement::applyPowerControl(){
         }
         return;
     }
+    // The gate set_PState honors: with P1 never rewritten to a checked
+    // definition, selector 10 must not step the cores into it either.
+    if (!pmRyzen_p1_gate()) {
+        IOLog("AMDRyzenCPUPowerManagement::applyPowerControl ignored - P1 not a checked definition\n");
+        return;
+    }
 
     IOLockLock(rendezvousLock);
     mp_rendezvous(nullptr, [](void *obj) {
