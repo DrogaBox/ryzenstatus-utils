@@ -74,6 +74,12 @@ enum GPUControlCurveRules {
     /// says to install the GPU package again. Auto-update replaces the app but
     /// not the GPU package, so this happens to anyone who updates the app
     /// without the installer.
+    ///
+    /// The rule is membership in `checkedReleases`, not a comparison with
+    /// `shippedRelease`: a kext older than the shipped one that is in the set
+    /// (0.8.0, 0.8.1, 0.9.0) is still allowed, and a build this copy never saw
+    /// (a newer one included) gets nothing. Safe in both directions; the page
+    /// still words it as an out-of-date GPU package.
     static func isOutdated(_ version: String?) -> Bool { !isChecked(version) }
 
     /// "080" for "REL-080-2026-11-21": a release build's version digits,
