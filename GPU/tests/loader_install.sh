@@ -211,7 +211,7 @@ VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/s > $T/s2.out 2>&1
 rm -f $rec
 VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/s > /dev/null 2>&1
 VCNVT_FAKE_RECORDS=$R $SN uninstall --efi-folder $T/s > /dev/null 2>&1
-[[ ! -e $rec ]] && ok "uninstall deletes the record" || bad "record after uninstall"
+grep -qx "action=remove" $rec && ok "uninstall deletes the install record and writes the removal one" || bad "record after uninstall: $(cat $rec 2>&1)"
 VCNVT_FAKE_RECORDS=$R $L install --efi-folder $T/s > /dev/null 2>&1
 grep -qx "bundle=com.droga.VCNVTLoader" $R/installed-VCNVTLoader.txt &&
   VCNVT_FAKE_RECORDS=$R $L check --efi-folder $T/r 2>&1 | grep -q "this build was put there in this boot session (install record)" &&
@@ -393,6 +393,50 @@ dlcheck $SYS --json | spy 'd["installed"] == "outdated" and [c for c in d["check
   ok "check without --jpeg sees the JPEG plug-in left over: a warning, installed outdated" || bad "check jpeg stale: $(dlcheck $SYS --json)"
 dput > $T/lj2.out 2>&1 && [[ ! -e $SYS/JPEGVCNDecoder.bundle && -d $SYS/AV1VCNDecoder.bundle ]] && grep -q "removed .*JPEGVCNDecoder.bundle (an earlier install with --jpeg put it there)" $T/lj2.out &&
   ok "install without --jpeg takes the JPEG plug-in off, keeps AV1 and VP9" || bad "install drops jpeg: $(cat $T/lj2.out; ls $SYS)"
+
+# 18. encoder.sh takes only a partition like disk0s1, or auto, for --efi (b8e36c28 made it
+#     the check install.sh and undo.sh make). A wrong value stops with a usage error before
+#     anything runs; a value that passes the check is then seen by the command's own rules
+#     (check refuses --efi on its own, install reaches its root check). No root and no
+#     package are needed: the argument parser runs first.
+E=$ROOT/install/encoder.sh
+$E install --efi bogus > $T/e1.out 2>&1; [[ $? == 64 ]] && grep -q "takes a partition like disk0s1, or auto" $T/e1.out &&
+  ok "encoder.sh refuses an --efi value that is not a partition or auto" || bad "encoder --efi bogus: $(cat $T/e1.out)"
+$E uninstall --efi disk0 > $T/e2.out 2>&1; [[ $? == 64 ]] && grep -q "takes a partition like disk0s1, or auto" $T/e2.out &&
+  ok "encoder.sh refuses an --efi value without an sN" || bad "encoder --efi disk0: $(cat $T/e2.out)"
+$E install --efi disk0s1extra > $T/e3.out 2>&1; [[ $? == 64 ]] && grep -q "takes a partition like disk0s1, or auto" $T/e3.out &&
+  ok "encoder.sh refuses an --efi value with something after diskNsM" || bad "encoder --efi suffix: $(cat $T/e3.out)"
+$E check --efi "" > $T/e4.out 2>&1; [[ $? == 64 ]] && grep -q "takes a partition like disk0s1, or auto" $T/e4.out &&
+  ok "encoder.sh refuses an empty --efi value" || bad "encoder --efi empty: $(cat $T/e4.out)"
+$E install --efi > $T/e5.out 2>&1; [[ $? == 64 ]] && grep -q "takes a partition like disk0s1, or auto" $T/e5.out &&
+  ok "encoder.sh refuses --efi without a value" || bad "encoder --efi missing: $(cat $T/e5.out)"
+$E check --efi disk0s1 > $T/e6.out 2>&1; [[ $? == 64 ]] && grep -q "check looks at every EFI partition" $T/e6.out &&
+  ok "a partition like disk0s1 passes the value check (check refuses --efi on its own)" || bad "encoder check --efi disk0s1: $(cat $T/e6.out)"
+$E check --efi auto > $T/e7.out 2>&1; [[ $? == 64 ]] && grep -q "check looks at every EFI partition" $T/e7.out &&
+  ok "auto passes the value check too" || bad "encoder check --efi auto: $(cat $T/e7.out)"
+$E install --efi disk0s1 > $T/e8.out 2>&1; [[ $? == 1 ]] && grep -q "must run as root" $T/e8.out &&
+  ok "a valid --efi takes install all the way to its root check" || bad "encoder install --efi disk0s1: $(cat $T/e8.out)"
+
+# 19. efikext.zsh removes the install record only after the config.plist check that can still
+#     abort the uninstall (b8e36c28): a refused uninstall leaves the record, so a check in the
+#     same boot still knows the kext was put there. The record went first before, and the
+#     refusal looked like the kext was never installed.
+make_efi u
+VCNVT_FAKE_RECORDS=$R $SN install --efi-folder $T/u > $T/u1.out 2>&1 &&
+  [[ -f $rec ]] && ok "the sensors kext installs on one more folder, its record written" ||
+  bad "sensors install u: $(cat $T/u1.out)"
+plutil -convert binary1 $T/u/EFI/OC/config.plist
+VCNVT_FAKE_RECORDS=$R $SN uninstall --efi-folder $T/u > $T/u2.out 2>&1
+[[ $? -ne 0 ]] && grep -q "cannot be edited" $T/u2.out && [[ -f $rec ]] &&
+  ok "an uninstall that cannot edit config.plist changes nothing, record included" ||
+  bad "uninstall on binary config: $(cat $T/u2.out; ls $R)"
+rjson | spy 'd["pendingReboot"]' &&
+  ok "after the refused uninstall the check still believes the record" || bad "check after refused uninstall: $(rjson)"
+plutil -convert xml1 $T/u/EFI/OC/config.plist
+VCNVT_FAKE_RECORDS=$R $SN uninstall --efi-folder $T/u > $T/u3.out 2>&1 &&
+  grep -qx "action=remove" $rec &&
+  ok "the uninstall then goes ahead; the record left is the removal one" ||
+  bad "uninstall after restore: $(cat $T/u3.out; cat $rec 2>&1)"
 
 cd /; /bin/rm -rf -- "$T"
 print "loader install tests: $pass passed, $fail failed"
