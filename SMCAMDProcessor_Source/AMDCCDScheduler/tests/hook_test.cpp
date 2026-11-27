@@ -214,6 +214,72 @@ static void runSuite() {
     printf("concurrent placements with a different home for the same process: %d\n", mismatch.load());
 }
 
+// The install path: ccdInstall on a fake prologue built from each layout's own tables, with every
+// symbol solved from a table. The route outcome decides between state 1 and 4: a route that reports
+// done with the original written and no error installs; a refused route, a route that left the
+// original null, or one that leaves an error behind (a patch that did not land, guarded since
+// b4b3caaf) all do not.
+static void installPath() {
+    printf("-- install path\n");
+    for (size_t i = 0; i < arrsize(kLayouts); i++) {
+        const Layout &L = kLayouts[i];
+        static uint8_t fn[0x400], picker[0x800];
+        memset(fn, 0xcc, sizeof fn); memset(picker, 0xcc, sizeof picker);
+        for (size_t k = 0; k < L.headLen; k++) if (L.head[k] <= 0xff) fn[k] = static_cast<uint8_t>(L.head[k]);
+        for (size_t k = 0; k < L.moreLen; k++) memcpy(fn + L.more[k].off, L.more[k].bytes, L.more[k].len);
+        memcpy(picker + L.pickerOff, L.pick, L.pickLen);
+        const mach_vm_address_t f = reinterpret_cast<mach_vm_address_t>(fn), gtt = f + 0x3f0;
+        int32_t rel = static_cast<int32_t>(gtt - (f + L.callOff + 5));
+        memcpy(fn + L.callOff + 1, &rel, sizeof rel);
+        const mach_vm_address_t pk = reinterpret_cast<mach_vm_address_t>(picker);
+        static void *kernelTask = kernelTaskObj.b;
+        static uint32_t numPsets = 2;
+        static Obj cpuObj;
+        KernelPatcher::Solved table[] = {
+            {"_choose_starting_pset", f},
+            {"_get_threadtask", gtt},
+            {"_kernel_task", reinterpret_cast<mach_vm_address_t>(&kernelTask)},
+            {"_cpu_number", reinterpret_cast<mach_vm_address_t>(cpuObj.b)},
+            {"_sched_num_psets", reinterpret_cast<mach_vm_address_t>(&numPsets)},
+            {L.picker, pk},
+        };
+        KernelPatcher::solveTable = table;
+        KernelPatcher::solveCount = arrsize(table);
+        KernelPatcher patcher;
+
+        // Route done, original written, no error: installed.
+        gOrg = nullptr;
+        KernelPatcher::routeResult = true; KernelPatcher::routeWritesOrg = true;
+        KernelPatcher::routeError = KernelPatcher::Error::NoError;
+        ccdInstall(patcher);
+        CHECK(gState == 1 && gOrg != nullptr);
+        CHECK(gL.name == L.name && gPsets == 2);
+
+        // Route refused (the error is what a failed patch leaves): not installed.
+        gOrg = nullptr;
+        KernelPatcher::routeResult = false;
+        KernelPatcher::routeError = KernelPatcher::Error::MemoryIssue;
+        ccdInstall(patcher);
+        CHECK(gState == 4);
+
+        // Route reported done but the original was never written: not installed.
+        gOrg = nullptr;
+        KernelPatcher::routeResult = true; KernelPatcher::routeWritesOrg = false;
+        KernelPatcher::routeError = KernelPatcher::Error::NoError;
+        ccdInstall(patcher);
+        CHECK(gState == 4 && gOrg == nullptr);
+
+        // Route done, original written, but an error is left behind: not installed.
+        KernelPatcher::routeWritesOrg = true;
+        KernelPatcher::routeError = KernelPatcher::Error::MemoryIssue;
+        ccdInstall(patcher);
+        CHECK(gState == 4 && gOrg != nullptr);
+        KernelPatcher::solveTable = nullptr; KernelPatcher::solveCount = 0;
+        KernelPatcher::routeResult = false; KernelPatcher::routeWritesOrg = false;
+        KernelPatcher::routeError = KernelPatcher::Error::NoError;
+    }
+}
+
 // Each layout's byte checks, run on a buffer built from that layout's own tables: it must match its
 // own bytes, reject the other layouts', reject a changed byte and reject a call that is not to
 // get_threadtask. Catches overlapping or out-of-order entries in the tables.
@@ -249,6 +315,7 @@ static void layoutTables() {
 }
 
 int main() {
+    installPath();
     layoutTables();
     for (size_t i = 0; i < arrsize(kLayouts); i++) {
         gL = kLayouts[i];
