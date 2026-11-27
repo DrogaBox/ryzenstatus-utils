@@ -39,6 +39,11 @@ enum GPUControlCurveRules {
     /// any other build the preview says so and does not decide.
     static let checkedVersions: Set<String> = ["REL-072-2026-11-19"]
 
+    /// The GPUSensors release this app carries (`GPU/sensors/VERSION`): an
+    /// older kext that runs is one the app's own update did not replace, since
+    /// auto-update replaces the app but not the GPU package.
+    static let shippedRelease = "093"
+
     /// Kext versions checked as a whole: `VersionInfo` is "REL-", the
     /// version's digits, then the build date, and the date comes from
     /// SOURCE_DATE_EPOCH when the GPU package is built (the date of the last
@@ -50,8 +55,12 @@ enum GPUControlCurveRules {
     /// ("090") adds the GFX minimum (`GfxMinRange`) and gives the same
     /// answers as 0.8.0 for the first 100 lines of `curve-cases.jsonl`; the
     /// lines after them are its GFX minimum cases, then (the same 0.9.0) its
-    /// GFX voltage and overclock cases, after the first 120.
-    static let checkedReleases: Set<String> = ["080", "081", "090", "091", "092"]
+    /// GFX voltage and overclock cases, after the first 120. GPUSensors 0.9.3
+    /// ("093") is 0.9.2 without the PMLog keeper, these checks unchanged.
+    /// 0.9.1 ("091") and 0.9.2 ("092") are not in the set: the keeper called
+    /// the driver's library from the kext's own thread and panicked this Mac
+    /// (2026-11-27), and neither was ever published.
+    static let checkedReleases: Set<String> = ["080", "081", "090", "093"]
 
     /// The kext build is one this copy was checked against. Neither the
     /// editor nor a remembered fan state sends anything to another build.
@@ -59,6 +68,13 @@ enum GPUControlCurveRules {
         guard let version else { return false }
         return checkedVersions.contains(version) || release(of: version).map(checkedReleases.contains) == true
     }
+
+    /// The loaded kext is older than the release this app ships, or a release
+    /// this copy was not checked against: GPU control stays off and the page
+    /// says to install the GPU package again. Auto-update replaces the app but
+    /// not the GPU package, so this happens to anyone who updates the app
+    /// without the installer.
+    static func isOutdated(_ version: String?) -> Bool { !isChecked(version) }
 
     /// "080" for "REL-080-2026-11-21": a release build's version digits,
     /// when the rest is a date. Nil for a debug build ("DBG-…") or any

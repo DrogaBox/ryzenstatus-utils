@@ -154,6 +154,10 @@ struct GPUControlPageStrings {
     let kextSaysFormat: String
     /// A reading of the live row that is missing, in words.
     let noReading: String
+    /// The GPU package the app carries is not the one that runs (0.9.3).
+    /// 0.9.1 and 0.9.2 panicked this Mac, so GPU control stays off until the
+    /// package is installed again.
+    let kextOutdated: String
 
     /// Why the arm button is not offered.
     func sentence(_ reason: GPUControlArmTool.UnsafeReason) -> String {
@@ -235,7 +239,8 @@ struct GPUControlPageStrings {
          unsafeNotPlain, unsafeNotRoot, unsafeWritable, unsafeACL, unsafeUnreadable, unsafeSignature, unsafeOtherProgram, heldOD8Format, fanCurveItem, zeroRpmItem, gfxItemFormat, gfxMinItemFormat, voltItemFormat,
          listSeparator, listLastSeparator, unsafeSetID, heldOD8Short, closeChanges, closeChangesHelp, closedAgain,
          closeRefused, closeNotSupported, closedByOther, readOnlyTitle, readOnlyDetail, cardRangeFormat, floorUnknown,
-         nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading]
+         nothingToLower, otherProgramChanged, powerHint, openWritingHint, kextSaysFormat, noReading,
+         kextOutdated]
     }
 }
 
@@ -359,7 +364,8 @@ extension GPUControlPageStrings {
         powerHint: "Applies when chosen. Only lowers the limit, down to the card's minimum.",
         openWritingHint: "Asks for an administrator password. Changes stay allowed until you close them or restart the Mac.",
         kextSaysFormat: "From the kext: %@",
-        noReading: "no data")
+        noReading: "no data",
+        kextOutdated: "The GPU package is out of date. Open the RyzenStatus GPU installer from the DMG and install the update, then restart.")
 
     static let es = GPUControlPageStrings(
         stateSection: "Estado",
@@ -459,7 +465,8 @@ extension GPUControlPageStrings {
         powerHint: "Se aplica al elegir. Solo baja el límite, hasta el mínimo de la tarjeta.",
         openWritingHint: "Pide la contraseña de un administrador. Los cambios quedan permitidos hasta que los cierres o reinicies el Mac.",
         kextSaysFormat: "Del kext: %@",
-        noReading: "sin dato")
+        noReading: "sin dato",
+        kextOutdated: "El paquete de GPU está desactualizado. Abre el instalador de GPU de RyzenStatus desde el DMG, instala la actualización y reinicia el Mac.")
 
     static let ptBR = GPUControlPageStrings(
         stateSection: "Estado",
@@ -559,7 +566,8 @@ extension GPUControlPageStrings {
         powerHint: "Aplica ao escolher. Só reduz o limite, até o mínimo da placa.",
         openWritingHint: "Pede a senha de um administrador. As alterações ficam liberadas até você fechá-las ou reiniciar o Mac.",
         kextSaysFormat: "Do kext: %@",
-        noReading: "sem dado")
+        noReading: "sem dado",
+        kextOutdated: "O pacote de GPU está desatualizado. Abra o instalador de GPU do RyzenStatus no DMG, instale a atualização e reinicie o Mac.")
 
     static let tr = GPUControlPageStrings(
         stateSection: "Durum",
@@ -659,7 +667,8 @@ extension GPUControlPageStrings {
         powerHint: "Seçildiğinde uygulanır. Sınırı yalnızca kartın minimumuna kadar düşürür.",
         openWritingHint: "Bir yönetici parolası ister. Değişikliklere, siz kapatana ya da Mac yeniden başlatılana kadar izin verilir.",
         kextSaysFormat: "Kext'ten: %@",
-        noReading: "veri yok")
+        noReading: "veri yok",
+        kextOutdated: "GPU paketi güncel değil. DMG'den RyzenStatus GPU yükleyicisini açın, güncellemeyi kurun ve Mac'i yeniden başlatın.")
 
     static let ru = GPUControlPageStrings(
         stateSection: "Состояние",
@@ -759,7 +768,8 @@ extension GPUControlPageStrings {
         powerHint: "Применяется при выборе. Только снижает лимит, до минимума карты.",
         openWritingHint: "Запрашивает пароль администратора. Изменения разрешены, пока вы их не закроете или не перезапустите Mac.",
         kextSaysFormat: "Сообщение kext: %@",
-        noReading: "нет данных")
+        noReading: "нет данных",
+        kextOutdated: "Пакет GPU устарел. Откройте установщик RyzenStatus GPU из DMG, установите обновление и перезагрузите Mac.")
 
     static let sk = GPUControlPageStrings(
         stateSection: "Stav",
@@ -859,7 +869,8 @@ extension GPUControlPageStrings {
         powerHint: "Použije sa pri výbere. Limit iba znižuje, až po minimum karty.",
         openWritingHint: "Vyžiada heslo správcu. Zmeny zostanú povolené, kým ich nezatvoríte alebo nereštartujete Mac.",
         kextSaysFormat: "Od kextu: %@",
-        noReading: "bez údaja")
+        noReading: "bez údaja",
+        kextOutdated: "Balík GPU je zastaraný. Otvorte inštalátor RyzenStatus GPU z DMG, nainštalujte aktualizáciu a reštartujte Mac.")
 
     static let de = GPUControlPageStrings(
         stateSection: "Status",
@@ -959,7 +970,8 @@ extension GPUControlPageStrings {
         powerHint: "Wird bei der Auswahl angewendet. Senkt das Limit nur, bis zum Minimum der Karte.",
         openWritingHint: "Fragt nach einem Administratorpasswort. Änderungen bleiben erlaubt, bis Sie sie schließen oder den Mac neu starten.",
         kextSaysFormat: "Vom Kext: %@",
-        noReading: "keine Daten")
+        noReading: "keine Daten",
+        kextOutdated: "Das GPU-Paket ist veraltet. Öffne den RyzenStatus-GPU-Installer aus dem DMG, installiere das Update und starte den Mac neu.")
 
     static let fr = GPUControlPageStrings(
         stateSection: "État",
@@ -1059,7 +1071,8 @@ extension GPUControlPageStrings {
         powerHint: "S’applique dès la sélection. Abaisse seulement la limite, jusqu’au minimum de la carte.",
         openWritingHint: "Demande le mot de passe d’un administrateur. Les modifications restent autorisées jusqu’à ce que vous les fermiez ou redémarriez le Mac.",
         kextSaysFormat: "Du kext : %@",
-        noReading: "aucune donnée")
+        noReading: "aucune donnée",
+        kextOutdated: "Le paquet GPU n’est pas à jour. Ouvrez l’installateur GPU de RyzenStatus depuis le DMG, installez la mise à jour, puis redémarrez le Mac.")
 
     static let it = GPUControlPageStrings(
         stateSection: "Stato",
@@ -1159,7 +1172,8 @@ extension GPUControlPageStrings {
         powerHint: "Si applica alla scelta. Abbassa solo il limite, fino al minimo della scheda.",
         openWritingHint: "Chiede la password di un amministratore. Le modifiche restano abilitate finché non le chiudi o riavvii il Mac.",
         kextSaysFormat: "Dal kext: %@",
-        noReading: "nessun dato")
+        noReading: "nessun dato",
+        kextOutdated: "Il pacchetto GPU non è aggiornato. Apri l’installer GPU di RyzenStatus dal DMG, installa l’aggiornamento e riavvia il Mac.")
 
     static let ja = GPUControlPageStrings(
         stateSection: "状態",
@@ -1259,7 +1273,8 @@ extension GPUControlPageStrings {
         powerHint: "選ぶとすぐに適用されます。制限はカードの最小値まで下げるだけです。",
         openWritingHint: "管理者のパスワードを求めます。変更を閉じるか Mac を再起動するまで、変更が許可されます。",
         kextSaysFormat: "kext から: %@",
-        noReading: "データなし")
+        noReading: "データなし",
+        kextOutdated: "GPU パッケージが古くなっています。DMG から RyzenStatus GPU インストーラを開き、アップデートをインストールしてから Mac を再起動してください。")
 
     static let ko = GPUControlPageStrings(
         stateSection: "상태",
@@ -1359,7 +1374,8 @@ extension GPUControlPageStrings {
         powerHint: "선택하면 적용됩니다. 한도는 카드 최소값까지 낮추기만 합니다.",
         openWritingHint: "관리자 암호를 요청합니다. 변경을 닫거나 Mac을 재시동할 때까지 변경이 허용됩니다.",
         kextSaysFormat: "kext 메시지: %@",
-        noReading: "데이터 없음")
+        noReading: "데이터 없음",
+        kextOutdated: "GPU 패키지가 오래되었습니다. DMG에서 RyzenStatus GPU 설치 프로그램을 열고 업데이트를 설치한 다음 Mac을 재시작하십시오.")
 
     static let zhHans = GPUControlPageStrings(
         stateSection: "状态",
@@ -1459,7 +1475,8 @@ extension GPUControlPageStrings {
         powerHint: "选择后即应用。只会降低上限，最低至显卡的最低值。",
         openWritingHint: "需要管理员密码。在你关闭更改或重新启动 Mac 之前，允许更改。",
         kextSaysFormat: "来自 kext：%@",
-        noReading: "无数据")
+        noReading: "无数据",
+        kextOutdated: "GPU 软件包已过期。请从 DMG 打开 RyzenStatus GPU 安装程序，安装更新后重新启动 Mac。")
 
     static let zhTW = GPUControlPageStrings(
         stateSection: "狀態",
@@ -1559,7 +1576,8 @@ extension GPUControlPageStrings {
         powerHint: "選擇後即套用。只會降低上限，最低至顯示卡的最低值。",
         openWritingHint: "需要管理員密碼。在你關閉更改或重新啟動 Mac 之前，允許更改。",
         kextSaysFormat: "來自 kext：%@",
-        noReading: "無資料")
+        noReading: "無資料",
+        kextOutdated: "GPU 套件已過期。請從 DMG 開啟 RyzenStatus GPU 安裝程式，安裝更新後重新啟動 Mac。")
 
     static let uk = GPUControlPageStrings(
         stateSection: "Стан",
@@ -1659,5 +1677,6 @@ extension GPUControlPageStrings {
         powerHint: "Застосовується під час вибору. Лише знижує ліміт, до мінімуму картки.",
         openWritingHint: "Запитує пароль адміністратора. Зміни дозволені, доки ви їх не закриєте або не перезапустите Mac.",
         kextSaysFormat: "Повідомлення kext: %@",
-        noReading: "немає даних")
+        noReading: "немає даних",
+        kextOutdated: "Пакет GPU застарів. Відкрийте інсталятор RyzenStatus GPU з DMG, встановіть оновлення та перезавантажте Mac.")
 }

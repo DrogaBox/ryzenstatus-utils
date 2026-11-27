@@ -118,6 +118,18 @@ final class GPUControlService: ObservableObject {
 
     var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control).map(withHolder) }
 
+    /// The kext that runs is not the one this app carries (auto-update replaces
+    /// the app but not the GPU package), or a release GPU control was not
+    /// checked against: 0.9.1 and 0.9.2 panicked this Mac, so nothing is sent
+    /// and the page says to install the package again. A kext that publishes
+    /// no build name is not judged here.
+    var kextOutdated: Bool {
+        guard let version = control?.writing?.kextVersion ?? GPUSensorsService.shared.versionNow else {
+            return false
+        }
+        return GPUControlCurveRules.isOutdated(version)
+    }
+
     /// Who else holds the control, asked only while the kext says a program
     /// does and it is not this one (GPUControlHolder): `gpucontrol hold`
     /// keeping the OD8 table is our own tool, not another program. The probe
@@ -201,6 +213,7 @@ final class GPUControlService: ObservableObject {
 
     /// The pop-up and the panel row: the start-up value is the way back.
     func choosePower(_ watts: Int) {
+        guard !kextOutdated else { return }
         guard let controller, let facts else { return }
         if watts == facts.bootW {
             backToStartUp()
@@ -214,6 +227,7 @@ final class GPUControlService: ObservableObject {
     func applyFan(_ draft: GPUControlFanDraft) {
         // Always through the controller: a stock fan keeps a held clock, and
         // never gives back a power limit.
+        guard !kextOutdated else { return }
         controller?.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
     }
 
@@ -221,24 +235,28 @@ final class GPUControlService: ObservableObject {
     /// The controller keeps a held fan state with it and gives a power limit
     /// back first.
     func chooseGfxMax(_ mhz: Int?) {
+        guard !kextOutdated else { return }
         controller?.chooseGfxMax(mhz)
     }
 
     /// The minimum clock control (GPUSensors 0.9.0): a raised GFX minimum,
     /// or nil for the stock one. The rest of a held OD8 state goes with it.
     func chooseGfxMin(_ mhz: Int?) {
+        guard !kextOutdated else { return }
         controller?.chooseGfxMin(mhz)
     }
 
     /// The overclock control (GPUSensors 0.9.0): a GFX maximum above stock,
     /// sent with the overclock flag, or nil for the stock maximum.
     func chooseGfxMaxRaised(_ mhz: Int?) {
+        guard !kextOutdated else { return }
         controller?.chooseGfxMaxRaised(mhz)
     }
 
     /// The voltage control (GPUSensors 0.9.0): a lower GFX voltage in mV, or
     /// nil for stock. The rest of a held OD8 state goes with it.
     func chooseVolt(_ mv: Int?) {
+        guard !kextOutdated else { return }
         controller?.chooseVolt(mv)
     }
 
@@ -257,6 +275,7 @@ final class GPUControlService: ObservableObject {
     /// "Open writing…": the administrator dialog runs the installed tool's
     /// fixed command, only when the owner presses the button.
     func openWriting(prompt: String) {
+        guard !kextOutdated else { return }
         guard !isArming else { return }
         if let fake {
             fake.arm()
@@ -455,6 +474,7 @@ final class GPUControlService: ObservableObject {
     /// profile the kext confirms becomes the remembered state like any other
     /// change (`received`).
     func loadProfile(_ profile: GPUControlProfile) {
+        guard !kextOutdated else { return }
         let writing = control?.writing
         let od8Ready = facts?.od8Ready ?? false
         let load = GPUControlProfiles.load(

@@ -18,6 +18,11 @@ The encoding fix keeps its own history in `encode/CHANGELOG.md`.
   second while it holds a fan curve, an OD8 state or a raised power limit, which is what makes
   the driver read. 0.9.2's other fixes stay: the copy is dropped at sleep and teardown, and a
   ppCWDDE call is refused when the sleep or wake watcher did not route.
+- The app's checked releases are 080, 081, 090 and 093; 091 and 092 are dropped (0.9.1 and
+  0.9.2 panicked, and neither was published). A loaded GPUSensors older than the package this
+  app carries, or outside that set, turns GPU control off and the page says to open the
+  installer from the DMG and install the GPU package again: auto-update replaces the app but
+  not the kexts.
 
 ## GPU sensors 0.9.2 (host tests only, not booted)
 
