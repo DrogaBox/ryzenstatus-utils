@@ -64,7 +64,7 @@ The rest bends the same way: Settings is grouped by tool and searchable down to 
 - **Session lowest and highest.** Click the CPU row in the panel for the lowest and highest CPU temperature, package power, average clock and fan speed since RyzenStatus opened, with a Reset.
 - **Monitor window.** A window of its own, like Activity Monitor, with Overview, Processes, Processor, Network, History and Diagnostics. Processes is one sortable, searchable table of every app with CPU, memory, GPU and estimated energy; Terminate asks first and refuses protected system processes. History charts the last 30 days, and with the AMD kext also CPU package power and the average core clock. Control-Shift-Escape opens it from any app, and ⌘1 to ⌘6 switch sections. It reads only the section on screen, and nothing while it is closed.
 - **CSV log and export.** Settings › Monitor writes one row a second to a file you choose, and saves the history for a range you pick as a CSV, with commas and a dot for decimals in every language.
-- **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address and a built in speed test.
+- **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address, AWDL and AirDrop activity when supported by the Wi-Fi driver, and a built in speed test.
 - **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, CPU package power, GPU power, memory pressure, low disk space, low battery, VRAM temperature and CPU or GPU throttling, in your temperature unit. Any alert can wait until its reading has stayed over the limit for 10 to 60 seconds.
 
 ### AMD Processors & Power Management
@@ -73,7 +73,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: fans
 
 - **One CCD per app (new, `AMDCCDScheduler.kext`):** On a Ryzen with two CCDs, stock macOS keeps scattering each app's threads across both, so every hand-off between them crosses the Infinity Fabric (about 155 ns instead of 65 ns on a 5900XT). This kext fixes the macOS scheduler itself: each app gets a home CCD and its threads stay there while it has a free physical core, and spread to the other CCD only when it is full. On a 5900XT a Node worker pool ran **about 12% faster** with much steadier times, and an all-core zstd job ran at the same speed. As far as we could find, nothing else does this on macOS. It checks the kernel byte for byte before hooking it and stays off on any macOS build it was not checked against. [How it works and every measurement](docs/CCD_SCHEDULER.md).
 - **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw against the PPT limit, and frequencies per core.
-- **Kernel-Native Dynamic Fan Curves:** Hardware fan control evaluated directly inside `AMDRyzenCPUPowerManagement.kext` at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), eliminating userspace polling overhead. Curves are put back at launch and after the kext reconnects, and the fan safety checks keep running with Settings closed.
+- **Kernel-Native Dynamic Fan Curves:** Hardware fan control evaluated directly inside `AMDRyzenCPUPowerManagement.kext` at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), eliminating userspace polling overhead. Curves are put back at launch and after the kext reconnects, and the fan safety checks keep running with Settings closed. With kext 3.42.0, two programs talking to the CPU kext coordinate fan writes so they no longer undo each other. The curve editor in Settings can also use GPU temperature from GPUSensors when the CPU kext sees no GPU.
 - **GPU Temperature Bridge:** Native discrete GPU temperature forwarding (selector 103) allowing fan curves driven directly by GPU thermal loads.
 - **Interactive Staged Curve Editor:** Curve editor featuring 256-point visual preview, live sensor tracking markers, 4-curve slot management, 1% minimum duty cycle floor, and explicit Apply / Revert actions to prevent unintended fan spin-ups while editing.
 - **SuperIO Hardware Read-Back:** Accurate fan speed (RPM) and duty cycle (PWM %) derived directly from physical SuperIO chips (Nuvoton NCT668X / NCT67XX, ITE IT86XXE).
@@ -86,17 +86,17 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: fans
 - **EPP through MSRs or ACPI:** Energy Performance Preference reaches CPUs with the CPPC MSRs directly and, on CPUs that publish CPPC only through ACPI (`_CPC` and PCC shared memory, such as Ryzen 5000 desktop parts), through PCC. Hardware Validation shows which path your CPU uses and what the driver found.
 - **SMU controls for every family:** PPT/TDC/EDC (or STAPM/fast/slow on APUs), cHTC, PBO scalar, OC mode with frequency and voltage, Curve Optimizer and a boost ceiling go through the command set of your CPU's family (Zen and Zen+, Zen 2, Zen 3, AM5, and the Raven Ridge, Renoir/Cezanne and Rembrandt/Phoenix APUs). A control your CPU does not accept says so instead of sending a command meant for another chip.
 - **Gaming Mode:** A one-click toggle to apply the Extreme power preset and prevent display sleep during intense workloads.
-- **Hardware Validation:** Lists every power control your CPU accepts, the deep idle state, which path EPP takes and what the driver found in ACPI, and reads the CPPC values back from the firmware, so you can see what really reaches the processor.
+- **Hardware Validation:** Lists every power control your CPU accepts, the deep idle state, which path EPP takes and what the driver found in ACPI, whether another driver attaches to the AMD SMU, whether GPUSensors.kext loaded on a supported card, and reads the CPPC values back from the firmware, so you can see what really reaches the processor.
 
 ### AMD Radeon RX 6000 graphics
 
-For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac (an RX 6950 XT should work too, but has not been run). macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
+For the Radeon RX 6800, 6800 XT and 6900 XT on an OpenCore Mac (an RX 6950 XT should work too, but has not been run). NVIDIA cards and NullMoth are not supported or tested. macOS ships a working driver for these cards but leaves part of their video engine unused; these parts fill the gaps without replacing any Apple driver. The disk image carries them in the **GPU RX 6000** folder, with an installer of their own.
 
-- **Hardware AV1 and VP9 decoding.** Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU, YouTube in 4K60 included.
-- **Full-speed hardware encoding.** HEVC and H.264 encoding keep the video engine's clocks up: OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls.
-- **GPU sensors.** Edge, memory and VR temperatures, voltages, throttling, video and fabric clocks and the PCIe link, which Apple's driver already reads and keeps hidden. They show up everywhere in the app, like any other sensor.
-- **GPU control.** With the GPU sensors kext, a Settings page for the power limit (from the start-up value down to the card's own minimum, worked out the way Linux does), a five-point fan curve with zero RPM and a live check of what the card will accept, a lower maximum or raised minimum GFX clock, a lower GFX voltage (undervolt), and an Overclock section, off by default, that raises the GFX clock and the power limit only inside the card's own OverDrive limits. Changes are opened with your administrator password until the Mac restarts, and **Remember** can apply your last settings again at launch and after a wake (a voltage or a raise only after a wake). Every control, its range and its risks: [GPU control](docs/GPU_CONTROL.md).
-- **GPU RX 6000 installer.** Checks the Mac, installs only what is needed, updates what is out of date, says when a part waits for a reboot, and removes everything again.
+- **Hardware video decoding.** Safari and Chrome play AV1 and VP9 on the GPU instead of the CPU, YouTube in 4K60 included, with HDR colour metadata (BT.2020, PQ, HLG). Videos survive system sleep across every decoder: frames in flight during sleep are dropped without error and playback carries on from the next key frame. Optional hardware decoders for MPEG-2, VC-1 and MPEG-4 (macOS 26.7.2 to 26.7.4) and JPEG / Motion JPEG (`VCNJpeg.kext`, macOS 26.7.3) decode legacy and camera video on the GPU. On Macs with an Intel iGPU, the VP9 decoder declares high priority so macOS picks the Radeon.
+- **Full-speed hardware encoding.** HEVC and H.264 encoding keep the video engine's clocks up: OBS at 4K60 without repeated frames, and sizes wider than 4096 without GPU stalls. A service fix corrects 10-bit HEVC (Main10) encoding on VCN 3 (macOS 26.7.3, `-vcnhevc10`). Continuity Camera and FaceTime video decode on the GPU instead of the CPU, and outgoing FaceTime video is fixed on MacPro7,1 and iMacPro1,1 board IDs.
+- **GPU sensors.** Edge, memory and VR temperatures, voltages, throttling, video and fabric clocks and the PCIe link, which Apple's driver already reads and keeps hidden. While a setting is held, GPUSensors polls readings once a second so the temperature watchdog stays active. Readings older than 5 seconds are dropped so numbers stay fresh.
+- **GPU control.** With GPUSensors.kext, a Settings page for the power limit (in 10 W steps down to the card's own minimum), a five-point fan curve with zero RPM, minimum and maximum GFX clocks, GFX voltage undervolt (in 25 mV steps), an Overclock section (up to +15% power limit and card maximum clock, off by default), and named profiles. Only the RX 6800 XT writes; the RX 6900 XT is readings only. Memory clock and fast timings are not offered because the macOS driver cannot apply them. Changes are opened with your administrator password until restart, and **Allow changes after restart too** lets remembered settings come back after a reboot as well. Every control, range and safety limit: [GPU control](docs/GPU_CONTROL.md).
+- **GPU RX 6000 installer.** A single window in the disk image installs or updates all GPU parts (decoders, encoding fix, GPUSensors, VCNJpeg), checks AMFI configuration (`amfi=0x80`, `-amfipassoff`, `-liluoff`, VCNVTLoader), and only asks for a password on steps that require one.
 
 Every part runs only on the macOS builds it was checked against and stays off on any other one. What each needs, what was run on which card, and how to build it: [GPU/README.md](GPU/README.md).
 
@@ -104,8 +104,8 @@ Every part runs only on the macOS builds it was checked against and stays off on
 
 - **Dynamic Island.** An optional island at the top of the screen that brings music, controls and everyday tools together: Now Playing with lyrics, queue and a live equalizer, timers, downloads, notifications, upcoming calendar events, gestures, accessory and input source notices, and live CPU, GPU and memory cards. Off by default.
 - **No notch needed.** On displays without a notch, compact activities and the resting companion stay in the menu bar and expanded panels open below it. The middle of the capsule can show the song, a live metric or the time.
-- **Watch any window.** Turn any part of any window into a live activity, with an alert when it changes, finishes or shows what you are waiting for.
-- **A companion that grows.** Give it a name and watch it reach ten levels with pats and time together, unlocking accessories (glasses, scarf, headphones, a crown and more), with seasonal costumes and its own greetings. It follows your AMD hardware: the fan companion spins at your CPU fan's real speed and the chip glows with package power.
+- **Watch any window.** Turn any part of any window into a live activity, with an alert when it changes, finishes or shows what you are waiting for, with custom sounds and repeats. Calendar in the island can ignore events by title keywords, and island hover expands the closed island under the pointer while keeping camera controls visible.
+- **A companion that grows.** Give it a name and watch it reach ten levels with pats and time together, unlocking accessories (glasses, scarf, headphones, a crown and more), seasonal costumes, its own greetings, and items from the lab and mayhem sets, with chain reactions, rare sights, combos, fusions, and a searchable wardrobe. It follows your AMD hardware: the fan companion spins at your CPU fan's real speed and the chip glows with package power.
 - **AI agents, opt in.** Tokens, plan limits and work in progress for Claude Code, Codex, OpenCode and GitHub Copilot, read from their local history files. Off by default.
 
 <p align="center">
@@ -117,7 +117,7 @@ Every part runs only on the macOS builds it was checked against and stays off on
 
 - **Volume mixer.** Slide any single app up or down while the rest of the Mac stays put, and push a quiet one past 100 percent when a video is just too low. No audio driver, no setup.
 - **Per app output.** Send your music to the speakers and a call to your headset at the same time.
-- **Output switcher and audio priority.** Cycle between chosen outputs with one shortcut, rank your devices so the best one connected is used automatically, and drop the volume when headphones disconnect.
+- **Output switcher and audio priority.** Cycle between chosen outputs with one shortcut, rank your devices so the best one connected is used automatically, remove unused entries, and drop the volume when headphones disconnect. Also handles monitor speakers that never answer volume queries.
 - **Microphone tools.** Pin your favorite input so the Mac stops guessing, and mute the mic everywhere with a click or shortcut.
 - **Music app blocker.** Stops the Music app from bursting in when a media key or headphones launch it, opens the player you prefer instead, and can start playback in it.
 - **Every player.** On macOS 15.4 and later, TIDAL, browsers, video players and every other app that publishes what it plays show up with title, artist, album, position, cover and controls.
@@ -158,13 +158,13 @@ Every part runs only on the macOS builds it was checked against and stays off on
 ### Everyday tools
 
 - **Quick panel and toggles.** ⌃⌘V opens a floating palette with your favorite tools, and one-click system actions sit in their own panel tab: dark mode, empty the Trash, eject every disk, hidden files, lock the screen and more.
-- **Radial menu.** Hold a shortcut, or a spare mouse button, and a wheel of your favorite actions opens around the pointer.
+- **Radial menu.** Hold a shortcut, or a spare mouse button, and a wheel of your favorite actions opens around the pointer, with quick insertion of saved text snippets.
 - **Screen Recorder.** Record the screen, a window or an area with optional microphone audio, then trim, annotate and export in the built-in editor.
-- **Screenshot & Annotation Suite.** Capture on a frozen picture, then annotate, crop, redact, style the background and pin captures. QR codes are detected and decoded.
+- **Screenshot & Annotation Suite.** Capture on a frozen picture, then annotate, crop, redact, style the background, add tiled watermarks and pin captures. QR codes are detected and decoded.
 - **Copy text from screen.** Select any area and its text is recognized offline via Apple's Vision framework, straight onto the clipboard.
 - **Image converter.** Saved profiles, exact or proportional resizing, renaming with tokens, text or logo watermarks, and video compression and GIFs, all locally.
-- **Scratchpad.** A floating pad for short-lived text with Markdown preview, find, text size and background opacity. It saves as you type.
-- **Cleaner and uninstaller.** Sweep app leftovers, caches, logs and forgotten screenshots by hand or on a schedule, and remove apps with all their files, including Homebrew casks.
+- **Scratchpad.** A floating pad for short-lived text with Markdown preview, find, text size, background opacity and a completed tasks section. It saves as you type.
+- **Cleaner and uninstaller.** Sweep app leftovers, caches, logs and forgotten screenshots by hand or on a schedule, and remove apps with all their files, including Homebrew casks. A backup button in Settings › Advanced saves settings to `~/.config/ryzenstatus/`.
 - **Homebrew and MacPorts.** Search, install, update and remove packages without opening a terminal, and find updates for the apps you have.
 - **Kill Process and Port Manager.** Search running processes and end whole process trees, and see which apps listen on which network ports.
 - **Camera preview, color picker, wallpaper gallery and Cleaning Mode**, which locks the keyboard and blacks out every display while you clean.
@@ -172,7 +172,7 @@ Every part runs only on the macOS builds it was checked against and stays off on
 ### Energy and display
 
 - **Keep awake.** Keep the Mac up for a timer, until a chosen time, until you say stop, or automatically with an external display or power connection, with the remaining time beside the icon.
-- **Displays.** Adjust brightness or turn individual displays on and off from the menu bar panel, with hardware control on external screens when available.
+- **Displays.** Adjust brightness or turn individual displays on and off from the menu bar panel, with hardware control on external screens when available, and dimming for virtual displays (DisplayLink and dummy screens).
 - **Bluetooth.** Turn Bluetooth off when the Mac sleeps and back on when it wakes. On a Hackintosh with a slow or missing Bluetooth controller, one switch stops the app's own Bluetooth queries.
 
 ## Install
@@ -231,6 +231,9 @@ By default, any local process may read telemetry from the kext, while hardware *
 - **`-amdpnopchk`**: *(Optional — Security Trade-off)* Disables UserClient root privilege checks so RyzenStatus can control fans, EPP, P-States, and Curve Optimizer without running as `root`. **Warning:** when `-amdpnopchk` is set, *any* local process on the machine can issue privileged hardware writes through the UserClient; enable only on trusted single-user systems.
 - **`-amdoff`**: Keeps the CPU kext from starting (kext 3.42.0), a way out if a kext update stops the Mac from booting. Remove it once the old pair is back.
 - **`-amdpdbg`**: Enables verbose debug logging (for troubleshooting panics or missing sensors).
+- **`-vcnhevc10`**: *(GPU)* Enables the 10-bit HEVC (Main10) gate on AMD Radeon RX 6000 cards; held back until the encoding service confirms the driver patch is active.
+- **`vcnfloor=N`**: *(GPU)* Sets a custom video clock floor in MHz for cards outside Navi 21 and Navi 23.
+- **`vcnjpegpool=<MiB>`**: *(GPU)* Sets the buffer pool size for the optional JPEG decoder kext (8 to 128 MiB, default 128).
 
 #### Supported Sensors & Fan Control
 The kext includes SuperIO support for reading and controlling fans on the following chip families:
