@@ -155,10 +155,11 @@ enum CppcIdleClockLimitTests {
             return
         }
         suite.expect(!svc.contains("appliedIdleMaxPerf = 0")
-                     && svc.contains("appliedIdleMaxPerf = ok ? maxPerf : nil"),
+                     && svc.contains("appliedIdleMaxPerf = verdict.succeeded ? maxPerf : nil"),
                      "the written max perf is recorded only after the kext took it")
         suite.expect(svc.contains("guard idleLimitWrites.mayBeCapped, canRun else { return }")
-                     && svc.contains("if !writeIdleClockLimit(0) { scheduleLiftRetry() }"),
+                     && svc.contains("if !lifted { self.scheduleLiftRetry() }")
+                     && svc.contains("idleLimitWrites.willWrite(maxPerf)\n        // The continuation"),
                      "a lift follows the cap, not the last value, and a refused one is retried")
     }
 
