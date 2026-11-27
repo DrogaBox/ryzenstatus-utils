@@ -21,8 +21,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff&cacheSeconds=86400" alt="Latest release"></a>
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff&cacheSeconds=86400" alt="Downloads"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
   <!-- align advertised OS version with Package.swift/Info.plist minimum macOS 14.0 through macOS 26 Tahoe -->
   <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%20to%2026%20AMD%2FIntel-black" alt="macOS 14 to 26 (Sonoma to Tahoe), AMD/Intel"></a>
