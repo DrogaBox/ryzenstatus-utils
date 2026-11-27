@@ -1656,10 +1656,11 @@ bool GPUControl::inSleep() {
   return __atomic_load_n(&gInSleep, __ATOMIC_SEQ_CST) != 0;
 }
 
-// The same "something of ours is on the card" the fan watchdog runs on
-// (od8DogPass): an OD8 state not confirmed stock, or a power limit above the
-// start-up one. Nothing is kept fresh while writing is off, the card is only
-// read, or the GPU went away.
+// Wider than what the fan watchdog runs on (od8DogPass, which watches a curve,
+// an unknown state, raised GFX clocks and a raised power limit only): an OD8
+// state not confirmed stock, or a power limit above the start-up one. Nothing
+// is kept fresh while writing is off, the card is only read, or the GPU went
+// away.
 bool GPUControl::holdsAny() {
   if (gStateLock == nullptr) return false;
   uint32_t boot = bootW();

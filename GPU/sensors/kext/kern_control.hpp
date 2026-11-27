@@ -33,8 +33,10 @@ bool inSleep();
 
 // Whether something of the control is on the card and not confirmed stock: a
 // fan curve, a clock or voltage change (an OD8 state), or a raised power limit.
-// The app reads PerformanceStatistics while this is true (0.9.3), so the fan
-// watchdog has fresh readings without the kext calling the library itself.
+// Wider than what the fan watchdog runs on (od8DogPass watches a curve, an
+// unknown state, raised GFX clocks and a raised power limit only). Nothing
+// calls this: the app reads PerformanceStatistics once a second while it holds
+// (0.9.3), not while this is true.
 bool holdsAny();
 
 // What the control did, for ioreg (rebuilt when read).

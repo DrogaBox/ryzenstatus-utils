@@ -137,6 +137,17 @@ struct GPUControlFanSection: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        // The switch's refusal is judged against the table it read then. When
+        // the next read gives another one, ask the same preview again and drop
+        // the note when the state would go out now (a drift that settled); a
+        // read that still refuses it keeps the note.
+        .onChange(of: input.writing) { _, _ in
+            guard zeroRpmRefusal != nil else { return }
+            let answer = GPUControlCurvePreview.make(
+                want: Self.stateSent(held: heldOD8, zeroRpmOff: draft.zeroRpmOff),
+                writing: input.writing)
+            if answer.allowsApply { zeroRpmRefusal = nil }
+        }
     }
 
     /// How far the curve editor sits in from its switch.

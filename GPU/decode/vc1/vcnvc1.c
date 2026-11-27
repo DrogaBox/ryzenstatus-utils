@@ -76,6 +76,9 @@ static void end_session(VcnVc1* d) {
     d->vcn = NULL;
   }
   d->refs = 0;
+  // The rebuild after a sleep sets ramping back right after end_session.
+  d->ramping = false;
+  d->dropped = 0;
 }
 
 static bool is_b(uint8_t type) { return type == VC1_B || type == VC1_BI; }

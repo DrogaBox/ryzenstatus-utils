@@ -111,6 +111,9 @@ static void end_session(VcnMpeg2* d) {
   d->frameNumber = 0;
   d->refs = 0;
   d->refNumber[0] = d->refNumber[1] = 0;
+  // The rebuild after a sleep sets ramping back right after end_session.
+  d->ramping = false;
+  d->dropped = 0;
 }
 
 static int on_picture(void* ctx, Mpeg2Parser* p, const Mpeg2Picture* pic) {

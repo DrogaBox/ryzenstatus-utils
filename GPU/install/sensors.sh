@@ -363,7 +363,8 @@ do_uninstall() {
   kext_uninstall || return 0
   # The record of this boot session: the kext still runs, and a check in the same
   # boot has to say it is gone from the EFI, not read the running one as installed.
-  record_put $KNAME "boot=$(boot_session)" "action=remove" "bundle=$KBUNDLE" "version=$(kext_file_version "$KEXT")" "hash="
+  # When the record cannot be written, say what check will miss until the restart.
+  record_put $KNAME "boot=$(boot_session)" "action=remove" "bundle=$KBUNDLE" "version=$(kext_file_version "$KEXT")" "hash=" || print -r -u2 -- "note: until the restart, 'check' cannot tell the kext was removed here."
   return 0
 }
 

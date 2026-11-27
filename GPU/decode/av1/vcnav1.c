@@ -335,7 +335,7 @@ static bool av1_rebuild(VcnAV1* d, char* why, size_t whyLen) {
   int r = av1_create_context(d);
   if (r) {
     snprintf(why, whyLen, "CreateContexts(AV1) %d", r);
-    vcn_session_drop(&d->s);
+    vcn_session_drop_later(&d->s, "AV1 session, CreateContexts failed", ^{});
     return false;
   }
   return true;

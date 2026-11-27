@@ -740,7 +740,7 @@ static bool vp9_rebuild(VcnVP9* d, char* why, size_t whyLen) {
   }
   if (!vcn_session_reopen(&d->s, &lib, svc, vlog(), why, whyLen)) return false;
   if (vp9_create_context(d, why, whyLen)) {
-    vcn_session_drop(&d->s);
+    vcn_session_drop_later(&d->s, "VP9 session, CreateContexts failed", ^{});
     return false;
   }
   return true;
