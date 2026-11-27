@@ -348,7 +348,12 @@ rm -rf "$BUILD_STAGE"
 ditto --noextattr --noqtn "$STAGE" "$BUILD_STAGE"
 xattr -c -r "$BUILD_STAGE" 2>/dev/null || true
 if ! codesign --verify --deep --strict "$BUILD_STAGE" >/dev/null 2>&1; then
-    if xattr -lr "$BUILD_STAGE" 2>/dev/null | grep -Eq 'com\.apple\.(FinderInfo|ResourceFork|provenance|fileprovider)'; then
+    # The subshell's true takes the status out of the pipeline: grep -q exits at
+    # the first match and the listing is far more than a pipe buffer, so xattr
+    # would die of the SIGPIPE after it and pipefail would lose the match. A
+    # capture into a variable does not help: the print feeding grep then dies
+    # of the same SIGPIPE.
+    if ( xattr -lr "$BUILD_STAGE" 2>/dev/null; true ) | grep -Eq 'com\.apple\.(FinderInfo|ResourceFork|provenance|fileprovider)'; then
         echo "  build/stage copy has local filesystem metadata; temp bundle was verified"
     else
         codesign --verify --deep --strict "$BUILD_STAGE"

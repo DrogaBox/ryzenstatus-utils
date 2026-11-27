@@ -163,7 +163,11 @@ cmp -s $P/SHA256SUMS $CHECK/GPU/SHA256SUMS || fail "the zip's SHA256SUMS is not 
 mv -f $STAGE/GPU-Package.zip $OUT
 
 sums=$(shasum -a 256 $P/SHA256SUMS | awk '{print $1}')
-sensors_info=$(strings -a $P/sensors/build/GPUSensors.kext/Contents/MacOS/GPUSensors | grep -m1 -E '^REL-' || print "?")
+# The brace group's true takes the status out of the pipeline: strings dies of
+# the SIGPIPE once grep -m1 has its match, and pipe_fail would fail the
+# pipeline despite it, printing "?" for a marker that was read fine.
+sensors_info=$( { strings -a "$P/sensors/build/GPUSensors.kext/Contents/MacOS/GPUSensors"; true; } \
+               | grep -m1 -E '^REL-' || print "?")
 print
 print "GPU-Package: GPU sensors $(cat $G/sensors/VERSION) ($sensors_info), encoding fix $(cat $G/encode/VERSION)"
 print "commit $commit, SOURCE_DATE_EPOCH $SOURCE_DATE_EPOCH"
