@@ -625,6 +625,9 @@ public:
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
     uint64_t PStateDef_perCore[8] {};
+    // writePstate: the firmware's own P0 VID, read before our first write (overvolt clamp)
+    uint64_t firmwareP0Vid {0};
+    bool firmwareP0VidKnown {false};
     uint8_t PStateEnabledLen = 0;
     float PStateDefClock_perCore[8] {};
     bool cpbSupported {false};
