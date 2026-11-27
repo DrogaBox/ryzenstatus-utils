@@ -222,6 +222,13 @@ static int parse_header(VP9Parser* p, const uint8_t* data, size_t size) {
   h->bit_depth = p->bit_depth;
   h->subsampling_x = p->subsampling_x;
   h->subsampling_y = p->subsampling_y;
+  // The profile table leaves no room for an inherited depth of another
+  // profile: 8 bits only under profiles 0 and 1, 10 or 12 under 2 and 3
+  // (libvpx ties the depth to the profile the same way, in
+  // read_bitdepth_colorspace_sampling). Refuse the frame; the depth of the
+  // stream stays as it was.
+  if ((h->profile < 2) != (h->bit_depth == 8))
+    return fail(p, "profile %d frame at %d bits", h->profile, h->bit_depth);
   if (!h->error_res) {
     h->refresh_frame_context = (int)f(b, 1);
     h->frame_parallel = (int)f(b, 1);

@@ -1481,7 +1481,12 @@ static int parse_obus(AV1Parser* p, const uint8_t* data, size_t size,
     switch (obu_type) {
       case OBU_SEQUENCE_HEADER: {
         BR b = {payload, obu_size, 0, false};
-        if (parse_sequence_header(&b, &p->seq)) return -1;
+        // Parse into a local and store it only on success, so a header cut
+        // short leaves the stored one as it was (the frame-header case below
+        // does the same for the reference slots).
+        AV1Seq seq;
+        if (parse_sequence_header(&b, &seq)) return -1;
+        p->seq = seq;
         break;
       }
       case OBU_TEMPORAL_DELIMITER:
