@@ -97,7 +97,9 @@ static size_t gActiveLib{arrsize(kHWLibs)};
 // builtins. PEM_CWDDEPM_QueryPMLogData uses pem[2] (the GPU's IP block state),
 // pem[3] (the hardware manager) and pem[4] (PowerPlay's lock) and never looks
 // at its request, so the keeper's zeroed 16-byte one is what the driver's calls
-// amount to (AMDRadeonX6000HWLibs 26.7.3, 0xf6322).
+// amount to (AMDRadeonX6000HWLibs 26.7.3, 0xf6322). The object is at least
+// five machine words on every build the entry check accepts: re-check that
+// together with the entry bytes for a new macOS (pemNow reads pem[2..4]).
 static void* gPem{nullptr};
 static uint64_t gPemGen{0};
 static uint8_t gPemIn[16]{};
@@ -425,14 +427,16 @@ static void* pemNow() {
 bool PMLogCopy::canSample() { return pemNow() != nullptr; }
 
 bool PMLogCopy::sampleNow() {
-  void* pem = pemNow();
-  if (pem == nullptr) return false;
-  t_query org = orgQuery[gActiveLib];
   // The library clears the log itself once it gets to the hardware
   // (PECI_ClearMemory, AMDRadeonX6000HWLibs 0xf6390); zeroing here covers the
   // answers that come before that (the GPU's IP block off, hardware access
   // blocked in a sleep), so an old reading is never kept with a new stamp.
   memset(wKeeperLog, 0, sizeof(wKeeperLog));
+  // Checked right before the call, nothing in between (review F1): the driver
+  // could still clear a word in that gap, the same exposure its own calls have.
+  void* pem = pemNow();
+  if (pem == nullptr) return false;
+  t_query org = orgQuery[gActiveLib];
   __atomic_add_fetch(&gKeeperTries, 1, __ATOMIC_RELAXED);
   uint32_t r = org(pem, gPemIn, wKeeperLog);
   __atomic_store_n(&gKeeperResult, r, __ATOMIC_RELAXED);

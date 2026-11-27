@@ -618,7 +618,11 @@ bool callCwdde(const void* in, uint32_t inSize, void* out, uint32_t* outSize,
                uint32_t* ret) {
   IOLockLock(gStateLock);
   void* pp = __atomic_load_n(&gPP, __ATOMIC_ACQUIRE);
-  if (gTornDown || pp == nullptr || gCwdde == 0 || sleepingLocked() ||
+  // Without the sleep and wake watchers the sleep count never moves, so an
+  // object from before a sleep would pass: refuse here as well, not only in
+  // the start-up refusal (review F4).
+  if (gTornDown || pp == nullptr || gCwdde == 0 || !gWatchSleep ||
+      !gWatchWake || sleepingLocked() ||
       __atomic_load_n(&gSleepGen, __ATOMIC_SEQ_CST) != wSeenGen) {
     IOLockUnlock(gStateLock);
     return false;
@@ -1556,6 +1560,9 @@ void teardown(bool waitForCall) {
   bool late = false;
   IOLockLock(gStateLock);
   gTornDown = true;
+  // The object dies with the GPU: drop it here too, so the pointer itself
+  // never names a dead object (review F3; gTornDown already stops every call).
+  __atomic_store_n(&gPP, static_cast<void*>(nullptr), __ATOMIC_RELEASE);
   turnOffLocked(gpuctl::WriteOff::Teardown);
   if (waitForCall && gInFlight) {
     uint64_t deadline = 0;
