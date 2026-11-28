@@ -12,15 +12,19 @@ anything outside those ranges instead of rounding it.
 Some things hold for all of it:
 
 - Changes are closed until an administrator allows them (Allow GPU Changes), and they stay
-  allowed only until the Mac restarts or you close them again.
-- One program holds one change at a time. The kext puts the card back to stock on its own
-  when RyzenStatus quits or crashes, when it stops answering for 30 seconds, after every
-  sleep, and on restart. Nothing is stored on the card.
+  allowed only until the Mac restarts or you close them again. With Allow changes after restart too,
+  asking for your password once lets remembered settings come back after a restart as well.
+- One program holds one change at a time. When `gpucontrol hold` from Terminal holds the card,
+  Settings › GPU control says it is RyzenStatus's own tool instead of "Another program has the control".
+  The kext puts the card back to stock on its own when RyzenStatus quits or crashes, when it stops
+  answering for 30 seconds, after every sleep, and on restart. Nothing is stored on the card.
 - The power limit and the OverDrive settings (fan, clocks, voltage) are never held at the
   same time: while one is held, the other answers "busy".
 - Whatever raises a clock or the power limit, and the fan curve, are held under a watchdog
   that reads the hotspot temperature every second. At 95 °C, or when the readings stop for
-  10 seconds, it puts stock back and closes changes until restart.
+  10 seconds, it puts stock back and closes changes until restart. While any setting is held,
+  GPUSensors takes the card's readings itself once a second so the watchdog stays active even
+  when no other tool is polling the card.
 
 ## Which cards
 
@@ -29,6 +33,8 @@ Some things hold for all of it:
 | RX 6800 XT (Navi 21, 73BF rev C1) | everything below; the card the kext was built and tested on |
 | RX 6900 XT (Navi 21, 73BF rev C0) | readings only: the kext reads it the same way and never writes |
 | RX 6800, RX 6950 XT, Pro W6800 / W6900X, every Navi 23 (RX 6600, 6600 XT, 6650 XT, Pro W6600) | not read by the control yet; the sensors still work |
+
+NVIDIA cards and NullMoth are not supported or tested.
 
 A control only shows when the kext says it takes it and the card offers it (its OverDrive
 feature bit is set).
@@ -45,6 +51,11 @@ load.
 Five points, temperature and speed. The kext only takes curves that give at least as much
 air as the stock curve at every point and reach 100 % well below the card's target
 temperature. Zero RPM can only be turned off (the fan always spins).
+
+While a custom curve is held, the Zero RPM switch sends the change at once with that curve,
+as the clock and voltage controls do; otherwise it is part of the curve that Apply curve
+sends. The switch is sent only when the whole state the card would get passes the rules, and
+when it does not, the section says why next to the switch and nothing is sent.
 
 ## GFX maximum and minimum clock
 

@@ -5,7 +5,11 @@
 // common/vcnlegacy.c, and any decode or driver session fails the test. It
 // checks:
 //
-//   1. a Simple profile stream goes to our plug-in, not to AppleMP4V;
+//   1. a Simple profile stream goes to our plug-in, not to AppleMP4V (the
+//   plug-in is
+//      registered with a rating above Apple's: 400 was not enough on 26.7.3,
+//      where another MPEG-4 decoder answered first and our plug-in was never
+//      asked);
 //   2. an Advanced Simple stream whose VOL allows B-VOPs is refused by our
 //      plug-in when the session starts, and VideoToolbox goes on to the next
 //      decoder;
@@ -14,9 +18,12 @@
 //      profile only, codecBadDataErr -8969 for Advanced Simple, interlaced
 //      or MPEG quantisation), and the session fails with our error, so the
 //      app uses its own decoder;
-//   4. when our plug-in cannot start a session (no usable driver), a Simple
-//      stream goes on to AppleMP4V: VideoToolbox tries the next decoder after
-//      a refused session start.
+//   4. when our plug-in cannot start a session (no usable driver), another
+//      decoder takes the Simple stream: VideoToolbox tries the next one after a
+//      refused session start. Whether that decoder is AppleMP4V and whether it
+//      calls itself hardware accelerated is not ours to decide (on 26.7.3 the
+//      one that answers does), so the check is that a session starts and that
+//      it is not ours.
 // 3 and 4 are skipped where VideoToolbox lists no AppleMP4V.
 //
 // The VOL headers are those of two clips made with FFmpeg's mpeg4 encoder
@@ -87,6 +94,13 @@ uint32_t vcnlegacy_width(VcnLegacy* d) {
 uint32_t vcnlegacy_height(VcnLegacy* d) {
   (void)d;
   return 0;
+}
+bool vcnlegacy_session_lost(VcnLegacy* d) {
+  (void)d;
+  return false;  // the stand-in never gets a session to lose
+}
+void vcnlegacy_log_rebuild(VcnLegacy* d, const char* what, unsigned dropped) {
+  (void)d, (void)what, (void)dropped;
 }
 
 // ---- the streams' headers
@@ -200,7 +214,11 @@ int main(void) {
       dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
   expect("VideoToolbox exports VTRegisterVideoDecoderWithInfo", reg != NULL);
   if (!reg) return 1;
-  int rating = 400;
+  // Above Apple's own MPEG-4 decoder, or VideoToolbox takes that one and the
+  // plug-in is never asked: on 26.7.3 a rating of 400 already sits below what
+  // answers for a Simple profile stream, and the test failed for a reason that
+  // was not the plug-in's.
+  int rating = 2000;
   CFNumberRef r = CFNumberCreate(NULL, kCFNumberIntType, &rating);
   const void* k[] = {CFSTR("CMClassImplementationID"), CFSTR("CodecName"),
                      CFSTR("VTCodecType"), CFSTR("VTRating"),
@@ -241,9 +259,9 @@ int main(void) {
     st = session(kSimple, sizeof(kSimple), &hw);
     g_unavailable = false;
     expect(
-        "4. with our plug-in unable to start, a Simple stream goes on to "
-        "AppleMP4V (a session, not hardware accelerated)",
-        st == noErr && !hw && g_reached == 0);
+        "4. with our plug-in unable to start, another decoder takes the "
+        "Simple stream",
+        st == noErr && g_reached == 0);
   } else {
     printf("SKIP 3 and 4: VideoToolbox lists no AppleMP4V here (status %d)\n",
            (int)st);

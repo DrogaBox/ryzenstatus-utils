@@ -102,14 +102,22 @@ if [[ $encoder == yes ]]; then
   # The partition for the encoding fix's kext: the one given, the one OpenCore started from,
   # or the mounted EFI that holds VCNEncodeFloor.kext.
   enc_efi=$EFI_ID
-  [[ -n $enc_efi ]] || enc_efi=$(efi_booted 2>/dev/null)
+  enc_efi_refused=0
+  if [[ -z $enc_efi ]]; then
+    local_booted=$(efi_booted 2>/dev/null); local_booted_rc=$?
+    # efi_booted returning 2: OpenCore started from a partition that is not an EFI partition,
+    # and no other EFI may be taken in its place (efi_booted in common.zsh). The step is
+    # skipped and the user is told what to do, below.
+    (( local_booted_rc == 0 )) && enc_efi=$local_booted
+    (( local_booted_rc == 2 )) && enc_efi_refused=1
+  fi
   # The same rule install.sh uses: the only EFI partition that holds OpenCore (mounted to
   # look if need be). Some OpenCore setups do not publish the boot path.
-  if [[ -z $enc_efi ]] && efi_find_opencore 2>/dev/null; then enc_efi=$EFI_FOUND; fi
+  if (( ! enc_efi_refused )) && [[ -z $enc_efi ]] && efi_find_opencore 2>/dev/null; then enc_efi=$EFI_FOUND; fi
   # Never a guess: only an EFI-type partition (a rescue USB stick usually is not one), and
   # only when exactly one of them holds the kext. Otherwise the kext stays and the user is
   # told to name the partition.
-  if [[ -z $enc_efi ]]; then
+  if (( ! enc_efi_refused )) && [[ -z $enc_efi ]]; then
     local_cands=()
     for id in $(efi_ids); do
       [[ $(efi_field $id Mounted) == Yes ]] || continue
@@ -119,7 +127,7 @@ if [[ $encoder == yes ]]; then
     (( ${#local_cands} == 1 )) && enc_efi=$local_cands[1]
   fi
   if [[ -n $enc_efi ]]; then steps+=("install/encoder.sh uninstall --efi $enc_efi")
-  else steps+=("install/encoder.sh uninstall"); fi
+  elif (( ! enc_efi_refused )); then steps+=("install/encoder.sh uninstall"); fi
 fi
 [[ $decoders == yes ]] && steps+=("install/decoders.sh uninstall")
 
@@ -128,8 +136,12 @@ print -r -- "Steps, in this order:"
 local_i=1
 for s in $steps; do print -r -- "  $local_i. sudo $s"; local_i=$((local_i + 1)); done
 if [[ $encoder == yes && -z ${enc_efi:-} ]]; then
-  print -r -- "  (the encoding fix's kext stays on the EFI: it is not clear which EFI partition is"
-  print -r -- "   yours; run again with --efi diskNsM to take it off too)"
+  if [[ $enc_efi_refused == 1 ]]; then
+    print -r -- "  (the encoding fix's kext stays on the EFI: OpenCore started from a partition that is not an EFI partition, so no other may be taken in its place; run install/encoder.sh uninstall --efi diskNsM by hand)"
+  else
+    print -r -- "  (the encoding fix's kext stays on the EFI: it is not clear which EFI partition is"
+    print -r -- "   yours; run again with --efi diskNsM to take it off too)"
+  fi
 fi
 (( DRY )) && { print; print -r -- "Dry run: nothing was changed."; exit 0; }
 

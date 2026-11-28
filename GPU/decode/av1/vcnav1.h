@@ -33,6 +33,18 @@ int vcnav1_decode(VcnAV1* d, const uint8_t* tu, size_t size, int64_t userTag,
                   VcnAV1OutputFn fn, void* ctx);
 // Drop all reference state (e.g. after a seek)
 void vcnav1_flush(VcnAV1* d);
+
+// True when a parsed frame is a place a session can start over: nothing decoded
+// before it is used after it, which in AV1 is a key frame that refreshes all
+// eight slots. An intra-only frame cannot be one: the spec makes
+// refresh_frame_flags 0xFF on an intra-only frame a conformance error (dav1d
+// refuses it in strict mode, src/obu.c), so such a frame always keeps a slot a
+// later frame may read.
+#define VCN_AV1_RESTART_PREDICATE 1
+static inline bool vcnav1_is_restart(const AV1Frame* h, AV1ParseResult kind) {
+  return kind == AV1_PARSE_FRAME_READY && h->frame_type == AV1_KEY_FRAME &&
+         h->refresh_frame_flags == 0xFF;
+}
 const char* vcnav1_last_error(VcnAV1* d);
 // What made the last configure or decode fail: the stream (it cannot be
 // decoded as it is), the device (a driver call failed or the GPU did not

@@ -1350,6 +1350,12 @@ void AMDRyzenCPUPowerManagement::applyPowerControl(){
         }
         return;
     }
+    // The gate set_PState honors: with P1 never rewritten to a checked
+    // definition, selector 10 must not step the cores into it either.
+    if (!pmRyzen_p1_gate()) {
+        IOLog("AMDRyzenCPUPowerManagement::applyPowerControl ignored - P1 not a checked definition\n");
+        return;
+    }
 
     IOLockLock(rendezvousLock);
     mp_rendezvous(nullptr, [](void *obj) {
@@ -3346,6 +3352,43 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
     // Vet the definitions once, here in thread context, with the same
     // 400 MHz floor in integer form: Zen 5 runs at FID * 5 MHz, earlier
     // families at FID / DfsId * 200 MHz. The rendezvous only writes.
+    // CpuVid [21:14] is clamped to the firmware's most-voltage enabled
+    // P-state: P0 when it is enabled (the normal case), otherwise the
+    // lowest VID among the enabled states, so a board with P0 disabled
+    // (e.g. CPB off) still gets a real cap. A lower VID asks the SMU for
+    // MORE core voltage than the firmware ever programs, and no caller of
+    // this selector validated that field. Undervolting (a higher VID, less
+    // voltage) stays possible. The cap is read once, before the first
+    // write: clamping to the live P0 would leave an undervolted P0 unable
+    // to go back to stock until a reboot. With no enabled state readable at
+    // all there is no way to vet VID, so the write is refused instead of
+    // passing raw definitions through (fail closed).
+    uint64_t defs[kMSR_PSTATE_LEN] = {};
+    if (!firmwareP0VidKnown) {
+        uint64_t capVid = 0;
+        bool haveAny = false;
+        for (uint32_t i = 0; i < kMSR_PSTATE_LEN; i++) {
+            uint64_t d = 0;
+            if (!read_msr(kMSR_PSTATE_0 + i, &d) || !(d >> 63)) continue;
+            const uint64_t vid = (d >> 14) & 0xFFULL;
+            if (!haveAny || vid < capVid) {
+                capVid = vid;
+                haveAny = true;
+            }
+        }
+        if (!haveAny) {
+            static bool loggedNoVidCap = false;
+            if (!loggedNoVidCap) {
+                loggedNoVidCap = true;
+                IOLog("AMDRyzenCPUPowerManagement::writePstate refused: no enabled P-state readable, VID clamp unavailable\n");
+            }
+            return;
+        }
+        firmwareP0Vid = capVid;
+        firmwareP0VidKnown = true;
+    }
+    const bool haveP0 = firmwareP0VidKnown;
+    const uint64_t p0Vid = firmwareP0Vid;
     uint32_t writeMask = 0;
     for (uint32_t i = 0; i < kMSR_PSTATE_LEN; i++) {
         uint64_t def = buf[i];
@@ -3357,7 +3400,11 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
             uint64_t curCpuDfsId = ((def >> 8) & 0x3f);
             uint64_t curCpuFid = (def & 0xff);
             if (curCpuDfsId == 0 || curCpuFid == 0 || curCpuFid < 2 * curCpuDfsId) continue;
+            if (haveP0 && ((def >> 14) & 0xFFULL) < p0Vid) {
+                def = (def & ~(0xFFULL << 14)) | (p0Vid << 14);
+            }
         }
+        defs[i] = def;
         writeMask |= (1u << i);
     }
 
@@ -3365,7 +3412,7 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
         AMDRyzenCPUPowerManagement *provider;
         const uint64_t *defs;   // kMSR_PSTATE_LEN entries
         uint32_t mask;
-    } args{this, buf, writeMask};
+    } args{this, defs, writeMask};
 
     IOLockLock(rendezvousLock);
     mp_rendezvous(nullptr, [](void *obj) {
@@ -3465,6 +3512,15 @@ void AMDRyzenCPUPowerManagement::resumeSuperIO() {
         superIO->resume();
         fanTelemetryLastMs = 0;
         firmwareTempLastMs = 0;
+        // The firmware rewrites the CPU-temperature input (ITE 0x29) on wake
+        // with whatever it measured at resume - 36 C was observed on an
+        // IT8665E board, i.e. possibly far below a hot CPU. Re-feed the real
+        // package temperature right here instead of waiting for the first
+        // sensor tick, and make the cached value impossible to match so the
+        // next tick cannot skip its write. A failed read keeps the pre-sleep
+        // trusted timestamp, so the 10 s failsafe (90 C) still fires at once.
+        firmwareTempLast = 0xFF;
+        feedFirmwareCPUTemp(getPackageTemp(), getCurrentTimeNs() / 1000000);
         for (size_t i = 0; i < kMAX_FANS; i++) {
             lastPWMAssertMs[i] = 0;
         }
@@ -3591,6 +3647,35 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     // ISSuperIOSMCFamily::beginAccess) and not at all on a tick that writes
     // nothing.
     bool chipTaken = false;
+    // Emergency guard for MANUAL fans (selector 95). The selector clamps
+    // every duty it is asked for, but a client that hangs without dying (so
+    // clientClose's dead-man never fires for it) leaves its fan latched at
+    // the last duty indefinitely. Re-judge the package temperature here, on
+    // every sensor tick, and raise any fan still under a client's manual
+    // control that sits below the guard while the CPU is hot. The duty and
+    // the control mode are read from the chip right here (see below). Curve fans get the same guard further below; fans the user
+    // handed back to the BIOS (selector 96 / auto mode) are left alone.
+    if (isTempValid(cpuTemp) && cpuTemp >= kTHERMAL_GUARD_TEMP_C) {
+        // Judge on the chip's live control mode and duty, not on the shared
+        // telemetry cache: that cache is at most kFAN_TELEMETRY_MIN_INTERVAL_MS
+        // old and selector 95/96 write the registers under superIOLock without
+        // refreshing it, so right after either it can still show a duty the
+        // client has since raised above the guard (knocking it back down) or a
+        // manual mode the user has since handed back to the BIOS (grabbing the
+        // fan back). One extra register-read burst per tick, only while hot.
+        superIO->updateFanControl();
+        for (int fanIdx = 0; fanIdx < fanCount && fanIdx < (int)kMAX_FANS; fanIdx++) {
+            const int8_t manualCurve = fanToCurveMap[fanIdx];
+            if (manualCurve >= 0 && manualCurve < MAX_FAN_CURVES) continue;   // curve fan
+            if (fanOwner[fanIdx] == nullptr) continue;                         // nobody owns it
+            if (superIO->getFanAutoControlMode(fanIdx)) continue;              // released to BIOS
+            if (superIO->getFanThrottle(fanIdx) >= kTHERMAL_GUARD_PWM) continue;
+            if (!chipTaken) { superIO->beginAccess(); chipTaken = true; }
+            superIO->overrideFanControl(fanIdx, kTHERMAL_GUARD_PWM);
+            lastAppliedPWM[fanIdx] = kTHERMAL_GUARD_PWM;
+            lastPWMUpdateTime[fanIdx] = now;
+        }
+    }
     for (int fanIdx = 0; fanIdx < fanCount && fanIdx < (int)kMAX_FANS; fanIdx++) {
         int8_t curveIdx = fanToCurveMap[fanIdx];
         if (curveIdx < 0 || curveIdx >= MAX_FAN_CURVES) {

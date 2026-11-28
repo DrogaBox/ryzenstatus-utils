@@ -24,7 +24,7 @@ GPU_ZIP="ReleaseAssets/GPU-Package.zip"
 # Tools/build-gpu-assets.sh prints it; refresh it in the same commit as the zip.
 # The zip's own hash is not pinned: ditto stores modification times, so the same
 # files give another zip (the same lesson as the kext zip below).
-GPU_PAYLOAD_SUMS_SHA256="252c4aad1470b7da15f3b794405db1fecb0a0e18a2699c4ea54d41e713c351d9"
+GPU_PAYLOAD_SUMS_SHA256="c85c63afc10b7357952a9259b4beb2c60e925e9832d0f2c6de841afe2d7125c3"
 STAGING=""
 WORK=""
 MOUNT=""
@@ -400,8 +400,15 @@ fi
 echo "▸ Creating writable image…"
 WORK="$(mktemp -d)"
 RW="$WORK/rw.dmg"
-# Clear any stale mount left by a previous attempt on the same runner.
-hdiutil detach "/Volumes/$VOLUME" -force 2>/dev/null || true
+# Clear any stale mount left by a previous attempt on the same runner: only a
+# disk image's, found by device in hdiutil info, so a volume of that name that
+# hdiutil did not mount is left alone. The mount is matched as a whole field of
+# the line (it can sit in the dev node's line or on one of its own), so a
+# longer path that merely starts with it does not count.
+stale_dev=$(hdiutil info 2>/dev/null | awk -v vol="/Volumes/$VOLUME" '
+    $1 ~ /^\/dev\/disk/ { dev=$1 }
+    { for (i = 1; i <= NF; i++) if ($i == vol) { print dev; exit } }') || true
+[[ -n "$stale_dev" ]] && hdiutil detach "$stale_dev" -force 2>/dev/null || true
 # hdiutil can fail transiently on CI runners; retry a few times. No -quiet, so a
 # real error is visible in the build log rather than swallowed.
 created=0

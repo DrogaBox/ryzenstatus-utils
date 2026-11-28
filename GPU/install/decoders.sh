@@ -301,7 +301,7 @@ preflight() {
   if ! all_built; then
     :
   elif amfi_off; then
-    add_check loading "$label" ok "AMFI is switched off (amfi_get_out_of_my_way), so any plug-in loads"
+    add_check loading "$label" ok "AMFI is switched off in the boot arguments, so any plug-in loads"
   elif amfipass_on; then
     add_check loading "$label" ok "AMFIPass is running"
   elif [[ ! -x $PROBE ]]; then

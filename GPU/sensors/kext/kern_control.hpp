@@ -23,6 +23,22 @@ void init();
 void onLibrary(KernelPatcher& patcher, size_t index, mach_vm_address_t address,
                size_t size, const char* name);
 
+// How many sleeps started since boot (0.9.1). The kext keeps no power
+// management object any more (0.9.3), so nothing here pairs a call with the
+// sleep count of the object it would use; the count still tells a reader
+// whether the kext has seen a sleep.
+uint64_t sleepCount();
+// True from ppSleep's start to the end of ppWake.
+bool inSleep();
+
+// Whether something of the control is on the card and not confirmed stock: a
+// fan curve, a clock or voltage change (an OD8 state), or a raised power limit.
+// Wider than what the fan watchdog runs on (od8DogPass watches a curve, an
+// unknown state, raised GFX clocks and a raised power limit only). Nothing
+// calls this: the app reads PerformanceStatistics once a second while it holds
+// (0.9.3), not while this is true.
+bool holdsAny();
+
 // What the control did, for ioreg (rebuilt when read).
 const char* statusText();
 const char* profileText();  // the boot profile: asked, set, or why not

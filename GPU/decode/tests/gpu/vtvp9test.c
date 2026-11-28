@@ -4,10 +4,15 @@
 //   vtvp9test [-load bundle] list
 //       shows the vp09 decoders VideoToolbox knows about
 //   vtvp9test [-load bundle] file [reference] [-n] [-a] [-pace fps] [-loop N]
-//             [-renew] [-frames N] [-id decoder] [-sw] [-attach]
+//             [-renew] [-frames N] [-id decoder] [-sw] [-attach] [-dump dir]
 //             [-color primaries,transfer,matrix] [-hdr]
 //       decodes the file (IVF or WebM) and compares the MD5 of every frame as
 //       I420 with a reference in the format of FFmpeg's FATE suite
+//
+// -dump writes every frame to <dir>/f<N>_<W>x<H>.yuv as planar I420, to
+// compare pixels with a reference decoder when an MD5 differs; it needs
+// SVC_TEST_GO=1 in the environment, so that no stray script starts a decode on
+// this Mac's card and writes files.
 //
 // -load registers the bundle in this process only, nothing is installed on the
 // system. -n reads no pixels, -a decodes asynchronously, -pace feeds at a fixed
@@ -123,6 +128,7 @@ typedef struct {
   FILE* ref;
   int frames, mismatches, errors, dropped, nohash, attach;
   char lastAttach[1024];
+  const char* dumpDir;  // -dump: every frame as planar I420, one file each
   double *fed, *lat;
 } Ctx;
 
@@ -172,6 +178,28 @@ static void out_cb(void* refcon, void* frameRefcon, OSStatus st,
           *uv = CVPixelBufferGetBaseAddressOfPlane(img, 1);
   size_t ys = CVPixelBufferGetBytesPerRowOfPlane(img, 0),
          uvs = CVPixelBufferGetBytesPerRowOfPlane(img, 1);
+  if (c->dumpDir && !ten) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/f%03d_%dx%d.yuv", c->dumpDir, c->frames, w,
+             h);
+    FILE* f = fopen(path, "wb");
+    uint8_t* line = malloc((size_t)((w + 1) / 2));
+    if (f && line) {
+      for (int r = 0; r < h; r++) fwrite(y + (size_t)r * ys, 1, (size_t)w, f);
+      for (int pl = 0; pl < 2; pl++)
+        for (int r = 0; r < (h + 1) / 2; r++) {
+          for (int i = 0; i < (w + 1) / 2; i++)
+            line[i] = uv[(size_t)r * uvs + 2 * i + pl];
+          fwrite(line, 1, (size_t)((w + 1) / 2), f);
+        }
+      fclose(f);
+    } else {
+      if (f) fclose(f);
+      printf("frame %d: cannot write %s\n", c->frames, path);
+      c->errors++;
+    }
+    free(line);
+  }
   CC_MD5_CTX m;
   CC_MD5_Init(&m);
   int cw = (w + 1) / 2, ch = (h + 1) / 2;
@@ -236,7 +264,7 @@ static int usage(void) {
           "usage: vtvp9test [-load bundle] list\n"
           "       vtvp9test [-load bundle] file [reference] [-n] [-a] "
           "[-pace fps] [-loop N] [-renew] [-frames N] [-id decoder] [-sw] "
-          "[-attach]\n"
+          "[-attach] [-dump dir]\n"
           "       [-color primaries,transfer,matrix] [-hdr]\n"
           "A decode run goes to the GPU: there is no switch to arm.\n");
   return 1;
@@ -286,6 +314,12 @@ int main(int argc, char** argv) {
       require_hw = 0;
     } else if (!strcmp(argv[i], "-attach")) {
       c.attach = 1;
+    } else if (!strcmp(argv[i], "-dump") && i + 1 < argc) {
+      // Writing pixels is for a measured comparison, not for a script that
+      // happens to pass by: it needs SVC_TEST_GO=1.
+      const char* go = getenv("SVC_TEST_GO");
+      if (!go || strcmp(go, "1")) return fail("-dump needs SVC_TEST_GO=1");
+      c.dumpDir = argv[++i];
     } else if (!strcmp(argv[i], "-color") && i + 1 < argc) {
       if (sscanf(argv[++i], "%d,%d,%d", &color[0], &color[1], &color[2]) != 3)
         return fail("invalid -color");

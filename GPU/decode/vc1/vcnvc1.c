@@ -14,6 +14,12 @@ typedef struct {
   char err[256];
   int failure;
   unsigned fwErrors;  // of sessions already closed
+  // Frames that did not go to the engine because no session could take them:
+  // the ones a sleep took the session away from, and the ones that needed a
+  // reference the session rebuilt at the wake does not have yet.
+  unsigned dropped;
+  bool ramping;  // rebuilt after a sleep: drop what has no reference yet
+  bool broken;   // stopped: the stream sent no intra picture after the sleep
 } VcnVc1;
 
 // Bit positions of Mesa's get_vc1_msg (radeon_vcn_dec.c) and build_vc1_msg
@@ -71,6 +77,9 @@ static void end_session(VcnVc1* d) {
     d->vcn = NULL;
   }
   d->refs = 0;
+  // The rebuild after a sleep sets ramping back right after end_session.
+  d->ramping = false;
+  d->dropped = 0;
 }
 
 static bool is_b(uint8_t type) { return type == VC1_B || type == VC1_BI; }
@@ -86,6 +95,37 @@ static int on_picture(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {
   if (d->vcn && (vcnlegacy_width(d->vcn) != p->width ||
                  vcnlegacy_height(d->vcn) != p->height))
     end_session(d);
+  // A session from before a system sleep cannot take another frame. An I or
+  // BI frame is intra coded and predicts from no other frame (SMPTE 421M
+  // 7.1.1.3, frame type in Table 20), so it decodes the same in a new session:
+  // the frames up to it are dropped without an error — the host sees the
+  // stream carry on — and it starts the new session. A sequence header or an
+  // entry point header in front of it is what can change the coded size or the
+  // loop filter state, and both are rebuilt with the session (the size check
+  // above, vcnvc1_fill_block for the flags). The P and skipped frames after an
+  // I frame of an open stream need frames this session never decoded, and the
+  // reference check below drops them (ramping).
+  if (d->vcn && vcnlegacy_session_lost(d->vcn)) {
+    if (pic->type != VC1_I && pic->type != VC1_BI) {
+      // Bounded like the AV1 and VP9 rebuilds (REBUILD_MAX_DROPPED there): a
+      // stream that sends no intra picture is stopped as a device failure, so
+      // the host can hand it to another decoder, instead of dropping pictures
+      // for however long the stream goes without one.
+      if (++d->dropped > 600) {
+        d->broken = true;
+        d->failure = VCNLEGACY_FAIL_DEVICE;
+        snprintf(d->err, sizeof(d->err),
+                 "no intra picture in %u frames after the system sleep",
+                 d->dropped);
+        return -1;
+      }
+      return 0;
+    }
+    vcnlegacy_log_rebuild(d->vcn, "a VC-1 I frame", d->dropped);
+    end_session(d);
+    d->dropped = 0;
+    d->ramping = true;
+  }
   if (!d->vcn) {
     VcnLegacyConfig cfg = {
         .codecId = VCN_CODEC_VC1,
@@ -108,6 +148,10 @@ static int on_picture(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {
              : (pic->type == VC1_P || pic->type == VC1_SKIPPED) ? 1
                                                                 : 0;
   if (d->refs < need) {
+    if (d->ramping) {
+      d->dropped++;
+      return 0;
+    }
     snprintf(d->err, sizeof(d->err), "VC-1 frame without its reference frame%s",
              need == 2 ? "s" : "");
     d->failure = VCNLEGACY_FAIL_REFERENCE;
@@ -163,6 +207,7 @@ static int on_picture(void* ctx, Vc1Parser* p, const Vc1Picture* pic) {
     if (d->lastRef) CVPixelBufferRelease(d->lastRef);
     d->lastRef = CVPixelBufferRetain(target);
   }
+  if (d->ramping && d->refs >= 2) d->ramping = false;
   int stop = d->out ? d->out(d->outCtx, target,
                              is_b(pic->type) ? VCNLEGACY_PIC_B
                                              : VCNLEGACY_PIC_REFERENCE,
@@ -217,6 +262,14 @@ static int decode(void* v, const uint8_t* chunk, size_t size,
   d->outCtx = ctx;
   d->err[0] = 0;
   d->failure = VCNLEGACY_FAIL_STREAM;
+  if (d->broken) {
+    snprintf(d->err, sizeof(d->err),
+             "session stopped: no intra picture in %u frames after the "
+             "system sleep",
+             d->dropped);
+    d->failure = VCNLEGACY_FAIL_DEVICE;
+    return -1;
+  }
   bool raw =
       d->parser.have_sequence && d->parser.profile != VC1_PROFILE_ADVANCED;
   int r = raw ? vc1_parse_frame(&d->parser, chunk, size, on_picture, d)

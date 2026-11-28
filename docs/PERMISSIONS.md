@@ -139,13 +139,13 @@ You can review or change every grant in System Settings, under Privacy and Secur
 
 ## Administrator, until restart and optional
 
-**Why it comes up.** With the GPU sensors kext on an AMD Radeon RX 6000 card, the GPU control page can change the power limit, the fan curve and the maximum clock. Those changes reach the card's driver, so they are opened only when you click Allow GPU Changes and type your administrator password.
+**Why it comes up.** With the GPU sensors kext on an AMD Radeon RX 6000 card, the GPU control page can change the power limit, the fan curve with zero RPM, minimum and maximum clocks, voltage (undervolt), overclock, and profiles. Those changes reach the card's driver, so they are opened only when you click Allow GPU Changes and type your administrator password. With Allow changes after restart too, asking for your password once lets remembered settings come back after a restart as well. NVIDIA cards and NullMoth are not supported or tested.
 
 **What uses it.** The GPU control page in Settings and its row in the menu bar panel.
 
 **If you say no.** The page still shows the card's readings and settings, but changes nothing.
 
-**Optional.** Yes. Changes stay open until the Mac restarts or you close them again, and RyzenStatus never asks for the password on its own.
+**Optional.** Yes. Changes stay open until the Mac restarts or you close them again, unless Allow changes after restart too is enabled. RyzenStatus never asks for the password on its own.
 
 ## Automation
 

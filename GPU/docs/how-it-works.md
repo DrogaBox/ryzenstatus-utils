@@ -145,7 +145,7 @@ ends. A failed driver call or a stuck command is reported to VideoToolbox as a m
 `canAcceptFormatDescription` says no from then on. It reads the format under a lock of its
 own, so it never waits for a frame the GPU is decoding.
 
-### A system sleep (0.3.7)
+### A system sleep (0.3.9)
 
 Apple's kernel driver keeps a decoder's video context across a sleep, but restarts the
 video engine under it. Read in IDA (AMDRadeonX6000, 26.7.3 KDK): `systemWillSleep` calls
@@ -163,19 +163,27 @@ a hang after a wake, which was not reproduced here.
 
 So an AV1 or VP9 session from before a sleep keeps decoding (`vcn_session_lost` in
 `decode/common/vcnsession.c` only notices the sleep), and its driver objects are replaced at
-its next key frame, where nothing decoded before is needed any more (`rebuild_now` in
-`vcnav1.c` and `vcnvp9.c`): an AV1 key frame that refreshes all eight reference slots, a VP9
-key frame, or a VP9 intra-only frame that refreshes all eight and resets all four
-probability contexts. The old accelerator is closed with `AVD_DestroyAVDAccelerator` only,
-a new accelerator, driver, context and bitstream pool are opened in the same plug-in
-session, and the key frame decodes on them; no frame is dropped. If the old session fails
-after the wake (a driver call fails, a command does not finish, or the firmware reports an
-error), it is replaced at once and the frames up to the next such key frame are dropped:
-noErr with no picture, as for a hidden frame, at most 600 of them, then a malfunction
-(-12911). A command that did not finish has its accelerator closed on the background
-queue, and its pictures are let go after that. Until the replacement, a command on the old
-session may take 15 s instead of 1 s. A replacement that fails stops the session with
--12911, and VideoToolbox makes a new decoder.
+its next restart point, where nothing decoded before is needed any more (`rebuild_now` in
+`vcnav1.c` and `vcnvp9.c`, and the rule itself in `vcnav1_is_restart` / `vcnvp9_is_restart`):
+an AV1 key frame that refreshes all eight reference slots (an intra-only frame never may),
+a VP9 key frame, or a VP9 intra-only frame that refreshes all eight slots and resets all
+four probability contexts (`reset_frame_context` 3 or error-resilient mode; 2 resets only
+one). The old accelerator is closed with `AVD_DestroyAVDAccelerator` only, on the
+teardown queue and never on the decoding thread, a new accelerator, driver, context and
+bitstream pool are opened in the same plug-in session, and the frame decodes on them; no
+frame is dropped. If the old session fails after the wake (a driver call fails, a command
+does not finish, the firmware reports an error, or the machine slept while a frame was on the
+GPU), it is replaced at once and the frames up to the next restart point are dropped: noErr
+with no picture, as for a hidden frame, at most 600 of them, then a malfunction (-12911). A
+command that did not finish has its accelerator closed on the background queue, and its
+pictures are let go after that. Until the replacement, and for the first command that
+finishes on the new session, a command may take 15 s instead of 1 s: right after a wake a
+fresh context can still be slow, and 0.3.7 dropped that protection at the replacement itself.
+A replacement that fails stops the session with -12911, and VideoToolbox makes a new decoder.
+
+The sleep may also land inside a decode call: the frame is on the GPU, the 1 s timeout is
+measured on a clock that stops while the machine is asleep, so the wait expires right after
+the wake. That case now reaches the same replacement instead of stopping the session.
 
 A sleep is seen without any notification: the time the Mac has spent asleep
 (`mach_continuous_time` minus `mach_absolute_time`), the time of the last wake
@@ -196,9 +204,22 @@ or such close.
 New sessions open while one from before a sleep is still open; the plug-ins only count those
 for the log, through the process's local notification center
 (`CFNotificationCenterGetLocalCenter`, which calls every observer on the posting thread),
-because each plug-in bundle has its own copy of the session code. The MPEG-2, VC-1 and
-MPEG-4 decoders (`vcnlegacy.c`) do not replace their sessions: one from before a sleep
-fails its pictures as a malfunction, as in 0.3.6.
+because each plug-in bundle has its own copy of the session code.
+
+The MPEG-2, VC-1 and MPEG-4 decoders (`common/vcnlegacy.c`) replace their session the same
+way since 0.3.9, with one difference: they do drop pictures. An intra picture is the first
+one a new session can decode, so the pictures between the sleep and the next I picture are
+dropped with no error — the host sees the stream carry on and no malfunction — and the I
+picture starts the new session (`vcnlegacy_session_lost` in the codec layer, `end_session`
+and `vcnlegacy_create` at the picture). An MPEG-2 I picture (13818-2 6.3.1), a VC-1 I or BI
+frame (SMPTE 421M 7.1.1.3) and an MPEG-4 I-VOP (14496-2 6.3.3) are coded from nothing
+before them, so they decode the same in a session that has seen nothing. A GOP header's
+`closed_gop` says the pictures after the I need nothing from the one before (13818-2
+6.2.2.6); with an open GOP, or with `broken_link`, the leading B pictures predict from the
+previous GOP, and the reference check of the codec layer drops them while the new session
+has not decoded it (`ramping`), instead of drawing them from a DPB it does not have. A
+driver call that fails, a command that does not finish or a firmware error still stops the
+session as in 0.3.6: only a sleep is rebuilt from.
 
 What still waits with no limit the plug-in can set is inside Apple's code: the driver calls
 themselves (`ScheduleAVDCommands`, `QueryAVDCommandStatus`, `CreateAVDAccelerator`,

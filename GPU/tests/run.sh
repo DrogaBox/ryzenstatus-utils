@@ -6,7 +6,9 @@
 #
 # What it checks:
 #   1. the repository is clean (tools/check_clean.sh) and formatted (tools/format.sh --check);
-#      what install/install.sh plan decides on made-up Macs (tests/install_plan.sh)
+#      what install/install.sh plan decides on made-up Macs (tests/install_plan.sh); that every
+#      absolute command path the root installers and the installer window name exists here
+#      (tests/command_paths.sh)
 #   2. the decoders build, twice, to the same bytes
 #   3. the AV1 and VP9 parsers read the public test streams exactly as recorded in
 #      tests/expected-digests.txt
@@ -27,7 +29,9 @@
 #      (staletest)
 #   5b. the loader kext: its decisions, that it builds twice to the same bytes and lists the
 #      plug-ins just built, that install/loader.sh puts it on an EFI and takes it off again
-#      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac
+#      (on made-up EFI folders), and that it accepts the AMFI functions of this Mac; and the
+#      boot arguments that decide whether it is needed at all: AMFI switched off and AMFIPass
+#      loaded but off, on made-up Macs (amfidetect)
 #   5c. the GPU sensors: they build twice to the same bytes, their decisions, and that the
 #      kext accepts the PMLog function of this Mac's driver
 #   5d. the JPEG decoder kext: it builds twice to the same bytes, its door and the rule that
@@ -86,6 +90,7 @@ check "every shell script parses" syntax
 check "the validated builds list agrees with the decoders' driver lists" install/check_lists.sh
 check "install.sh plan decides as expected on made-up Macs" tests/install_plan.sh
 check "root installers refuse folders another user can change" tests/install_paths.sh
+check "every command the installers run exists on this Mac" tests/command_paths.sh
 
 step "decoders: build"
 build_twice() {
@@ -138,6 +143,9 @@ check "the plug-ins' VideoToolbox side, with a stand-in decoder" plugins
 legacyparse() { decode/build/tests/legacyparse > decode/build/tests/legacyparse.txt ||
   { cat decode/build/tests/legacyparse.txt; return 1; }; }
 check "the MPEG-2, VC-1 and MPEG-4 parsers and messages, with made-up and damaged streams" legacyparse
+bootargs() { tests/amfidetect.sh > decode/build/tests/amfidetect.txt 2>&1 ||
+  { cat decode/build/tests/amfidetect.txt; return 1; }; }
+check "the boot arguments that decide whether the loader kext is needed" bootargs
 layers() { decode/build/tests/layertest > decode/build/tests/layertest.txt ||
   { cat decode/build/tests/layertest.txt; return 1; }; }
 check "the MPEG-2, VC-1 and MPEG-4 codec layers send the firmware only what it decodes" layers
@@ -162,10 +170,14 @@ check "two plug-ins of one process: a session from before a sleep is seen, new o
 sessions() {
   decode/build/tests/sessiontest-av1 tests/media/av1/av1-1-b8-01-size-16x16.ivf tests/media/av1/av1-1-b8-05-mv.ivf > decode/build/tests/sessiontest-av1.txt &&
     decode/build/tests/sessiontest-vp9 tests/media/vp9/vp90-2-12-droppable_1.ivf \
-      tests/media/vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf > decode/build/tests/sessiontest-vp9.txt ||
+      tests/media/vp9-invalid/invalid-vp90-2-09-aq2.webm.ivf.s3984_r01-05_b6-.ivf \
+      tests/media/vp9/vp90-2-22-svc_1280x720_3.ivf \
+      tests/media/vp9/vp90-2-13-mv-with-scaling.ivf \
+      > decode/build/tests/sessiontest-vp9.txt ||
     { cat decode/build/tests/sessiontest-av1.txt decode/build/tests/sessiontest-vp9.txt 2>/dev/null | grep -v ^PASS; return 1; }
 }
-check "decoder sessions release the driver once, also after failures and a stuck GPU; a sleep: decode on, rebuild at a key frame; hidden frames keep their picture (made-up driver)" sessions
+check "decoder sessions release the driver once, also after failures and a stuck GPU; a sleep: decode on, rebuild at a key frame; hidden frames keep their picture; a VP9 reference more than 2x smaller is refused and such a frame empties its slots (made-up driver)" sessions
+check "sessiontest-vp9 notices when those two rules are broken (3 damaged builds)" ./decode/tests/mutants.sh
 
 step "decoders: loader kext"
 check "the kext's decisions" decode/build/tests/loadertest

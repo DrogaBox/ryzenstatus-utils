@@ -103,8 +103,14 @@ struct GPUControlPageInput: Equatable {
         bootArm = service.bootArm
         isChangingBootArm = service.isChangingBootArm
         bootArmFailed = service.bootArmFailed
-        kextVersion = service.control?.writing?.kextVersion
+        let version = service.control?.writing?.kextVersion
+        kextVersion = version
+        // A kext this app was not checked against (older than the package it
+        // carries, or a release that is not in `checkedReleases`): the page
+        // says so and every control stays off. 0.9.1 and 0.9.2 panicked the
+        // Mac; auto-update brings the app without the GPU package.
         canChoose = service.mode != .none
+            && !(version.map(GPUControlCurveRules.isOutdated) ?? false)
         writing = service.control?.writing
         overclock = service.overclock
         profiles = service.profiles
@@ -131,6 +137,15 @@ struct GPUControlPageActions {
 extension GPUControlPageInput {
     /// A request is out, or waits to be tried again: the kext has not taken it.
     var isPending: Bool { GPUControlPageLogic.pending(snapshot) != nil }
+
+    /// The kext that runs is not one this app was checked against: older than
+    /// the release it carries, or a release outside `checkedReleases`
+    /// (GPUSensors 0.9.1 and 0.9.2 panicked this Mac). A kext that publishes
+    /// no build name is not judged here.
+    var kextOutdated: Bool {
+        guard let kextVersion else { return false }
+        return GPUControlCurveRules.isOutdated(kextVersion)
+    }
 
     /// The hold is the gpucontrol this app installs, not another program
     /// (GPUControlHolder): the page says so, and it is no problem to report.
@@ -272,6 +287,7 @@ struct GPUControlPageContent: View {
 
     var body: some View {
         Form {
+            if input.kextOutdated { kextOutdatedSection }
             stateSection
             if showsPower { powerSection }
             if showsPower, input.facts?.od8Ready == true {
@@ -322,6 +338,25 @@ struct GPUControlPageContent: View {
         // seeded values.
         .onChange(of: Self.heldFan(input)) { _, held in
             draft = draft.following(held: held)
+        }
+    }
+
+    // MARK: Outdated GPU package
+
+    /// The GPU package that runs is not the one this app carries (or a release
+    /// GPU control was not checked against, like 0.9.1 and 0.9.2, which
+    /// panicked the Mac): said first, where GPU control lives, with every
+    /// control under it off.
+    private var kextOutdatedSection: some View {
+        Section {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text(s.kextOutdated)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 

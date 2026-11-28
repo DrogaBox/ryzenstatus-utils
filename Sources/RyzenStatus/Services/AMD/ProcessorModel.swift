@@ -1517,8 +1517,15 @@ actor ProcessorModel {
     /// Number of AMD GPUs detected by the kext (selector 27).
     /// Returns 0 if selectors are not implemented in the loaded kext.
     nonisolated func getKextGPUCount() -> Int {
-        let result = kernelGetUInt64(count: 1, selector: AMDKextSelector.gpuLoad)
-        return result.isEmpty ? 0 : Int(result[0])
+        // Selector 27 answers with a scalar output (kext case 27 writes
+        // scalarOutput[0]); kernelGetUInt64 reads the structure buffer the
+        // kext never touches, so it always returned 0.
+        var output: UInt64 = 0
+        var outputCount: UInt32 = 1
+        let res = safeIOConnectCallMethod(AMDKextSelector.gpuLoad, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 1 else { return 0 }
+        return Int(output)
     }
 
     /// GPU temperatures from kext in integer degrees Celsius (selector 28, no conversion needed).
@@ -2152,7 +2159,13 @@ actor ProcessorModel {
             return kIOReturnBadArgument
         }
         var input: [UInt64] = [0, UInt64(arg)]
-        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
+        // The kext answers with 8 scalar outputs on the success path; with no
+        // room for them the call comes back failed even though the SMU write
+        // already ran (same trap forcePMTableCapture documents for selector 57).
+        var output = [UInt64](repeating: 0, count: 8)
+        var outputCount = UInt32(output.count)
+        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 2, nil, 0,
+                                       &output, &outputCount, nil, nil)
     }
 
     /// Program per-CCD frequency overrides via 0x5D (selector 51, mode 1).
@@ -2179,7 +2192,11 @@ actor ProcessorModel {
         }
         input[10] = UInt64(startCcd)
         input[11] = UInt64(targets.count)
-        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 12, nil, 0, nil, nil, nil, nil)
+        // Same 8 scalar outputs as the all-core path (see above).
+        var output = [UInt64](repeating: 0, count: 8)
+        var outputCount = UInt32(output.count)
+        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 12, nil, 0,
+                                       &output, &outputCount, nil, nil)
     }
 
     // MARK: — SMU PM-table plumbing (selectors 56/57)

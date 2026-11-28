@@ -10,6 +10,9 @@
 //   4. A 65536 wide key frame header that codes more than 64 tile columns is
 //      refused and leaves the state as it was; the same header with 64 tile
 //      columns parses.
+//   5. A profile 0 inter frame after a 10-bit profile 2 key frame is refused
+//      (the profile table has no such frame) and leaves the stream depth as
+//      it was; the next valid key frame decodes.
 //
 // usage: vp9state file.ivf   (a profile 0 VP9 stream; exit status 0 = pass)
 #include <stdbool.h>
@@ -219,6 +222,31 @@ int main(int argc, char** argv) {
          vp9_parse_frame_header(p, wide, wn) != 0);
   expect("the refused wide frame leaves the state as it was",
          same_state(p, before));
+
+  // A profile 2 key frame at 10 bits, then a profile 0 inter frame: the
+  // profile table has no "profile 0, 10 bits", so the inter frame is refused
+  // with the stream depth as it was, and the next valid key frame decodes.
+  // The three chunks are the V1 finding's inputs.
+  static const uint8_t v1key[] = {0x93, 0x49, 0x83, 0x42, 0x10, 0x01, 0xf8,
+                                  0x01, 0xf8, 0x00, 0x19, 0x00, 0x00, 0x04,
+                                  0x42, 0x00, 0x00};
+  static const uint8_t v1inter[] = {0x86, 0x03, 0xc0, 0x02, 0x08, 0x00, 0x32,
+                                    0x00, 0x00, 0x04, 0x42, 0x00, 0x00};
+  static const uint8_t v1next[] = {0x83, 0x49, 0x83, 0x42, 0x20, 0x03, 0xf0,
+                                   0x03, 0xf0, 0x00, 0x32, 0x00, 0x00, 0x08,
+                                   0x42, 0x00, 0x00};
+  vp9_parser_init(q);
+  expect("a profile 2 key frame at 10 bits decodes",
+         !vp9_parse_chunk(q, v1key, sizeof v1key, on_frame, NULL) &&
+             q->fh.profile == 2 && q->fh.bit_depth == 10 &&
+             q->ref[0].valid && q->ref[0].bit_depth == 10);
+  expect("a profile 0 inter frame after it is refused",
+         vp9_parse_chunk(q, v1inter, sizeof v1inter, on_frame, NULL) != 0 &&
+             q->bit_depth == 10 && q->err[0]);
+  expect("the next valid key frame decodes",
+         !vp9_parse_chunk(q, v1next, sizeof v1next, on_frame, NULL) &&
+             q->fh.profile == 0 && q->fh.bit_depth == 8 && q->ref[0].valid &&
+             q->ref[0].bit_depth == 8);
 
   free(p);
   free(before);

@@ -407,12 +407,13 @@ kext_install() {
 kext_uninstall() {
   [[ -x $ENTRY ]] || die "$ENTRY is missing; decode/build.sh builds it"
   open_target nolilu
-  # the install record goes first: from here on the kext may be gone
-  record_remove $KNAME
   local cfg=$OC/config.plist dst=$OC/Kexts/$NAME
   entry_state "$cfg"
   local before=$ENTRY_STATE
   [[ $before != unreadable ]] || die "config.plist cannot be edited: $ENTRY_DETAIL. Nothing was changed."
+  # the install record goes here: the check above can still abort without changing anything,
+  # and the record must not go with it
+  record_remove $KNAME
   if [[ $before == none ]] && ! exists "$dst" && ! exists "$dst.new" && ! exists "$dst.old"; then
     cleanup
     print -r -- "$KNAME is not on that EFI. Nothing to remove."

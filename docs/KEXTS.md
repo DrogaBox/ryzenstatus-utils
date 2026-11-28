@@ -13,7 +13,7 @@ cp -R /Volumes/EFI/EFI ~/Desktop/EFI-backup
 
 ## 2. Replace the two kexts
 
-Open the disk image's `Kexts` folder and drag both bundles into `/Volumes/EFI/EFI/OC/Kexts`, replacing the old ones. Leave every other kext alone, including the GPU kexts and `AMDCCDScheduler.kext` if you use them.
+Open the disk image's `Kexts` folder and drag both bundles into `/Volumes/EFI/EFI/OC/Kexts`, replacing the old ones. Leave every other kext alone, including `AMDCCDScheduler.kext`. GPU kexts (`GPUSensors.kext`, `VCNJpeg.kext`) live in the disk image's "GPU RX 6000" folder and use their own installer, not manual copying into OC/Kexts.
 
 Keep the folder names as they are. OpenCore loads only the kexts listed under `Kernel › Add` in `config.plist`, and each entry's `BundlePath` must name a folder that is really there: if it points at a missing folder, OpenCore stops at boot. An extra copy under another name is ignored, so a backup in the same folder is harmless.
 
@@ -23,7 +23,7 @@ Keep the folder names as they are. OpenCore loads only the kexts listed under `K
 kmutil showloaded | grep -E 'AMDRyzen|SMCAMD'
 ```
 
-Both lines should show the same, new version, for example `(3.42.0)`. If they differ, one kext is still the old one: replace it too before using the app. In RyzenStatus, Hardware Validation's kext version row should pass. If it still shows the old version, the old kext is the one OpenCore loaded: check that you copied into the EFI you boot from.
+Both lines should show the same, new version, for example `(3.42.0)`. If they differ, one kext is still the old one: replace it too before using the app. In RyzenStatus, Hardware Validation's kext version row should pass. With 3.42.0, two programs talking to the CPU kext also coordinate fan writes so they no longer undo each other. If it still shows the old version, the old kext is the one OpenCore loaded: check that you copied into the EFI you boot from.
 
 ## 4. If the Mac does not boot
 

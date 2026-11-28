@@ -54,6 +54,13 @@
 //      alone or a wall clock that ran ahead counts as a sleep, a change of
 //      the time asleep under 1 ms or both clocks moving together does not; a
 //      new session opens beside one from before the sleep and decodes.
+//  13. 0.3.8: a sleep that lands inside a decode call (the frame was on the GPU
+//      when the machine slept) rebuilds the session instead of stopping it; the
+//      quiet rebuild closes the old accelerator on the background queue; the
+//      15 s limit covers the first command on the rebuilt session, and the
+//      usual 1 s is back once one has finished; the restart predicate takes an
+//      AV1 intra-only frame that refreshes all eight slots and a VP9 one that
+//      resets all four contexts, with its negatives.
 //
 // usage: sessiontest <small IVF clip of the codec> [clip with hidden frames]
 // Exit status 0 = pass.
@@ -143,6 +150,9 @@ static struct {
   bool noDestroy;     // the build has no AVD_DestroyAVDAccelerator
   bool
       rebuildFail;  // CreateDriver fails: the rebuild after a sleep cannot open
+  bool sleepWhileHanging;  // the machine sleeps while a command is on the GPU
+  unsigned hangMs;         // commands finish after this long (0: at once)
+  double hangStart;        // when the current slow command started
 } fault;
 
 enum { kFakeBuffer = 1 << 20 };  // larger than any frame of the test clips
@@ -276,6 +286,25 @@ static int f_query(void* h, AVD_QueryList* q) {
   st.queries++;
   AVD_QueryEntry* e = q->entries;
   if (fault.queryFail) return fault.queryFail;
+  if (fault.sleepWhileHanging) {
+    // The machine slept while this command was on the GPU: the session's sleep
+    // mark moves under the wait, whose own clock does not run while asleep.
+    fault.sleepWhileHanging = false;
+    sleep_for(10000000000ull);
+  }
+  if (fault.hangMs) {
+    // Finishes, but only after this long: what a 1 s limit stops.
+    double t = (double)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6;
+    if (!fault.hangStart) fault.hangStart = t;
+    if (t - fault.hangStart < (double)fault.hangMs) {
+      e->status = 2;
+      return 0;
+    }
+    fault.hangStart = 0;
+    e->status = 1;
+    e->status2 = e->wait ? fault.firmware : 0;
+    return 0;
+  }
   if (fault.hang) {
     if (e->wait) return 99;  // the real one would block here
     e->status = 2;
@@ -575,8 +604,63 @@ static void hidden_frames(const char* path) {
   expect("a frame whose reference was never decoded is a reference failure",
          d && rm != 0 && FAILURE(d) == FAIL_REFERENCE);
   if (d) DESTROY(d);
-  for (int i = 0; i < clipCount; i++) free(clip[i].data);
+  clip_clear();
 }
+
+#if defined(TEST_VP9)
+// The video engine predicts bit-exactly from a reference up to 2x smaller than
+// the frame and not from a smaller one: vp90-2-22-svc_1280x720_3's 1280x720
+// layer predicts from a 320x180 reference (4x) and differed from libvpx in
+// more than half the picture, while its 640x360 layer (a 2x smaller reference)
+// was identical. A frame it cannot do is refused, and the slots it should have
+// refreshed are emptied, so the frames that read them are refused too instead
+// of decoding against older pictures.
+static void scaled_references(const char* svc, const char* scaled) {
+  clip_clear();
+  expect("the clip that predicts from a 2x smaller reference reads",
+         read_clip(scaled));
+  reset();
+  Vcn* d = make();
+  int shown = 0, bad = d ? 0 : -1;
+  for (int i = 0; d && i < clipCount; i++)
+    if (DECODE(d, clip[i].data, clip[i].size, i, on_out, &shown)) {
+      printf("     sample %d: %s\n", i, LASTERR(d));
+      bad++;
+    }
+  expect("references up to 2x smaller are not refused (mv-with-scaling)",
+         d && bad == 0 && shown > 0);
+  if (d) DESTROY(d);
+  expect("and that session closes fully", all_released());
+
+  clip_clear();
+  expect("the spatial-SVC clip reads", read_clip(svc) && clipCount >= 3);
+  if (clipCount < 3) return;
+  reset();
+  d = make();
+  shown = 0;
+  int r0 = d ? DECODE(d, clip[0].data, clip[0].size, 0, on_out, &shown) : 0;
+  if (r0) printf("     chunk 0: %s\n", d ? LASTERR(d) : "");
+  expect("a frame whose reference is 4x smaller is refused as a stream failure",
+         d && r0 != 0 && FAILURE(d) == FAIL_STREAM &&
+             strstr(LASTERR(d), "2x smaller"));
+  expect("the two layers before it were sent to the engine, it was not",
+         st.schedules == 2);
+  int sent = st.schedules;
+  int r1 = d ? DECODE(d, clip[1].data, clip[1].size, 1, on_out, &shown) : 0;
+  expect(
+      "a frame predicted from what it should have refreshed is a reference "
+      "failure and sends nothing",
+      d && r1 != 0 && FAILURE(d) == FAIL_REFERENCE && st.schedules == sent);
+  int r2 = d ? DECODE(d, clip[2].data, clip[2].size, 2, on_out, &shown) : 0;
+  expect("and so is the next one", d && r2 != 0 && st.schedules == sent);
+  int rk = d ? DECODE(d, frame0, frame0Size, 3, on_out, &shown) : -1;
+  expect("a key frame refreshes every slot and decodes again",
+         d && rk == 0 && st.schedules > sent);
+  if (d) DESTROY(d);
+  expect("and that session closes fully", all_released());
+  clip_clear();
+}
+#endif
 
 static void hung(int sig) {
   (void)sig;
@@ -586,10 +670,11 @@ static void hung(int sig) {
 }
 
 int main(int argc, char** argv) {
-  if ((argc != 2 && argc != 3) || !read_first_frame(argv[1])) {
+  if (argc < 2 || argc > 5 || !read_first_frame(argv[1])) {
     fprintf(stderr,
             "usage: sessiontest <small IVF clip of the codec> [clip with "
-            "hidden frames]\n");
+            "hidden frames [VP9: spatial-SVC clip, clip with 2x scaled "
+            "references]]\n");
     return 1;
   }
   signal(SIGALRM, hung);
@@ -1065,8 +1150,139 @@ int main(int argc, char** argv) {
   expect("a session opened after the wake decodes and closes fully",
          rn2 == 0 && st.deleteCtx == 1 && st.destroys == 1 && all_released());
 
+  // 13. 0.3.8. A sleep that lands inside a decode call: the frame was on the
+  // GPU when the machine slept, and the wait's clock stopped with it, so the
+  // frame times out right after the wake. It must be rebuilt at once, not
+  // taken for a stuck GPU (0.3.7 stopped the session here).
+  reset();
+  d = make();
+  if (d) DECODE(d, frame0, frame0Size, 0, on_out, NULL);
+  fault.hang = true;
+  fault.sleepWhileHanging = true;
+  int shownS = 0;
+  int ds = d ? DECODE(d, frame0, frame0Size, 1, on_out, &shownS) : -1;
+  fault.hang = false;
+  printf("     sleep inside the decode call: %s\n",
+         d && ds ? LASTERR(d) : "rebuilt");
+  expect(
+      "a sleep inside a decode call rebuilds the session and drops the frame, "
+      "with no error",
+      d && ds == 0 && shownS == 0 && st.creates == 2);
+  int shownS2 = 0;
+  int ds2 = d ? DECODE(d, frame0, frame0Size, 2, on_out, &shownS2) : -1;
+  expect("and the frame after it decodes on the rebuilt driver",
+         d && ds2 == 0 && shownS2 == 1 && st.creates == 2);
+  if (d) DESTROY(d);
+  expect("and that session closes, only the dropped driver left",
+         closed_after_rebuild(1));
+
+  // The quiet rebuild, with the last command finished, closes the old
+  // accelerator on the background queue too, never on this thread.
+  reset();
+  d = make();
+  if (d) DECODE(d, frame0, frame0Size, 0, on_out, NULL);
+  sleep_for(10000000000ull);
+  closeGate = dispatch_semaphore_create(0);  // marks a close on this thread
+  int shownQ = 0;
+  int dq = d ? DECODE(d, frame0, frame0Size, 1, on_out, &shownQ) : -1;
+  bool drainedQ = vcn_teardown_drain(10000);
+  if (drainedQ) dispatch_release(closeGate);
+  closeGate = NULL;
+  expect(
+      "the rebuild at the restart point closes the old accelerator on the "
+      "background queue, not on the decoding thread",
+      d && dq == 0 && shownQ == 1 && drainedQ && st.creates == 2 &&
+          st.destroys == 1 && !st.destroyOnMain && st.deleteCtx == 0);
+  if (d) DESTROY(d);
+  expect("and that session closes fully, only the dropped driver left",
+         closed_after_rebuild(1));
+
+  // The 15 s limit covers the first command on the rebuilt session too.
+  reset();
+  d = make();
+  if (d) DECODE(d, frame0, frame0Size, 0, on_out, NULL);
+  sleep_for(10000000000ull);
+  vcn_wake_command_timeout_ms = 1500;
+  fault.hangMs = 1200;  // finishes, but after the usual 1 s limit
+  int shownG = 0;
+  int dg = d ? DECODE(d, frame0, frame0Size, 1, on_out, &shownG) : -1;
+  printf("     the first frame on the rebuilt session: %s\n",
+         d && dg ? LASTERR(d) : "decoded");
+  expect(
+      "the first command on the rebuilt session is still waited for up to the "
+      "wake limit, so a slow one does not stop a healthy session",
+      d && dg == 0 && shownG == 1 && st.creates == 2);
+  int dg2 = d ? DECODE(d, frame0, frame0Size, 2, on_out, &shownG) : -1;
+  printf("     a slow command after the first one: %s\n", d ? LASTERR(d) : "");
+  expect("and the usual limit is back once one has finished",
+         d && dg2 != 0 && FAILURE(d) == FAIL_DEVICE);
+  fault.hangMs = 0;
+  vcn_wake_command_timeout_ms = VCN_WAKE_COMMAND_TIMEOUT_MS;
+  if (d) DESTROY(d);
+  // The stuck close runs on the background queue: wait for it before looking.
+  bool drainedG = vcn_teardown_drain(10000);
+  expect("and the session it stopped still releases everything",
+         drainedG && st.liveAccels == 0 && !st.useAfterDestroy);
+
+  // The restart points the stream may send with no key frame at all.
+#if defined(VCN_AV1_RESTART_PREDICATE) || defined(VCN_VP9_RESTART_PREDICATE)
+  {
+#if defined(TEST_AV1)
+    AV1Frame f;
+    memset(&f, 0, sizeof(f));
+    f.frame_type = AV1_KEY_FRAME;
+    f.refresh_frame_flags = 0xFF;
+    bool key = vcnav1_is_restart(&f, AV1_PARSE_FRAME_READY);
+    f.frame_type = AV1_INTRA_ONLY_FRAME;
+    bool intraAll = vcnav1_is_restart(&f, AV1_PARSE_FRAME_READY);
+    f.refresh_frame_flags = 0x7F;
+    bool intraHalf = vcnav1_is_restart(&f, AV1_PARSE_FRAME_READY);
+    f.refresh_frame_flags = 0xFF;
+    f.frame_type = AV1_INTER_FRAME;
+    bool inter = vcnav1_is_restart(&f, AV1_PARSE_FRAME_READY);
+    bool other = vcnav1_is_restart(&f, AV1_PARSE_SHOW_EXISTING);
+    expect("AV1 restarts at a key frame", key);
+    expect(
+        "not at an intra-only frame, which the spec never lets refresh all "
+        "eight slots",
+        !intraAll && !intraHalf);
+    expect("nor at an inter frame, nor at show_existing", !inter && !other);
+#else
+    VP9Frame f;
+    memset(&f, 0, sizeof(f));
+    f.frame_type = 1;
+    f.intra_only = 1;
+    f.refresh_frame_flags = 0xff;
+    f.reset_frame_context = 2;
+    bool ctxAll = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
+    f.reset_frame_context = 1;
+    bool ctxOne = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
+    f.error_res = 1;
+    f.reset_frame_context = 3;
+    bool errRes = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
+    f.frame_type = 0;
+    bool key = vcnvp9_is_restart(&f, VP9_PARSE_DECODE);
+    expect(
+        "VP9 does not restart at an intra-only frame with "
+        "reset_frame_context 2, which resets one context",
+        !ctxAll);
+    expect("and at one with error_resilient mode and reset_frame_context 3",
+           errRes);
+    expect("not at one that resets no context", !ctxOne);
+    expect("and at a key frame", key);
+#endif
+  }
+#else
+  printf(
+      "SKIP the restart predicate is not exposed in this tree (0.3.7 takes "
+      "key frames only)\n");
+#endif
+
   clip_clear();
-  if (argc == 3) hidden_frames(argv[2]);
+  if (argc >= 3) hidden_frames(argv[2]);
+#if defined(TEST_VP9)
+  if (argc == 5) scaled_references(argv[3], argv[4]);
+#endif
 
   free(frame0);
   return failures ? 1 : 0;

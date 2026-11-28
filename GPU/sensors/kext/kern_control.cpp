@@ -618,7 +618,11 @@ bool callCwdde(const void* in, uint32_t inSize, void* out, uint32_t* outSize,
                uint32_t* ret) {
   IOLockLock(gStateLock);
   void* pp = __atomic_load_n(&gPP, __ATOMIC_ACQUIRE);
-  if (gTornDown || pp == nullptr || gCwdde == 0 || sleepingLocked() ||
+  // Without the sleep and wake watchers the sleep count never moves, so an
+  // object from before a sleep would pass: refuse here as well, not only in
+  // the start-up refusal (review F4).
+  if (gTornDown || pp == nullptr || gCwdde == 0 || !gWatchSleep ||
+      !gWatchWake || sleepingLocked() ||
       __atomic_load_n(&gSleepGen, __ATOMIC_SEQ_CST) != wSeenGen) {
     IOLockUnlock(gStateLock);
     return false;
@@ -1531,6 +1535,9 @@ void teardown(bool waitForCall) {
   bool late = false;
   IOLockLock(gStateLock);
   gTornDown = true;
+  // The object dies with the GPU: drop it here too, so the pointer itself
+  // never names a dead object (review F3; gTornDown already stops every call).
+  __atomic_store_n(&gPP, static_cast<void*>(nullptr), __ATOMIC_RELEASE);
   turnOffLocked(gpuctl::WriteOff::Teardown);
   if (waitForCall && gInFlight) {
     uint64_t deadline = 0;
@@ -1641,6 +1648,29 @@ void startWriting(const char* library) {
 }
 
 }  // namespace
+
+uint64_t GPUControl::sleepCount() {
+  return __atomic_load_n(&gSleepGen, __ATOMIC_RELAXED);
+}
+bool GPUControl::inSleep() {
+  return __atomic_load_n(&gInSleep, __ATOMIC_SEQ_CST) != 0;
+}
+
+// Wider than what the fan watchdog runs on (od8DogPass, which watches a curve,
+// an unknown state, raised GFX clocks and a raised power limit only): an OD8
+// state not confirmed stock, or a power limit above the start-up one. Nothing
+// is kept fresh while writing is off, the card is only read, or the GPU went
+// away.
+bool GPUControl::holdsAny() {
+  if (gStateLock == nullptr) return false;
+  uint32_t boot = bootW();
+  IOLockLock(gStateLock);
+  bool on = !gTornDown && !gOwner.isOff() && !gReadOnlyCard;
+  bool od8 = gOd8Dirty;
+  bool power = !gOd8Dirty && gHeldW > boot && !gPowerOffAfterWayBack;
+  IOLockUnlock(gStateLock);
+  return on && (od8 || power);
+}
 
 void GPUControl::init() {
   gStateLock = IOLockAlloc();

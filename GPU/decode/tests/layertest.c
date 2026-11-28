@@ -16,7 +16,13 @@
 //      VCNMPEG4_ALLOW_B=1; without that switch no B-VOP does; with it, a B-VOP
 //      with its time distances goes out in block mode 3 with TRB/TRD; cut mode
 //      1 sends a unit from its VOP start code; the session asks for the size
-//      aligned to 16.
+//      aligned to 16;
+//   4. after a system sleep (the stand-in says the session is from before one)
+//      the three codecs drop the pictures up to their next intra picture with
+//      no command and no error, start a new session at that one, and decode
+//      the pictures after it in the new session; a P picture that has no
+//      reference before any sleep is still refused, so the quiet dropping
+//      hides no stream that starts in the middle.
 #include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +50,12 @@ static struct {
   uint32_t blockSize;
 } g_cmd[MAX_CMDS];
 static int g_cmds, g_created, g_destroyed;
+// The session the layers hold is from before a system sleep (each wake test
+// sets this), and what the layers asked for at the restart point.
+static bool g_lost;
+static int g_rebuilds;
+static unsigned g_rebuildDropped;
+static const char* g_rebuildWhat;
 static VcnLegacyConfig g_cfg;  // of the last session made
 
 struct VcnLegacy {
@@ -58,6 +70,7 @@ VcnLegacy* vcnlegacy_create(const VcnLegacyConfig* cfg, char* err,
   d->cfg = *cfg;
   g_cfg = *cfg;
   g_created++;
+  g_lost = false;  // a session made now is from after the sleep
   return d;
 }
 void vcnlegacy_destroy(VcnLegacy* d) {
@@ -107,6 +120,13 @@ unsigned vcnlegacy_firmware_errors(VcnLegacy* d) {
 }
 uint32_t vcnlegacy_width(VcnLegacy* d) { return d ? d->cfg.width : 0; }
 uint32_t vcnlegacy_height(VcnLegacy* d) { return d ? d->cfg.height : 0; }
+bool vcnlegacy_session_lost(VcnLegacy* d) { return d && g_lost; }
+void vcnlegacy_log_rebuild(VcnLegacy* d, const char* what, unsigned dropped) {
+  (void)d;
+  g_rebuildWhat = what;
+  g_rebuildDropped = dropped;
+  g_rebuilds++;
+}
 
 // ---- what the layer shows
 enum { MAX_OUT = 64 };
@@ -128,6 +148,10 @@ static void reset(void) {
   for (int i = 0; i < g_outs; i++)
     if (g_out[i].pb) CVPixelBufferRelease(g_out[i].pb);
   g_outs = g_cmds = g_created = g_destroyed = 0;
+  g_rebuilds = 0;
+  g_rebuildDropped = 0;
+  g_rebuildWhat = NULL;
+  g_lost = false;
 }
 
 // ---- a bit writer for the made-up streams
@@ -453,10 +477,141 @@ static void test_mpeg4_b(void) {
   unsetenv("VCNMPEG4_ALLOW_B");
 }
 
+// ---- 4. after a system sleep
+
+static void test_mpeg2_wake(void) {
+  W s1 = {0}, s2 = {0}, s3 = {0}, s4 = {0}, s5 = {0}, bad = {0};
+  mpeg2_headers(&s1);
+  mpeg2_field(&s1, 1, 3);  // I, frame pictures throughout
+  mpeg2_field(&s2, 2, 3);  // P
+  mpeg2_field(&s3, 2, 3);  // P
+  mpeg2_field(&s4, 1, 3);  // I
+  mpeg2_field(&s5, 2, 3);  // P
+  mpeg2_headers(&bad);
+  mpeg2_field(&bad, 2, 3);  // a P picture with no reference before it
+  char err[256] = "";
+  // First, on a decoder of its own: the refusal must not depend on a wake.
+  void* d0 = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
+  if (!d0) {
+    expect("mpeg2 wake: a decoder is made", 0);
+    return;
+  }
+  reset();
+  int r = vcnmpeg2_codec.decode(d0, bad.d, bytes(&bad), on_frame, NULL);
+  expect("mpeg2 wake: a P picture with no reference is refused before a sleep",
+         r != 0 && g_cmds == 0 && g_outs == 0 &&
+             vcnmpeg2_codec.failure(d0) == VCNLEGACY_FAIL_REFERENCE);
+  vcnmpeg2_codec.destroy(d0);
+  reset();
+  void* d = vcnmpeg2_codec.create(NULL, 0, 64, 64, err, sizeof(err));
+  if (!d) {
+    expect("mpeg2 wake: a second decoder is made", 0);
+    return;
+  }
+  r = vcnmpeg2_codec.decode(d, s1.d, bytes(&s1), on_frame, NULL);
+  r |= vcnmpeg2_codec.decode(d, s2.d, bytes(&s2), on_frame, NULL);
+  expect("mpeg2 wake: I and P decode, one session, two commands",
+         r == 0 && g_created == 1 && g_cmds == 2 && g_outs == 2);
+  g_lost = true;  // the system slept
+  r = vcnmpeg2_codec.decode(d, s3.d, bytes(&s3), on_frame, NULL);
+  expect(
+      "mpeg2 wake: the P picture after the sleep is dropped, no command, "
+      "no error",
+      r == 0 && g_cmds == 2 && g_outs == 2 && g_created == 1 &&
+          vcnmpeg2_codec.failure(d) == VCNLEGACY_FAIL_STREAM);
+  r = vcnmpeg2_codec.decode(d, s4.d, bytes(&s4), on_frame, NULL);
+  expect("mpeg2 wake: the I picture starts a new session and decodes",
+         r == 0 && g_created == 2 && g_cmds == 3 && g_outs == 3 &&
+             g_rebuilds == 1 && g_rebuildDropped == 1 && g_rebuildWhat);
+  r = vcnmpeg2_codec.decode(d, s5.d, bytes(&s5), on_frame, NULL);
+  expect("mpeg2 wake: the P picture after it decodes in the new session",
+         r == 0 && g_cmds == 4 && g_outs == 4 && g_created == 2);
+  vcnmpeg2_codec.destroy(d);
+  expect("mpeg2 wake: both sessions are closed", g_destroyed == 2);
+  reset();
+}
+
+static void test_vc1_wake(void) {
+  static const uint8_t structc[4] = {0x40, 0, 0, 0};
+  static const uint8_t fi[8] = {0x00, 1, 2, 3, 4, 5, 6, 7};
+  static const uint8_t fp[8] = {0x20, 1, 2, 3, 4, 5, 6, 7};
+  char err[256] = "";
+  void* d =
+      vcnvc1_codec.create(structc, sizeof(structc), 320, 240, err, sizeof(err));
+  if (!d) {
+    expect("vc1 wake: a decoder is made", 0);
+    return;
+  }
+  reset();
+  int r = vcnvc1_codec.decode(d, fi, sizeof(fi), on_frame, NULL);
+  r |= vcnvc1_codec.decode(d, fp, sizeof(fp), on_frame, NULL);
+  expect("vc1 wake: I and P decode, one session, two commands",
+         r == 0 && g_created == 1 && g_cmds == 2 && g_outs == 2);
+  g_lost = true;
+  r = vcnvc1_codec.decode(d, fp, sizeof(fp), on_frame, NULL);
+  expect(
+      "vc1 wake: the P frame after the sleep is dropped, no command, no "
+      "error",
+      r == 0 && g_cmds == 2 && g_outs == 2 && g_created == 1 &&
+          vcnvc1_codec.failure(d) == VCNLEGACY_FAIL_STREAM);
+  r = vcnvc1_codec.decode(d, fi, sizeof(fi), on_frame, NULL);
+  expect("vc1 wake: the I frame starts a new session and decodes",
+         r == 0 && g_created == 2 && g_cmds == 3 && g_outs == 3 &&
+             g_rebuilds == 1 && g_rebuildDropped == 1 && g_rebuildWhat);
+  r = vcnvc1_codec.decode(d, fp, sizeof(fp), on_frame, NULL);
+  expect("vc1 wake: the P frame after it decodes in the new session",
+         r == 0 && g_cmds == 4 && g_outs == 4 && g_created == 2);
+  vcnvc1_codec.destroy(d);
+  expect("vc1 wake: both sessions are closed", g_destroyed == 2);
+  reset();
+}
+
+static void test_mpeg4_wake(void) {
+  W h = {0}, s1 = {0}, s2 = {0}, s3 = {0}, s4 = {0}, s5 = {0};
+  mpeg4_headers(&h);
+  mpeg4_vop(&s1, 0, 0);   // I
+  mpeg4_vop(&s2, 1, 3);   // P
+  mpeg4_vop(&s3, 1, 6);   // P
+  mpeg4_vop(&s4, 0, 9);   // I
+  mpeg4_vop(&s5, 1, 12);  // P
+  char err[256] = "";
+  void* d = vcnmpeg4_codec.create(NULL, 0, 0, 0, err, sizeof(err));
+  if (!d) {
+    expect("mpeg4 wake: a decoder is made", 0);
+    return;
+  }
+  reset();
+  int r = vcnmpeg4_codec.decode(d, h.d, bytes(&h), on_frame, NULL);
+  r |= vcnmpeg4_codec.decode(d, s1.d, bytes(&s1), on_frame, NULL);
+  r |= vcnmpeg4_codec.decode(d, s2.d, bytes(&s2), on_frame, NULL);
+  expect("mpeg4 wake: I and P decode, one session, two commands",
+         r == 0 && g_created == 1 && g_cmds == 2 && g_outs == 2);
+  g_lost = true;
+  r = vcnmpeg4_codec.decode(d, s3.d, bytes(&s3), on_frame, NULL);
+  expect(
+      "mpeg4 wake: the P-VOP after the sleep is dropped, no command, no "
+      "error",
+      r == 0 && g_cmds == 2 && g_outs == 2 && g_created == 1 &&
+          vcnmpeg4_codec.failure(d) == VCNLEGACY_FAIL_STREAM);
+  r = vcnmpeg4_codec.decode(d, s4.d, bytes(&s4), on_frame, NULL);
+  expect("mpeg4 wake: the I-VOP starts a new session and decodes",
+         r == 0 && g_created == 2 && g_cmds == 3 && g_outs == 3 &&
+             g_rebuilds == 1 && g_rebuildDropped == 1 && g_rebuildWhat);
+  r = vcnmpeg4_codec.decode(d, s5.d, bytes(&s5), on_frame, NULL);
+  expect("mpeg4 wake: the P-VOP after it decodes in the new session",
+         r == 0 && g_cmds == 4 && g_outs == 4 && g_created == 2);
+  vcnmpeg4_codec.destroy(d);
+  expect("mpeg4 wake: both sessions are closed", g_destroyed == 2);
+  reset();
+}
+
 int main(void) {
   test_vc1_skipped();
   test_mpeg2_fields();
   test_mpeg4_b();
+  test_mpeg2_wake();
+  test_vc1_wake();
+  test_mpeg4_wake();
   printf("%s\n", failures ? "FAILED" : "all passed");
   return failures ? 1 : 0;
 }

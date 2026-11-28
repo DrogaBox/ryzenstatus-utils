@@ -63,6 +63,10 @@ final class AutoEppService: ObservableObject {
     fileprivate var idleLimitWrites = AMDIdleClockLimitWrites()
     /// Retries a refused lift while the loop is stopped.
     private var liftRetryTask: Task<Void, Never>?
+    /// The serial queue behind every selector-69 write (see the class at the
+    /// bottom of this file): one IPC in flight, off the main actor, values
+    /// dispatched in the order they were asked for.
+    fileprivate var idleLimitQueue = IdleLimitWriteQueue()
     /// The CPU's CPPC range, read once per kext load (selector 68).
     fileprivate var cppcRange: AMDCppcRange?
     fileprivate var cppcUnsupported = false
@@ -205,7 +209,16 @@ final class AutoEppService: ObservableObject {
     /// kext lifts the limit itself when the connection closes.
     private func liftIdleClockLimit() {
         guard idleLimitWrites.mayBeCapped, canRun else { return }
-        if !writeIdleClockLimit(0) { scheduleLiftRetry() }
+        // The write leaves the main actor now (it runs on the serial queue);
+        // the guards are re-checked after the hop, and a refusal still arms
+        // the retry loop.
+        Task { [weak self] in
+            guard let self else { return }
+            guard self.pollTask == nil, self.canRun,
+                  self.idleLimitWrites.mayBeCapped else { return }
+            let lifted = await self.writeIdleClockLimit(0)
+            if !lifted { self.scheduleLiftRetry() }
+        }
     }
 
     private func scheduleLiftRetry() {
@@ -222,7 +235,7 @@ final class AutoEppService: ObservableObject {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
-                if self.writeIdleClockLimit(0) { break }
+                if await self.writeIdleClockLimit(0) { break }
             }
             // start() and stop() cancel and clear it themselves.
             if !Task.isCancelled { self?.liftRetryTask = nil }
@@ -230,16 +243,33 @@ final class AutoEppService: ObservableObject {
     }
 
     /// Sends the CPPC max perf (min stays the CPU's own) and records the
-    /// answer. A refusal leaves the written value unknown, so whatever the
-    /// next poll wants is sent, and a lift is still owed while a cap may be
-    /// in force. True when the kext took it.
+    /// answer on the main actor, in the order the values were asked for. A
+    /// refusal leaves the written value unknown, so whatever the next poll
+    /// wants is sent, and a lift is still owed while a cap may be in force.
+    ///
+    /// Coalescing: when several values are pending, the queue sends only the
+    /// newest — a superseded value was about to be overwritten anyway, and
+    /// the kext ends at the last value asked for. A superseded value answers
+    /// nil: nothing was sent, so no answer is recorded. Its `willWrite`
+    /// already ran, so a superseded cap can only cost one extra lift.
+    ///
+    /// True when the kext took THIS value.
     @discardableResult
-    fileprivate func writeIdleClockLimit(_ maxPerf: UInt8) -> Bool {
+    fileprivate func writeIdleClockLimit(_ maxPerf: UInt8) async -> Bool {
+        // Before the value leaves: a lift asked for while this cap is still
+        // queued or in flight must see that a cap may be in force.
         idleLimitWrites.willWrite(maxPerf)
-        let ok = ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: maxPerf) == KERN_SUCCESS
-        appliedIdleMaxPerf = ok ? maxPerf : nil
+        // The continuation is made here, on the main actor, so the value
+        // joins the queue before this call suspends: two writes asked for in
+        // a row reach the queue in that order.
+        let queue = idleLimitQueue
+        let answer = await withCheckedContinuation { (cont: CheckedContinuation<IdleLimitWriteQueue.Verdict?, Never>) in
+            queue.submit(maxPerf, cont: cont)
+        }
+        guard let verdict = answer else { return false }
+        appliedIdleMaxPerf = verdict.succeeded ? maxPerf : nil
         let now = Self.uptime
-        if idleLimitWrites.record(maxPerf, succeeded: ok, now: now) {
+        if idleLimitWrites.record(maxPerf, succeeded: verdict.succeeded, now: now) {
             NSLog("AutoEppService: the kext refused CPPC max perf %u %ld times; trying it again every %.0f s",
                   UInt32(maxPerf), AMDIdleClockLimitWrites.maxFailures, AMDIdleClockLimitWrites.retryAfter)
         }
@@ -247,12 +277,34 @@ final class AutoEppService: ObservableObject {
         // kext reloads.
         let failed = idleLimitWrites.anyGivenUp(now: now)
         if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
-        return ok
+        return verdict.succeeded
     }
+
+    /// How long `stop()` may wait for the queued writes to land: the kernel
+    /// side of selector 69 is a handful of MSR writes (microseconds) or one
+    /// PCC transaction (the latency PCCT declares, single-digit
+    /// milliseconds on these boards), so 750 ms is two orders of magnitude
+    /// of margin while still shorter than a delay a quitting user notices.
+    private static let quitDrainTimeout: TimeInterval = 0.75
 
     /// Stops the monitoring loop. Called on termination.
     func stop() {
         stopLoop()
+        // `stopLoop()` asks for its lift through an async task, which needs
+        // the main actor — about to be blocked by the drain below. Enqueue
+        // the lift synchronously too (same guard `liftIdleClockLimit` uses):
+        // the value is on the serial queue before this returns, the queue
+        // needs no main actor to run, and a second lift from the async path
+        // either coalesces into this one or repeats the same idempotent 0.
+        if idleLimitWrites.mayBeCapped, canRun {
+            idleLimitQueue.enqueueDetached(0)
+        }
+        // Leave the lift written before the process ends, without hanging
+        // the quit on a kext that does not answer. A lift that still fails
+        // (refused, or past the cap) is covered by the kext itself: closing
+        // the connection in `closeDriver()` runs clientClose → the CPPC
+        // limits are lifted there.
+        idleLimitQueue.waitUntilIdle(until: Date().addingTimeInterval(Self.quitDrainTimeout))
         liftRetryTask?.cancel()
         liftRetryTask = nil
         // Deinit never fires on a `static let shared` singleton.
@@ -380,7 +432,7 @@ final class AutoEppService: ObservableObject {
         // the limit. No preset is applied and nothing is published, since
         // Auto EPP itself is off.
         if let profileLimit {
-            applyIdleClockLimit(for: settled.target.preset, limitMHz: profileLimit)
+            await applyIdleClockLimit(for: settled.target.preset, limitMHz: profileLimit)
             return
         }
         // On battery the On battery mode may lower the load's target; the
@@ -398,9 +450,9 @@ final class AutoEppService: ObservableObject {
             Task { await AmdPowerControlsModel.shared.syncFromKext() }
         }
         if lastAppliedPreset == preset {
-            applyIdleClockLimit(for: AMDBatteryPowerPolicy.idleLimitPreset(loadTarget: settled.target,
-                                                                           appliedTarget: target),
-                                limitMHz: AmdSettingsStore.shared.autoEppIdleClockLimitMHz)
+            await applyIdleClockLimit(for: AMDBatteryPowerPolicy.idleLimitPreset(loadTarget: settled.target,
+                                                                                 appliedTarget: target),
+                                      limitMHz: AmdSettingsStore.shared.autoEppIdleClockLimitMHz)
         }
 
         // A loop stopped while this poll ran must not publish its target.
@@ -440,7 +492,7 @@ extension AutoEppService {
     /// A refused write records nothing, so the next poll retries, up to
     /// `AMDIdleClockLimitWrites.maxFailures` refusals of the same value and
     /// then once every `retryAfter`.
-    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset, limitMHz limit: Int) {
+    fileprivate func applyIdleClockLimit(for preset: AMDPowerPreset, limitMHz limit: Int) async {
         guard let range = currentCppcRange() else { return }
         let maxPerf = AMDIdleClockLimitPolicy.maxPerf(preset: preset, limitMHz: limit, range: range)
         let now = Self.uptime
@@ -448,7 +500,104 @@ extension AutoEppService {
         let failed = idleLimitWrites.anyGivenUp(now: now)
         if idleClockLimitFailed != failed { idleClockLimitFailed = failed }
         guard maxPerf != appliedIdleMaxPerf, !idleLimitWrites.hasGivenUp(on: maxPerf, now: now) else { return }
-        writeIdleClockLimit(maxPerf)
+        await writeIdleClockLimit(maxPerf)
+    }
+}
+
+/// One serial queue for every selector-69 write, so the kext receives the
+/// values in the order the service asked for them — a cap sent before a lift
+/// can never land after it — and the main thread never waits on the IPC: the
+/// write itself runs on a dedicated serial queue, and `enqueue` suspends its
+/// caller instead of blocking it.
+///
+/// Coalescing: a write that has not started yet is replaced by a newer one.
+/// When the queue picks the next value it takes the NEWEST pending, resumes
+/// the waiters it superseded with nil (nothing was sent, nothing is to be
+/// recorded) and answers the newest waiter with the kext's real verdict — so
+/// the last value asked for always reaches the kext, and its result is
+/// recorded on the main actor, in request order.
+final class IdleLimitWriteQueue: @unchecked Sendable {
+    struct Verdict: Sendable { let value: UInt8; let succeeded: Bool }
+
+    private struct Waiter: Sendable {
+        let value: UInt8
+        let cont: CheckedContinuation<Verdict?, Never>?
+    }
+
+    private let lock = NSLock()
+    private var waiters: [Waiter] = []
+    private var running = false
+    private let queue = DispatchQueue(label: "wtf.spinach.RyzenStatus.idle-limit-69", qos: .utility)
+
+    /// Queues `value`. Nil when a newer value superseded this one before its
+    /// write started; otherwise the kext's answer for the write that carried
+    /// the newest value at dispatch time — the caller's own whenever no newer
+    /// value arrived in between.
+    func enqueue(_ value: UInt8) async -> Verdict? {
+        await withCheckedContinuation { (cont: CheckedContinuation<Verdict?, Never>) in
+            submit(value, cont: cont)
+        }
+    }
+
+    /// Queues `value` with the continuation that gets its answer, from the
+    /// caller's own context: the value is on the queue when this returns.
+    func submit(_ value: UInt8, cont: CheckedContinuation<Verdict?, Never>) {
+        enqueue(value, cont: cont)
+    }
+
+    /// Fire-and-forget variant: the value is on the queue before this
+    /// returns and no verdict is delivered. For the termination path, where
+    /// the caller is about to block the main actor and only the write
+    /// landing matters.
+    func enqueueDetached(_ value: UInt8) {
+        enqueue(value, cont: nil)
+    }
+
+    /// True when nothing is pending and no write is in flight.
+    var isIdle: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return waiters.isEmpty && !running
+    }
+
+    /// Blocks the calling thread until the queue settles or `deadline`
+    /// passes (checked every 5 ms). The queue needs no main actor, so this
+    /// is safe to call with the main thread blocked.
+    func waitUntilIdle(until deadline: Date) {
+        while !isIdle, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+    }
+
+    private func enqueue(_ value: UInt8, cont: CheckedContinuation<Verdict?, Never>?) {
+        lock.lock()
+        waiters.append(Waiter(value: value, cont: cont))
+        let start = !running
+        if start { running = true }
+        lock.unlock()
+        if start { queue.async { self.run() } }
+    }
+
+    /// The queue's own thread: one IPC at a time, newest value first.
+    private func run() {
+        while true {
+            lock.lock()
+            guard let newest = waiters.last else {
+                running = false
+                lock.unlock()
+                return
+            }
+            let superseded = Array(waiters.dropLast())
+            waiters.removeAll()
+            lock.unlock()
+
+            let status = ProcessorModel.shared.setCppcLimits(minPerf: 0, maxPerf: newest.value)
+            let verdict = Verdict(value: newest.value, succeeded: status == KERN_SUCCESS)
+
+            // Request order: those asked first (and superseded) resume
+            // first, with nothing to record.
+            for waiter in superseded { waiter.cont?.resume(returning: nil) }
+            newest.cont?.resume(returning: verdict)
+        }
     }
 }
 

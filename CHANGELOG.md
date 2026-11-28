@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.90.1] — 2026-11-26 — kexts 3.42.0 (No kext changes)
+
+**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.3.
+
+### GPU decoders (0.3.9)
+
+- **A sleep in the middle of a frame**: when the Mac slept while a frame was on the GPU, AV1 and VP9 video stopped with an error right after the wake. That frame is now dropped and the decoder starts over at the next key frame, and the first frame on it gets the longer limit a GPU coming out of a sleep needs.
+- **MPEG-2, VC-1 and MPEG-4 after a sleep**: these decoders now live through a sleep too. The pictures up to the next I picture are dropped without an error and the video carries on from there.
+- **VP9 with references of another size**: a frame that predicts from a picture more than twice as small (spatial SVC streams) is refused instead of showing a wrong picture, and a frame that fails no longer leaves AV1 or VP9 decoding the next frames against older pictures.
+- **A session that ends starts clean**: ending an MPEG-2, VC-1 or MPEG-4 session clears the picture dropping a sleep rebuild uses, so a video that stops and plays again does not keep dropping pictures from the old session; the rebuild after a sleep turns that dropping back on as before.
+- **A rebuild that fails after a sleep closes the session cleanly**: when AV1 or VP9 cannot recreate its GPU context after the wake, the session is closed on the background queue like every other close, never from the decode thread.
+- **A stream with no I picture after a sleep stops instead of dropping forever**: MPEG-2, VC-1 and MPEG-4 now fail with a device failure after 600 pictures dropped without an I picture, like AV1 and VP9 already do, so the player can hand the stream to another decoder.
+- **A reference of another bit depth** (AV1): a frame whose reference picture is another bit depth is refused instead of asking the driver to rebuild its picture buffers underneath a running frame (the same check VP9 makes of its references).
+- **A cut-short sequence header** (AV1): a sequence header that fails to parse leaves the stored one in place instead of emptying it mid-stream.
+- **A VP9 profile that does not match the stream's bit depth**: such a frame is refused, and the stream's bit depth stays as the stream set it.
+- The line written after a queued session close now carries the reason the session was dropped (for example "the system slept since it opened") instead of calling every dropped session stuck or lost, and a decoder that cannot create its log falls back to the system's default log.
+
+### GPU sensors (0.9.3)
+
+- **Fresh readings while a setting is held**: with a fan curve, a clock or voltage change or a raised power limit held, GPUSensors takes the card's readings itself once a second, so the temperature watchdog keeps working when nothing else is reading the card. Nothing extra is asked of the card while nothing is held.
+- **No crash after a sleep**: the reading the kext takes itself no longer uses the power object it saw before a sleep. Loading a GPU profile some minutes after a wake could crash the Mac; now the kext waits until the driver reads the card again after the wake.
+- RyzenStatus finds the card's accelerator by the driver's real class name, so the statistics it reads from it refresh again.
+- The number of AMD GPUs the kext reports was read through the wrong channel and always came back 0, so the GPU temperatures and powers the kext publishes were never taken. The count is now read as the scalar the kext answers with.
+
+### GPU control (needs GPUSensors.kext)
+
+- **Zero RPM**: the switch goes out together with the held fan curve, and it is checked against the whole state the card will get. When that state is refused, the reason shows next to the switch.
+- **The refusal note follows the card**: when a later reading would let the held state go out, the note next to the Zero RPM switch clears by itself; while the state is still refused, the note stays.
+
+### GPU installer
+
+- **AMFI**: the installer also sees AMFI switched off with `amfi=0x80`, and an AMFIPass switched off with `-amfipassoff` or `-liluoff`, before it decides whether the loader is needed.
+- Building the install plan no longer says that a password is coming; only the steps that need one do.
+- The installer carries 1.90.1's install scripts and all the decoders (AV1, VP9, MPEG-2, VC-1, MPEG-4, Motion JPEG).
+- Every command the installers run is now checked before a release, so a tool missing on macOS (1.90.0's `/usr/bin/chown`) cannot ship again.
+- **Interrupting the EFI search leaves nothing mounted**: the installer mounts EFI partitions to look inside them for OpenCore; interrupting it between the mount and the unmount used to leave the partition mounted. The interrupt now unmounts it like a normal end of the run.
+- **An interrupted encoding fix run cleans up after itself**: the exit cleanup was set inside the install step and stopped at its first function call, so a failed or interrupted run left the staged package copy in `/private/tmp`. One top-level trap now unmounts the EFI and removes the staged copy however the run ends.
+- **The encoding fix's `--efi` is validated**: a value that is not a partition like `disk0s1` or `auto` is rejected with a usage message before anything is opened.
+- **The undo plan leaves the encoding fix alone when OpenCore's start partition is not an EFI partition**: the plan skips the encoding fix step and says to run it by hand with `--efi diskNsM`, instead of searching other EFI partitions for it.
+- **Access control lists are seen on folders that also carry extended attributes**: the folder checks read the wrong column of the listing when an entry showed `@`, so an ACL slipped past; the checks now look at the ACL lines themselves.
+- **The parts already installed are named right**: when an install stops partway, the "Done before it:" line now spells the tools entry out (`gpucontrol and gpusensors`) beside the other parts instead of printing `tools`.
+- **An aborted kext removal keeps its record**: when the EFI kext remover stops because config.plist cannot be edited, its install record is not deleted, so a later check still reports the kext as installed on that EFI.
+- **The sensors uninstaller says when its record could not be written**: until the restart, the check cannot tell the kext was removed here; the uninstaller prints that note when the record write fails.
+
+### AMD Ryzen Power
+
+- **Per-CCD and all-core clock overrides report success again**: the kext answers those writes with eight values, and with no room reserved for them the call came back failed even though the write had already gone through. Both write paths reserve the room now.
+- Auto EPP no longer stalls the interface while it sets or lifts the idle clock limit.
+
+### Fans
+
+- **The manual fan's thermal guard survives App Nap**: with every RyzenStatus window closed, macOS could coalesce the timer that watches the temperature while a manual fan curve is held. The app holds an App Nap activity while that guard polls and lets it go when the poll stops; system sleep is still allowed.
+
 ## [1.90.0] — 2026-11-26 — kexts 3.42.0 (No kext changes)
 
 **More GPU control (minimum clock, undervolt, overclock and profiles), HDR colour and a fix for decoding after sleep in the GPU decoders, optional MPEG-2, VC-1, MPEG-4 and Motion JPEG decoders, FaceTime and Continuity Camera fixes in the encoding fix, and an AWDL line in the Network card.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.7, the encoding fix to 1.3.0 and GPU sensors to 0.9.0.
@@ -19,9 +72,10 @@
 
 - **HDR colour (decoders 0.3.7)**: AV1 and VP9 pictures now carry their colour and HDR information, so HDR video is no longer shown washed out. Not tested on the GPU yet.
 - **After a sleep (decoders 0.3.7)**: a video that was playing before a sleep keeps decoding after the wake and switches to fresh decoder state at its next key frame, without dropping frames. 0.3.6 was never released: in a real sleep test it made those videos fail.
+- **One window for all the GPU parts**: the GPU installer now has JPEG and MPEG-2, VC-1 and MPEG-4 boxes next to the encoding fix and GPU sensors ones. They start ticked when that part is on this Mac, so an update keeps what you installed instead of taking it off, and all of them can be installed or removed from there without Terminal.
 - **MPEG-2, VC-1 and MPEG-4 decoders (optional, macOS 26.7.2 to 26.7.4)**: hardware decoding of these older formats on the RX 6800 XT. Not installed by default: run `install/install.sh --with-legacy-decoders` from the GPU parts. Installed, they replace Apple's decoders for these formats. MPEG-4 streams with B-frames are left to Apple's decoder, and MPEG-2 field pictures are not decoded on the GPU.
 - **JPEG and Motion JPEG decoder (optional, macOS 26.7.3 only)**: decodes JPEG and Motion JPEG video on the card's JPEG block. Not installed by default: `install/install.sh --with-jpeg`. It needs a reboot, and the block is powered only while pictures arrive.
-- **Encoding fix 1.3.0**: Continuity Camera and FaceTime video are decoded by the GPU instead of the CPU, and with a MacPro7,1 or iMacPro1,1 SMBIOS FaceTime's encoder no longer looks for a T2 chip, so outgoing video works. This part is for macOS 15.8.2, 26.7.2 and 26.7.3 and is turned off with `--no-cc`. Not tried in a real FaceTime call yet.
+- **Encoding fix 1.3.0**: Continuity Camera and FaceTime video are decoded by the GPU instead of the CPU, and with a MacPro7,1 or iMacPro1,1 SMBIOS FaceTime's encoder no longer looks for a T2 chip, so outgoing video works. This part is for macOS 14.8.9, 15.8.2, 15.8.3, 26.7.3 and 26.7.4 and is turned off with `--no-cc`. Not tried in a real FaceTime call yet.
 - **macOS 26.7.4**: the decoders and the encoding fix know 26.7.4's drivers. Checked from the installer only, not run on a card with 26.7.4 yet.
 
 ### Network

@@ -51,6 +51,15 @@ inline bool publishable(bool have, uint64_t ageMs) {
   return have && sampleFresh(ageMs);
 }
 
+// The driver asks the library for a sample only when someone reads the
+// accelerator's PerformanceStatistics, so with nothing outside polling the
+// kext's copy ages out and the fan watchdog has nothing to look at. The kext
+// does not ask for a sample itself (0.9.3: that call, from this kext's own
+// thread, is what panicked the Mac on 2026-11-27, see kern_pmlog.cpp): the app
+// reads PerformanceStatistics at least once a second while it holds a fan
+// curve, an OD8 state or a raised power limit, which is a read of the
+// statistics with the same effect as any other and none of the risk.
+
 // A filled log: every flag is 0 or 1, and at least one is 1. The library
 // returns success without filling anything while the GPU is powered down, and
 // the caller then holds whatever its buffer had (the driver's own caller clears

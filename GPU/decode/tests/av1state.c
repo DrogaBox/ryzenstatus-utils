@@ -11,6 +11,14 @@
 //   5. A still picture header with more than 14 luma or 10 chroma film grain
 //      points is refused and leaves the references as they were; the same
 //      header with 14 and 10 points parses.
+//   6. A sequence header cut short is refused and leaves the stored one as
+//      it was; a frame after it still parses with the first header; a
+//      different valid sequence header replaces it.
+//   7. What the parser hands the decoder across a change of sequence header:
+//      a key frame at 8 bits, then a 10-bit sequence header and an inter
+//      frame using slot 0 hand over seq.BitDepth 10 with the reference's
+//      bit_depth still 8 (the state the decoder-side check relies on; no
+//      code change, this pins it).
 //
 // usage: av1state file.ivf   (a single-tile AV1 stream; exit status 0 = pass)
 #include <stdbool.h>
@@ -62,6 +70,22 @@ static int on_frame(void* ctx, AV1Parser* p, AV1ParseResult kind) {
 static int on_header_bytes(void* ctx, AV1Parser* p, AV1ParseResult kind) {
   (void)kind;
   *(size_t*)ctx = p->fh.header_bytes;
+  return 0;
+}
+
+// The depths of the handover, recorded before the reference update replaces
+// the slots.
+static int handover_seq_depth, handover_ref_depth;
+static int on_handover(void* ctx, AV1Parser* p, AV1ParseResult kind) {
+  Seen* s = ctx;
+  if (kind == AV1_PARSE_SHOW_EXISTING) {
+    s->shown++;
+    return 0;
+  }
+  s->ready++;
+  handover_seq_depth = p->seq.BitDepth;
+  handover_ref_depth = p->ref[p->fh.ref_frame_idx[0]].bit_depth;
+  av1_reference_update(p, 0);
   return 0;
 }
 
@@ -309,6 +333,60 @@ int main(int argc, char** argv) {
   }
   expect("the refused grain headers leave the references as they were",
          kept_refs);
+
+  // 6. a refused sequence header leaves the stored one as it was; a
+  //    different valid one replaces it
+  av1_parser_init(p);
+  got = (Seen){0};
+  av1_parse_temporal_unit(p, seq_obu, seq_n, on_frame, &got);
+  AV1Seq seq_before;
+  memcpy(&seq_before, &p->seq, sizeof(seq_before));
+  nb = put_obu(buf, kObuSequenceHeader, seq, 1);  // truncated: refused
+  r = av1_parse_temporal_unit(p, buf, nb, on_frame, &got);
+  expect("a cut sequence header is refused", r != 0);
+  expect("the stored sequence header is as it was before it",
+         !memcmp(&seq_before, &p->seq, sizeof(seq_before)));
+  memcpy(buf, hdr_obu, hdr_n);
+  memcpy(buf + hdr_n, tiles_obu, tiles_n);
+  r = av1_parse_temporal_unit(p, buf, hdr_n + tiles_n, on_frame, &got);
+  expect("a frame after a refused sequence header still parses with the first",
+         !r && got.ready == 1 && got.tile_hash == want.tile_hash);
+  nb = grain_still(buf, 0, 0, 0);
+  const uint8_t* grain_seq;
+  size_t grain_seq_size;
+  if (!find_obu(buf, nb, kObuSequenceHeader, &grain_seq, &grain_seq_size)) {
+    fprintf(stderr, "could not find the grain sequence header\n");
+    return 1;
+  }
+  nb = put_obu(hdr_obu, kObuSequenceHeader, grain_seq, grain_seq_size);
+  r = av1_parse_temporal_unit(p, hdr_obu, nb, on_frame, &got);
+  expect("a different valid sequence header replaces the stored one",
+         !r && p->seq.valid && p->seq.film_grain_params_present == 1 &&
+             memcmp(&seq_before, &p->seq, sizeof(seq_before)) != 0);
+  av1_parser_free(p);
+
+  // 7. what the parser hands the decoder across a change of sequence header:
+  //    a key frame at 8 bits, then a 10-bit sequence header and an inter
+  //    frame that uses slot 0 (the a1 scenario, a1-harness.c). No code
+  //    change here: this pins the state the decoder-side check relies on.
+  static const uint8_t tu1[] = {0x0a, 0x08, 0x18, 0x3f, 0xc0, 0x0f, 0xc0,
+                                0x0f, 0xc0, 0x00, 0x32, 0x06, 0x16, 0x40,
+                                0x00, 0x00, 0x00, 0x55};
+  static const uint8_t tu2[] = {0x0a, 0x0c, 0x00, 0x00, 0x00, 0x07, 0xf8,
+                                0x01, 0xf8, 0x01, 0xf8, 0x03, 0x10, 0x00,
+                                0x32, 0x0e, 0x30, 0xe1, 0xe0, 0x00, 0x00,
+                                0x01, 0x64, 0x00, 0xa2, 0x8a, 0x28, 0x00,
+                                0x00, 0x66};
+  av1_parser_init(p);
+  got = (Seen){0};
+  r = av1_parse_temporal_unit(p, tu1, sizeof tu1, on_handover, &got);
+  expect("the 8-bit key frame temporal unit parses",
+         !r && got.ready == 1 && handover_seq_depth == 8);
+  r = av1_parse_temporal_unit(p, tu2, sizeof tu2, on_handover, &got);
+  expect("the inter frame hands over seq 10 with its reference at 8",
+         !r && got.ready == 2 && handover_seq_depth == 10 &&
+             handover_ref_depth == 8);
+  av1_parser_free(p);
 
   free(p);
   return failures ? 1 : 0;

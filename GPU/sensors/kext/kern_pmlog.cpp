@@ -23,8 +23,21 @@
 //  This file routes the library's _PEM_CWDDEPM_QueryPMLogData. The route calls
 //  the original first, with the same arguments, and returns its result
 //  untouched; when it succeeded and the log looks filled, it copies the 2052
-//  bytes. Nothing new is ever asked of the GPU or of its power firmware: the
-//  readings are the ones the driver takes anyway, at the driver's own pace.
+//  bytes. The readings are the ones the driver takes anyway, at the driver's
+//  own pace.
+//
+//  Never from this kext's own thread (0.9.3). The driver reads the log when
+//  someone reads the accelerator's PerformanceStatistics, and since 0.9.1 the
+//  kext also called the library itself, once a second, while it held a fan
+//  curve, an OD8 state or a raised power limit. That call used the power
+//  management object the driver had used, and the driver can clear that object
+//  while the call runs: `PECI_LockPowerPlayOnly(pem[4])` succeeded and the
+//  unlock then read `pem[4]` as NULL, which panicked this Mac on 2026-11-27
+//  (0.9.1 and 0.9.2, both while a remembered GPU profile was applied). No check
+//  made before the call can see a clear in the middle of it, so the kext no
+//  longer calls into the library at all. The app reads PerformanceStatistics at
+//  least once a second while it holds something; nothing is asked of the card
+//  from here.
 //
 //  The function is found by symbol and only routed when its first 17 bytes are
 //  the ones in pmlog_logic.hpp. The route is a long jump (routeMultipleLong),
@@ -92,9 +105,9 @@ static uint64_t gSamples{0};
 // the log again. gSamples keeps counting, so "since boot" stays true.
 static bool gValid{false};
 
-static void keep(const void* out) {
+static bool keep(const void* out) {
   auto log = static_cast<const uint8_t*>(out);
-  if (gLock == nullptr || !gpusens::plausible(log)) return;
+  if (gLock == nullptr || !gpusens::plausible(log)) return false;
   uint64_t now = mach_absolute_time();
   IOSimpleLockLock(gLock);
   memcpy(gLog, log, sizeof(gLog));
@@ -102,12 +115,16 @@ static void keep(const void* out) {
   gSamples++;
   gValid = true;
   IOSimpleLockUnlock(gLock);
+  return true;
 }
 
 template <size_t K>
 static uint32_t wrapQuery(void* pem, void* in, void* out) {
   uint32_t result = orgQuery[K](pem, in, out);
   if (result == 0 && out != nullptr) keep(out);
+  // The power management object is not kept (0.9.3): nothing here calls the
+  // library outside the driver's own calls, so there is no pointer to go stale
+  // across a sleep or a teardown.
   return result;
 }
 static_assert(arrsize(kHWLibs) == 2, "one wrapper per library");
@@ -348,3 +365,4 @@ void PMLogCopy::invalidate() {
   gValid = false;
   IOSimpleLockUnlock(gLock);
 }
+

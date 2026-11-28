@@ -195,7 +195,8 @@ final class GPUControlEngine {
     /// watchdog's readings fresh (the kext's PMLog copy only moves when
     /// someone reads the accelerator's `PerformanceStatistics`, and the kext
     /// refuses a curve, a raised minimum or a raise with readings older than
-    /// 2 s). Nil in tests.
+    /// 2 s). The controller calls the same read once a second while anything
+    /// is held. Nil in tests.
     var freshenReadings: (() -> Void)?
 
     private(set) var snapshot = GPUControlSnapshot() {
@@ -894,11 +895,22 @@ final class GPUControlEngine {
 /// the real channel, once, at launch (`AppDelegate`); without a channel it
 /// cannot open anything.
 final class GPUControlController: @unchecked Sendable {
+    /// How often the app reads the accelerator's `PerformanceStatistics` while
+    /// something is held: the driver takes its PMLog sample on that read, and
+    /// GPUSensors copies it, so the fan watchdog never goes blind. The kext
+    /// does not sample on its own any more (0.9.3: that call, from the kext's
+    /// thread, panicked the Mac). One second matches the watchdog, which takes
+    /// a change only while the copy is at most 2 s old.
+    static let readingsInterval: TimeInterval = 1
+
     private let queue = DispatchQueue(label: "ryzenstatus.gpu-control", qos: .userInitiated)
     private let channel: GPUControlChannel?
     private let gate = Gate()
     private var engine: GPUControlEngine!
     private var timer: DispatchSourceTimer?
+    /// The 1 s read of `PerformanceStatistics` while something is held.
+    private var readingsTimer: DispatchSourceTimer?
+    private var freshen: (@Sendable () -> Void)?
     private var activity: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var started = false
@@ -946,6 +958,7 @@ final class GPUControlController: @unchecked Sendable {
     deinit {
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         timer?.cancel()
+        readingsTimer?.cancel()
         endActivity()
     }
 
@@ -995,11 +1008,16 @@ final class GPUControlController: @unchecked Sendable {
         queue.async { [self] in engine.reaskFilter = filter }
     }
 
-    /// What makes the watchdog's readings fresh right before an OD8 state or
-    /// a raised power limit goes out (`GPUControlReadings.freshen` with the
-    /// real kext).
+    /// What makes the watchdog's readings fresh: one read of the accelerator's
+    /// `PerformanceStatistics` (`GPUControlReadings.freshen` with the real
+    /// kext). Called right before an OD8 state or a raised power limit goes
+    /// out, and once a second while anything is held.
     func setFreshenReadings(_ freshen: @escaping @Sendable () -> Void) {
-        queue.async { [self] in engine.freshenReadings = freshen }
+        queue.async { [self] in
+            engine.freshenReadings = freshen
+            self.freshen = freshen
+            syncReadings(snapshot)
+        }
     }
 
     /// `applicationWillTerminate`: `release` at once on a helper thread,
@@ -1029,6 +1047,8 @@ final class GPUControlController: @unchecked Sendable {
         queue.async { [self] in
             timer?.cancel()
             timer = nil
+            readingsTimer?.cancel()
+            readingsTimer = nil
             if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
             wakeObserver = nil
             engine.shutdown(callingChannel: false)
@@ -1079,8 +1099,29 @@ final class GPUControlController: @unchecked Sendable {
             lastSnapshot = snapshot
             return changeHandler
         }
+        syncReadings(snapshot)
         guard let handler else { return }
         DispatchQueue.main.async { handler(snapshot) }
+    }
+
+    /// One read of `PerformanceStatistics` a second while something is held,
+    /// none of its own while nothing is (the app's own GPU readings keep
+    /// today's rate then). On the queue: called from `publish` and from
+    /// `setFreshenReadings`.
+    private func syncReadings(_ snapshot: GPUControlSnapshot) {
+        let wanted = snapshot.held != nil && !gate.isDown && freshen != nil
+        if wanted, readingsTimer == nil {
+            let source = DispatchSource.makeTimerSource(queue: queue)
+            source.schedule(deadline: .now() + Self.readingsInterval,
+                            repeating: Self.readingsInterval,
+                            leeway: .milliseconds(100))
+            source.setEventHandler { [weak self] in self?.freshen?() }
+            readingsTimer = source
+            source.resume()
+        } else if !wanted, let source = readingsTimer {
+            source.cancel()
+            readingsTimer = nil
+        }
     }
 
     private static func nowMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
@@ -1091,14 +1132,21 @@ final class GPUControlController: @unchecked Sendable {
 /// someone reads the accelerator's `PerformanceStatistics` (what
 /// `ioreg -r -c IOAccelerator -l -d1` does too). One read right before a
 /// change makes them fresh, whether or not the app's own GPU readings run
-/// yet (right after launch, right after a wake).
+/// yet (right after launch, right after a wake), and the controller reads
+/// once a second while anything is held, which is what keeps the watchdog
+/// fed now that the kext never samples by itself (0.9.3).
 enum GPUControlReadings {
     /// The AMD accelerator classes, most specific first, so an Intel iGPU or
-    /// another card that enumerates first is never the one read.
+    /// another card that enumerates first is never the one read. The names are
+    /// the driver's own: the Vulkan driver's class exists while a Vulkan app
+    /// holds the card, and `AMDRadeonX6000_AMDGraphicsAccelerator` is the class
+    /// every RX 6000 accelerator inherits, so `IOServiceMatching` finds the
+    /// card through it. (Two names used here before, `AMDRadeonX6000_Amd…` and
+    /// `AMDGPUAccelerator`, match no service at all, so the whole walk found
+    /// nothing and the readings were never actually refreshed.)
     private static let amdClasses = [
         "AMDRadeonX6000_AMDAcceleratedVKDriver",
-        "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
-        "AMDGPUAccelerator"
+        "AMDRadeonX6000_AMDGraphicsAccelerator"
     ]
 
     /// Reads `PerformanceStatistics` of the AMD accelerator. The values are

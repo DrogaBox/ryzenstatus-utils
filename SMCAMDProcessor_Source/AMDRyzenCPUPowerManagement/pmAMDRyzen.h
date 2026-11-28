@@ -87,6 +87,9 @@ void pmRyzen_stop(void);
 // Every later idle entry goes to CC6 through `port`, or to CC1 with 0.
 void pmRyzen_set_c6_port(uint32_t port);
 void pmRyzen_PState_reset(void);
+// 1 once pmRyzen_init_PState rewrote P1 to a checked definition: no MSR_PSTATE_CTL
+// write before that, not even the app's own applyPowerControl (state 0 is always safe).
+int pmRyzen_p1_gate(void);
 float pmRyzen_avgload_pcpu(uint32_t);
 
 uint64_t pmRyzen_machine_idle(uint64_t);

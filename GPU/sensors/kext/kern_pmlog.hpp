@@ -40,6 +40,11 @@ bool snapshot(uint8_t* out, uint64_t* ageNs, uint64_t* samples);
 // the clock the age is taken from can pause while the Mac sleeps.
 void invalidate();
 
+// The kext copies what the driver reads and nothing else (0.9.3): the keeper
+// of 0.9.1 and 0.9.2, which called the library from this kext's own thread, is
+// gone. The app reads the accelerator's PerformanceStatistics at least once a
+// second while it holds something, which is what makes the driver read.
+
 }  // namespace PMLogCopy
 
 #endif  // GPUSENSORS_KERN_PMLOG_HPP

@@ -67,38 +67,57 @@ pmDispatch_t pmRyzen_cpuFuncs = {
 
 #pragma mark - P-State Initialization
 
-void pmRyzen_init_PState(void){
+// Set once pmRyzen_init_PState rewrote P1 to a checked definition. Until then no
+// MSR_PSTATE_CTL write happens, whatever limit the app sets later.
+static volatile int pmRyzen_p1_ready = 0;
+
+// Read from C++: applyPowerControl refuses MSR_PSTATE_CTL while the gate is closed.
+int pmRyzen_p1_gate(void){ return pmRyzen_p1_ready; }
+
+int pmRyzen_init_PState(void){
     // P1 = 80% of P0 by default. Override via boot-arg `amdpp1ratio=0.75` etc.
-    static float p1_ratio = 0.0f;
-    if (p1_ratio == 0.0f) {
+    // Integer percent: the SSE state belongs to the current thread, and float
+    // math here would clobber it (see pmRyzen_machine_idle).
+    static int p1_ratio_pct = 0;
+    if (p1_ratio_pct == 0) {
         uint32_t bootRatio = 0;
         PE_parse_boot_argn("amdpp1ratio", &bootRatio, sizeof(bootRatio));
-        p1_ratio = (bootRatio > 0 && bootRatio <= 100) ? (float)bootRatio / 100.0f : 0.80f;
+        p1_ratio_pct = (bootRatio > 0 && bootRatio <= 100) ? (int)bootRatio : 80;
     }
 
     uint64_t p0 = pmRyzen_rdmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0);
-    if (!(p0 & (1ULL << 63))) return;
+    if (!(p0 & (1ULL << 63))) return 0;
 
+    uint64_t p0fid = p0 & 0xff;
     uint64_t p0dfsid = (p0 >> 8) & 0x3f;
-    if (p0dfsid == 0) return;
-
-    float p0spd = ((float)(p0 & 0xff) / (float)p0dfsid) * 200.0f;
+    if (p0dfsid == 0) return 0;
 
     uint64_t p1 = pmRyzen_rdmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1);
+    // A P1 the firmware left disabled carries no VID worth enabling: its whole
+    // definition is unvalidated. Leave it alone and say so to the caller.
+    if (!(p1 & (1ULL << 63))) return 0;
     uint64_t p1dfsid = (p1 >> 8) & 0x3f;
-    if (p1dfsid == 0) return;
+    if (p1dfsid == 0) return 0;
 
-    uint32_t fid_raw = (uint32_t)((p0spd * p1_ratio) / 200.0f * (float)p1dfsid);
+    // fid = p0spd * ratio / 200 * p1dfsid, with p0spd = p0fid / p0dfsid * 200:
+    // fid = p0fid * ratio_pct * p1dfsid / (100 * p0dfsid), all in integers
+    uint32_t fid_raw = (uint32_t)((p0fid * (uint64_t)p1_ratio_pct * p1dfsid) / (100 * p0dfsid));
     if (fid_raw > 0xFF) fid_raw = 0xFF;
     if (fid_raw < 0x10) fid_raw = 0x10;
+    // Never a P1 faster than P0: the 0x10 floor above can raise it when P1's
+    // DfsID is lower than P0's. FID of P0's speed at P1's DfsID:
+    uint32_t fid_max = (uint32_t)((p0fid * p1dfsid) / p0dfsid);
+    if (fid_max < 0x10) return 0;
+    if (fid_raw > fid_max) fid_raw = fid_max;
     uint64_t p1fid = (uint64_t)fid_raw;
 
     pmRyzen_wrmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1, (p1 & ~0xFFULL) | p1fid | (1ULL << 63));
+    return 1;
 }
 
 static inline void set_PState(pmProcessor_t *cpu, uint8_t state){
     // Zen 3+ never writes MSR_PSTATE_CTL, whatever PPM/LPM ask for.
-    if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0) return;
+    if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0 || (!pmRyzen_p1_ready && state != 0)) return;
     if (state >= 8) state = 7;
     if (state > pmRyzen_pstatelimit) state = (uint8_t)pmRyzen_pstatelimit;
     if(cpu->PState == state) return;
@@ -202,13 +221,21 @@ void pmRyzen_init(void *handle, int allowDispatch, int pstateControl){
         pkg = pkg->next;
     }
 
-    pmRyzen_effective_timetsc = ((double)pmRyzen_tsc_freq * EFF_INTERVAL);
-    pmRyzen_p_sdtsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPDOWN_THRE);
-    pmRyzen_p_sutsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPUP_THRE);
+    // Same values as EFF_INTERVAL 0.15, PSTATE_STEPDOWN_THRE 0.12 and
+    // PSTATE_STEPUP_THRE 0.38, without touching the FPU (see pmRyzen_machine_idle)
+    pmRyzen_effective_timetsc = pmRyzen_tsc_freq * 15 / 100;
+    pmRyzen_p_sdtsc = pmRyzen_effective_timetsc * 12 / 100;
+    pmRyzen_p_sutsc = pmRyzen_effective_timetsc * 38 / 100;
 
     if (pmRyzen_pstate_control) {
-        pmRyzen_init_PState();
-        pmRyzen_PState_reset();
+        pmRyzen_p1_ready = 0;
+        if (pmRyzen_init_PState()) {
+            pmRyzen_p1_ready = 1;
+            pmRyzen_PState_reset();
+        } else {
+            // P1 was never rewritten to a valid definition: never step into it
+            pmRyzen_pstatelimit = 0;
+        }
     }
 
     cb.initComplete();

@@ -233,9 +233,33 @@ RESULT_OK=1
 # any) is another version. Nothing is left to install then; check --json calls it
 # "pendingReboot".
 PENDING_REBOOT=0
+# What the record of this boot session says waits for the reboot: "remove" when the
+# kext was taken off the EFI here and still runs, "none" otherwise. The app's row says
+# "removed" with it; check --json calls it "pending".
+PENDING=none
+# The record of a removal (0.9.1 and 0.9.2 panicked; batch 256): the same file an
+# install writes (efikext.zsh), so a check in this boot knows the EFI changed even
+# though the kext it started with still runs.
+look_removed() {
+  PENDING=none
+  local file line boot="" action="" bundle=""
+  file=$(record_file $KNAME) || return 0
+  while IFS= read -r line; do
+    case $line in
+      boot=*)   boot=${line#*=} ;;
+      action=*) action=${line#*=} ;;
+      bundle=*) bundle=${line#*=} ;;
+    esac
+  done < "$file"
+  [[ -n $boot && $boot == $(boot_session) && $action == remove && $bundle == $KBUNDLE ]] || return 0
+  # An EFI that still holds the kext wins over the record.
+  [[ -z $READY_ON ]] || return 0
+  PENDING=remove
+}
 conclude() {
   RESULT_OK=1
   PENDING_REBOOT=0
+  look_removed
   local new=$(kext_file_version "$KEXT") on_efi=0
   [[ -n $READY_ON && -z $STALE_ON && -n $new && $RUN_VERSION != "$new" ]] && on_efi=1
   # what the next boot changes, for the results about a kext that runs now
@@ -246,6 +270,12 @@ conclude() {
   # the kext that runs is what check is about; checks marked FAIL only stop a new install
   local blocked=""
   (( CAN_INSTALL )) || blocked=" The checks marked FAIL stop a new install."
+  # Taken off the EFI in this boot session: say so, whichever state the kext that
+  # still runs is in. The next boot has no GPUSensors.kext.
+  if [[ $PENDING == remove ]]; then
+    RESULT="removed: GPUSensors is off the EFI. It stays loaded until you restart, then it is gone.$TOOLS_NOTE"
+    return 0
+  fi
   if [[ $RUN_STATE == active && ${RUN_SAMPLES:-0} -gt 0 ]]; then
     RESULT="working: GPUSensors is active and has readings ($(pick "sensors/build/gpusensors shows them" "RyzenStatus shows them")).$next$update$TOOLS_NOTE$blocked"
     PENDING_REBOOT=$on_efi
@@ -279,7 +309,7 @@ check_json() {
   print -rn -- "\"version\":\"$(jesc "$(kext_file_version "$KEXT")")\",\"running\":\"$(jesc "$RUN_LINE")\","
   print -rn -- "\"tools\":\"$TOOLS_STATE\",\"toolsOnly\":$([[ $TOOLS_ONLY -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"toolsInstalled\":$([[ $TOOLS_OURS -eq 1 ]] && echo true || echo false),"
-  print -rn -- "\"pendingReboot\":$([[ $PENDING_REBOOT -eq 1 ]] && echo true || echo false),"
+  print -rn -- "\"pending\":\"$PENDING\",\"pendingReboot\":$([[ $PENDING_REBOOT -eq 1 ]] && echo true || echo false),"
   print -rn -- "\"result\":\"$(jesc "$RESULT")\",\"efis\":[${(j:,:)EFI_JSON}],\"checks\":[${(j:,:)CHECKS}]}"
   print
 }
@@ -331,6 +361,11 @@ do_uninstall() {
   need_root uninstall
   [[ $EUID -eq 0 && -z $EFI_DIR ]] && tools_uninstall
   kext_uninstall || return 0
+  # The record of this boot session: the kext still runs, and a check in the same
+  # boot has to say it is gone from the EFI, not read the running one as installed.
+  # When the record cannot be written, say what check will miss until the restart.
+  record_put $KNAME "boot=$(boot_session)" "action=remove" "bundle=$KBUNDLE" "version=$(kext_file_version "$KEXT")" "hash=" || print -r -u2 -- "note: until the restart, 'check' cannot tell the kext was removed here."
+  return 0
 }
 
 # Only the commands, for a Mac where the kext is gone already (taken off the EFI by hand,
@@ -357,7 +392,9 @@ do_uninstall_tools() {
 TOOL_DIR=$GPU_TOOL_DIR
 TOOLS=($GPU_TOOL_NAMES)
 tool_id() { gpu_tool_id "$1"; }
-has_acl() { [[ $(/bin/ls -lde "$1" 2>/dev/null | head -1 | cut -c11) == "+" ]]; }
+# an entry that also has extended attributes shows @ in the mode column, so look for the ACL
+# lines ls -lde prints after the first one
+has_acl() { [[ -n $(/bin/ls -lde "$1" 2>/dev/null | sed -n '2,$p') ]]; }
 tool_dir_unsafe() { gpu_dir_unsafe "$TOOL_DIR"; }
 tool_file_unsound() { # file name
   local f=$1 owner mode

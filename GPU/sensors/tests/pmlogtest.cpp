@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "control_logic.hpp"
 #include "pmlog_logic.hpp"
 
 static int failures = 0;
@@ -57,6 +58,15 @@ int main(int argc, char** argv) {
         "a fresh log is published");
   check(!publishable(true, kMaxSampleAgeMs + 1),
         "a stale log is not published");
+
+  // 0.9.3: the kext takes no sample of its own; the app's read of
+  // PerformanceStatistics is what makes the driver sample. The watchdog still
+  // needs a reading inside its fresh window and gives up only after more than
+  // one missed second of them.
+  check(gpuctl::kOd8DogFreshMs >= 1000,
+        "the watchdog's fresh window spans a second of readings");
+  check(gpuctl::kOd8DogStaleMs >= 2000,
+        "the watchdog goes blind only after more than one missed reading");
 
   // The ids the samplePMStatistics of the driver reads must keep their names.
   struct {

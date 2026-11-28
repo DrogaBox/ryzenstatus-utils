@@ -2,6 +2,136 @@
 
 The encoding fix keeps its own history in `encode/CHANGELOG.md`.
 
+## GPU sensors 0.9.3 (host tests only, not booted)
+
+- **The keeper is gone.** 0.9.1's keeper, which called
+  `PEM_CWDDEPM_QueryPMLogData` from the kext's own worker thread through the power
+  management object the driver had used, panicked this Mac twice on 2026-11-27 (02:42 and
+  02:45, both while a remembered GPU profile was applied; one 34 s after boot). The library
+  cleared a word of that object while the call was running: `PECI_LockPowerPlayOnly(pem[4])`
+  succeeded and `PECI_UnlockPowerPlayOnly` then read `pem[4]` as NULL (CR2 0x180, RDI 0).
+  0.9.2 checked the object before the call and could not see a clear in the middle of it, so
+  the kext no longer calls into the library at all: `sampleNow`, `keeperStep`, their counters
+  and the `Keeper` and `KeeperState` properties are removed, and the power management object
+  is no longer stored. The kext still copies the PMLog the driver reads (the routed function
+  is unchanged); the app reads the accelerator's `PerformanceStatistics` at least once a
+  second while it holds a fan curve, an OD8 state or a raised power limit, which is what makes
+  the driver read. 0.9.2's other fixes stay: the copy is dropped at sleep and teardown, and a
+  ppCWDDE call is refused when the sleep or wake watcher did not route.
+- The app's checked releases are 080, 081, 090 and 093; 091 and 092 are dropped (0.9.1 and
+  0.9.2 panicked, and neither was published). A loaded GPUSensors older than the package this
+  app carries, or outside that set, turns GPU control off and the page says to open the
+  installer from the DMG and install the GPU package again: auto-update replaces the app but
+  not the kexts.
+
+## GPU sensors 0.9.2 (host tests only, not booted)
+
+- **Kernel panic after a sleep (found on this Mac, 2026-11-27)**: a GPU profile loaded about five minutes after a wake started the keeper, which called `PEM_CWDDEPM_QueryPMLogData` with the power object stored before the sleep; its `pem[2]` was already NULL and the library faulted in `PSM_IsIPState` (page fault at 0x27c). The object seen while the GPU sleeps (ppSleep to the end of ppWake) is no longer stored, the stored one is dropped at every wake, and the keeper asks only once the driver read with an object after that wake. It also refuses an object whose `pem[2]`, `pem[3]` or `pem[4]` is NULL, and the pointer is now written before its sleep count and read after it (audit findings K2 and K3).
+- A second review of the fix: the keeper checks the object right before the call, the PowerPlay object is dropped when the GPU goes away, and a ppCWDDE call is refused when the sleep or wake watcher did not route (findings F1, F3, F4; none of them reproduces the panic).
+- The app's checked releases gain 092.
+
+## Decoders 0.3.9 (not released; host tests only)
+
+- The MPEG-2, VC-1 and MPEG-4 decoders now live through a system sleep the way AV1 and VP9
+  have since 0.3.8. A session from before the sleep keeps its place in the plug-in: the
+  pictures up to the next I picture are dropped with no error, that one starts a new session,
+  and the pictures after it decode on it. Before, every picture of such a session was a
+  malfunction, so VideoToolbox made a new decoder for each one and the stream stopped at the
+  first picture after the wake.
+- The picture that starts the new session is intra coded in all three codecs, so it decodes
+  the same in a session that has seen nothing: an MPEG-2 I picture (ISO/IEC 13818-2 6.3.1), a
+  VC-1 I or BI frame (SMPTE 421M 7.1.1.3) or an MPEG-4 I-VOP (ISO/IEC 14496-2 6.3.3). A GOP
+  header's `closed_gop` says the pictures after the I need nothing from before it; with an
+  open GOP, or with `broken_link` set, the leading B pictures predict from the previous GOP,
+  which the new session never decoded, and are dropped too instead of drawn wrong.
+- A driver call that fails, a command that does not finish and a firmware error are still a
+  session stopped, as before: only a system sleep is something to rebuild from.
+- VP9 refuses a frame whose reference picture is more than 2x smaller than the frame. The
+  video engine predicts from such a reference wrong: the 1280x720 layer of the spatial-SVC
+  vector `vp90-2-22-svc_1280x720_3` (320x180 reference, 4x) matched libvpx's per-frame MD5 on
+  0 of 20 pictures, right only in its first 180 rows, while references 1.25x, 1.6x and 2x
+  smaller or larger (`vp90-2-05-resize`, `vp90-2-06-resize`, `vp90-2-13-mv-with-scaling`)
+  matched on 113 of 113. The frame is refused as a stream failure instead of showing a
+  wrong picture; whether VideoToolbox then plays it with another decoder was not checked.
+  Ratios between 2x and 4x were not measured and are refused too. The rule comes from Izzy's 1caa8b41 in vcn-video-decoders.
+- A frame that fails, in VP9 and AV1, empties the reference slots it should have refreshed,
+  so the frames that predict from them are refused ("missing reference") until a frame
+  refreshes those slots, instead of decoding against older pictures.
+- In AV1 and VP9, a `CreateContexts` failure during the rebuild after a sleep closes the
+  session on the background teardown queue, like the success path does, never on the decode
+  thread (24d1300a).
+- Ending a session in MPEG-2, MPEG-4 and VC-1 now also clears its ramping state and dropped
+  count; the sleep rebuild still sets ramping again right after it (24d1300a).
+- The MPEG-2, MPEG-4 and VC-1 rebuilds after a sleep are bounded like the AV1 and VP9 ones:
+  a stream that sends no intra picture is stopped as a device failure after 600 dropped
+  frames, so the host can hand it to another decoder, instead of dropping pictures for as
+  long as the stream goes without one (7e9c2940).
+- The AV1 decoder refuses a reference picture of another bit depth than the frame (the
+  sequence header changed mid-stream, and with it the depth the DPB is allocated at), failed
+  like a missing reference so the host can recover, as VP9 already did (7e9c2940).
+- The AV1 parser keeps the sequence header it has when a new one is refused (one cut short,
+  say), so frames after it still parse with the stored header; a different valid header
+  replaces it (0e6e5df5).
+- The VP9 parser refuses a frame whose profile does not match the stream's bit depth (a
+  profile 0 frame after a 10-bit profile 2 key frame, say), with the stream's depth as it
+  was; libvpx ties the depth to the profile the same way (0e6e5df5).
+- A queued close's log lines now say why the session was closed, not just "stuck" or
+  "lost", so a session dropped after a sleep is logged with its real reason (7e9c2940,
+  4e5fc126). The queued close keeps its own reference to the log it logs with (the close may
+  give up the caller's last one) and never retains or releases the default log; where
+  `os_log_create` returns nothing, the AV1, VP9 and legacy decoders fall back to that
+  default log (7e9c2940, 4e5fc126).
+
+## Decoders 0.3.8 (not released; host tests only)
+
+- A review of 0.3.7 found five things to fix in the sleep work; this release is those fixes.
+- A sleep that lands inside a decode call is no longer taken for a broken GPU. The clock the
+  1 s timeout is measured on stops while the Mac is asleep, so the frame that was on the GPU
+  when it slept times out right after the wake, and 0.3.7 stopped the session there with
+  -12911. The session is now rebuilt the way any other failure after a wake is: the frame is
+  dropped with no error, the frames up to the next key frame too, and the key frame decodes
+  on the new driver (AV1 and VP9).
+- The rule for where a session can start over is in one place per codec, with a test:
+  an AV1 key frame that refreshes all eight slots; a VP9 key frame, or a VP9 intra-only
+  frame that refreshes all eight and resets all four probability contexts
+  (error-resilient mode or `reset_frame_context` 3), as in 0.3.7.
+- The 15 s limit now also covers the first command on the rebuilt session. Right after a wake
+  the engine can still take seconds, and 0.3.7 gave the fresh context the usual 1 s, which
+  could stop a healthy session on its first frame.
+- The old accelerator is now always closed on the background queue, not on the thread that
+  decoded the key frame. The quiet path (the last command had finished) closed it inline,
+  where the kernel's close of a video context can still wait after a wake.
+- The replacement log line now says what the old driver objects cost (up to 96 MiB per
+  replacement, not returned until the process ends), so the log accounts for them where they
+  are left behind, not only when such a session is closed.
+- A dead counter (`rebuilds`) is gone.
+- The firmware-result rule of 0.3.7 is unchanged: a nonzero result on a session from before a
+  sleep still forces the replacement. What each value means has not been checked on a GPU,
+  so reacting to all of them is the safe side; the real sleep test measures whether a
+  healthy wake ever reports one.
+
+## Decoders 0.3.7 (not released; host tests only)
+
+## GPU sensors 0.9.1 (host tests only, not booted)
+
+- The readings keep up when nothing outside polls them. The driver reads the PMLog only when
+  someone reads the accelerator's `PerformanceStatistics`, so with nothing polling it the kext's
+  copy went stale and the fan watchdog refused a held curve, a raised GFX minimum or a raised
+  power limit with "no fresh hotspot and fan readings"; the app worked around it by reading the
+  statistics right before each write, and the owner's test script ran an `ioreg` loop every 0.5 s.
+  While something is held, the kext's worker now asks the library for that reading itself, once a
+  second, and stops as soon as nothing is held.
+- It is the call the driver makes, not a new one: `PEM_CWDDEPM_QueryPMLogData`, the function the
+  kext already routes (AMDRadeonX6000HWLibs 25G342, `0xf6322`): it clears the 2052-byte log,
+  returns before touching the card when the GPU's IP block is off or hardware access is blocked,
+  takes PowerPlay's lock and asks the power firmware for the metrics table. One message a second
+  while something is held, nothing otherwise, on the worker thread with none of the kext's locks
+  held. After a wake it only asks a power management object the driver itself read with since that
+  wake.
+- `Keeper` (what the keeper is doing, or why not) and `KeeperState` (`Tries`, `Samples`,
+  `Refused`, `LastResult`) are published next to the readings. The app's read before each write
+  (`GPUControlReadings.freshen()`) is no longer needed with this kext, and still does no harm.
+
 ## JPEG decoder 1.0.0 (RyzenStatus 1.90.0)
 
 - New, optional, macOS 26.7.3 only: `VCNJpeg.kext` (`jpeg/`) and the VideoToolbox plug-in
@@ -384,6 +514,30 @@ made-up driver.
 
 ## Installers and gpusensors (not released)
 
+- `encoder.sh --efi` now takes only a partition like `disk0s1` or `auto`, the check
+  `install.sh` and `undo.sh` already make; anything else stops with a usage error before
+  anything is changed (b8e36c28).
+- `undo.sh` no longer takes another EFI in the place of the one OpenCore started from when
+  that is not an EFI partition: the encoder step is left out of the plan and the printout
+  says to run `install/encoder.sh uninstall --efi diskNsM` by hand (b8e36c28).
+- The access-control-list checks of `common.zsh` (`gpu_dir_unsafe`) and `sensors.sh` see an
+  entry that also has extended attributes: they look at the ACL lines `ls -lde` prints after
+  the first one, where an `@` for the attributes used to hide the `+` for the ACL (b8e36c28).
+- The "Done before it:" line of `install.sh` spells "gpucontrol and gpusensors" out for the
+  `tools` part itself, so the list names every part however many ran before; the old
+  substitution inside the join only matched a list of exactly one (b8e36c28).
+- `efikext.zsh` removes a kext's install record only after the `config.plist` check that can
+  still stop the uninstall, so a run that changes nothing leaves the record, and `check`'s
+  answer with it, as it was (b8e36c28).
+- `encoder.sh` cleans up through one exit trap at the top of the script: the one it set
+  inside `do_install`/`do_uninstall` was function-local and stopped at its first function
+  call when an exit unwound through it, so the staged copy of the package stayed in
+  `/private/tmp` on every failed or interrupted run (64de787e).
+- `sensors.sh uninstall` says so when it cannot write the removal record: until the restart,
+  `check` cannot tell the kext was removed here (24d1300a).
+- `install.sh` unmounts the EFI partition it mounted while looking for OpenCore when the run
+  is stopped with Ctrl-C (or killed) during that search, instead of leaving it mounted
+  (74f6d771).
 - `decoders.sh install` and `repair` copy each plug-in under another name, check it, and only
   then put it in place of the old one: a copy that fails half way leaves the installed plug-in
   as it was. The system volume they mount is unmounted again when they end.

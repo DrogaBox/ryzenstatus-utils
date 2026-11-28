@@ -95,7 +95,9 @@ gpu_dir_unsafe() { # folder
       mode=$(/usr/bin/stat -f '%Lp' "$d")
       [[ $owner == root ]] || { print -r -- "$d belongs to $owner, not root"; return 0; }
       (( (8#$mode & 8#022) == 0 )) || { print -r -- "$d can be written by others than root (mode $mode)"; return 0; }
-      [[ $(/bin/ls -lde "$d" 2>/dev/null | head -1 | cut -c11) == "+" ]] &&
+      # an entry that also has extended attributes shows @ in the mode column, so look for
+      # the ACL lines ls -lde prints after the first one
+      [[ -n $(/bin/ls -lde "$d" 2>/dev/null | sed -n '2,$p') ]] &&
         { print -r -- "$d has an access control list"; return 0; }
     fi
     d=${d:h}
@@ -177,12 +179,57 @@ help_of() { # script
 # Those processes only map code macOS trusts (library validation). The plug-ins get in when
 # one of these holds: AMFI is switched off, AMFIPass runs, the plug-ins are signed under a CA
 # the Mac has been made to trust, or VCNVTLoader runs and lists them. See decode/loader/README.md.
-boot_args() { /usr/sbin/sysctl -n kern.bootargs 2>/dev/null; }
-amfi_off() { boot_args | grep -qE '(^| )amfi_get_out_of_my_way=(0x)?0*[1-9a-fA-F]'; }
-# A loaded AMFIPass does nothing when Lilu or AMFIPass itself is switched off by boot-args.
+# The boot arguments of this boot, and the kexts loaded now. A test stands in for either by
+# setting VCNVT_BOOT_ARGS or VCNVT_LOADED_KEXTS (tests/amfidetect.sh); nothing else sets them,
+# and with neither the system is asked as before.
+boot_args() { print -r -- "${VCNVT_BOOT_ARGS-$(/usr/sbin/sysctl -n kern.bootargs 2>/dev/null)}"; }
+loaded_kexts() { print -r -- "${VCNVT_LOADED_KEXTS-$(/usr/sbin/kextstat 2>/dev/null)}"; }
+# The value of one boot argument as a number, or nothing when the argument is not there. Both
+# forms a boot loader writes are taken, -name and name, with or without =value, and a switch
+# with no value counts as 1 (the app counts it so: Sources/RyzenStatus/Core/Permissions.swift,
+# promptsBlocked). 0x80 is read as hex, 128 as decimal; anything else is not a number.
+boot_arg_number() { # name
+  emulate -L zsh
+  local name=$1 args=$(boot_args) a v hex found=0
+  args=${args//$'\n'/ }
+  for a in ${(s: :)args}; do
+    case $a in
+      ($name|-${name}) v=1; found=1 ;;
+      (${name}=*|-${name}=*) v=${a#*=}; found=1 ;;
+    esac
+    (( found )) && break
+  done
+  (( found )) || return 0
+  [[ -n $v ]] || v=1
+  if [[ $v == 0[xX]* ]]; then
+    hex=${v#0[xX]}
+    [[ $hex =~ '^[0-9a-fA-F]+$' ]] || return 0
+    print -r -- "$(( 16#$hex ))"
+  else
+    [[ $v =~ '^[0-9]+$' ]] || return 0
+    print -r -- "$(( 10#$v ))"
+  fi
+}
+# AMFI is out of the way at boot: amfi_get_out_of_my_way set to anything but 0, or amfi with bit
+# 0x80 set. The app reads the same two arguments (Permissions.swift, promptsBlocked); before
+# 1.90.1 the installer knew only the first, so a Mac booted with amfi=0x80 was told its loader
+# kext was needed although nothing gets in the plug-ins' way there.
+amfi_off() {
+  local n=$(boot_arg_number amfi_get_out_of_my_way)
+  [[ -n $n && $n != 0 ]] && return 0
+  n=$(boot_arg_number amfi)
+  [[ -n $n ]] && (( n & 0x80 )) && return 0
+  return 1
+}
+# A loaded AMFIPass does nothing when Lilu or AMFIPass itself is switched off by boot-args:
+# -amfipassoff and -liluoff, and the same names without the dash, with or without a value (0
+# means it stays on). Lilu reads them with the kernel's own argument parser, which takes both
+# spellings (Apple's PE_parse_boot_argn; Lilu's README lists the dashed ones).
 amfipass_on() {
-  /usr/sbin/kextstat 2>/dev/null | grep -q 'com.dhinakg.AMFIPass' || return 1
-  boot_args | grep -qE '(^| )(-amfipassoff|-liluoff)( |$)' && return 1
+  loaded_kexts | grep -q 'com.dhinakg.AMFIPass' || return 1
+  local n
+  n=$(boot_arg_number amfipassoff); [[ -n $n && $n != 0 ]] && return 1
+  n=$(boot_arg_number liluoff); [[ -n $n && $n != 0 ]] && return 1
   return 0
 }
 # The version of a loaded kext, or nothing when it is not loaded.

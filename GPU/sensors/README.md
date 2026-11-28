@@ -375,6 +375,30 @@ accelerator (`AMDAccelChannel::resetHardwareAndReplay`), which never tells Power
 escape during it is a normal firmware message, not refused, and the read-back still checks
 it. The kext does not route it.
 
+## Readings that keep up (0.9.3)
+
+The driver reads the PMLog only when someone reads the accelerator's `PerformanceStatistics`
+(`ioreg -r -c IOAccelerator` does). With nothing polling it, the copies stop, after 5 s the kext
+publishes no readings, and the fan watchdog refuses a curve, a raised GFX minimum or a raised
+power limit with "no fresh readings".
+
+0.9.1 closed that gap the wrong way: while the kext held one of those, its worker called
+`PEM_CWDDEPM_QueryPMLogData` itself, on its own thread, through the power management object the
+driver had used. The driver can clear that object while such a call runs (it did, twice on
+2026-11-27: `PECI_LockPowerPlayOnly(pem[4])` succeeded and `PECI_UnlockPowerPlayOnly` then read
+`pem[4]` as NULL), and no check made before the call can see a clear in the middle of it. 0.9.2
+added those checks; the panic was still possible, so 0.9.3 removes the keeper entirely.
+
+Now the app does the reading the safe way: while it holds something, RyzenStatus reads the
+accelerator's `PerformanceStatistics` at least once a second, so the driver takes its own PMLog
+sample and this kext copies it, exactly as it does for any other reader. The kext calls nothing
+outside a call the driver itself makes, keeps no power management object, and publishes `Samples`
+and `SampleAgeMs` from those reads only. If the app is closed, nothing outside polls: the
+watchdog gives the fan back to the firmware, which is safe.
+
+One second: the watchdog looks once a second and takes a change only while the copy is at most
+2 s old (10 s without readings trips it), and the driver's own rate is about once a second too.
+
 ## What has been checked
 
 | What | Result |

@@ -77,6 +77,10 @@ struct SensorsCheck: Decodable {
     /// This version is on the EFI and the next boot loads it (an older one, or none, runs
     /// now): nothing to install.
     let pendingReboot: Bool?
+    /// What the record of this boot session says waits for the restart: "install",
+    /// "remove" (the kext was taken off the EFI here and still runs until the reboot) or
+    /// "none". Absent from a check that predates it.
+    let pending: String?
     let efis: [EFIInfo]
     let checks: [CheckItem]
 }
@@ -300,7 +304,9 @@ enum ConfirmAction: Identifiable {
 enum Phase: Equatable {
     case idle
     case checking
-    case running(String)
+    /// A step is running. privileged: the step asks for the administrator password, which is
+    /// worth saying before it happens; building the plan runs as the user and asks for nothing.
+    case running(String, privileged: Bool)
     case done(String)
     case failed(String)
     /// The administrator password prompt (or a restart) was cancelled: nothing changed,
@@ -423,6 +429,10 @@ final class Engine: ObservableObject {
             phase = .failed("Select the GPU tools folder to check this Mac.")
             return
         }
+        // After an action the footer keeps what the action came to: the check runs to
+        // refresh the rows, and leaving the phase at `.checking` kept the window (and
+        // its buttons) in the middle of a check that had already finished.
+        let phaseBefore = phase
         phase = .checking
         if !preserveOutput {
             lastOutput = ""
@@ -471,7 +481,7 @@ final class Engine: ObservableObject {
                         : "Could not read one or more check results from install/.")
                 } else {
                     self.suggestion = OptionalSuggestion(encoder: enc, sensors: sns)
-                    if !preserveOutput { self.phase = .idle }
+                    self.phase = preserveOutput ? phaseBefore : .idle
                 }
             }
         }
@@ -505,7 +515,7 @@ final class Engine: ObservableObject {
             phase = .failed("GPU tools folder is not selected.")
             return
         }
-        phase = .running("Building install plan")
+        phase = .running("Building install plan", privileged: false)
         var args = ["plan"]
         if withEncoder { args.append("--with-encoder") }
         if withSensors { args.append("--with-sensors") }
@@ -540,7 +550,7 @@ final class Engine: ObservableObject {
             phase = .failed("This window shows a made-up Mac (RYZENSTATUS_GPU_FAKE_DIR): nothing is installed.")
             return
         }
-        phase = .running(title)
+        phase = .running(title, privileged: true)
         lastActionTitle = title
         lastOutput = ""
         let inner = Self.stagedCommand(root: root, script: script, args: args)
@@ -1184,6 +1194,9 @@ struct ContentView: View {
         if let sns = engine.sensors {
             let onEfi = sns.efis.contains(where: { $0.kext != "none" && $0.kext != "unknown" })
             let loaded = sns.running.hasPrefix("loaded")
+            // Taken off the EFI in this boot session: the kext that still runs is not
+            // installed any more, and the restart finishes the removal.
+            let removed = sns.pending == "remove"
             // The EFI copy is this build's and it runs, or it loads at the next boot: nothing
             // to update.
             let upToDate = (sns.efis.contains(where: { $0.kext == "current" }) && sns.result.hasPrefix("working:"))
@@ -1192,7 +1205,7 @@ struct ContentView: View {
             let toolsOnly = sns.toolsOnly == true
             // No kext to take off, but our gpucontrol or gpusensors is still there: Remove
             // takes just those.
-            let kextThere = onEfi || loaded || sns.pendingReboot == true
+            let kextThere = (onEfi || loaded || sns.pendingReboot == true) && !removed
             let toolsInstalled = sns.toolsInstalled == true
             let installTitle: String = {
                 if toolsOnly { return sns.tools == "outdated" ? "Update tools" : "Install tools" }
@@ -1206,6 +1219,7 @@ struct ContentView: View {
             ComponentSection(
                 title: "GPU sensors",
                 subtitle: {
+                    if removed { return "Removed — goes away after the next restart" }
                     if !kextThere && !toolsInstalled { return "Optional — not installed" }
                     if sns.pendingReboot == true { return "Optional — installed, starts after the next restart" }
                     if toolsOnly || engine.suggestion?.sensors == true { return "Optional — update ready" }
@@ -1326,8 +1340,12 @@ struct ContentView: View {
 
     @ViewBuilder var phaseBanner: some View {
         switch engine.phase {
-        case .running(let title):
-            banner(icon: "gearshape.fill", color: .blue, text: "\(title)… enter your administrator password when asked.")
+        case .running(let title, let privileged):
+            // Only the steps that run as root ask for a password: the plan is built as the
+            // user, and saying otherwise made the first moment of the window wrong.
+            banner(icon: "gearshape.fill", color: .blue,
+                   text: privileged ? "\(title)… enter your administrator password when asked."
+                                   : "\(title)…")
         case .done(let msg):
             banner(icon: "checkmark.seal.fill", color: .green, text: msg)
         case .failed(let msg):

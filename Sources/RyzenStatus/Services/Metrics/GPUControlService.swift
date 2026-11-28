@@ -29,6 +29,52 @@ enum GPUControlVisibility {
     static func setFake(_ on: Bool) { lock.withLock { fake = on } }
 }
 
+/// What may be sent to the kext that runs now.
+///
+/// GPUSensors 0.9.1 and 0.9.2 panic this Mac, so a build outside
+/// `GPUControlCurveRules.checkedReleases` gets nothing at all. A kext that
+/// publishes no `VersionInfo` is not trusted either: "I don't know which
+/// build this is" is not "fine". Giving a hold back is not a change, so the
+/// way back to the start-up values is never gated (see `backToStartUp` and
+/// `closeChanges`).
+enum GPUControlKextGate {
+    enum Verdict: Equatable, Sendable {
+        /// A build this copy was checked against: values may go out.
+        case allowed
+        /// A build outside `checkedReleases` (0.9.1 and 0.9.2 among them).
+        case outdated
+        /// No build name read (yet, or none published).
+        case unknown
+    }
+
+    static func verdict(_ version: String?) -> Verdict {
+        let text = version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty else { return .unknown }
+        return GPUControlCurveRules.isOutdated(text) ? .outdated : .allowed
+    }
+
+    /// What a remembered setting does with the verdict while it waits to be
+    /// re-applied after launch.
+    enum Remembered: Equatable, Sendable {
+        /// Send it: a build this copy was checked against.
+        case send
+        /// Keep waiting, the flag untouched: the version has not been read
+        /// yet. The first read fills it (within half a second of the page, the
+        /// row or the sensors asking), so a normal kext still gets it.
+        case wait
+        /// Give it up until the next launch: the kext is outdated.
+        case drop
+    }
+
+    static func remembered(_ verdict: Verdict) -> Remembered {
+        switch verdict {
+        case .allowed: return .send
+        case .unknown: return .wait
+        case .outdated: return .drop
+        }
+    }
+}
+
 /// The live row: the card's power and fan as macOS publishes them, and the
 /// hotspot from GPUSensors.kext.
 struct GPUControlLive: Equatable, Sendable {
@@ -118,6 +164,35 @@ final class GPUControlService: ObservableObject {
 
     var facts: GPUControlFacts? { GPUControlPageLogic.facts(snapshot: snapshot, control: control).map(withHolder) }
 
+    /// The kext's `VersionInfo` from the last read: the page's own read, or
+    /// the sensors' (`nil` before either). The model has none.
+    private var kextVersionNow: String? {
+        control?.writing?.kextVersion ?? GPUSensorsService.shared.versionNow
+    }
+
+    /// What the gate says about the kext that runs now. The model is not a
+    /// kext and always allows: it has no `VersionInfo` to read.
+    var kextVerdict: GPUControlKextGate.Verdict {
+        guard fake == nil else { return .allowed }
+        return GPUControlKextGate.verdict(kextVersionNow)
+    }
+
+    /// The kext that runs is not the one this app carries (auto-update replaces
+    /// the app but not the GPU package), or a release GPU control was not
+    /// checked against: 0.9.1 and 0.9.2 panicked this Mac, so nothing is sent
+    /// and the page says to install the package again.
+    var kextOutdated: Bool { kextVerdict == .outdated }
+
+    /// No build name read (yet, or at all). "I don't know which build this
+    /// is" is not "fine": a value is only sent to a build the app knows.
+    var kextVersionUnknown: Bool { kextVerdict == .unknown }
+
+    /// Nothing that sends a value goes out: an outdated build, or one that
+    /// has not said which build it is. The way back to the start-up values
+    /// (`backToStartUp`, `closeChanges`) is not a change and keeps no guard,
+    /// on purpose.
+    var kextRefusesWrites: Bool { kextVerdict != .allowed }
+
     /// Who else holds the control, asked only while the kext says a program
     /// does and it is not this one (GPUControlHolder): `gpucontrol hold`
     /// keeping the OD8 table is our own tool, not another program. The probe
@@ -167,7 +242,16 @@ final class GPUControlService: ObservableObject {
         let model = fake
         let overclockNow = overclockNow
         controller.setReaskFilter { request in
-            let control = model.flatMap(GPUControlService.fakeControl) ?? GPUSensorsService.shared.currentControl()
+            let modelControl = model.flatMap(GPUControlService.fakeControl)
+            let control = modelControl ?? GPUSensorsService.shared.currentControl()
+            // A wake re-applies what is held, so it is gated too: a kext that
+            // is outdated, or that has not said which build it is, is sent
+            // nothing. The model is not a kext and has no version to read.
+            if modelControl == nil,
+               GPUControlKextGate.verdict(control?.writing?.kextVersion
+                                          ?? GPUSensorsService.shared.versionNow) != .allowed {
+                return nil
+            }
             let od8Ready = control?.writing?.od8Read == .read
             return GPUControlRememberPolicy.checkedAgain(
                 request, stockGfxMaxMHz: control?.writing?.od8?.stockGfxMaxMHz,
@@ -201,6 +285,7 @@ final class GPUControlService: ObservableObject {
 
     /// The pop-up and the panel row: the start-up value is the way back.
     func choosePower(_ watts: Int) {
+        guard !kextRefusesWrites else { return }
         guard let controller, let facts else { return }
         if watts == facts.bootW {
             backToStartUp()
@@ -214,6 +299,7 @@ final class GPUControlService: ObservableObject {
     func applyFan(_ draft: GPUControlFanDraft) {
         // Always through the controller: a stock fan keeps a held clock, and
         // never gives back a power limit.
+        guard !kextRefusesWrites else { return }
         controller?.chooseFan(curve: draft.want.curve, zeroRpmOff: draft.want.zeroRpmOff)
     }
 
@@ -221,24 +307,28 @@ final class GPUControlService: ObservableObject {
     /// The controller keeps a held fan state with it and gives a power limit
     /// back first.
     func chooseGfxMax(_ mhz: Int?) {
+        guard !kextRefusesWrites else { return }
         controller?.chooseGfxMax(mhz)
     }
 
     /// The minimum clock control (GPUSensors 0.9.0): a raised GFX minimum,
     /// or nil for the stock one. The rest of a held OD8 state goes with it.
     func chooseGfxMin(_ mhz: Int?) {
+        guard !kextRefusesWrites else { return }
         controller?.chooseGfxMin(mhz)
     }
 
     /// The overclock control (GPUSensors 0.9.0): a GFX maximum above stock,
     /// sent with the overclock flag, or nil for the stock maximum.
     func chooseGfxMaxRaised(_ mhz: Int?) {
+        guard !kextRefusesWrites else { return }
         controller?.chooseGfxMaxRaised(mhz)
     }
 
     /// The voltage control (GPUSensors 0.9.0): a lower GFX voltage in mV, or
     /// nil for stock. The rest of a held OD8 state goes with it.
     func chooseVolt(_ mv: Int?) {
+        guard !kextRefusesWrites else { return }
         controller?.chooseVolt(mv)
     }
 
@@ -257,6 +347,7 @@ final class GPUControlService: ObservableObject {
     /// "Open writing…": the administrator dialog runs the installed tool's
     /// fixed command, only when the owner presses the button.
     func openWriting(prompt: String) {
+        guard !kextOutdated else { return }
         guard !isArming else { return }
         if let fake {
             fake.arm()
@@ -455,6 +546,7 @@ final class GPUControlService: ObservableObject {
     /// profile the kext confirms becomes the remembered state like any other
     /// change (`received`).
     func loadProfile(_ profile: GPUControlProfile) {
+        guard !kextRefusesWrites else { return }
         let writing = control?.writing
         let od8Ready = facts?.od8Ready ?? false
         let load = GPUControlProfiles.load(
@@ -543,6 +635,21 @@ final class GPUControlService: ObservableObject {
         }
         if viewers == 0 { control = fake.flatMap(Self.fakeControl) ?? GPUSensorsService.shared.currentControl() }
         guard let facts else { return }
+        // The gate: an outdated build is sent nothing and the remembered
+        // setting is given up until the next launch; a version not read yet
+        // keeps it waiting (the read that fills it is this call's own, or the
+        // page's, within half a second), so a good kext still applies it.
+        switch GPUControlKextGate.remembered(kextVerdict) {
+        case .send:
+            break
+        case .wait:
+            return
+        case .drop:
+            pendingRemembered = false
+            rememberTimer?.invalidate()
+            rememberTimer = nil
+            return
+        }
         // Closed: keep waiting for an administrator to open it. Off, or held
         // by another program: give up until the next launch.
         if facts.off || facts.writeOffCode != 0 || (facts.owned && !facts.mine) {
