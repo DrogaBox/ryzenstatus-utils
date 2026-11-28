@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.1
+
+- FaceTime on the GPU after a lost packet: `install.sh` sets `TempSVCER = false` in
+  `/Library/Preferences/com.apple.VideoProcessing.plist` (every user) when cc is on; `uninstall.sh` and `--no-cc` remove it,
+  `doctor.sh` shows it. AppleGVA's own reference list (`getReferencePictureList`) finds no reference after a lost frame
+  and drops every frame up to the next keyframe with `-17694`; VideoProcessing's error policy rewrites that error to
+  noErr while `TempSVCER` is unset or true, so AVConference, which compares the status with `-17694` and requests a
+  keyframe, never learns of the loss and the picture freezes. With the preference off the error goes through.
+  Measured with the real decoder (Navi 21, 25G342, one frame in 30 lost): 150 of 295 frames out and five 29-frame
+  freezes before; 295 of 295, same quality as the clean stream, when the keyframe arrives on the next frame. The
+  keyframe request itself is checked in AVConference's code only, not in a call. Software decoding now asks for a
+  keyframe too instead of showing a damaged picture.
+
 ## macOS 26.7.4 (25G422) (RyzenStatus 1.90.0)
 
 - Kext: 26.7.4 added to `kX6000Builds` (`F8070234-57B0-3107-AC79-F3AA1C816072`) and
