@@ -45,6 +45,10 @@ done
 for f in /usr/local/libexec/vcnencodefix /usr/local/libexec/vcnencodefix.new /etc/newsyslog.d/vcnencodefix.conf /usr/local/libexec/vcnpreset; do
   if exists $f; then rm -f -- $f && say "removed $f" || say "warning: cannot remove $f"; fi
 done
+# set by install.sh for cc (FaceTime asks for a keyframe after a lost packet)
+if defaults delete /Library/Preferences/com.apple.VideoProcessing TempSVCER 2>/dev/null; then
+  say "removed TempSVCER from /Library/Preferences/com.apple.VideoProcessing.plist"
+fi
 say "the log /var/log/vcnencodefix.log was kept"
 
 if [[ -n $efi ]]; then

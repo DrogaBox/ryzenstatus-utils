@@ -151,6 +151,20 @@ pid=$(pgrep -f "^$bin_dst watch" | head -1)
 if [[ -n $pid ]]; then say "running (pid $pid)"; else say "warning: the service is not running; see $log"; running=0; fi
 tail -4 $log | sed 's/^/  /'
 
+step "FaceTime on the GPU: keyframe request after a lost packet"
+# With cc the GPU decodes FaceTime's HEVC. After a lost packet AppleGVA has no reference and drops every frame
+# up to the next keyframe (-17694). VideoProcessing hides that error from FaceTime (preference TempSVCER, on
+# when unset), so FaceTime never asks the other side for a keyframe and the picture freezes. Off here, for
+# every user: the error reaches AVConference, which requests a keyframe (PLI) and the picture comes back.
+vp_prefs=/Library/Preferences/com.apple.VideoProcessing
+if (( ${args[(Ie)--no-cc]} )); then
+  defaults delete $vp_prefs TempSVCER 2>/dev/null && say "cc is off: removed TempSVCER from $vp_prefs.plist"
+elif defaults write $vp_prefs TempSVCER -bool false && [[ $(defaults read $vp_prefs TempSVCER 2>/dev/null) == 0 ]]; then
+  say "set TempSVCER = false in $vp_prefs.plist"
+else
+  say "warning: cannot set TempSVCER in $vp_prefs.plist; on the GPU a FaceTime call freezes after a lost packet until the next keyframe"
+fi
+
 step "Kernel half (VCNEncodeFloor.kext, VCN clock floor)"
 loaded=$(kextstat -l -b com.droga.VCNEncodeFloor 2>/dev/null | awk '{print $7}' | tr -d '()')
 if [[ -n $loaded ]]; then

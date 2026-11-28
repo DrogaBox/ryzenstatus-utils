@@ -59,6 +59,9 @@ else
 fi
 [[ -e /Library/LaunchDaemons/com.droga.vcnpreset.plist ]] && say "  an earlier test version (com.droga.vcnpreset) is installed; ./install.sh replaces it"
 $tool status ${flags[@]} | sed 's/^/  /'
+svcer=$(defaults read /Library/Preferences/com.apple.VideoProcessing TempSVCER 2>/dev/null)
+if [[ $svcer == 0 ]]; then say "  FaceTime keyframe request after a lost packet: on (TempSVCER = false)"
+else say "  FaceTime keyframe request after a lost packet: OFF (TempSVCER ${svcer:-unset}); 'sudo ./install.sh' turns it on"; fi
 if [[ -r /var/log/vcnencodefix.log ]]; then
   say ""
   say "Last log lines (/var/log/vcnencodefix.log)"
