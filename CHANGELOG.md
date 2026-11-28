@@ -2,7 +2,7 @@
 
 ## [1.90.1] — 2026-11-26 — kexts 3.42.0 (No kext changes)
 
-**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.2.
+**Videos keep playing through a system sleep with every GPU decoder, GPU sensors keep their readings fresh while a GPU setting is held, and fixes in the GPU installer.** The AMD processor kexts stay at 3.42.0, so your EFI's CPU kexts need no change. If you use the RyzenStatus GPU parts, open the RyzenStatus GPU installer in the disk image's "GPU RX 6000" folder to update the decoders to 0.3.9 and GPU sensors to 0.9.3.
 
 ### GPU decoders (0.3.9)
 
@@ -17,7 +17,7 @@
 - **A VP9 profile that does not match the stream's bit depth**: such a frame is refused, and the stream's bit depth stays as the stream set it.
 - The line written after a queued session close now carries the reason the session was dropped (for example "the system slept since it opened") instead of calling every dropped session stuck or lost, and a decoder that cannot create its log falls back to the system's default log.
 
-### GPU sensors (0.9.2)
+### GPU sensors (0.9.3)
 
 - **Fresh readings while a setting is held**: with a fan curve, a clock or voltage change or a raised power limit held, GPUSensors takes the card's readings itself once a second, so the temperature watchdog keeps working when nothing else is reading the card. Nothing extra is asked of the card while nothing is held.
 - **No crash after a sleep**: the reading the kext takes itself no longer uses the power object it saw before a sleep. Loading a GPU profile some minutes after a wake could crash the Mac; now the kext waits until the driver reads the card again after the wake.
